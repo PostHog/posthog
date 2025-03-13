@@ -62,7 +62,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     )}
                     ref={containerRef}
                 >
-                    <div className="flex justify-between pt-1 pl-1 pr-2 pb-2">
+                    <div className="flex justify-between pt-1 pl-1 pr-2 pb-1">
                         <OrganizationDropdownMenu />
 
                         <LemonButton
@@ -81,8 +81,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         />
                     </div>
 
-                    <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
-                        <ScrollableShadows innerClassName="overflow-y-auto" direction="vertical" className="px-2 pb-2">
+                    <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto pt-1">
+                        <ScrollableShadows innerClassName="overflow-y-auto px-2 " direction="vertical" className="pb-2">
                             <LemonButton
                                 className={cn(
                                     'hover:bg-fill-highlight-100',
@@ -182,16 +182,13 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             >
                                 <span>Activity</span>
                             </LemonButton>
-                        </ScrollableShadows>
 
-                        <div className="border-b border-secondary h-px" />
+                            <div className="border-b border-secondary h-px" />
 
-                        <div className="px-2 pt-3">
-                            <div className="flex justify-between items-center pt-1 pl-2 pr-0 pb-2">
-                                <span className="text-xs font-bold text-tertiary">Products</span>
-                            </div>
-
-                            <ScrollableShadows innerClassName="overflow-y-auto" direction="vertical">
+                            <div className="pt-3">
+                                <div className="flex justify-between items-center pt-1 pl-2 pr-0 pb-2">
+                                    <span className="text-xs font-bold text-tertiary">Products</span>
+                                </div>
                                 {navbarItems.map((section, index) => (
                                     <ul key={index}>
                                         {section.map((item) =>
@@ -218,8 +215,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         )}
                                     </ul>
                                 ))}
-                            </ScrollableShadows>
-                        </div>
+                            </div>
+                        </ScrollableShadows>
                     </div>
                 </nav>
                 <div
