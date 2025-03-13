@@ -84,21 +84,23 @@ def test_current_date(call_node):
 
 
 @pytest.mark.parametrize(
-    "query, expected_interval",
+    "query,expected_interval",
     [
-        ("$pageview trends for the last 10 years", "month"),
-        ("$pageview trends for the last 90 days", "week"),
-        ("$pageview trends for the last 45 days", "day"),
+        ("the last five years", "month"),
+        ("the last 80 days", "week"),
+        ("the last four weeks", "week"),
+        ("the last 15 days", "day"),
+        ("the last 12 hours", "hour"),
     ],
 )
 def test_granularity(call_node, query, expected_interval):
-    plan = """Series:
+    plan = f"""Series:
     - event: $pageview
         - math operation: total count
 
-    Time period: last 10 years
+    Time period: {query}
     """
-    query = call_node(query, plan)
+    query = call_node(f"$pageview trends for {query}", plan)
     assert query.interval == expected_interval
 
 
