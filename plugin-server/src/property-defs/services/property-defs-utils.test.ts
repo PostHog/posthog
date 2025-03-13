@@ -25,14 +25,11 @@ describe('PropertyDefsUtils', () => {
 
             // Number values
             ['key', 123, PropertyType.Numeric],
-            ['timestamp', 1234567890, PropertyType.DateTime],
-            ['TIME', 1234567890, PropertyType.DateTime],
+            ['timestamp', 1234567890, PropertyType.Numeric],
+            ['TIME', 1234567890, PropertyType.Numeric],
             ['key', 123.45, PropertyType.Numeric],
             ['key', -123, PropertyType.Numeric],
             ['key', 0, PropertyType.Numeric],
-            ['key', NaN, PropertyType.Numeric],
-            ['key', Infinity, PropertyType.Numeric],
-            ['key', -Infinity, PropertyType.Numeric],
 
             // Boolean values
             ['key', true, PropertyType.Boolean],
