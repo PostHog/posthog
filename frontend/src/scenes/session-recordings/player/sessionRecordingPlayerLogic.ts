@@ -20,6 +20,7 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, objectsEqual } from 'lib/utils'
@@ -37,7 +38,13 @@ import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sess
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
+import {
+    AvailableFeature,
+    RecordingSegment,
+    SessionPlayerData,
+    SessionPlayerState,
+    SessionRecordingType,
+} from '~/types'
 
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -192,7 +199,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayNextAnimationInterrupted: (interrupted: boolean) => ({ interrupted }),
         setMaskWindow: (shouldMaskWindow: boolean) => ({ shouldMaskWindow }),
         loadSimilarRecordings: true,
-        loadSimilarRecordingsSuccess: (count: number, results: string[]) => ({ count, results }),
+        loadSimilarRecordingsSuccess: (count: number) => ({ count }),
         showNextRecordingConfirmation: true,
         hideNextRecordingConfirmation: true,
         confirmNextRecording: true,
@@ -1137,7 +1144,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         confirmNextRecording: async () => {
             // Mark all similar recordings as viewed
             await Promise.all(
-                values.similarRecordings.map((recordingId) =>
+                values.similarRecordings.map((recordingId: SessionRecordingType['id']) =>
                     api.recordings.update(recordingId, {
                         viewed: true,
                     })
@@ -1149,9 +1156,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         loadSimilarRecordings: async () => {
-            const response = await api.recordings.getSimilarRecordings(values.sessionRecordingId)
-            actions.loadSimilarRecordingsSuccess(response.count)
-            actions.setSimilarRecordings(response.results)
+            if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_SIMILAR_RECORDINGS]) {
+                const response = await api.recordings.getSimilarRecordings(values.sessionRecordingId)
+                actions.loadSimilarRecordingsSuccess(response.count)
+                actions.setSimilarRecordings(response.results)
+            }
         },
         maybeLoadRecordingMeta: async (_, breakpoint) => {
             if (!values.sessionRecordingId) {
