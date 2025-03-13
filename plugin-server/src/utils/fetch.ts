@@ -11,6 +11,7 @@ import { URL } from 'url'
 
 export type { Response }
 
+import { runInstrumentedFunction } from '../main/utils'
 import { isProdEnv } from './env-utils'
 import { runInSpan } from './sentry'
 
@@ -54,7 +55,11 @@ export async function trackedFetch(url: RequestInfo, init?: RequestInit): Promis
                             : new https.Agent({ lookup: staticLookup }),
                 })
             }
-            return await fetch(url, init)
+
+            return runInstrumentedFunction({
+                statsKey: 'trackedFetch',
+                func: () => fetch(url, init),
+            })
         }
     )
 }
