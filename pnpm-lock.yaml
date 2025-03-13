@@ -733,6 +733,9 @@ importers:
       core-js:
         specifier: ^3.32.0
         version: 3.40.0
+      country-flag-emoji-polyfill:
+        specifier: ^0.1.8
+        version: 0.1.8
       crypto-browserify:
         specifier: ^3.12.0
         version: 3.12.1
@@ -8169,6 +8172,9 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
+
+  country-flag-emoji-polyfill@0.1.8:
+    resolution: {integrity: sha512-Mbah52sADS3gshUYhK5142gtUuJpHYOXlXtLFI3Ly4RqgkmPMvhX9kMZSTqDM8P7UqtSW99eHKFphhQSGXA3Cg==}
 
   create-ecdh@4.0.4:
     resolution: {integrity: sha512-mf+TCx8wWc9VpuxfP2ht0iSISLZnt0JgWlrOKZiNqyUZWnjIaCIVNQArMHnCZKfEYRg6IM7A+NeJoN8gf/Ws0A==}
@@ -24192,6 +24198,8 @@ snapshots:
       parse-json: 5.2.0
     optionalDependencies:
       typescript: 4.9.5
+
+  country-flag-emoji-polyfill@0.1.8: {}
 
   create-ecdh@4.0.4:
     dependencies:

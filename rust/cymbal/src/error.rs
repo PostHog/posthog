@@ -1,6 +1,6 @@
 use aws_sdk_s3::primitives::ByteStreamError;
 use common_kafka::kafka_producer::KafkaProduceError;
-use common_symbol_data::SymbolDataError;
+use posthog_symbol_data::SymbolDataError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

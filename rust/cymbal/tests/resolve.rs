@@ -2,7 +2,6 @@ use core::str;
 use std::sync::Arc;
 
 use axum::async_trait;
-use common_symbol_data::{read_symbol_data, SourceAndMap};
 use common_types::ClickHouseEvent;
 use cymbal::{
     config::Config,
@@ -17,6 +16,7 @@ use cymbal::{
     types::{RawErrProps, Stacktrace},
 };
 use httpmock::MockServer;
+use posthog_symbol_data::{read_symbol_data, SourceAndMap};
 use symbolic::sourcemapcache::SourcePosition;
 use tokio::sync::Mutex;
 
