@@ -29,11 +29,12 @@ export class PropertyDefsDB {
         const query = `INSERT INTO posthog_eventproperty (event, property, team_id, project_id)
                     VALUES ${values}
                     ON CONFLICT DO NOTHING`
-        const args: any[][] = Array(
-            eventProperties.map((eventProperty) => {
-                ;[eventProperty.event, eventProperty.property, eventProperty.team_id, eventProperty.project_id]
-            })
-        )
+        const args: (string | number | null)[][] = eventProperties.map((eventProperty) => [
+            eventProperty.event,
+            eventProperty.property,
+            eventProperty.team_id,
+            eventProperty.project_id,
+        ])
 
         await this.hub.postgres
             .query(PostgresUse.COMMON_WRITE, query, args, 'upsertEventPropertiesBatch')
@@ -80,19 +81,17 @@ export class PropertyDefsDB {
                     ON CONFLICT (coalesce(project_id, team_id::bigint), name, type, coalesce(group_type_index, -1))
                     DO UPDATE SET property_type=EXCLUDED.property_type
                     WHERE posthog_propertydefinition.property_type IS NULL`
-        const args: any[][] = Array(
-            propertyDefinitions.map((propertyDefinition) => {
-                ;[
-                    propertyDefinition.id,
-                    propertyDefinition.name,
-                    propertyDefinition.type,
-                    propertyDefinition.group_type_index,
-                    propertyDefinition.is_numerical,
-                    propertyDefinition.team_id,
-                    propertyDefinition.project_id,
-                    propertyDefinition.property_type,
-                ]
-            })
+        const args: (string | number | boolean | null | undefined)[][] = propertyDefinitions.map(
+            (propertyDefinition) => [
+                propertyDefinition.id,
+                propertyDefinition.name,
+                propertyDefinition.type,
+                propertyDefinition.group_type_index,
+                propertyDefinition.is_numerical,
+                propertyDefinition.team_id,
+                propertyDefinition.project_id,
+                propertyDefinition.property_type,
+            ]
         )
 
         await this.hub.postgres
@@ -134,18 +133,14 @@ export class PropertyDefsDB {
                     VALUES ${values}
                     ON CONFLICT (coalesce(project_id, team_id::bigint), name)
                     DO UPDATE SET last_seen_at=EXCLUDED.last_seen_at WHERE posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at`
-        const args: any[][] = Array(
-            eventDefinitions.map((eventDefinition) => {
-                ;[
-                    eventDefinition.id,
-                    eventDefinition.name,
-                    eventDefinition.team_id,
-                    eventDefinition.project_id,
-                    DateTime.now().toISO(), // TODO: Should this be the event timestamp?
-                    DateTime.now().toISO(),
-                ]
-            })
-        )
+        const args: (string | number | null)[][] = eventDefinitions.map((eventDefinition) => [
+            eventDefinition.id,
+            eventDefinition.name,
+            eventDefinition.team_id,
+            eventDefinition.project_id,
+            DateTime.now().toISO(),
+            DateTime.now().toISO(),
+        ])
 
         await this.hub.postgres
             .query(PostgresUse.COMMON_WRITE, query, args, 'writeEventDefinitionsBatch')
