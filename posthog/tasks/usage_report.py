@@ -1284,7 +1284,9 @@ def send_all_org_usage_reports(
             # Then capture the events to Billing (only if producer is available)
             if has_non_zero_usage(full_report) and producer:
                 logger.info(f"Sending usage report for organization {organization_id}")  # noqa T201
-                response = producer.send_message({"organization_id": organization_id, "usage_report": full_report_dict})
+                response = producer.send_message(
+                    message_body={"organization_id": organization_id, "usage_report": full_report_dict}
+                )
                 if not response:
                     logger.error(f"Failed to send usage report for organization {organization_id}")
 
