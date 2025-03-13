@@ -94,7 +94,7 @@ def revenue_comparison_and_value_exprs(
                     ast.Field(chain=["events", "properties", event.revenueProperty]),
                     ast.Field(chain=["events", "properties", event.revenueCurrencyProperty]),
                     ast.Constant(value=(config.baseCurrency or CurrencyCode.USD).value),
-                    ast.Call(name="DATE", args=[ast.Field(chain=["events", "timestamp"])]),
+                    ast.Call(name="_toDate", args=[ast.Field(chain=["events", "timestamp"])]),
                 ),
             ],
         )
