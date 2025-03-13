@@ -21,12 +21,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { fileSystemTypes, treeItems } from '~/products'
-import { FileSystemImport, FileSystemType } from '~/queries/schema/schema-general'
+import { FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab, PipelineStage } from '~/types'
 
-export function iconForType(type?: FileSystemType): JSX.Element {
-    if (type && type in fileSystemTypes && (fileSystemTypes as any)[type].icon) {
-        return (fileSystemTypes as any)[type].icon
+export function iconForType(type?: string): JSX.Element {
+    if (type && type in fileSystemTypes && fileSystemTypes[type as keyof typeof fileSystemTypes].icon) {
+        return fileSystemTypes[type as keyof typeof fileSystemTypes].icon
     }
     switch (type) {
         case 'aichat':
@@ -59,48 +59,48 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
         ...treeItems,
         {
             path: `Create new/AI chat`,
-            type: 'aichat' as const,
+            type: 'aichat',
             href: () => urls.max(),
             flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
         },
         {
             path: `Create new/Feature`,
-            type: 'feature' as const,
+            type: 'feature',
             href: () => urls.featureManagement('new'),
         },
         {
             path: `Create new/Repl`,
-            type: 'repl' as const,
+            type: 'repl',
             href: () => urls.debugHog() + '#repl=[]&code=',
         },
         {
             path: `Create new/Survey`,
-            type: 'survey' as const,
+            type: 'survey',
             href: () => urls.survey('new'),
         },
         {
             path: `Create new/SQL query`,
-            type: 'sql' as const,
+            type: 'sql',
             href: () => urls.sqlEditor(),
         },
         {
             path: `Create new/Data pipeline/Source`,
-            type: 'source' as const,
+            type: 'source',
             href: () => urls.pipelineNodeNew(PipelineStage.Source),
         },
         {
             path: `Create new/Data pipeline/Destination`,
-            type: 'destination' as const,
+            type: 'destination',
             href: () => urls.pipelineNodeNew(PipelineStage.Destination),
         },
         {
             path: `Create new/Data pipeline/Transformation`,
-            type: 'transformation' as const,
+            type: 'transformation',
             href: () => urls.pipelineNodeNew(PipelineStage.Transformation),
         },
         {
             path: `Create new/Data pipeline/Site app`,
-            type: 'site_app' as const,
+            type: 'site_app',
             href: () => urls.pipelineNodeNew(PipelineStage.SiteApp),
         },
         {
@@ -167,7 +167,7 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
             href: () => urls.activity(ActivityTab.LiveEvents),
         },
         {
-            path: 'Explore/LLM ovservability',
+            path: 'Explore/LLM observability',
             icon: <IconAI />,
             href: () => urls.llmObservabilityDashboard(),
             flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
