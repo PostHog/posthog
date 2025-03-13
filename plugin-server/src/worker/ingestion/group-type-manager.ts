@@ -8,15 +8,13 @@ import { TeamManager } from './team-manager'
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5
 
-export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex | null>
+export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
 
 export class GroupTypeManager {
     private groupTypesCache: Map<ProjectId, [GroupTypeToColumnIndex, number]>
-    private instanceSiteUrl: string
 
     constructor(private postgres: PostgresRouter, private teamManager: TeamManager, instanceSiteUrl?: string | null) {
         this.groupTypesCache = new Map()
-        this.instanceSiteUrl = instanceSiteUrl || 'unknown'
     }
 
     public async fetchGroupTypes(projectId: ProjectId): Promise<GroupTypeToColumnIndex | null> {
@@ -32,7 +30,7 @@ export class GroupTypeManager {
         for (const projectId of projectIdsSet) {
             const cachedGroupTypes = getByAge(this.groupTypesCache, projectId)
 
-            response[projectId] = cachedGroupTypes ?? null
+            response[projectId] = cachedGroupTypes ?? {}
 
             if (!cachedGroupTypes) {
                 projectIdsToLoad.add(projectId)
