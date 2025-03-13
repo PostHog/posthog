@@ -1,8 +1,7 @@
 # serializer version: 1
 # name: TestGroupsQueryRunner.test_groups_query_runner
   '''
-  SELECT groups.index AS index,
-         groups.key AS key,
+  SELECT groups.key AS key,
          groups.created_at AS created_at,
          groups.properties AS properties
   FROM
@@ -28,8 +27,7 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner.1
   '''
-  SELECT groups.index AS index,
-         groups.key AS key,
+  SELECT groups.key AS key,
          groups.created_at AS created_at,
          groups.properties AS properties
   FROM

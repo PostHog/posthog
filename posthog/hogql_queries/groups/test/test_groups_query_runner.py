@@ -53,10 +53,10 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 3)
-        self.assertEqual(result.columns, ["index", "key", "created_at", "properties"])
-        self.assertEqual(result.results[0][1], "org0")
-        self.assertEqual(result.results[1][1], "org1")
-        self.assertEqual(result.results[2][1], "org2")
+        self.assertEqual(result.columns, ["key", "created_at", "properties"])
+        self.assertEqual(result.results[0][0], "org0")
+        self.assertEqual(result.results[1][0], "org1")
+        self.assertEqual(result.results[2][0], "org2")
 
         # Test offset
         query = GroupsQuery(
@@ -69,5 +69,5 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 1)
-        self.assertEqual(result.columns, ["index", "key", "created_at", "properties"])
-        self.assertEqual(result.results[0][1], "org2")
+        self.assertEqual(result.columns, ["key", "created_at", "properties"])
+        self.assertEqual(result.results[0][0], "org2")
