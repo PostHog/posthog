@@ -506,3 +506,153 @@ class RetentionQueryRunner(QueryRunner):
                     )
                 )
         return retention_query
+
+    def to_events_query(self, interval: int, person_id: str | None = None) -> ast.SelectQuery:
+        """
+        Returns a query that gets all events (both start and return) that match for a specific interval and optional person.
+        These events are the ones that contribute to the 'counts' for the respective interval.
+
+        Args:
+            interval: The interval index to get events for
+            person_id: Optional person ID to filter events for
+
+        Returns:
+            A HogQL query that returns matching events
+        """
+        with self.timings.measure("events_retention_query"):
+            # Get the target field based on group type
+            target_field = "person_id"
+            if self.group_type_index is not None:
+                group_index = int(self.group_type_index)
+                if 0 <= group_index <= 4:
+                    target_field = f"$group_{group_index}"
+
+            # Calculate start and lookahead dates for the interval
+            interval_start = self.query_date_range.date_from() + self.query_date_range.determine_time_delta(
+                interval, self.query_date_range.interval_name.title()
+            )
+
+            lookahead_end = interval_start + self.query_date_range.determine_time_delta(
+                self.query_date_range.lookahead, self.query_date_range.interval_name.title()
+            )
+
+            # Create subquery to identify qualified actors for this interval
+            where_clauses = [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["start_interval_index"]),
+                    right=ast.Constant(value=interval),
+                )
+            ]
+
+            if person_id is not None:
+                where_clauses.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["actor_id"]),
+                        right=ast.Constant(value=person_id),
+                    )
+                )
+
+            actor_subquery = parse_select(
+                """
+                SELECT
+                    actor_id,
+                    start_interval_index,
+                    intervals_from_base
+                FROM
+                    {actor_query}
+                """,
+                {
+                    "actor_query": self.actor_query(),
+                },
+            )
+
+            actor_subquery.where = ast.And(exprs=where_clauses)
+
+            # Create query that gets all relevant events for the matching actors
+            event_query_type = (
+                RetentionQueryType.TARGET_FIRST_TIME
+                if self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_TIME
+                else RetentionQueryType.TARGET
+            )
+
+            # Common conditions from events_where_clause
+            event_filters = self.events_where_clause(event_query_type)
+
+            # The event query will join actors with their events
+            events_query = parse_select(
+                """
+                SELECT
+                    events.timestamp,
+                    events.event,
+                    events.person_id,
+                    events.properties,
+                    {start_of_interval_sql} AS interval_timestamp,
+                    multiIf(
+                        -- Start events are those that occur in the start interval and match start entity
+                        events.timestamp >= {interval_start} AND
+                        events.timestamp < {interval_next} AND
+                        {start_entity_expr},
+                        'start_event',
+                        -- Return events are those that occur in later intervals and match return entity
+                        events.timestamp >= {interval_next} AND
+                        events.timestamp < {lookahead_end} AND
+                        {return_entity_expr},
+                        'return_event',
+                        NULL
+                    ) AS event_type,
+                    actors.intervals_from_base
+                FROM
+                    events
+                JOIN
+                    {actor_subquery} AS actors
+                ON
+                    {join_condition}
+                WHERE
+                    -- Only return events within the relevant time range
+                    events.timestamp >= {interval_start} AND
+                    events.timestamp < {lookahead_end} AND
+                    -- Only include start and return events
+                    (
+                        (
+                            events.timestamp >= {interval_start} AND
+                            events.timestamp < {interval_next} AND
+                            {start_entity_expr}
+                        ) OR (
+                            events.timestamp >= {interval_next} AND
+                            events.timestamp < {lookahead_end} AND
+                            {return_entity_expr}
+                        )
+                    )
+                ORDER BY
+                    events.timestamp
+                """,
+                {
+                    "actor_subquery": actor_subquery,
+                    "join_condition": ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["events", target_field]),
+                        right=ast.Field(chain=["actors", "actor_id"]),
+                    ),
+                    "start_of_interval_sql": self.query_date_range.get_start_of_interval_hogql(
+                        source=ast.Field(chain=["events", "timestamp"])
+                    ),
+                    "interval_start": ast.Constant(value=interval_start),
+                    "interval_next": ast.Constant(
+                        value=interval_start
+                        + self.query_date_range.determine_time_delta(1, self.query_date_range.interval_name.title())
+                    ),
+                    "lookahead_end": ast.Constant(value=lookahead_end),
+                    "start_entity_expr": entity_to_expr(self.start_event, self.team),
+                    "return_entity_expr": entity_to_expr(self.return_event, self.team),
+                },
+                timings=self.timings,
+            )
+
+            # Add additional filters if they exist
+            if event_filters:
+                existing_where = events_query.where
+                events_query.where = ast.And(exprs=[existing_where, ast.And(exprs=event_filters)])
+
+            return events_query
