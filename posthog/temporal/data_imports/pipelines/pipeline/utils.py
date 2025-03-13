@@ -567,32 +567,56 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
                 return decimal.Decimal(str(x))
 
-            all_values = columnar_table_data[field_name].tolist()
-            all_values_as_decimals_or_none = [_convert_to_decimal_or_none(x) for x in all_values]
+            def _convert_to_float_or_none(x: float | None) -> float | None:
+                if x is None:
+                    return None
 
-            if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
-                new_field_type = arrow_schema.field(field_index).type
-            elif arrow_schema and pa.types.is_floating(arrow_schema.field(field_index).type):
-                # float values with no pre-defined precision/scale. Use a max decimal 256 to support all current and future values
-                new_field_type = pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE)
-            else:
-                new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
+                if (
+                    math.isnan(x)
+                    or (isinstance(x, decimal.Decimal) and x.is_infinite())
+                    or (isinstance(x, float) and np.isinf(x))
+                ):
+                    return None
+
+                return x
+
+            all_values = columnar_table_data[field_name].tolist()
+
+            if len(unique_types_in_column) > 1 or issubclass(py_type, decimal.Decimal):
+                # Mixed types: convert all to decimals
+                all_values = [_convert_to_decimal_or_none(x) for x in all_values]
+
+                if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
+                    new_field_type = arrow_schema.field(field_index).type
+                else:
+                    new_field_type = _get_max_decimal_type([x for x in all_values if x is not None])
+
+                py_type = decimal.Decimal
+                unique_types_in_column = {decimal.Decimal}
+            elif issubclass(py_type, float):
+                all_values = [_convert_to_float_or_none(x) for x in all_values]
+
+                if arrow_schema:
+                    new_field_type = arrow_schema.field(field_index).type
+                else:
+                    new_field_type = pa.float64()
 
             try:
                 number_arr = pa.array(
-                    all_values_as_decimals_or_none,
+                    all_values,
                     type=new_field_type,
                 )
             except pa.ArrowInvalid as e:
                 if len(e.args) > 0 and "does not fit into precision" in e.args[0]:
-                    number_arr = _build_decimal_type_from_defaults(all_values_as_decimals_or_none)
+                    number_arr = _build_decimal_type_from_defaults([_convert_to_decimal_or_none(x) for x in all_values])
                     new_field_type = number_arr.type
+
+                    py_type = decimal.Decimal
+                    unique_types_in_column = {decimal.Decimal}
                 else:
                     raise
 
             columnar_table_data[field_name] = number_arr
-            py_type = decimal.Decimal
-            unique_types_in_column = {decimal.Decimal}
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(new_field_type))
 
