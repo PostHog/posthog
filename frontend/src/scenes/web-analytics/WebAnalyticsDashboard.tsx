@@ -11,7 +11,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import React, { useState } from 'react'
@@ -340,6 +340,44 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
     )
 }
 
+// We're switching the filters based on the productTab right now so it is abstracted here
+// until we decide if we want to keep the same components/states for both tabs
+const Filters = (): JSX.Element => {
+    const { productTab } = useValues(webAnalyticsLogic)
+
+    return productTab === ProductTab.PAGE_REPORTS ? <PageReportsFilters /> : <WebAnalyticsFilters />
+}
+
+const MainContent = (): JSX.Element => {
+    const { productTab } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    return productTab === ProductTab.PAGE_REPORTS && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS] ? (
+        <PageReports />
+    ) : (
+        <Tiles />
+    )
+}
+
+const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]) {
+        return []
+    }
+    return [
+        {
+            key: ProductTab.PAGE_REPORTS,
+            label: (
+                <div className="flex items-center gap-1">
+                    Page reports
+                    <LemonTag type="completion" className="uppercase">
+                        Alpha
+                    </LemonTag>
+                </div>
+            ),
+        },
+    ]
+}
+
 export const WebAnalyticsDashboard = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -367,35 +405,16 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                             tabs={[
                                 { key: ProductTab.ANALYTICS, label: 'Web analytics' },
                                 { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
-                                ...(featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
-                                    ? [
-                                          {
-                                              key: ProductTab.PAGE_REPORTS,
-                                              label: (
-                                                  <div className="flex items-center gap-1">
-                                                      Page reports
-                                                      <LemonTag type="completion" className="uppercase">
-                                                          Alpha
-                                                      </LemonTag>
-                                                  </div>
-                                              ),
-                                          },
-                                      ]
-                                    : []),
+                                ...pageReportsTab(featureFlags),
                             ]}
                         />
 
-                        {productTab === ProductTab.PAGE_REPORTS ? <PageReportsFilters /> : <WebAnalyticsFilters />}
+                        <Filters />
                     </div>
 
                     <WebAnalyticsHealthCheck />
 
-                    {productTab === ProductTab.PAGE_REPORTS &&
-                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS] ? (
-                        <PageReports />
-                    ) : (
-                        <Tiles />
-                    )}
+                    <MainContent />
                 </div>
             </BindLogic>
         </BindLogic>
