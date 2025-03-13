@@ -255,9 +255,13 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             ? [
                                   {
                                       key: '$current_url',
-                                      // If stripQueryParams is true, we'll extract the base URL without query params
-                                      value: pageUrl,
-                                      operator: stripQueryParams ? PropertyOperator.IContains : PropertyOperator.Exact,
+                                      // If stripQueryParams is true, we use regex to match the URL without query parameters
+                                      // It is not optimal but the Contains operator could match more than what we would want
+                                      // Example: For URL "https://example.com/products"
+                                      // - Regex Will match: "https://example.com/products" and "https://example.com/products?id=123"
+                                      // - Regex Won't match: "https://example.com/products-new" or "https://example.com/category/products"
+                                      value: stripQueryParams ? `^${pageUrl.split('?')[0]}(\\?.*)?$` : pageUrl,
+                                      operator: stripQueryParams ? PropertyOperator.Regex : PropertyOperator.Exact,
                                       type: PropertyFilterType.Event,
                                   },
                               ]
