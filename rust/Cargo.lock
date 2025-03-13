@@ -2227,7 +2227,6 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-metrics",
- "derive_builder",
  "envconfig",
  "flate2",
  "futures",

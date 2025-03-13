@@ -421,25 +421,35 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["networkPayloadCapture"], {"recordHeaders": True})
 
-    def test_session_recording_masking_config(self, *args):
+    @parameterized.expand(
+        [
+            ["default config", None, None],
+            ["mask all inputs", {"maskAllInputs": True}, {"maskAllInputs": True}],
+            [
+                "mask text selector",
+                {"maskAllInputs": False, "maskTextSelector": "*"},
+                {"maskAllInputs": False, "maskTextSelector": "*"},
+            ],
+            [
+                "block selector",
+                {"blockSelector": "img"},
+                {"blockSelector": "img"},
+            ],
+        ]
+    )
+    def test_session_recording_masking_config(
+        self, _name: str, config: Optional[dict], expected: Optional[dict], *args
+    ):
         self._update_team(
             {
                 "session_recording_opt_in": True,
             }
         )
 
-        response = self._post_decide().json()
-        assert response["sessionRecording"]["masking"] is None
-
-        self._update_team({"session_recording_masking_config": {"maskAllInputs": True}})
+        self._update_team({"session_recording_masking_config": config})
 
         response = self._post_decide().json()
-        assert response["sessionRecording"]["masking"] == {"maskAllInputs": True}
-
-        self._update_team({"session_recording_masking_config": {"maskAllInputs": False, "maskTextSelector": "*"}})
-
-        response = self._post_decide().json()
-        assert response["sessionRecording"]["masking"] == {"maskAllInputs": False, "maskTextSelector": "*"}
+        assert response["sessionRecording"]["masking"] == expected
 
     def test_session_recording_empty_linked_flag(self, *args):
         # :TRICKY: Test for regression around caching

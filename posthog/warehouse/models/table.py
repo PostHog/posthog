@@ -6,7 +6,7 @@ from django.db import models
 from django.db.models import Q
 
 from posthog.clickhouse.client import sync_execute
-from posthog.errors import wrap_query_error
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -323,6 +323,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         for key, value in ExtractErrors.items():
             if key in err.message:
                 raise Exception(value)
+
+        if isinstance(err, CHQueryErrorTooManySimultaneousQueries):
+            raise err
+
         raise Exception("Could not get columns")
 
 

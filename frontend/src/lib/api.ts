@@ -2440,10 +2440,20 @@ const api = {
         async test(destination: BatchExportService['type']): Promise<BatchExportConfigurationTest> {
             return await new ApiRequest().batchExports().withAction('test').withQueryString({ destination }).get()
         },
-        async runTestStep(step: number, data: Record<string, any>): Promise<BatchExportConfigurationTestStep> {
+        async runTestStep(
+            id: BatchExportConfiguration['id'],
+            step: number,
+            data: Record<string, any>
+        ): Promise<BatchExportConfigurationTestStep> {
+            return await new ApiRequest()
+                .batchExport(id)
+                .withAction('run_test_step')
+                .create({ data: { ...{ step: step }, ...data } })
+        },
+        async runTestStepNew(step: number, data: Record<string, any>): Promise<BatchExportConfigurationTestStep> {
             return await new ApiRequest()
                 .batchExports()
-                .withAction('run_test_step')
+                .withAction('run_test_step_new')
                 .create({ data: { ...{ step: step }, ...data } })
         },
     },
