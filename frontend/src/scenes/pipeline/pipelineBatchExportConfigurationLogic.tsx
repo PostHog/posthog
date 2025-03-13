@@ -516,7 +516,15 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                             return null
                         }
                     }
-                    return null
+                },
+                updateBatchExportConfigTest: async (service) => {
+                    if (service) {
+                        try {
+                            return await api.batchExports.test(service)
+                        } catch {
+                            return null
+                        }
+                    }
                 },
             },
         ],
@@ -560,6 +568,9 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         destination: destinationObj,
                     }
 
+                    if (props.id) {
+                        return await api.batchExports.runTestStep(props.id, step, data)
+                    }
                     return await api.batchExports.runTestStep(step, data)
                 },
             },
@@ -723,6 +734,13 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             pipelineDestinationsLogic
                 .findMounted({ types: DESTINATION_TYPES })
                 ?.actions.updateBatchExportConfig(batchExportConfig)
+        },
+        loadBatchExportConfigSuccess: ({ batchExportConfig }) => {
+            if (!batchExportConfig) {
+                return
+            }
+
+            actions.updateBatchExportConfigTest(batchExportConfig.destination.type)
         },
         runBatchExportConfigTestStepSuccess: ({ batchExportConfigTestStep }) => {
             if (!values.batchExportConfigTest) {
