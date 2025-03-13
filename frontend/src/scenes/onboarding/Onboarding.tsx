@@ -395,6 +395,14 @@ const DataWarehouseOnboarding = (): JSX.Element => {
     )
 }
 
+const ErrorTrackingOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <OnboardingDataWarehouseSourcesStep usersAction="Data Warehouse" stepKey={OnboardingStepKey.LINK_DATA} />
+        </OnboardingWrapper>
+    )
+}
+
 export const onboardingViews = {
     [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
     [ProductKey.WEB_ANALYTICS]: WebAnalyticsOnboarding,
@@ -403,6 +411,7 @@ export const onboardingViews = {
     [ProductKey.EXPERIMENTS]: ExperimentsOnboarding,
     [ProductKey.SURVEYS]: SurveysOnboarding,
     [ProductKey.DATA_WAREHOUSE]: DataWarehouseOnboarding,
+    [ProductKey.ERROR_TRACKING]: ErrorTrackingOnboarding,
 }
 
 export function Onboarding(): JSX.Element | null {
