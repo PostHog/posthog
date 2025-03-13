@@ -37,12 +37,12 @@ class GroupsQueryRunner(QueryRunner):
             )
         )
 
-        where = ast.And(exprs=conditions) if conditions else None
+        where = ast.And(exprs=list(conditions)) if conditions else None
 
         return ast.SelectQuery(
             select=[
                 ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]),
-                *[ast.Field(chain=col.split(".")) for col in self.columns[1:]],
+                *[ast.Field(chain=list(col.split("."))) for col in self.columns[1:]],
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
             where=where,
