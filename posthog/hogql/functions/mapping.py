@@ -15,6 +15,7 @@ from posthog.hogql.ast import (
     StringType,
     TupleType,
     IntegerType,
+    DecimalType,
     UUIDType,
 )
 from posthog.hogql.base import ConstantType, UnknownType
@@ -55,6 +56,7 @@ AnyConstantType = (
     | UUIDType
     | ArrayType
     | TupleType
+    | DecimalType
     | UnknownType
     | IntegerType
     | FloatType
@@ -399,6 +401,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
     "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 2, 2),
+    "DATE": HogQLFunctionMeta("toDate", 1, 1),
     "toDate": HogQLFunctionMeta(
         "toDateOrNull",
         1,
@@ -524,8 +527,24 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "age": HogQLFunctionMeta("age", 3, 3),
     "dateDiff": HogQLFunctionMeta("dateDiff", 3, 3),
     "dateTrunc": HogQLFunctionMeta("dateTrunc", 2, 2),
-    "dateAdd": HogQLFunctionMeta("dateAdd", 2, 2),
-    "dateSub": HogQLFunctionMeta("dateSub", 3, 3),
+    "dateAdd": HogQLFunctionMeta(
+        "dateAdd",
+        2,
+        3,
+        signatures=[
+            ((DateType(), UnknownType()), DateType()),
+            ((StringType(), UnknownType(), DateType()), DateType()),
+        ],
+    ),
+    "dateSub": HogQLFunctionMeta(
+        "dateSub",
+        2,
+        3,
+        signatures=[
+            ((DateType(), UnknownType()), DateType()),
+            ((StringType(), UnknownType(), DateType()), DateType()),
+        ],
+    ),
     "timeStampAdd": HogQLFunctionMeta("timeStampAdd", 2, 2),
     "timeStampSub": HogQLFunctionMeta("timeStampSub", 2, 2),
     "now": HogQLFunctionMeta(
@@ -1156,11 +1175,47 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "recording_button": HogQLFunctionMeta("recording_button", 1, 1),
+    # posthog/models/channel_type/sql.py and posthog/hogql/database/schema/channel_type.py
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
     "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
     "hogql_lookupPaidMediumType": HogQLFunctionMeta("hogql_lookupPaidMediumType", 1, 1),
     "hogql_lookupOrganicSourceType": HogQLFunctionMeta("hogql_lookupOrganicSourceType", 1, 1),
     "hogql_lookupOrganicMediumType": HogQLFunctionMeta("hogql_lookupOrganicMediumType", 1, 1),
+    # posthog/models/exchange_rate/sql.py
+    # convertCurrency(from_currency, to_currency, amount, timestamp?)
+    "convertCurrency": HogQLFunctionMeta(
+        "convertCurrency",
+        3,
+        4,
+        signatures=[
+            (
+                (
+                    StringType(),
+                    StringType(),
+                    DecimalType(),
+                ),
+                DecimalType(),
+            ),
+            (
+                (
+                    StringType(),
+                    StringType(),
+                    DecimalType(),
+                    DateType(),
+                ),
+                DecimalType(),
+            ),
+            (
+                (
+                    StringType(),
+                    StringType(),
+                    DecimalType(),
+                    DateTimeType(),
+                ),
+                DecimalType(),
+            ),
+        ],
+    ),
 }
 
 

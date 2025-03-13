@@ -11,8 +11,9 @@ import { URL } from 'url'
 
 export type { Response }
 
-import { runInSpan } from '../sentry'
+import { runInstrumentedFunction } from '../main/utils'
 import { isProdEnv } from './env-utils'
+import { runInSpan } from './sentry'
 
 const staticLookup: net.LookupFunction = async (hostname, options, cb) => {
     let addrinfo: LookupAddress[]
@@ -54,7 +55,11 @@ export async function trackedFetch(url: RequestInfo, init?: RequestInit): Promis
                             : new https.Agent({ lookup: staticLookup }),
                 })
             }
-            return await fetch(url, init)
+
+            return runInstrumentedFunction({
+                statsKey: 'trackedFetch',
+                func: () => fetch(url, init),
+            })
         }
     )
 }

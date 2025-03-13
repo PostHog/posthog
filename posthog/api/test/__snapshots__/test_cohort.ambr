@@ -21,7 +21,7 @@
   FROM
     (SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
      FROM
-       (SELECT pdi.person_id AS person_id,
+       (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
                countIf(timestamp > now() - INTERVAL 1 day
                        AND timestamp < now()
                        AND event = '$pageview'

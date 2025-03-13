@@ -17,29 +17,16 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import {
-    ExperimentFunnelsQuery,
-    ExperimentMetric,
-    ExperimentTrendsQuery,
-    NodeKind,
-} from '~/queries/schema/schema-general'
+import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { ExploreButton, ResultsQuery, VariantTag } from '../ExperimentView/components'
 import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview'
 import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
-
-export function getMetricTag(metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string {
-    if (metric.kind === NodeKind.ExperimentMetric) {
-        return metric.metric_type.charAt(0).toUpperCase() + metric.metric_type.slice(1).toLowerCase()
-    } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
-        return 'Funnel'
-    }
-    return 'Trend'
-}
-
+import { getMetricTag } from './utils'
 export function getDefaultMetricTitle(metric: ExperimentMetric): string {
     if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
         return metric.metric_config.event
@@ -187,6 +174,7 @@ export function DeltaChart({
         secondaryMetricResultsLoading,
         featureFlags,
         primaryMetricsLengthWithSharedMetrics,
+        hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
     const {
@@ -296,7 +284,7 @@ export function DeltaChart({
                         style={{ height: `${ticksSvgHeight}px` }}
                     />
                 )}
-                {isFirstMetric && <div className="w-full border-t border-border" />}
+                {isFirstMetric && <div className="w-full border-t border-primary" />}
                 <div
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: `${chartSvgHeight}px`, borderRight: `1px solid ${COLORS.BOUNDARY_LINES}` }}
@@ -385,9 +373,9 @@ export function DeltaChart({
                         </svg>
                     </div>
                 )}
-                {isFirstMetric && <div className="w-full border-t border-border" />}
+                {isFirstMetric && <div className="w-full border-t border-primary" />}
                 {/* Chart */}
-                {result ? (
+                {result && hasMinimumExposureForResults ? (
                     <div className="relative">
                         {/* Chart is z-index 100, so we need to be above it */}
                         {/* eslint-disable-next-line react/forbid-dom-props */}
@@ -633,6 +621,22 @@ export function DeltaChart({
                                         <IconClock fontSize="1em" />
                                     </LemonTag>
                                     <span>Waiting for experiment to start&hellip;</span>
+                                </div>
+                            </foreignObject>
+                        ) : !hasMinimumExposureForResults ? (
+                            <foreignObject x="0" y={chartHeight / 2 - 10} width={VIEW_BOX_WIDTH} height="20">
+                                <div
+                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-secondary cursor-default"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ fontSize: '10px', fontWeight: 400 }}
+                                >
+                                    <LemonTag size="small" className="mr-2">
+                                        <IconActivity fontSize="1em" />
+                                    </LemonTag>
+                                    <span>
+                                        Waiting for {EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS}+ exposures per variant to
+                                        show results
+                                    </span>
                                 </div>
                             </foreignObject>
                         ) : (

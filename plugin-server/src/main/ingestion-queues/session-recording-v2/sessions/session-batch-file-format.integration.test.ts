@@ -32,6 +32,7 @@ import { MessageWithTeam } from '../teams/types'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionBlockMetadata } from './session-block-metadata'
+import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionMetadataStore } from './session-metadata-store'
 
 const enum EventType {
@@ -46,6 +47,7 @@ describe('session recording integration', () => {
     let mockStorage: jest.Mocked<SessionBatchFileStorage>
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
+    let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let batchBuffer: Uint8Array
     let currentOffset: number
 
@@ -84,7 +86,12 @@ describe('session recording integration', () => {
             storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionMetadataStore>
 
-        recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore)
+        mockConsoleLogStore = {
+            storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
+            flush: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionConsoleLogStore>
+
+        recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore, mockConsoleLogStore)
     })
 
     const createMessage = (
@@ -120,6 +127,8 @@ describe('session recording integration', () => {
                 timestamp: 0,
                 rawSize: 0,
             },
+            snapshot_source: null,
+            snapshot_library: null,
         },
     })
 

@@ -2,8 +2,11 @@ from datetime import datetime, timedelta
 import json
 from unittest import mock
 from unittest.mock import MagicMock, patch
+from django.test import override_settings
 from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+    DEFAULT_RECORDING_FILTERS,
     count_recordings_that_match_playlist_filters,
+    enqueue_recordings_that_match_playlist_filters,
 )
 from posthog.redis import get_client
 from posthog.schema import (
@@ -17,6 +20,8 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.test.base import APIBaseTest
+from django.utils import timezone
+from unittest.mock import call
 
 
 class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
@@ -213,3 +218,61 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
                 user_modified_filters=None,
             ),
         )
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    def test_skips_default_filters(self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock):
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test",
+            filters=DEFAULT_RECORDING_FILTERS,
+        )
+        count_recordings_that_match_playlist_filters(playlist.id)
+        mock_capture_exception.assert_not_called()
+        mock_list_recordings_from_query.assert_not_called()
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.count_recordings_that_match_playlist_filters"
+    )
+    def test_sorts_nulls_first_and_then_least_recently_counted(
+        self, mock_count_task: MagicMock, _mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
+    ):
+        playlist1 = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test1",
+            filters={"date_from": "-21d"},
+            last_counted_at=timezone.now() - timedelta(days=2),
+        )
+
+        playlist2 = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test2",
+            filters={"date_from": "-21d"},
+            last_counted_at=timezone.now() - timedelta(days=1),
+        )
+
+        # too recently counted won't be counted
+        SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test3",
+            filters={"date_from": "-21d"},
+            last_counted_at=timezone.now() - timedelta(hours=1),
+        )
+
+        playlist4 = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="test4", filters={"date_from": "-21d"}, last_counted_at=None
+        )
+
+        with override_settings(PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID=self.team.id + 1):
+            enqueue_recordings_that_match_playlist_filters()
+            mock_capture_exception.assert_not_called()
+
+            assert mock_count_task.delay.call_count == 3
+
+            assert mock_count_task.delay.call_args_list == [
+                call(playlist4.id),
+                call(playlist1.id),
+                call(playlist2.id),
+            ]

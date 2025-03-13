@@ -1,17 +1,19 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from typing import Any, Optional
 import posthoganalytics
 from celery import shared_task
 from django.conf import settings
 from prometheus_client import Counter, Histogram
-
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
 from posthog.tasks.utils import CeleryQueue
 from posthog.redis import get_client
 from posthog.schema import RecordingsQuery, FilterLogicalOperator, PropertyOperator, PropertyFilterType
+from django.db.models import F, Q
+from django.utils import timezone
 
 from structlog import get_logger
 
@@ -33,6 +35,7 @@ REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED = Counter(
 REPLAY_TEAM_PLAYLIST_COUNT_FAILED = Counter(
     "replay_playlist_count_failed",
     "when a count task for a playlist fails",
+    labelnames=["error"],
 )
 
 REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN = Counter(
@@ -43,6 +46,7 @@ REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN = Counter(
 REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED = Counter(
     "replay_playlist_count_skipped",
     "when a count task for a playlist is skipped because the cooldown period has not passed",
+    labelnames=["reason"],
 )
 
 REPLAY_PLAYLIST_LEGACY_FILTERS_CONVERTED = Counter(
@@ -243,6 +247,15 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
     # limit how many run per worker instance - if we have 10 workers, this will run 600 times per hour
     rate_limit="60/h",
     expires=TASK_EXPIRATION_TIME,
+    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    # will retry twice, once after 120 seconds (with jitter)
+    # and once after 240 seconds (with jitter)
+    # will be retried again on the next run anyway
+    # so does not need many retries here
+    retry_jitter=True,
+    retry_backoff=120,
+    max_retries=2,
+    store_errors_even_if_ignored=True,
 )
 def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
     playlist: SessionRecordingPlaylist | None = None
@@ -264,25 +277,33 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 seconds_since_refresh = int((datetime.now() - last_refreshed_at).total_seconds())
 
                 if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
-                    REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.inc()
+                    REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="cooldown").inc()
                     return
+
+            # if this is the default filters, then we shouldn't have allowed this to be created - we can skip it
+            if playlist.filters == DEFAULT_RECORDING_FILTERS:
+                REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="default_filters").inc()
+                return
 
             query = convert_filters_to_recordings_query(playlist)
             (recordings, more_recordings_available, _) = list_recordings_from_query(
                 query, user=None, team=playlist.team
             )
 
+            counted_at_date = datetime.now()
             value_to_set = json.dumps(
                 {
                     "session_ids": [r.session_id for r in recordings],
                     "has_more": more_recordings_available,
                     "previous_ids": existing_value.get("session_ids", None),
-                    "refreshed_at": datetime.now().isoformat(),
+                    "refreshed_at": counted_at_date.isoformat(),
                 }
             )
             redis_client.setex(
                 f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", THIRTY_SIX_HOURS_IN_SECONDS, value_to_set
             )
+            playlist.last_counted_at = counted_at_date
+            playlist.save(update_fields=["last_counted_at"])
 
             REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED.inc()
     except SessionRecordingPlaylist.DoesNotExist:
@@ -293,6 +314,12 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
         )
         REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN.inc()
     except Exception as e:
+        query_json: dict[str, Any] | None = None
+        try:
+            query_json = query.model_dump() if query else None
+        except Exception:
+            query_json = {"malformed": True}
+
         posthoganalytics.capture_exception(
             e,
             properties={
@@ -300,7 +327,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 "playlist_short_id": playlist.short_id if playlist else None,
                 "posthog_feature": "session_replay_playlist_counters",
                 "filters": playlist.filters if playlist else None,
-                "query": query,
+                "query": query_json,
             },
         )
         logger.exception(
@@ -308,10 +335,10 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             playlist_id=playlist_id,
             playlist_short_id=playlist.short_id if playlist else None,
             filters=playlist.filters if playlist else None,
-            query=query,
+            query=query_json,
             error=e,
         )
-        REPLAY_TEAM_PLAYLIST_COUNT_FAILED.inc()
+        REPLAY_TEAM_PLAYLIST_COUNT_FAILED.labels(error=e.__class__.__name__).inc()
 
 
 def enqueue_recordings_that_match_playlist_filters() -> None:
@@ -324,10 +351,16 @@ def enqueue_recordings_that_match_playlist_filters() -> None:
         # If we're not processing any teams, we don't need to enqueue anything
         return
 
-    all_playlists = SessionRecordingPlaylist.objects.filter(
-        team_id__lte=int(settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID), deleted=False, filters__isnull=False
+    all_playlists = (
+        SessionRecordingPlaylist.objects.filter(
+            team_id__lte=int(settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID),
+            deleted=False,
+            filters__isnull=False,
+        )
+        .filter(Q(last_counted_at__isnull=True) | Q(last_counted_at__lt=timezone.now() - timedelta(hours=2)))
+        .order_by(F("last_counted_at").asc(nulls_first=True))[:60000]
     )
-    REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc(all_playlists.count())
 
     for playlist in all_playlists:
         count_recordings_that_match_playlist_filters.delay(playlist.id)
+        REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc()
