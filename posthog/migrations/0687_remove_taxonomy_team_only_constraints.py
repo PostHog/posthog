@@ -17,8 +17,17 @@ class Migration(migrations.Migration):
             model_name="propertydefinition",
             name="posthog_propertydefinition_uniq",
         ),
-        migrations.AlterUniqueTogether(
-            name="eventdefinition",
-            unique_together=set(),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AlterUniqueTogether(
+                    name="eventdefinition",
+                    unique_together=set(),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    "ALTER TABLE posthog_eventdefinition DROP CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq",
+                ),
+            ],
         ),
     ]
