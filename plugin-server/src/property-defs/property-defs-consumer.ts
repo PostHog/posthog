@@ -166,7 +166,7 @@ export class PropertyDefsConsumer {
 
         if (eventDefinitions.length > 0) {
             status.info('🔁', `Writing event definitions batch of size ${eventDefinitions.length}`)
-            void this.scheduleWork(this.propertyDefsDB.writeEventDefinitionsBatch(eventDefinitions))
+            void this.scheduleWork(this.propertyDefsDB.writeEventDefinitions(eventDefinitions))
         }
 
         const propertyDefinitions = Object.values(collected.propertyDefinitionsById).flatMap((propertyDefinitions) =>
@@ -175,7 +175,7 @@ export class PropertyDefsConsumer {
 
         if (propertyDefinitions.length > 0) {
             status.info('🔁', `Writing property definitions batch of size ${propertyDefinitions.length}`)
-            void this.scheduleWork(this.propertyDefsDB.writePropertyDefinitionsBatch(propertyDefinitions))
+            void this.scheduleWork(this.propertyDefsDB.writePropertyDefinitions(propertyDefinitions))
         }
 
         const eventProperties = Object.values(collected.eventPropertiesById).flatMap((eventProperties) =>
@@ -184,7 +184,7 @@ export class PropertyDefsConsumer {
 
         if (eventProperties.length > 0) {
             status.info('🔁', `Writing event properties batch of size ${eventProperties.length}`)
-            void this.scheduleWork(this.propertyDefsDB.writeEventPropertiesBatch(eventProperties))
+            void this.scheduleWork(this.propertyDefsDB.writeEventProperties(eventProperties))
         }
 
         status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })

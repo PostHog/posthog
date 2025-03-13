@@ -139,9 +139,9 @@ describe('PropertyDefsConsumer', () => {
         hub.kafkaProducer = mockProducer
         propertyDefsDB = ingester['propertyDefsDB']
 
-        jest.spyOn(propertyDefsDB, 'writeEventDefinitionsBatch')
-        jest.spyOn(propertyDefsDB, 'writePropertyDefinitionsBatch')
-        jest.spyOn(propertyDefsDB, 'writeEventPropertiesBatch')
+        jest.spyOn(propertyDefsDB, 'writeEventDefinitions')
+        jest.spyOn(propertyDefsDB, 'writePropertyDefinitions')
+        jest.spyOn(propertyDefsDB, 'writeEventProperties')
     })
 
     afterEach(async () => {
@@ -167,9 +167,9 @@ describe('PropertyDefsConsumer', () => {
                 ])
             )
 
-            expect(propertyDefsDB.writeEventDefinitionsBatch).toHaveBeenCalledTimes(1)
-            expect(propertyDefsDB.writePropertyDefinitionsBatch).toHaveBeenCalledTimes(1)
-            expect(propertyDefsDB.writeEventPropertiesBatch).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writeEventDefinitions).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writePropertyDefinitions).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writeEventProperties).toHaveBeenCalledTimes(1)
 
             expect(forSnapshot(await propertyDefsDB.listEventDefinitions(team.id))).toMatchSnapshot()
 
@@ -209,9 +209,9 @@ describe('PropertyDefsConsumer', () => {
                 ])
             )
 
-            expect(propertyDefsDB.writeEventDefinitionsBatch).toHaveBeenCalledTimes(1)
-            expect(propertyDefsDB.writePropertyDefinitionsBatch).toHaveBeenCalledTimes(1)
-            expect(propertyDefsDB.writeEventPropertiesBatch).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writeEventDefinitions).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writePropertyDefinitions).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writeEventProperties).toHaveBeenCalledTimes(1)
 
             // Snapshot shows a String type as it was the first seen value
             expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
