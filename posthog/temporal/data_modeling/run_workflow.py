@@ -451,7 +451,6 @@ def count_delta_table_rows(delta_table: DeltaTable) -> int:
         return row_count
     except Exception as e:
         logger.exception("Failed to count rows in Delta table: %s", str(e))
-        return 0
 
 
 async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count: int) -> None:
