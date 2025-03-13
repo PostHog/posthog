@@ -168,14 +168,42 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         ],
         // Single queries selector that returns all queries
         queries: [
-            (s) => [s.tiles],
-            (tiles: WebAnalyticsTile[]) => {
+            (s) => [s.tiles, s.pageUrl, s.stripQueryParams],
+            (tiles: WebAnalyticsTile[], pageUrl: string | null, stripQueryParams: boolean) => {
                 // Helper function to get query from a tile by tab ID so we
                 // can use what we already have in the web analytics logic
                 const getQuery = (tileId: TileId, tabId: string): QuerySchema | undefined => {
                     const tile = tiles?.find((t) => t.tileId === tileId) as TabsTile | undefined
-                    return tile?.tabs.find((tab) => tab.id === tabId)?.query
-                }
+                    const query = tile?.tabs.find((tab) => tab.id === tabId)?.query;
+                    
+                    // If we have a query and a pageUrl, and stripQueryParams is true,
+                    // we need to modify the query to use regex for URL matching
+                    if (query && pageUrl && stripQueryParams && 
+                        typeof query === 'object' && 'source' in query && 
+                        query.source && typeof query.source === 'object' && 
+                        'kind' in query.source && query.source.kind === NodeKind.WebStatsTableQuery) {
+                        // Deep clone the query to avoid modifying the original
+                        const modifiedQuery = JSON.parse(JSON.stringify(query));
+                        
+                        // Find and update the $current_url property filter
+                        if (modifiedQuery.source.properties) {
+                            modifiedQuery.source.properties = modifiedQuery.source.properties.map((prop: any) => {
+                                if (prop.key === '$current_url') {
+                                    return {
+                                        ...prop,
+                                        value: `^${pageUrl.split('?')[0]}(\\?.*)?$`,
+                                        operator: PropertyOperator.Regex
+                                    };
+                                }
+                                return prop;
+                            });
+                        }
+                        
+                        return modifiedQuery;
+                    }
+                    
+                    return query;
+                };
 
                 // Return an object with all queries
                 return {
