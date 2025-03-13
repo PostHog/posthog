@@ -29,6 +29,7 @@ class Migration(migrations.Migration):
                 # https://code.djangoproject.com/ticket/26624
                 migrations.RunSQL(
                     "ALTER TABLE posthog_eventdefinition DROP CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq",
+                    reverse_sql="ALTER TABLE posthog_eventdefinition ADD CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq UNIQUE (team_id, name)",
                 ),
             ],
         ),
