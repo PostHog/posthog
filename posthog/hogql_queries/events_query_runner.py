@@ -10,9 +10,7 @@ from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_expr, parse_order_expr
-from posthog.hogql.printer import print_ast
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
@@ -187,27 +185,29 @@ class EventsQueryRunner(QueryRunner):
                     order_by = []
 
             with self.timings.measure("select"):
-                if self.query.source is None:
-                    select_from = ast.JoinExpr(table=ast.Field(chain=["events"]))
-                else:
-                    select_input.append("properties")
-                    source = self.source_runner.to_events_query()
-                    query_str = print_ast(
-                        source,
-                        HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-                        "clickhouse",
-                        pretty=True,
+                if self.query.source is not None:
+                    subselect = parse_select(
+                        "select uuid from {source}", {"source": self.source_runner.to_events_query()}
                     )
-                    select_from = ast.JoinExpr(table=source)
+                    filter = ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["uuid"]),
+                        right=subselect,
+                    )
+                    if where is None:
+                        where = filter
+                    else:
+                        where = ast.And(exprs=[where, filter])
 
                 stmt = ast.SelectQuery(
                     select=select,
-                    select_from=select_from,
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     where=where,
                     having=having,
                     group_by=group_by if has_any_aggregation else None,
                     order_by=order_by,
                 )
+
                 return stmt
 
     def calculate(self) -> EventsQueryResponse:
