@@ -1,11 +1,11 @@
 use anyhow::{anyhow, bail, Ok, Result};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tracing::info;
 use uuid;
 
 use crate::utils::sourcemaps::read_pairs;
 
-pub fn inject(directory: &Path, _output: &Option<PathBuf>) -> Result<()> {
+pub fn inject(directory: &Path) -> Result<()> {
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
             "Directory '{}' not found or inaccessible: {}",
@@ -21,11 +21,11 @@ pub fn inject(directory: &Path, _output: &Option<PathBuf>) -> Result<()> {
     info!("Found {} pairs", pairs.len());
     for pair in &mut pairs {
         let chunk_id = uuid::Uuid::now_v7().to_string();
-        pair.add_chunk_id(chunk_id)?;
+        pair.set_chunk_id(chunk_id)?;
     }
     // Write the source and sourcemaps back to disk
     for pair in &pairs {
-        pair.write()?;
+        pair.save()?;
     }
     info!("Finished processing directory");
     Ok(())

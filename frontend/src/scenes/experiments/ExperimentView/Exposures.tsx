@@ -92,12 +92,12 @@ export function Exposures(): JSX.Element {
         }
     }, [exposures])
 
-    const chartWrapperClasses = 'relative border rounded bg-surface-primary p-4 h-[250px]'
+    const chartWrapperClasses = 'relative border rounded bg-surface-primary p-4 h-[280px]'
 
     return (
         <div>
             <div className="flex items-center deprecated-space-x-2 mb-2">
-                <h2 className="mb-0 font-semibold text-lg leading-6">Exposures</h2>
+                <h2 className="mb-0 font-semibold text-lg leading-6.5">Exposures</h2>
                 <Tooltip title="Shows the daily cumulative count of unique users exposed to each variant throughout the experiment duration.">
                     <IconInfo className="text-secondary text-lg" />
                 </Tooltip>
@@ -110,7 +110,7 @@ export function Exposures(): JSX.Element {
                 <div className={clsx(chartWrapperClasses, 'flex justify-center items-center')}>
                     <div className="text-center">
                         <IconCorrelationAnalysis className="text-3xl mb-2 text-tertiary" />
-                        <h2 className="text-lg leading-tight">No exposures yet</h2>
+                        <div className="text-md font-semibold leading-tight mb-2">No exposures yet</div>
                         <p className="text-sm text-center text-balance text-tertiary">
                             Exposures will appear here once the first participant has been exposed.
                         </p>
@@ -132,7 +132,7 @@ export function Exposures(): JSX.Element {
                     <div className={clsx(chartWrapperClasses, 'w-full md:w-2/3')}>
                         <canvas id="exposuresChart" />
                     </div>
-                    <div className="h-[250px] md:w-1/3 border rounded bg-surface-primary p-4 overflow-y-auto">
+                    <div className={clsx(chartWrapperClasses, 'border rounded bg-surface-primary p-4')}>
                         <div className="flex justify-between mb-4">
                             <div>
                                 <h3 className="card-secondary">Exposure criteria</h3>
@@ -151,60 +151,64 @@ export function Exposures(): JSX.Element {
                         {exposures?.timeseries.length > 0 && (
                             <div>
                                 <h3 className="card-secondary">Total exposures</h3>
-                                <LemonTable
-                                    dataSource={exposures?.timeseries || []}
-                                    columns={[
-                                        {
-                                            title: 'Variant',
-                                            key: 'variant',
-                                            render: function Variant(_, series) {
-                                                return (
-                                                    <VariantTag
-                                                        experimentId={experimentId}
-                                                        variantKey={series.variant}
-                                                    />
-                                                )
+                                <div className="overflow-auto max-h-[150px]">
+                                    <LemonTable
+                                        dataSource={exposures?.timeseries || []}
+                                        columns={[
+                                            {
+                                                title: 'Variant',
+                                                key: 'variant',
+                                                render: function Variant(_, series) {
+                                                    return (
+                                                        <VariantTag
+                                                            experimentId={experimentId}
+                                                            variantKey={series.variant}
+                                                        />
+                                                    )
+                                                },
                                             },
-                                        },
-                                        {
-                                            title: 'Exposures',
-                                            key: 'exposures',
-                                            render: function Exposures(_, series) {
-                                                return humanFriendlyNumber(exposures?.total_exposures[series.variant])
+                                            {
+                                                title: 'Exposures',
+                                                key: 'exposures',
+                                                render: function Exposures(_, series) {
+                                                    return humanFriendlyNumber(
+                                                        exposures?.total_exposures[series.variant]
+                                                    )
+                                                },
                                             },
-                                        },
-                                        {
-                                            title: '%',
-                                            key: 'percentage',
-                                            render: function Percentage(_, series) {
-                                                let total = 0
-                                                if (exposures?.total_exposures) {
-                                                    for (const [_, value] of Object.entries(
-                                                        exposures.total_exposures
-                                                    )) {
-                                                        total += Number(value)
+                                            {
+                                                title: '%',
+                                                key: 'percentage',
+                                                render: function Percentage(_, series) {
+                                                    let total = 0
+                                                    if (exposures?.total_exposures) {
+                                                        for (const [_, value] of Object.entries(
+                                                            exposures.total_exposures
+                                                        )) {
+                                                            total += Number(value)
+                                                        }
                                                     }
-                                                }
-                                                return (
-                                                    <span className="font-semibold">
-                                                        {total ? (
-                                                            <>
-                                                                {(
-                                                                    (exposures?.total_exposures[series.variant] /
-                                                                        total) *
-                                                                    100
-                                                                ).toFixed(1)}
-                                                                %
-                                                            </>
-                                                        ) : (
-                                                            <>-%</>
-                                                        )}
-                                                    </span>
-                                                )
+                                                    return (
+                                                        <span className="font-semibold">
+                                                            {total ? (
+                                                                <>
+                                                                    {(
+                                                                        (exposures?.total_exposures[series.variant] /
+                                                                            total) *
+                                                                        100
+                                                                    ).toFixed(1)}
+                                                                    %
+                                                                </>
+                                                            ) : (
+                                                                <>-%</>
+                                                            )}
+                                                        </span>
+                                                    )
+                                                },
                                             },
-                                        },
-                                    ]}
-                                />
+                                        ]}
+                                    />
+                                </div>
                             </div>
                         )}
                     </div>
