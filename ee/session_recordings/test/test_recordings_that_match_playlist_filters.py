@@ -253,7 +253,15 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
             last_counted_at=timezone.now() - timedelta(days=1),
         )
 
-        playlist3 = SessionRecordingPlaylist.objects.create(
+        # too recently counted won't be counted
+        SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test3",
+            filters={"date_from": "-21d"},
+            last_counted_at=timezone.now() - timedelta(hours=1),
+        )
+
+        playlist4 = SessionRecordingPlaylist.objects.create(
             team=self.team, name="test3", filters={"date_from": "-21d"}, last_counted_at=None
         )
 
@@ -262,8 +270,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
             mock_capture_exception.assert_not_called()
 
             assert mock_count_task.delay.call_count == 3
+
             assert mock_count_task.delay.call_args_list == [
-                call(playlist3.id),
+                call(playlist4.id),
                 call(playlist1.id),
                 call(playlist2.id),
             ]

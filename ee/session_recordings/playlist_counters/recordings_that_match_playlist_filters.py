@@ -12,7 +12,8 @@ from posthog.session_recordings.session_recording_api import list_recordings_fro
 from posthog.tasks.utils import CeleryQueue
 from posthog.redis import get_client
 from posthog.schema import RecordingsQuery, FilterLogicalOperator, PropertyOperator, PropertyFilterType
-from django.db.models import F
+from django.db.models import F, Q
+from django.utils import timezone
 
 from structlog import get_logger
 
@@ -350,9 +351,15 @@ def enqueue_recordings_that_match_playlist_filters() -> None:
         # If we're not processing any teams, we don't need to enqueue anything
         return
 
-    all_playlists = SessionRecordingPlaylist.objects.filter(
-        team_id__lte=int(settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID), deleted=False, filters__isnull=False
-    ).order_by(F("last_counted_at").asc(nulls_first=True))
+    all_playlists = (
+        SessionRecordingPlaylist.objects.filter(
+            team_id__lte=int(settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID),
+            deleted=False,
+            filters__isnull=False,
+        )
+        .filter(Q(last_counted_at__isnull=True) | Q(last_counted_at__lt=timezone.now() - timezone.timedelta(hours=2)))
+        .order_by(F("last_counted_at").asc(nulls_first=True))[:60000]
+    )
 
     REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc(all_playlists.count())
 
