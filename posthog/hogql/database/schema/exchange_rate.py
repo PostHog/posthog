@@ -38,19 +38,20 @@ def convert_currency_call(
 
 def revenue_currency_expression(config: RevenueTrackingConfig) -> ast.Expr:
     exprs = []
-    for event in config.events:
-        exprs.extend(
-            [
-                ast.CompareOperation(
-                    left=ast.Field(chain=["event"]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=event.eventName),
-                ),
-                ast.Field(chain=["events", "properties", event.revenueCurrencyProperty])
-                if event.revenueCurrencyProperty
-                else ast.Constant(value=None),
-            ]
-        )
+    if config.events:
+        for event in config.events:
+            exprs.extend(
+                [
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["event"]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=event.eventName),
+                    ),
+                    ast.Field(chain=["events", "properties", event.revenueCurrencyProperty])
+                    if event.revenueCurrencyProperty
+                    else ast.Constant(value=None),
+                ]
+            )
 
     if len(exprs) == 0:
         return ast.Constant(value=None)
