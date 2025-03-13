@@ -125,7 +125,8 @@ class FlagsMatcherCache:
                     project_id=self.project_id
                 )
                 return {row.group_type: cast(GroupTypeIndex, row.group_type_index) for row in group_type_mapping_rows}
-        except DatabaseError:
+        except DatabaseError as e:
+            logger.exception("group_types_to_indexes database error", error=str(e), exc_info=True)
             self.failed_to_fetch_flags = True
             raise
 
@@ -668,7 +669,8 @@ class FeatureFlagMatcher:
                                     ), f"Expected 1 group query result, got {len(group_query)}"
                                     all_conditions = {**all_conditions, **group_query[0]}
                     return all_conditions
-        except DatabaseError:
+        except DatabaseError as e:
+            logger.exception("query_conditions database error", error=str(e), exc_info=True)
             self.failed_to_fetch_conditions = True
             raise
         except Exception:

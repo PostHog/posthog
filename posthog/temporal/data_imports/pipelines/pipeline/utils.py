@@ -6,7 +6,7 @@ import json
 import math
 import uuid
 from collections.abc import Iterator, Sequence
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import deltalake as deltalake
 import numpy as np
@@ -148,6 +148,7 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
 
     for column_name in table.column_names:
         column = table.column(column_name)
+        field = table.field(column_name)
 
         # Change pa.structs to JSON string
         if pa.types.is_struct(column.type) or pa.types.is_list(column.type):
@@ -161,6 +162,11 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             )
             table = table.set_column(table.schema.get_field_index(column_name), column_name, seconds_column)
             column = table.column(column_name)
+
+        # Convert nanosecond timestamps to microseconds and convert to UTC
+        if pa.types.is_timestamp(field.type) and (field.type.unit == "ns" or field.type.tz is not None):
+            microsecond_timestamps = pc.cast(column, pa.timestamp("us"), safe=False)
+            table = table.set_column(table.schema.get_field_index(column_name), column_name, microsecond_timestamps)
 
     if delta_schema:
         for field in delta_schema.to_pyarrow():
@@ -295,15 +301,27 @@ def append_partition_key_to_table(
 
     partition_array: list[str] = []
 
+    mode: Literal["md5"] | Literal["numerical"] = "md5"
+
+    # If there is only one primary key and it's a numerical ID, then bucket by the ID itself instead of hashing it
+    if len(normalized_primary_keys) == 1 and pa.types.is_integer(table.field(normalized_primary_keys[0]).type):
+        mode = "numerical"
+
     for batch in table.to_batches():
         for row in batch.to_pylist():
-            primary_key_values = [str(row[key]) for key in normalized_primary_keys]
-            delimited_primary_key_value = "|".join(primary_key_values)
+            if mode == "md5":
+                primary_key_values = [str(row[key]) for key in normalized_primary_keys]
+                delimited_primary_key_value = "|".join(primary_key_values)
 
-            hash_value = int(hashlib.md5(delimited_primary_key_value.encode()).hexdigest(), 16)
-            partition = hash_value % partition_count
+                hash_value = int(hashlib.md5(delimited_primary_key_value.encode()).hexdigest(), 16)
+                partition = hash_value % partition_count
 
-            partition_array.append(str(partition))
+                partition_array.append(str(partition))
+            else:
+                key = normalized_primary_keys[0]
+                partition = row[key] % partition_count
+
+                partition_array.append(str(partition))
 
     new_column = pa.array(partition_array, type=pa.string())
     logger.debug(f"Partition key added")

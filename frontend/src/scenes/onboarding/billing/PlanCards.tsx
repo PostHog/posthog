@@ -152,7 +152,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                                 disabledReason={billingLoading && 'Please wait...'}
                                 disableClientSideRouting
                                 loading={!!billingLoading}
-                                onClick={showPaymentEntryModal}
+                                onClick={() => showPaymentEntryModal()}
                                 data-attr="onboarding-subscribe-button"
                             >
                                 {planData.ctaText}

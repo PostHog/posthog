@@ -1,10 +1,11 @@
-import { IconPin, IconPinFilled, IconPlus, IconSearch, IconSort, IconX } from '@posthog/icons'
+import { IconPin, IconPinFilled, IconPlusSmall, IconSearch, IconSort, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
+import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -70,7 +71,11 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             tooltip="Sort by name"
                             onClick={() => alert('Sort by name')}
                             className="hover:bg-fill-highlight-100 shrink-0"
-                            icon={<IconSort />}
+                            icon={
+                                <IconWrapper>
+                                    <IconSort />
+                                </IconWrapper>
+                            }
                         />
                         {!isMobileLayout && (
                             <LemonButton
@@ -79,7 +84,17 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                 tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
                                 onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
                                 className="hover:bg-fill-highlight-100 shrink-0"
-                                icon={isLayoutPanelPinned ? <IconPinFilled /> : <IconPin />}
+                                icon={
+                                    isLayoutPanelPinned ? (
+                                        <IconWrapper>
+                                            <IconPinFilled />
+                                        </IconWrapper>
+                                    ) : (
+                                        <IconWrapper>
+                                            <IconPin />
+                                        </IconWrapper>
+                                    )
+                                }
                             />
                         )}
                         <LemonButton
@@ -88,7 +103,11 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             tooltip="Create new root folder"
                             onClick={() => createFolder('')}
                             className="hover:bg-fill-highlight-100 shrink-0"
-                            icon={<IconPlus className="size-4" />}
+                            icon={
+                                <IconWrapper>
+                                    <IconPlusSmall />
+                                </IconWrapper>
+                            }
                         />
                     </div>
                 </div>
@@ -99,7 +118,11 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                         <LemonInput
                             placeholder="Search..."
                             className="w-full"
-                            prefix={<IconSearch className="size-4" />}
+                            prefix={
+                                <IconWrapper>
+                                    <IconSearch />
+                                </IconWrapper>
+                            }
                             size="small"
                             value={searchTerm}
                             onChange={(value) => setSearchTerm(value)}
@@ -109,7 +132,11 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                         size="small"
                                         type="tertiary"
                                         onClick={() => clearSearch()}
-                                        icon={<IconX className="size-4" />}
+                                        icon={
+                                            <IconWrapper>
+                                                <IconX />
+                                            </IconWrapper>
+                                        }
                                         className="bg-transparent [&_svg]:opacity-30 hover:[&_svg]:opacity-100"
                                         tooltip="Clear search"
                                     />
@@ -177,7 +204,9 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                         onNodeClick={(node) => {
                             if (node?.record?.path) {
                                 setLastViewedId(node?.id || '')
-                                showLayoutPanel(false)
+                                if (!isLayoutPanelPinned) {
+                                    showLayoutPanel(false)
+                                }
                             }
                             if (node?.id.startsWith('project-load-more/')) {
                                 const path = node.id.split('/').slice(1).join('/')
