@@ -5,10 +5,12 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode } from '~/queries/schema/schema-general'
 import { Group } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
-
 export interface GroupsPaginatedResponse {
     next: string | null
     previous: string | null
@@ -36,6 +38,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
     actions(() => ({
         loadGroups: (url?: string | null) => ({ url }),
         setSearch: (search: string, debounce: boolean = true) => ({ search, debounce }),
+        setQuery: (query: DataTableNode) => ({ query }),
     })),
     loaders(({ props, values }) => ({
         groups: [
@@ -63,6 +66,20 @@ export const groupsListLogic = kea<groupsListLogicType>([
             {
                 setSearch: (_, { search }) => search,
             },
+        ],
+        query: [
+            (_: any, props: GroupsListLogicProps) =>
+                ({
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.GroupsQuery,
+                        select: defaultDataTableColumns(NodeKind.GroupsQuery),
+                        group_type_index: props.groupTypeIndex,
+                    },
+                    full: true,
+                    propertiesViaUrl: true,
+                } as DataTableNode),
+            { setQuery: (_, { query }) => query },
         ],
     }),
     selectors({

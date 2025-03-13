@@ -10,7 +10,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
-import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
+import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +27,7 @@ import { QueryContext } from '~/queries/types'
 import {
     isActorsQuery,
     isEventsQuery,
+    isGroupsQuery,
     isHogQLQuery,
     isPersonsNode,
     isRevenueExampleEventsQuery,
@@ -279,6 +280,15 @@ export function renderColumn(
             >
                 {String(value)}
             </CopyToClipboardInline>
+        )
+    } else if (key === 'key' && isGroupsQuery(query.source)) {
+        const properties = query.source.select?.includes('properties')
+            ? JSON.parse((record as any[])[query.source.select.indexOf('properties')])
+            : {}
+        return (
+            <Link to={urls.group(query.source.group_type_index, value, false)}>
+                {groupDisplayId(value, properties)}
+            </Link>
         )
     }
     if (typeof value === 'object') {

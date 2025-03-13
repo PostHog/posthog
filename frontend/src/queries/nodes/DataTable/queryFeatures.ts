@@ -2,6 +2,7 @@ import { Node } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
     isEventsQuery,
+    isGroupsQuery,
     isHogQLQuery,
     isPersonsNode,
     isRevenueExampleEventsQuery,
@@ -65,6 +66,12 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
             features.add(QueryFeature.columnsInResponse)
             features.add(QueryFeature.resultIsArrayOfArrays)
         }
+    }
+
+    if (isGroupsQuery(query)) {
+        features.add(QueryFeature.selectAndOrderByColumns)
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
     }
 
     if (

@@ -18,6 +18,7 @@ import {
     EventsQuery,
     FunnelsQuery,
     GoalLine,
+    GroupsQuery,
     HogQLASTQuery,
     HogQLMetadata,
     HogQLQuery,
@@ -548,4 +549,8 @@ export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): brea
 
 export function isValidQueryForExperiment(query: Node): boolean {
     return isNodeWithSource(query) && isFunnelsQuery(query.source) && query.source.series.length >= 2
+}
+
+export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {
+    return node?.kind === NodeKind.GroupsQuery
 }

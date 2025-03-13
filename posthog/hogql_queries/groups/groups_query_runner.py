@@ -1,0 +1,63 @@
+from posthog.hogql import ast
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.schema import GroupsQuery, GroupsQueryResponse, CachedGroupsQueryResponse
+
+
+class GroupsQueryRunner(QueryRunner):
+    query: GroupsQuery
+    response: GroupsQueryResponse
+    cached_response: CachedGroupsQueryResponse
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if self.query.group_type_index is None:
+            raise ValueError("group_type_index is required")
+
+        self.columns = self.query.select or [
+            "key",
+            "created_at",
+            "properties",
+        ]
+
+        self.paginator = HogQLHasMorePaginator.from_limit_context(
+            limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
+        )
+
+    def to_query(self) -> ast.SelectQuery:
+        conditions = []
+
+        conditions.append(
+            ast.CompareOperation(
+                left=ast.Field(chain=["index"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=self.query.group_type_index),
+            )
+        )
+
+        where = ast.And(exprs=conditions) if conditions else None
+
+        return ast.SelectQuery(
+            select=[*[ast.Field(chain=[col]) for col in self.columns]],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
+            where=where,
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")],
+        )
+
+    def calculate(self) -> GroupsQueryResponse:
+        response = self.paginator.execute_hogql_query(
+            query_type="GroupsQuery",
+            query=self.to_query(),
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+        )
+        return GroupsQueryResponse(
+            kind="GroupsQuery",
+            types=[t for _, t in response.types] if response.types else None,
+            columns=self.columns,
+            results=response.results,
+            hogql=response.hogql,
+            **self.paginator.response_params(),
+        )
