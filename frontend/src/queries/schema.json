@@ -6501,7 +6501,7 @@
                     "type": ["string", "null"]
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release"],
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
                     "type": "string"
                 }
             },
@@ -6630,7 +6630,7 @@
                     "type": "string"
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "all"],
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
                     "type": "string"
                 }
             },
