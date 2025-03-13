@@ -39,6 +39,10 @@ export class GroupTypeManager {
             }
         }
 
+        if (projectIdsToLoad.size === 0) {
+            return response
+        }
+
         const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
         try {
             const { rows } = await this.postgres.query(
@@ -51,7 +55,11 @@ export class GroupTypeManager {
             for (const row of rows) {
                 const groupTypes = (response[row.project_id] = response[row.project_id] ?? {})
                 groupTypes[row.group_type] = row.group_type_index
-                this.groupTypesCache.set(row.project_id, [groupTypes, Date.now()])
+            }
+
+            for (const projectId of projectIdsToLoad) {
+                response[projectId] = response[projectId] ?? {}
+                this.groupTypesCache.set(projectId, [response[projectId], Date.now()])
             }
         } finally {
             clearTimeout(timeout)
