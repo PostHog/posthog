@@ -366,16 +366,12 @@ class Retryable(Generic[T]):  # note: this class exists primarily to allow a rea
 
     def __call__(self, client: Client) -> T:
         if isinstance(self.policy.exceptions, tuple):
-
-            def is_retryable_exception(e):
-                return isinstance(e, self.policy.exceptions)
+            is_retryable_exception = lambda e: isinstance(e, self.policy.exceptions)
         else:
             is_retryable_exception = self.policy.exceptions
 
         if not callable(self.policy.delay):
-
-            def delay_fn(_):
-                return self.policy.delay
+            delay_fn = lambda _: self.policy.delay
         else:
             delay_fn = self.policy.delay
 
