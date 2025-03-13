@@ -1250,7 +1250,7 @@ def send_all_org_usage_reports(
         logger.info("Sending usage reports to PostHog and Billing...")  # noqa T201
         time_now = datetime.now()
 
-        producer = get_sqs_producer("orders")
+        producer = get_sqs_producer("usage_reports")
         if not producer:
             logger.error("Failed to get SQS producer for 'orders' queue")
             return
