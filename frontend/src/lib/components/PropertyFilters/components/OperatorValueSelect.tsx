@@ -86,6 +86,8 @@ export function OperatorValueSelect({
             startingOperator = PropertyOperator.IsDateExact
         } else if (isCohortProperty) {
             startingOperator = PropertyOperator.In
+        } else if (propertyKey === '$current_url') {
+            startingOperator = PropertyOperator.IContains
         }
     }
 
