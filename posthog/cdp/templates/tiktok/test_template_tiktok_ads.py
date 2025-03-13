@@ -12,33 +12,24 @@ class TestTemplateTiktokAds(BaseHogFunctionTemplateTest):
         inputs = {
             "accessToken": "accessToken12345",
             "pixelId": "123451234512345",
-            "eventName": "checkout",
-            "actionSource": "website",
+            "eventName": "CompletePayment",
+            "eventId": "event-id",
+            "eventTimestamp": 1741864319.067,
             "userProperties": {
                 "email": "3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98",
                 "phone": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             },
-            "propertyProperties": {
-                "currency": "USD",
-                "value": "15",
+            "propertyProperties": {"currency": "USD", "value": 15, "num_items": 2, "order_id": "order-id"},
+            "pageProperties": {
+                "referrer": "posthog.com",
             },
+            "testEventCode": "",
         }
         inputs.update(kwargs)
         return inputs
 
     def test_function_works(self):
-        self.run_function(
-            inputs=self._inputs(),
-            globals={
-                "event": {
-                    "uuid": "abcdef",
-                    "timestamp": "2024-11-13T07:45:57.608Z",
-                    "properties": {
-                        "$current_url": "https://posthog.com/cdp",
-                    },
-                },
-            },
-        )
+        self.run_function(inputs=self._inputs())
 
         assert self.get_mock_fetch_calls()[0] == snapshot(
             (
@@ -51,16 +42,21 @@ class TestTemplateTiktokAds(BaseHogFunctionTemplateTest):
                         "event_source_id": "123451234512345",
                         "data": [
                             {
-                                "event": "checkout",
-                                "event_time": 1731483957.608,
-                                "event_id": "abcdef",
-                                "user": {"email": "3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98"},
+                                "event": "CompletePayment",
+                                "event_time": 1741864319.067,
+                                "event_id": "event-id",
+                                "user": {
+                                    "email": "3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98",
+                                    "phone": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                                },
                                 "properties": {
                                     "currency": "USD",
-                                    "value": "15",
+                                    "value": 15,
+                                    "num_items": 2,
+                                    "order_id": "order-id",
                                 },
                                 "page": {
-                                    "url": "https://posthog.com/cdp",
+                                    "referrer": "posthog.com",
                                 },
                             }
                         ],
