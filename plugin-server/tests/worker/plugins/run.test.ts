@@ -1,3 +1,4 @@
+import { LegacyOneventCompareService } from '../../../src/cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher } from '../../../src/config/config'
 import { Hub, ISOTimestamp, PluginConfig, PostIngestionEvent } from '../../../src/types'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
@@ -56,6 +57,7 @@ describe('runOnEvent', () => {
                 queueError: jest.fn(),
             },
         }
+        mockHub.legacyOneventCompareService = new LegacyOneventCompareService(mockHub)
     })
 
     it('calls onEvent', async () => {

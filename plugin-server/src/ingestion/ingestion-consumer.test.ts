@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { insertHogFunction as _insertHogFunction } from '~/src/cdp/_tests/fixtures'
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
-import { insertHogFunction as _insertHogFunction } from '~/tests/cdp/fixtures'
 import {
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
@@ -791,7 +791,7 @@ describe('IngestionConsumer', () => {
                     "key": null,
                     "topic": "testing_topic",
                     "value": {
-                      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-1>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+                      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
                       "distinct_id": "user-1",
                       "ip": "127.0.0.1",
                       "now": "2025-01-01T00:00:00.000Z",
