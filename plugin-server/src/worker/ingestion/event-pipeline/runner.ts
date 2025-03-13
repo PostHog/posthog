@@ -383,6 +383,7 @@ export class EventPipelineRunner {
             pipelineStepDLQCounter.labels(currentStepName).inc()
             try {
                 const message = generateEventDeadLetterQueueMessage(
+                    this.hub,
                     this.originalEvent,
                     err,
                     teamId,

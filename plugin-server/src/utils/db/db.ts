@@ -5,7 +5,6 @@ import Redis from 'ioredis'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
-import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
     Action,
@@ -32,6 +31,7 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginLogLevel,
+    PluginsServerConfig,
     ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
@@ -66,14 +66,7 @@ import { OrganizationPluginsAccessLevel } from './../../types'
 import { RedisOperationError } from './error'
 import { personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
-import {
-    generateKafkaPersonUpdateMessage,
-    safeClickhouseString,
-    sanitizeJsonbValue,
-    shouldStoreLog,
-    timeoutGuard,
-    unparsePersonPartial,
-} from './utils'
+import { safeClickhouseString, sanitizeJsonbValue, shouldStoreLog, timeoutGuard, unparsePersonPartial } from './utils'
 
 export interface LogEntryPayload {
     pluginConfig: PluginConfig
@@ -158,6 +151,7 @@ export class DB {
     PERSONS_AND_GROUPS_CACHE_TTL: number
 
     constructor(
+        private config: PluginsServerConfig,
         postgres: PostgresRouter,
         redisPool: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper,
@@ -542,6 +536,25 @@ export class DB {
         }
     }
 
+    private generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): TopicMessage {
+        return {
+            topic: this.config.KAFKA_PERSON,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        id: person.uuid,
+                        created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
+                        properties: JSON.stringify(person.properties),
+                        team_id: person.team_id,
+                        is_identified: Number(person.is_identified),
+                        is_deleted: Number(isDeleted),
+                        version: person.version + (isDeleted ? 100 : 0), // keep in sync with delete_person in posthog/models/person/util.py
+                    } as Omit<ClickHousePerson, 'timestamp'>),
+                },
+            ],
+        }
+    }
+
     public async createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -617,11 +630,11 @@ export class DB {
         )
         const person = this.toPerson(rows[0])
 
-        const kafkaMessages = [generateKafkaPersonUpdateMessage(person)]
+        const kafkaMessages = [this.generateKafkaPersonUpdateMessage(person)]
 
         for (const distinctId of distinctIds) {
             kafkaMessages.push({
-                topic: KAFKA_PERSON_DISTINCT_ID,
+                topic: this.config.KAFKA_PERSON_DISTINCT_ID,
                 messages: [
                     {
                         value: JSON.stringify({
@@ -687,7 +700,7 @@ export class DB {
             personUpdateVersionMismatchCounter.inc()
         }
 
-        const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
+        const kafkaMessage = this.generateKafkaPersonUpdateMessage(updatedPerson)
 
         status.debug(
             '🧑‍🦰',
@@ -709,7 +722,9 @@ export class DB {
 
         if (rows.length > 0) {
             const [row] = rows
-            kafkaMessages = [generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) }, true)]
+            kafkaMessages = [
+                this.generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) }, true),
+            ]
         }
         return kafkaMessages
     }
@@ -841,7 +856,7 @@ export class DB {
         const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
         const messages = [
             {
-                topic: KAFKA_PERSON_DISTINCT_ID,
+                topic: this.config.KAFKA_PERSON_DISTINCT_ID,
                 messages: [
                     {
                         value: JSON.stringify({
@@ -906,7 +921,7 @@ export class DB {
             const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
             const version = Number(versionStr || 0)
             kafkaMessages.push({
-                topic: KAFKA_PERSON_DISTINCT_ID,
+                topic: this.config.KAFKA_PERSON_DISTINCT_ID,
                 messages: [
                     {
                         value: JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 }),
@@ -1072,7 +1087,7 @@ export class DB {
             // disk.
             void this.kafkaProducer
                 .queueMessages({
-                    topic: KAFKA_PLUGIN_LOG_ENTRIES,
+                    topic: this.config.KAFKA_PLUGIN_LOG_ENTRIES,
                     messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
                 })
                 .catch((error) => {
@@ -1361,7 +1376,7 @@ export class DB {
         version: number
     ): Promise<void> {
         await this.kafkaProducer.queueMessages({
-            topic: KAFKA_GROUPS,
+            topic: this.config.KAFKA_GROUPS,
             messages: [
                 {
                     value: JSON.stringify({

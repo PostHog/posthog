@@ -1,14 +1,13 @@
 import { randomUUID } from 'crypto'
 
-import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST } from '../../../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
-import { TimestampFormat } from '../../../../types'
+import { PluginsServerConfig, TimestampFormat } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { castTimestampOrNow } from '../../../../utils/utils'
 import { SessionBlockMetadata } from './session-block-metadata'
 
 export class SessionMetadataStore {
-    constructor(private producer: KafkaProducerWrapper) {
+    constructor(private readonly config: PluginsServerConfig, private producer: KafkaProducerWrapper) {
         status.debug('🔍', 'session_metadata_store_created')
     }
 
@@ -40,7 +39,7 @@ export class SessionMetadataStore {
         }))
 
         await this.producer.queueMessages({
-            topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST,
+            topic: this.config.KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST,
             messages: events.map((event) => ({
                 key: event.session_id,
                 value: JSON.stringify(event),

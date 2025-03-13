@@ -1,6 +1,7 @@
 import { Counter } from 'prom-client'
 
-import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
+import { PluginsServerConfig } from '~/src/types'
+
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
@@ -40,6 +41,7 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
 // am going to leave this duplication and then collapse it when/if we add a performance events ingester
 export class ConsoleLogsIngester {
     constructor(
+        private readonly config: PluginsServerConfig,
         private readonly producer: KafkaProducerWrapper,
         private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
     ) {}
@@ -156,7 +158,7 @@ export class ConsoleLogsIngester {
 
             return [
                 this.producer.queueMessages({
-                    topic: KAFKA_LOG_ENTRIES,
+                    topic: this.config.KAFKA_LOG_ENTRIES,
                     messages: consoleLogEvents.map((cle: ConsoleLogEntry) => ({
                         value: JSON.stringify(cle),
                         key: event.session_id,

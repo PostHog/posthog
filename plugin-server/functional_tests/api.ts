@@ -4,7 +4,6 @@ import parsePrometheusTextFormat from 'parse-prometheus-text-format'
 import { PoolClient } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
-import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../src/config/kafka-topics'
 import {
     Hook,
     Plugin,
@@ -58,7 +57,7 @@ export const capture = async ({
     $set = undefined,
     $set_once = undefined,
     topic = ['$performance_event', '$snapshot_items'].includes(event)
-        ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        ? defaultConfig.KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         : ['$$client_ingestion_warning'].includes(event)
         ? 'client_iwarnings_ingestion'
         : 'events_plugin_ingestion',

@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { defaultConfig } from '~/src/config/config'
+
 import { KafkaProducerWrapper, TopicMessage } from '../../../../kafka/producer'
 import { SessionMetadataStore } from './session-metadata-store'
 
@@ -12,7 +14,7 @@ describe('SessionMetadataStore', () => {
             queueMessages: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<KafkaProducerWrapper>
 
-        store = new SessionMetadataStore(mockProducer)
+        store = new SessionMetadataStore(defaultConfig, mockProducer)
     })
 
     it('should queue events to kafka with correct data', async () => {

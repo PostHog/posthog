@@ -1,21 +1,10 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
-import { TopicMessage } from '~/src/kafka/producer'
-
 import { defaultConfig } from '../../config/config'
-import { KAFKA_PERSON } from '../../config/kafka-topics'
-import {
-    BasePerson,
-    ClickHousePerson,
-    InternalPerson,
-    PluginLogEntryType,
-    PluginLogLevel,
-    RawPerson,
-    TimestampFormat,
-} from '../../types'
+import { BasePerson, InternalPerson, PluginLogEntryType, PluginLogLevel, RawPerson } from '../../types'
 import { status } from '../../utils/status'
-import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
+import { areMapsEqual } from '../../utils/utils'
 import { captureException } from '../posthog'
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
@@ -180,25 +169,6 @@ export function hasDifferenceWithProposedNewNormalisationMode(properties: Proper
     )
 
     return !areMapsEqual(setOnce, filteredSetOnce)
-}
-
-export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): TopicMessage {
-    return {
-        topic: KAFKA_PERSON,
-        messages: [
-            {
-                value: JSON.stringify({
-                    id: person.uuid,
-                    created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
-                    properties: JSON.stringify(person.properties),
-                    team_id: person.team_id,
-                    is_identified: Number(person.is_identified),
-                    is_deleted: Number(isDeleted),
-                    version: person.version + (isDeleted ? 100 : 0), // keep in sync with delete_person in posthog/models/person/util.py
-                } as Omit<ClickHousePerson, 'timestamp'>),
-            },
-        ],
-    }
 }
 
 // Very useful for debugging queries
