@@ -1,8 +1,5 @@
 use crate::api::errors::FlagError;
-use crate::api::types::{
-    FlagValue, FlagsResponse, GenericPropertyOverrides, GroupPropertyOverrides, HashKeyOverride,
-    HashKeyOverrides, PersonPropertyOverrides,
-};
+use crate::api::types::{FlagValue, FlagsResponse};
 use crate::client::database::Client as DatabaseClient;
 use crate::cohort::cohort_cache_manager::CohortCacheManager;
 use crate::cohort::cohort_models::{Cohort, CohortId};
@@ -265,9 +262,9 @@ impl FeatureFlagMatcher {
     pub async fn evaluate_all_feature_flags(
         &mut self,
         feature_flags: FeatureFlagList,
-        person_property_overrides: PersonPropertyOverrides,
-        group_property_overrides: GroupPropertyOverrides,
-        hash_key_override: HashKeyOverride,
+        person_property_overrides: Option<HashMap<String, Value>>,
+        group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+        hash_key_override: Option<String>,
     ) -> FlagsResponse {
         let flags_have_experience_continuity_enabled = feature_flags
             .flags
@@ -431,9 +428,9 @@ impl FeatureFlagMatcher {
     pub async fn evaluate_flags_with_overrides(
         &mut self,
         feature_flags: FeatureFlagList,
-        person_property_overrides: PersonPropertyOverrides,
-        group_property_overrides: GroupPropertyOverrides,
-        hash_key_overrides: Option<HashKeyOverrides>,
+        person_property_overrides: Option<HashMap<String, Value>>,
+        group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+        hash_key_overrides: Option<HashMap<String, String>>,
     ) -> FlagsResponse {
         let mut errors_while_computing_flags = false;
         let mut feature_flags_map = HashMap::new();
@@ -602,8 +599,8 @@ impl FeatureFlagMatcher {
     async fn match_flag_with_property_overrides(
         &mut self,
         flag: &FeatureFlag,
-        person_property_overrides: &PersonPropertyOverrides,
-        group_property_overrides: &GroupPropertyOverrides,
+        person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<Option<FeatureFlagMatch>, FlagError> {
         let flag_property_filters: Vec<PropertyFilter> = flag
@@ -641,7 +638,7 @@ impl FeatureFlagMatcher {
     async fn get_group_overrides(
         &mut self,
         group_type_index: GroupTypeIndex,
-        group_property_overrides: &GroupPropertyOverrides,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         flag_property_filters: &[PropertyFilter],
     ) -> Result<Option<HashMap<String, Value>>, FlagError> {
         let index_to_type_map = self
@@ -670,7 +667,7 @@ impl FeatureFlagMatcher {
     /// the property filters defined in the feature flag.
     fn get_person_overrides(
         &self,
-        person_property_overrides: &PersonPropertyOverrides,
+        person_property_overrides: &Option<HashMap<String, Value>>,
         flag_property_filters: &[PropertyFilter],
     ) -> Option<HashMap<String, Value>> {
         person_property_overrides.as_ref().and_then(|overrides| {
@@ -705,8 +702,8 @@ impl FeatureFlagMatcher {
     pub async fn get_match(
         &mut self,
         flag: &FeatureFlag,
-        property_overrides: GenericPropertyOverrides,
-        hash_key_overrides: Option<HashKeyOverrides>,
+        property_overrides: Option<HashMap<String, Value>>,
+        hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
         if self
             .hashed_identifier(flag, hash_key_overrides.clone())
@@ -852,8 +849,8 @@ impl FeatureFlagMatcher {
         &mut self,
         feature_flag: &FeatureFlag,
         condition: &FlagGroupType,
-        property_overrides: GenericPropertyOverrides,
-        hash_key_overrides: Option<HashKeyOverrides>,
+        property_overrides: Option<HashMap<String, Value>>,
+        hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
         let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
 
@@ -909,7 +906,7 @@ impl FeatureFlagMatcher {
     async fn get_properties_to_check(
         &mut self,
         feature_flag: &FeatureFlag,
-        property_overrides: GenericPropertyOverrides,
+        property_overrides: Option<HashMap<String, Value>>,
         flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
@@ -929,7 +926,7 @@ impl FeatureFlagMatcher {
     async fn get_group_properties(
         &mut self,
         group_type_index: GroupTypeIndex,
-        property_overrides: GenericPropertyOverrides,
+        property_overrides: Option<HashMap<String, Value>>,
         flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
         if let Some(overrides) =
@@ -991,7 +988,7 @@ impl FeatureFlagMatcher {
     /// Otherwise, it fetches the properties from the cache or database and returns them.
     async fn get_person_properties(
         &mut self,
-        property_overrides: GenericPropertyOverrides,
+        property_overrides: Option<HashMap<String, Value>>,
         flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
         if let Some(overrides) =
@@ -1017,8 +1014,8 @@ impl FeatureFlagMatcher {
         target_properties: &HashMap<String, Value>,
         person_id: PersonId,
     ) -> Result<bool, FlagError> {
-        // At the start of the request, fetch all of the cohorts for the team from the cache
-        // This method also caches any cohorts for a given team in memory for the duration of the application, so we don't need to fetch from
+        // At the start of the request, fetch all of the cohorts for the project from the cache
+        // This method also caches any cohorts for a given project in memory for the duration of the application, so we don't need to fetch from
         // the database again until we restart the application.  See the CohortCacheManager for more details.
         let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
 
@@ -1066,8 +1063,8 @@ impl FeatureFlagMatcher {
     async fn is_super_condition_match(
         &mut self,
         feature_flag: &FeatureFlag,
-        property_overrides: GenericPropertyOverrides,
-        hash_key_overrides: Option<HashKeyOverrides>,
+        property_overrides: Option<HashMap<String, Value>>,
+        hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<SuperConditionEvaluation, FlagError> {
         if let Some(first_condition) = feature_flag
             .filters

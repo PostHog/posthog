@@ -28,10 +28,3 @@ pub struct FlagsResponse {
 pub struct FlagsOptionsResponse {
     pub status: FlagsResponseCode,
 }
-
-pub type GenericPropertyOverrides = Option<HashMap<String, Value>>;
-pub type PersonPropertyOverrides = Option<HashMap<String, Value>>;
-pub type GroupPropertyOverrides = Option<HashMap<String, HashMap<String, Value>>>;
-pub type Groups = Option<HashMap<String, Value>>;
-pub type HashKeyOverride = Option<String>;
-pub type HashKeyOverrides = HashMap<String, String>;

@@ -63,7 +63,7 @@ impl CohortCacheManager {
         }
     }
 
-    /// Retrieves cohorts for a given team.
+    /// Retrieves cohorts for a given project.
     ///
     /// If the cohorts are not present in the cache or have expired, it fetches them from the database,
     /// caches the result upon successful retrieval, and then returns it.

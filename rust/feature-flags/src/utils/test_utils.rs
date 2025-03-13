@@ -238,7 +238,6 @@ pub async fn insert_new_team_in_pg(
         ("team", 4),
     ];
 
-    // Insert group type mappings
     for (group_type, group_type_index) in group_types {
         let res = sqlx::query(
             r#"INSERT INTO posthog_grouptypemapping

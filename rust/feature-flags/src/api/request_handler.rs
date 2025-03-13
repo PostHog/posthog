@@ -26,8 +26,6 @@ use std::{
 };
 use std::{io::Read, sync::Arc};
 
-use super::types::{GroupPropertyOverrides, Groups, HashKeyOverride, PersonPropertyOverrides};
-
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Compression {
@@ -171,7 +169,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 /// - If no person properties are provided, return None
 pub fn get_person_property_overrides(
     geoip_enabled: bool,
-    person_properties: PersonPropertyOverrides,
+    person_properties: Option<HashMap<String, Value>>,
     ip: &IpAddr,
     geoip_service: &GeoIpClient,
 ) -> Option<HashMap<String, Value>> {
@@ -351,10 +349,10 @@ fn prepare_properties(
     request: &FlagRequest,
 ) -> Result<
     (
-        PersonPropertyOverrides,
-        GroupPropertyOverrides,
-        Groups,
-        HashKeyOverride,
+        Option<HashMap<String, Value>>, // person_property_overrides
+        Option<HashMap<String, HashMap<String, Value>>>, // group_property_overrides
+        Option<HashMap<String, Value>>, // groups
+        Option<String>,                 // hash_key_override
     ),
     FlagError,
 > {
@@ -427,10 +425,10 @@ async fn evaluate_flags_for_request(
     project_id: i64,
     distinct_id: String,
     filtered_flags: FeatureFlagList,
-    person_property_overrides: PersonPropertyOverrides,
-    group_property_overrides: GroupPropertyOverrides,
-    groups: Groups,
-    hash_key_override: HashKeyOverride,
+    person_property_overrides: Option<HashMap<String, Value>>,
+    group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+    groups: Option<HashMap<String, Value>>,
+    hash_key_override: Option<String>,
 ) -> FlagsResponse {
     let evaluation_context = FeatureFlagEvaluationContext::new(
         team_id,
@@ -454,9 +452,9 @@ async fn evaluate_flags_for_request(
 /// When groups are provided in the format {"group_type": "group_key"}, we need to ensure these
 /// are included in the group property overrides with the special "$group_key" property.
 fn process_group_property_overrides(
-    groups: Groups,
-    existing_overrides: GroupPropertyOverrides,
-) -> GroupPropertyOverrides {
+    groups: Option<HashMap<String, Value>>,
+    existing_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+) -> Option<HashMap<String, HashMap<String, Value>>> {
     match groups {
         Some(groups) => {
             let group_key_overrides: HashMap<String, HashMap<String, Value>> = groups
