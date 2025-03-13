@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
+import { template as eventFilterTemplate } from '../../../src/cdp/templates/_transformations/event-filter/event-filter.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
 import { getProducedKafkaMessages } from '../../../tests/helpers/mocks/producer.mock'
@@ -14,7 +15,8 @@ import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
 import { HogFunctionTemplate } from '../templates/types'
-import { HogTransformerService } from './hog-transformer.service'
+import { HogTransformerService, filterTransformationDroppedEvents } from './hog-transformer.service'
+import * as hogExecutorService from '../services/hog-executor.service'
 
 const createPluginEvent = (event: Partial<PluginEvent> = {}, teamId: number = 1): PluginEvent => {
     return {
@@ -768,6 +770,190 @@ describe('HogTransformer', () => {
                   "uuid": "event-id",
                 }
             `)
+        })
+    })
+
+    describe('filter transformations', () => {
+        beforeEach(async () => {
+            // Enable filter transformations for these tests
+            hub.FILTER_TRANSFORMATIONS_ENABLED = true
+                        
+            // Create a custom filter for testing
+            const filterFunction = createHogFunction({
+                type: 'transformation',
+                name: eventFilterTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode:  await compileHog(eventFilterTemplate.hog),
+                execution_order: 1,
+                template_id: eventFilterTemplate.id,
+                // Add custom filter logic that will drop events with property "shouldDrop" set to true
+                filters: {
+                    bytecode: await compileHog(`
+                        // Simple check for shouldDrop property
+                        if (event.properties.shouldDrop) {
+                            return false // Return false to drop the event
+                        }
+                        return true // Return true to keep the event
+                    `),
+                },
+                id: '11111111-1111-4111-a111-111111111111', // Using proper UUID format
+            })
+
+            // Create a regular transformation that should not run if event is filtered
+            const regularTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-regular',
+                name: 'Regular Transformation',
+                description: 'A regular transformation that should not run if event is filtered',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.wasProcessed := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const regularByteCode = await compileHog(regularTemplate.hog)
+            const regularFunction = createHogFunction({
+                type: 'transformation',
+                name: regularTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: regularByteCode,
+                execution_order: 2,
+                id: '22222222-2222-4222-a222-222222222222', // Using proper UUID format
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, filterFunction)
+            await insertHogFunction(hub.db.postgres, teamId, regularFunction)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+            
+            // Reset the counter for dropped events
+            jest.spyOn(filterTransformationDroppedEvents, 'inc').mockClear()
+        })
+
+        afterEach(() => {
+            // Reset the flag
+            hub.FILTER_TRANSFORMATIONS_ENABLED = false
+        })
+
+        it('should drop events that match filter criteria', async () => {
+            const event = createPluginEvent(
+                {
+                    event: 'test-event',
+                    properties: { shouldDrop: true },
+                },
+                teamId
+            )
+
+            // Debug: Check if the filter function is properly set up
+            const teamHogFunctions = hogTransformer['hogFunctionManager'].getTeamHogFunctions(teamId)
+            const filterFunctions = teamHogFunctions.filter(f => f.template_id === 'template-event-filter')
+            
+            console.log('Filter functions count:', filterFunctions.length)
+            console.log('Filter function template_id:', filterFunctions[0]?.template_id)
+            console.log('Filter function has filters:', !!filterFunctions[0]?.filters)
+            console.log('Filter function enabled:', filterFunctions[0]?.enabled)
+            
+            // Remove the mock and let the real filter logic run
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Event should be dropped
+            expect(result.event).toBeNull()
+            
+            // Counter should be incremented
+            expect(filterTransformationDroppedEvents.inc).toHaveBeenCalled()
+            
+            // Regular transformations should not have been executed
+            expect(result.invocationResults.length).toBeLessThan(2)
+        })
+
+        it('should keep events that do not match filter criteria', async () => {
+            const event = createPluginEvent(
+                {
+                    event: 'test-event',
+                    properties: { shouldDrop: false },
+                },
+                teamId
+            )
+
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Event should be kept
+            expect(result.event).not.toBeNull()
+            
+            // Counter should not be incremented
+            expect(filterTransformationDroppedEvents.inc).not.toHaveBeenCalled()
+            
+            // Regular transformations should have been executed
+            expect(result.event?.properties?.wasProcessed).toBe(true)
+        })
+
+        it('should not apply filter transformations when feature flag is disabled', async () => {
+            // Disable filter transformations
+            hub.FILTER_TRANSFORMATIONS_ENABLED = false
+            
+            const event = createPluginEvent(
+                {
+                    event: 'test-event',
+                    properties: { shouldDrop: true }, // This would normally cause the event to be dropped
+                },
+                teamId
+            )
+
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Event should be kept since filter transformations are disabled
+            expect(result.event).not.toBeNull()
+            
+            // Counter should not be incremented
+            expect(filterTransformationDroppedEvents.inc).not.toHaveBeenCalled()
+            
+            // Regular transformations should have been executed
+            expect(result.event?.properties?.wasProcessed).toBe(true)
+        })
+
+        it('should handle errors in filter evaluation gracefully', async () => {
+            // Create a filter with an error, but still using the event filter template
+            const errorFilterFunction = createHogFunction({
+                type: 'transformation',
+                name: 'Error Filter',
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(eventFilterTemplate.hog),
+                execution_order: 0,
+                template_id: eventFilterTemplate.id,
+                filters: {
+                    bytecode: await compileHog(`
+                        // This will cause an error when executed
+                        return nonExistentVariable
+                    `),
+                },
+                id: '33333333-3333-4333-a333-333333333333', // Using proper UUID format
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, errorFilterFunction)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+            
+            const event = createPluginEvent(
+                {
+                    event: 'test-event',
+                    properties: { shouldDrop: true },
+                },
+                teamId
+            )
+
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Event should be kept despite the error in filter evaluation
+            expect(result.event).not.toBeNull()
+            
+            // Regular transformations should have been executed
+            expect(result.event?.properties?.wasProcessed).toBe(true)
         })
     })
 })
