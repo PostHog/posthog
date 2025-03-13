@@ -516,6 +516,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                             return null
                         }
                     }
+                    return null
                 },
                 updateBatchExportConfigTest: async (service) => {
                     if (service) {
@@ -525,6 +526,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                             return null
                         }
                     }
+                    return null
                 },
             },
         ],
@@ -571,7 +573,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     if (props.id) {
                         return await api.batchExports.runTestStep(props.id, step, data)
                     }
-                    return await api.batchExports.runTestStep(step, data)
+                    return await api.batchExports.runTestStepNew(step, data)
                 },
             },
         ],
