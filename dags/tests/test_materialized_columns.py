@@ -82,7 +82,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
         exit_handlers.callback(resume_merges)
 
         with exit_handlers, materialized("events", f"$test_{time.time()}") as column:
-            config = MaterializationConfig(
+            materialize_column_config = MaterializationConfig(
                 table="sharded_events",
                 columns=[column.name],
                 indexes=[],
@@ -90,7 +90,9 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
             )
 
             # before running the job, the materialized column should not have been written to any parts
-            remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_mutations_to_run).result()
+            remaining_partitions_by_shard = cluster.map_one_host_per_shard(
+                materialize_column_config.get_mutations_to_run
+            ).result()
             for _shard_host, shard_mutations in remaining_partitions_by_shard.items():
                 assert len([*shard_mutations]) == 3  # TODO: improve assertion
 
@@ -101,12 +103,43 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
 
             materialize_column.execute_in_process(
                 run_config=dagster.RunConfig(
-                    {run_materialize_mutations.name: {"config": config.model_dump()}},
+                    {run_materialize_mutations.name: {"config": materialize_column_config.model_dump()}},
                 ),
                 resources={"cluster": cluster},
             )
 
             # after running the job, the materialized column should have been written to all parts
-            remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_mutations_to_run).result()
+            remaining_partitions_by_shard = cluster.map_one_host_per_shard(
+                materialize_column_config.get_mutations_to_run
+            ).result()
             for _shard_host, shard_mutations in remaining_partitions_by_shard.items():
                 assert [*shard_mutations] == []
+
+            # XXX: if ee.* not importable, this text should have been xfailed by the materialize context manager
+            from ee.clickhouse.materialized_columns.columns import get_minmax_index_name
+
+            materialize_column_and_index_config = MaterializationConfig(
+                table="sharded_events",
+                columns=[column.name],
+                indexes=[get_minmax_index_name(column.name)],
+                partitions=partitions,
+            )
+
+            remaining_partitions_by_shard = cluster.map_one_host_per_shard(
+                materialize_column_and_index_config.get_mutations_to_run
+            ).result()
+            for _shard_host, shard_mutations in remaining_partitions_by_shard.items():
+                shard_mutations = [*shard_mutations]
+                assert len(shard_mutations) == 3
+                for mutation in shard_mutations:
+                    # skip the column (as it has been materialized), but materialize the index
+                    assert all("MATERIALIZE INDEX" in command for command in mutation.commands)
+
+            materialize_column.execute_in_process(
+                run_config=dagster.RunConfig(
+                    {run_materialize_mutations.name: {"config": materialize_column_config.model_dump()}},
+                ),
+                resources={"cluster": cluster},
+            )
+
+            # XXX: ideally we'd assert here that the index now exists, but there is no way to do that like there is for columns

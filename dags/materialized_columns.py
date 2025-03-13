@@ -121,6 +121,8 @@ class MaterializationConfig(dagster.Config):
             for column in columns_remaining_by_partition[partition]:
                 commands.add(f"MATERIALIZE COLUMN {column} IN PARTITION %(partition)s")
 
+            # XXX: there is no way to determine whether or not the index already exists, so unfortunately we need to
+            # materialize it unconditionally
             for index in self.indexes:
                 commands.add(f"MATERIALIZE INDEX {index} IN PARTITION %(partition)s")
 
