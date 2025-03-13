@@ -168,9 +168,9 @@ class EventsQueryRunner(QueryRunner):
             # where & having
             with self.timings.measure("where"):
                 where_list = [expr for expr in where_exprs if not has_aggregation(expr)]
-                where = ast.And(exprs=where_list) if len(where_list) > 0 else None
+                where: ast.Expr | None = ast.And(exprs=where_list) if len(where_list) > 0 else None
                 having_list = [expr for expr in where_exprs if has_aggregation(expr)]
-                having = ast.And(exprs=having_list) if len(having_list) > 0 else None
+                having: ast.Expr | None = ast.And(exprs=having_list) if len(having_list) > 0 else None
 
             # order by
             with self.timings.measure("order"):
@@ -198,7 +198,7 @@ class EventsQueryRunner(QueryRunner):
                         right=subselect,
                     )
                     if where is None:
-                        where = filter
+                        where = cast(ast.Expr, filter)
                     else:
                         where = ast.And(exprs=[where, filter])
 
