@@ -98,7 +98,10 @@ class DeltaTableHelper:
         delta_uri = self._get_delta_table_uri()
 
         s3 = get_s3_client()
-        s3.delete(delta_uri, recursive=True)
+        try:
+            s3.delete(delta_uri, recursive=True)
+        except FileNotFoundError:
+            pass
 
         self.get_delta_table.cache_clear()
 
