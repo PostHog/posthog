@@ -18,6 +18,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
         // TODO: This is a temporary action to set the active navbar item
         // We should remove this once we have a proper way to handle the navbar item
         setActiveLayoutNavBarItem: (item: PanelLayoutNavItem) => ({ item }),
+        clearActiveLayoutNavBarItem: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         clearSearch: true,
         setPanelTreeRef: (ref: React.RefObject<LemonTreeRef>) => ({ ref }),
@@ -51,7 +52,13 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
                 toggleLayoutPanelPinned: (_, { pinned }) => pinned,
             },
         ],
-        activeLayoutNavBarItem: ['', { setActiveLayoutNavBarItem: (_, { item }) => item }],
+        activeLayoutNavBarItem: [
+            '',
+            {
+                setActiveLayoutNavBarItem: (_, { item }) => item,
+                clearActiveLayoutNavBarItem: () => '',
+            },
+        ],
         searchTerm: [
             '',
             {

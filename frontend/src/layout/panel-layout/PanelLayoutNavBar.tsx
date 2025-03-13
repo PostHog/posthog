@@ -40,7 +40,7 @@ const panelStyles = cva('z-[var(--z-project-panel-layout)] h-screen left-0', {
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const { showLayoutPanel, setActiveLayoutNavBarItem } = useActions(panelLayoutLogic)
+    const { showLayoutPanel, setActiveLayoutNavBarItem, clearActiveLayoutNavBarItem } = useActions(panelLayoutLogic)
     const { isLayoutPanelVisible, activeLayoutNavBarItem } = useValues(panelLayoutLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { navbarItems } = useValues(navigation3000Logic)
@@ -122,6 +122,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             <LemonButton
                                 className="hover:bg-fill-highlight-100"
                                 fullWidth
+                                disabledReason="Coming soon"
                                 icon={
                                     <IconWrapper>
                                         <IconBolt />
@@ -157,24 +158,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 onClick={() => handleClick('persons')}
                             >
                                 <span>People</span>
-                            </LemonButton>
-
-                            <LemonButton
-                                className="hover:bg-fill-highlight-100"
-                                fullWidth
-                                icon={
-                                    <IconWrapper>
-                                        <IconPeople />
-                                    </IconWrapper>
-                                }
-                                size="small"
-                                sideIcon={
-                                    <IconWrapper size="sm">
-                                        <IconChevronRight />
-                                    </IconWrapper>
-                                }
-                            >
-                                <span>Products</span>
                             </LemonButton>
 
                             <LemonButton
@@ -225,6 +208,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                     size="small"
                                                     to={'to' in item ? item.to : undefined}
                                                     onClick={() => {
+                                                        clearActiveLayoutNavBarItem()
                                                         item.onClick?.()
                                                     }}
                                                 >

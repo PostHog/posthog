@@ -64,7 +64,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         activeLayoutNavBarItem,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { showLayoutPanel, showLayoutNavBar } = useActions(panelLayoutLogic)
+    const { showLayoutPanel, showLayoutNavBar, clearActiveLayoutNavBarItem } = useActions(panelLayoutLogic)
 
     const showMobileNavbarOverlay = isLayoutNavbarVisibleForMobile
     const showDesktopNavbarOverlay = isLayoutNavbarVisibleForDesktop && !isLayoutPanelPinned && isLayoutPanelVisible
@@ -94,6 +94,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     onClick={() => {
                         showLayoutNavBar(false)
                         showLayoutPanel(false)
+                        clearActiveLayoutNavBarItem()
                     }}
                     className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
                 />
@@ -102,6 +103,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 <div
                     onClick={() => {
                         showLayoutPanel(false)
+                        clearActiveLayoutNavBarItem()
                     }}
                     className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
                 />
