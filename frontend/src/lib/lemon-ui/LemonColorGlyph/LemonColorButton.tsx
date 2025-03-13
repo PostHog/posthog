@@ -3,21 +3,21 @@ import './LemonColorButton.scss'
 import { cn } from 'lib/utils/css-classes'
 
 import { LemonButton, LemonButtonProps } from '../LemonButton'
-import { LemonColorGlyph } from './LemonColorGlyph'
+import { LemonColorGlyph, LemonColorGlyphProps } from './LemonColorGlyph'
 
-type LemonColorButtonProps = LemonButtonProps & {
-    color: string
-}
+export type LemonColorButtonProps = Pick<LemonColorGlyphProps, 'themeId' | 'color' | 'colorToken'> & LemonButtonProps
 
 export function LemonColorButton({
-    color,
     type = 'secondary',
     className,
+    color,
+    colorToken,
+    themeId,
     ...rest
 }: LemonColorButtonProps): JSX.Element {
     return (
         <LemonButton type={type} className={cn('LemonColorButton', className)} {...rest}>
-            <LemonColorGlyph color={color} />
+            <LemonColorGlyph color={color} colorToken={colorToken} themeId={themeId} />
         </LemonButton>
     )
 }

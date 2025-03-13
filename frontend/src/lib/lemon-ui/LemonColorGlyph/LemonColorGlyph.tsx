@@ -8,28 +8,18 @@ import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-type CommonProps = {
+export type LemonColorGlyphProps = {
     /** Overwrite the theme id from the context e.g. an insight that has a custom theme set. */
     themeId?: string | null
     /** Additional class names. */
     className?: string
     /** Content to display inside the glyph. */
     children?: React.ReactNode
-}
-
-type ColorBasedProps = CommonProps & {
     /** 6-digit hex color to display. */
     color?: string | null
-    colorToken?: null
-}
-
-type TokenBasedProps = CommonProps & {
-    color?: null
-    /** Color token to display. */
+    /** Color token to display. Takes precedence over `color`. */
     colorToken?: DataColorToken | null
 }
-
-type LemonColorGlyphProps = ColorBasedProps | TokenBasedProps
 
 /** Takes a 6-digit hex color or a color token and displays it as a glyph. */
 export function LemonColorGlyph({
