@@ -288,7 +288,6 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
     try:
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
-            # Get the workflow ID from the activity info
             workflow_id = temporalio.activity.info().workflow_id
 
             saved_query = await get_saved_query(team, model.label)

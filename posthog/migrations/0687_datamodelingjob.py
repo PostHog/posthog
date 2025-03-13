@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0684_action_embedding_last_synced_at_and_more"),
+        ("posthog", "0686_alter_errortrackingissue_status"),
     ]
 
     operations = [
