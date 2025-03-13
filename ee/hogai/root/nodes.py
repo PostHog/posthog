@@ -27,7 +27,7 @@ from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
-RouteName = Literal["trends", "funnel", "retention", "root", "end", "docs"]
+RouteName = Literal["root", "trends", "funnel", "retention", "sql", "docs", "end"]
 
 
 # Lower casing matters here. Do not change it.
@@ -40,7 +40,7 @@ class create_and_query_insight(BaseModel):
     """
 
     query_description: str = Field(description="The description of the query being asked.")
-    query_kind: Literal["trends", "funnel", "retention"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
+    query_kind: Literal["trends", "funnel", "retention", "sql"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 
 class search_documentation(BaseModel):

@@ -35,6 +35,7 @@ import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
+    DataVisualizationNode,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -2788,7 +2789,9 @@ export interface HistogramGraphDatum {
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
-export interface InsightLogicProps<T = InsightVizNode> {
+export interface InsightLogicProps<
+    T extends InsightVizNode | DataVisualizationNode = InsightVizNode | DataVisualizationNode
+> {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
