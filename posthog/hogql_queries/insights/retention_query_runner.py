@@ -3,7 +3,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from math import ceil
-from typing import Any
+from typing import Any, cast
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -537,7 +537,7 @@ class RetentionQueryRunner(QueryRunner):
             )
 
             # Create subquery to identify qualified actors for this interval
-            where_clauses = [
+            where_clauses: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Field(chain=["start_interval_index"]),
@@ -554,8 +554,10 @@ class RetentionQueryRunner(QueryRunner):
                     )
                 )
 
-            actor_subquery = parse_select(
-                """
+            actor_subquery = cast(
+                ast.SelectQuery,
+                parse_select(
+                    """
                 SELECT
                     actor_id,
                     start_interval_index,
@@ -563,9 +565,10 @@ class RetentionQueryRunner(QueryRunner):
                 FROM
                     {actor_query}
                 """,
-                {
-                    "actor_query": self.actor_query(),
-                },
+                    {
+                        "actor_query": self.actor_query(),
+                    },
+                ),
             )
 
             actor_subquery.where = ast.And(exprs=where_clauses)
@@ -581,8 +584,10 @@ class RetentionQueryRunner(QueryRunner):
             event_filters = self.events_where_clause(event_query_type)
 
             # The event query will join actors with their events
-            events_query = parse_select(
-                """
+            events_query = cast(
+                ast.SelectQuery,
+                parse_select(
+                    """
                 SELECT
                     events.timestamp as 'timestamp',
                     events.event as 'event',
@@ -633,31 +638,32 @@ class RetentionQueryRunner(QueryRunner):
                 ORDER BY
                     events.timestamp
                 """,
-                {
-                    "actor_subquery": actor_subquery,
-                    "join_condition": ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["events", target_field]),
-                        right=ast.Field(chain=["actors", "actor_id"]),
-                    ),
-                    "start_of_interval_sql": self.query_date_range.get_start_of_interval_hogql(
-                        source=ast.Field(chain=["events", "timestamp"])
-                    ),
-                    "interval_start": ast.Constant(value=interval_start),
-                    "interval_next": ast.Constant(
-                        value=interval_start
-                        + self.query_date_range.determine_time_delta(1, self.query_date_range.interval_name.title())
-                    ),
-                    "lookahead_end": ast.Constant(value=lookahead_end),
-                    "start_entity_expr": entity_to_expr(self.start_event, self.team),
-                    "return_entity_expr": entity_to_expr(self.return_event, self.team),
-                },
-                timings=self.timings,
+                    {
+                        "actor_subquery": actor_subquery,
+                        "join_condition": ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["events", target_field]),
+                            right=ast.Field(chain=["actors", "actor_id"]),
+                        ),
+                        "start_of_interval_sql": self.query_date_range.get_start_of_interval_hogql(
+                            source=ast.Field(chain=["events", "timestamp"])
+                        ),
+                        "interval_start": ast.Constant(value=interval_start),
+                        "interval_next": ast.Constant(
+                            value=interval_start
+                            + self.query_date_range.determine_time_delta(1, self.query_date_range.interval_name.title())
+                        ),
+                        "lookahead_end": ast.Constant(value=lookahead_end),
+                        "start_entity_expr": entity_to_expr(self.start_event, self.team),
+                        "return_entity_expr": entity_to_expr(self.return_event, self.team),
+                    },
+                    timings=self.timings,
+                ),
             )
 
             # Add additional filters if they exist
             if event_filters:
                 existing_where = events_query.where
-                events_query.where = ast.And(exprs=[existing_where, ast.And(exprs=event_filters)])
+                events_query.where = ast.And(exprs=[cast(ast.Expr, existing_where), ast.And(exprs=event_filters)])
 
             return events_query
