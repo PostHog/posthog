@@ -85,6 +85,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
             config = MaterializationConfig(
                 table="sharded_events",
                 columns=[column.name],
+                indexes=[],
                 partitions=partitions,
             )
 

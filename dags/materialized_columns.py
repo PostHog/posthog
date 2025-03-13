@@ -66,6 +66,7 @@ class PartitionRange(dagster.Config):
 class MaterializationConfig(dagster.Config):
     table: str
     columns: list[str]
+    indexes: list[str]
     partitions: PartitionRange  # TODO: make optional for non-partitioned tables
 
     def get_mutations_to_run(self, client: Client) -> Iterable[AlterTableMutationRunner]:
@@ -115,13 +116,16 @@ class MaterializationConfig(dagster.Config):
                 columns_remaining_by_partition[partition].add(column)
 
         for partition in reversed([*self.partitions.iter_ids()]):
-            columns_remaining = columns_remaining_by_partition[partition]
-            if columns_remaining:
-                yield AlterTableMutationRunner(
-                    self.table,
-                    {f"MATERIALIZE COLUMN {column} IN PARTITION %(partition)s" for column in columns_remaining},
-                    parameters={"partition": partition},
-                )
+            commands = set()
+
+            for column in columns_remaining_by_partition[partition]:
+                commands.add(f"MATERIALIZE COLUMN {column} IN PARTITION %(partition)s")
+
+            for index in self.indexes:
+                commands.add(f"MATERIALIZE INDEX {index} IN PARTITION %(partition)s")
+
+            if commands:
+                yield AlterTableMutationRunner(self.table, commands, parameters={"partition": partition})
 
 
 @dagster.op
