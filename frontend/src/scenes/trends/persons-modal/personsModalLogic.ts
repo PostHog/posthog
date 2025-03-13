@@ -366,13 +366,20 @@ export const personsModalLogic = kea<personsModalLogicType>([
         ],
         insightEventsQueryUrl: [
             (s) => [s.actorsQuery],
-            (actorsQuery): string | null => {
+            (actorsQuery: ActorsQuery): string | null => {
                 if (!actorsQuery) {
                     return null
                 }
 
                 // Generate insight events query from actors query
                 const { select: _select, ...source } = actorsQuery
+
+                const kind =
+                    actorsQuery.source && 'source' in actorsQuery.source ? actorsQuery.source.source?.kind : null
+
+                if (!kind || ![NodeKind.TrendsQuery].includes(kind)) {
+                    return null
+                }
 
                 const { includeRecordings, ...insightActorsQuery } = source.source as InsightActorsQuery
 

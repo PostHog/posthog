@@ -291,10 +291,11 @@ export function PersonsModal({
                                 <LemonButton
                                     type="primary"
                                     to={insightEventsQueryUrl}
-                                    data-attr="person-modal-new-insight"
+                                    data-attr="person-modal-view-events"
                                     onClick={() => {
                                         closeModal()
                                     }}
+                                    targetBlank
                                 >
                                     View events
                                 </LemonButton>
