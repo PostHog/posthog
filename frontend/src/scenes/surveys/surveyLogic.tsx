@@ -278,6 +278,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setDateRange: (dateRange: SurveyDateRange) => ({ dateRange }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
+        setIsDuplicateToProjectModalOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -364,6 +365,25 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 actions.reportSurveyCreated(createdSurvey, true)
                 return survey
+            },
+        },
+        duplicatedToProjectSurvey: {
+            duplicateToProject: async ({ sourceSurvey, targetTeamId }) => {
+                const payload = duplicateExistingSurvey(sourceSurvey)
+                const createdSurvey = await api.surveys.create(sanitizeQuestions(payload), targetTeamId)
+
+                lemonToast.success('Survey duplicated to another project.', {
+                    toastId: `survey-duplicated-to-project-${createdSurvey.id}`,
+                    button: {
+                        label: 'View Survey',
+                        action: () => {
+                            window.open(`${window.location.origin}/project/${targetTeamId}/surveys/${createdSurvey.id}`)
+                        },
+                    },
+                })
+
+                actions.reportSurveyCreated(createdSurvey, true)
+                return sourceSurvey
             },
         },
         surveyUserStats: {
@@ -780,6 +800,9 @@ export const surveyLogic = kea<surveyLogicType>([
             duplicateSurveySuccess: () => {
                 actions.loadSurveys()
             },
+            duplicateToProjectSuccess: () => {
+                actions.loadSurveys()
+            },
             launchSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} launched</>)
                 actions.loadSurveys()
@@ -865,6 +888,12 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 editingSurvey: (_, { editing }) => editing,
+            },
+        ],
+        isDuplicateToProjectModalOpen: [
+            false,
+            {
+                setIsDuplicateToProjectModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
         surveyMissing: [
