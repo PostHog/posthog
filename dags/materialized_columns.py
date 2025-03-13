@@ -2,7 +2,7 @@ import datetime
 import itertools
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Mapping
-from typing import ClassVar, TypeVar
+from typing import ClassVar, TypeVar, cast
 
 import dagster
 import pydantic
@@ -11,7 +11,7 @@ from dateutil.relativedelta import relativedelta
 
 from dags.common import JobOwners
 from posthog import settings
-from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster
+from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, HostInfo
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -128,6 +128,18 @@ class MaterializationConfig(dagster.Config):
                 yield AlterTableMutationRunner(self.table, commands, parameters={"partition": partition})
 
 
+T = TypeVar("T")
+
+
+def _convert_hostinfo_keys_to_shard_num(input: Mapping[HostInfo, T]) -> Mapping[int, T]:
+    """Convert the keys of the input mapping to (non-optional) shard numbers."""
+    # this is mostly to appease the type checker, as the shard operations on the cluster interface do not have a method
+    # to return a shard_num that is non-optional. this should be able to be removed in the future once that is improved
+    result = {host.shard_num: value for host, value in input.items()}
+    assert None not in result.keys()
+    return cast(Mapping[int, T], result)
+
+
 @dagster.op
 def run_materialize_mutations(
     context: dagster.OpExecutionContext,
@@ -138,18 +150,12 @@ def run_materialize_mutations(
     # same set of partitions already materialized, or that a materialization mutation already exists (and is running) if
     # they are lagging behind. (If _this_ host is lagging behind the others, the mutation runner should prevent us from
     # scheduling duplicate mutations on the shard.)
-    mutations_to_run_by_shard = {
-        host.shard_num: mutations
-        for host, mutations in cluster.map_one_host_per_shard(config.get_mutations_to_run).result().items()
-        if host.shard_num is not None  # XXX: need to fix
-    }
+    mutations_to_run_by_shard = _convert_hostinfo_keys_to_shard_num(
+        cluster.map_one_host_per_shard(config.get_mutations_to_run).result()
+    )
 
     for mutations in zip_values(mutations_to_run_by_shard):
-        shard_waiters = {
-            host.shard_num: waiter
-            for host, waiter in cluster.map_any_host_in_shards(mutations).result().items()
-            if host.shard_num is not None  # XXX: need to fix
-        }
+        shard_waiters = _convert_hostinfo_keys_to_shard_num(cluster.map_any_host_in_shards(mutations).result())
         cluster.map_all_hosts_in_shards(shard_waiters).result()
 
 
