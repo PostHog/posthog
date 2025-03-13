@@ -1,19 +1,22 @@
 use core::str;
 use std::sync::Arc;
 
-use common_symbol_data::{read_symbol_data, SourceAndMap};
+use axum::async_trait;
 use common_types::ClickHouseEvent;
 use cymbal::{
     config::Config,
+    error::ChunkIdError,
     frames::{Frame, RawFrame},
     symbol_store::{
         caching::{Caching, SymbolSetCache},
+        chunk_id::ChunkId,
         sourcemap::{OwnedSourceMapCache, SourcemapProvider},
-        Catalog,
+        Catalog, Provider,
     },
     types::{RawErrProps, Stacktrace},
 };
 use httpmock::MockServer;
+use posthog_symbol_data::{read_symbol_data, SourceAndMap};
 use symbolic::sourcemapcache::SourcePosition;
 use tokio::sync::Mutex;
 
@@ -21,6 +24,19 @@ const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
 const MINIFIED: &[u8] = include_bytes!("../tests/static/chunk-PGUQKT6S.js");
 const MAP: &[u8] = include_bytes!("../tests/static/chunk-PGUQKT6S.js.map");
 const EXAMPLE_EXCEPTION: &str = include_str!("../tests/static/raw_ch_exception_list.json");
+
+pub struct UnimplementedProvider;
+
+#[async_trait]
+impl Provider for UnimplementedProvider {
+    type Ref = ChunkId;
+    type Set = OwnedSourceMapCache;
+    type Err = ChunkIdError;
+
+    async fn lookup(&self, _team_id: i32, _r: Self::Ref) -> Result<Arc<Self::Set>, Self::Err> {
+        unimplemented!()
+    }
+}
 
 #[tokio::test]
 async fn end_to_end_resolver_test() {
@@ -73,7 +89,7 @@ async fn end_to_end_resolver_test() {
         config.symbol_store_cache_max_bytes,
     )));
 
-    let catalog = Catalog::new(Caching::new(sourcemap, cache));
+    let catalog = Catalog::new(Caching::new(sourcemap, cache), UnimplementedProvider);
 
     let mut resolved_frames = Vec::new();
     for frame in test_stack {

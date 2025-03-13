@@ -2,7 +2,16 @@ use posthog_cli::cmd;
 use tracing::{error, info};
 
 fn main() {
-    tracing_subscriber::fmt::init();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive(tracing::Level::INFO.into()),
+        )
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
+
     match cmd::Cli::run() {
         Ok(_) => info!("All done, happy hogging!"),
         Err(e) => {

@@ -3,7 +3,6 @@ import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-
 import { useActions, useValues } from 'kea'
 import { WavingHog } from 'lib/components/hedgehogs'
 import { useEffect, useState } from 'react'
-import { urls } from 'scenes/urls'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
 
@@ -59,13 +58,7 @@ export const PaymentForm = (): JSX.Element => {
     )
 }
 
-interface PaymentEntryModalProps {
-    redirectPath?: string | null
-}
-
-export const PaymentEntryModal = ({
-    redirectPath = urls.organizationBilling(),
-}: PaymentEntryModalProps): JSX.Element => {
+export const PaymentEntryModal = (): JSX.Element => {
     const { clientSecret, paymentEntryModalOpen } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization } = useActions(paymentEntryLogic)
     const [stripePromise, setStripePromise] = useState<any>(null)
@@ -84,9 +77,9 @@ export const PaymentEntryModal = ({
 
     useEffect(() => {
         if (paymentEntryModalOpen) {
-            initiateAuthorization(redirectPath)
+            initiateAuthorization()
         }
-    }, [paymentEntryModalOpen, initiateAuthorization, redirectPath])
+    }, [paymentEntryModalOpen, initiateAuthorization])
 
     return (
         <LemonModal
