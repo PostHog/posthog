@@ -1,12 +1,16 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { BlushingHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import planCheap from 'public/plan_cheap.svg'
+import planEnterprise from 'public/plan_enterprise.svg'
+import planFree from 'public/plan_free.svg'
+import planStartup from 'public/plan_startup.svg'
+import planYc from 'public/plan_yc.svg'
 import useResizeObserver from 'use-resize-observer'
 
-import { BillingProductV2Type } from '~/types'
+import { BillingPlan, BillingProductV2Type } from '~/types'
 
 import { getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -14,15 +18,24 @@ import { billingProductLogic } from './billingProductLogic'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { PlanComparisonModal } from './PlanComparison'
 
+const PLAN_BADGES: Record<BillingPlan, string> = {
+    [BillingPlan.Free]: planFree,
+    [BillingPlan.Cheap]: planCheap,
+    [BillingPlan.Teams]: planCheap,
+    [BillingPlan.Enterprise]: planEnterprise,
+    [BillingPlan.Startups]: planStartup,
+    [BillingPlan.YC]: planYc,
+}
+
 export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { width, ref: billingHeroRef } = useResizeObserver()
     const { featureFlags } = useValues(featureFlagLogic)
-
     const { showPaymentEntryModal } = useActions(paymentEntryLogic)
-
-    const { redirectPath } = useValues(billingLogic)
+    const { redirectPath, billingPlan } = useValues(billingLogic)
     const { isPlanComparisonModalOpen, billingProductLoading } = useValues(billingProductLogic({ product }))
     const { toggleIsPlanComparisonModalOpen, setBillingProductLoading } = useActions(billingProductLogic({ product }))
+
+    const showUpgradeOptions = billingPlan !== BillingPlan.Enterprise
 
     return (
         <div
@@ -40,57 +53,61 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                     </p>
                     <p className="italic">P.S. You still keep the monthly free allotment for every product!</p>
                 </div>
-                <div className="flex justify-start deprecated-space-x-2">
-                    {featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
-                        <BillingUpgradeCTA
+                {showUpgradeOptions && (
+                    <div className="flex justify-start deprecated-space-x-2">
+                        {featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
+                            <BillingUpgradeCTA
+                                className="mt-4 inline-block"
+                                type="primary"
+                                status="alt"
+                                data-attr="billing-page-core-upgrade-cta"
+                                disableClientSideRouting
+                                loading={!!billingProductLoading}
+                                onClick={() => showPaymentEntryModal()}
+                            >
+                                Upgrade now
+                            </BillingUpgradeCTA>
+                        ) : (
+                            <BillingUpgradeCTA
+                                className="mt-4 inline-block"
+                                to={getUpgradeProductLink({
+                                    product,
+                                    redirectPath,
+                                })}
+                                type="primary"
+                                status="alt"
+                                data-attr="billing-page-core-upgrade-cta"
+                                disableClientSideRouting
+                                loading={!!billingProductLoading}
+                                onClick={() => setBillingProductLoading(product.type)}
+                            >
+                                Upgrade now
+                            </BillingUpgradeCTA>
+                        )}
+                        <LemonButton
                             className="mt-4 inline-block"
+                            onClick={() => toggleIsPlanComparisonModalOpen()}
                             type="primary"
-                            status="alt"
-                            data-attr="billing-page-core-upgrade-cta"
-                            disableClientSideRouting
-                            loading={!!billingProductLoading}
-                            onClick={() => showPaymentEntryModal()}
                         >
-                            Upgrade now
-                        </BillingUpgradeCTA>
-                    ) : (
-                        <BillingUpgradeCTA
-                            className="mt-4 inline-block"
-                            to={getUpgradeProductLink({
-                                product,
-                                redirectPath,
-                            })}
-                            type="primary"
-                            status="alt"
-                            data-attr="billing-page-core-upgrade-cta"
-                            disableClientSideRouting
-                            loading={!!billingProductLoading}
-                            onClick={() => setBillingProductLoading(product.type)}
-                        >
-                            Upgrade now
-                        </BillingUpgradeCTA>
-                    )}
-                    <LemonButton
-                        className="mt-4 inline-block"
-                        onClick={() => toggleIsPlanComparisonModalOpen()}
-                        type="primary"
-                    >
-                        Compare plans
-                    </LemonButton>
-                </div>
+                            Compare plans
+                        </LemonButton>
+                    </div>
+                )}
             </div>
             {width && width > 500 && (
                 <div className="shrink-0 relative w-50 pt-4 overflow-hidden">
-                    <BlushingHog className="w-50 h-50 -my-5" />
+                    <img src={PLAN_BADGES[billingPlan]} alt={`${billingPlan} plan badge`} className="w-50 h-50 -my-5" />
                 </div>
             )}
-            <PlanComparisonModal
-                product={product}
-                title="Compare our plans"
-                includeAddons={false}
-                modalOpen={isPlanComparisonModalOpen}
-                onClose={() => toggleIsPlanComparisonModalOpen()}
-            />
+            {showUpgradeOptions && (
+                <PlanComparisonModal
+                    product={product}
+                    title="Compare our plans"
+                    includeAddons={false}
+                    modalOpen={isPlanComparisonModalOpen}
+                    onClose={() => toggleIsPlanComparisonModalOpen()}
+                />
+            )}
         </div>
     )
 }
