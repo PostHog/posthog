@@ -3,8 +3,6 @@ import { SortableDragIcon } from 'lib/lemon-ui/icons'
 
 interface SurveyDragHandleProps {
     listeners: DraggableSyntheticListeners | undefined
-    isDraftSurvey: boolean
-    allQuestionsHaveIds: boolean
     hasMultipleQuestions: boolean
 }
 
@@ -14,17 +12,8 @@ const DragHandle = ({ listeners }: { listeners: DraggableSyntheticListeners | un
     </span>
 )
 
-export function SurveyDragHandle({
-    listeners,
-    isDraftSurvey,
-    hasMultipleQuestions,
-    allQuestionsHaveIds,
-}: SurveyDragHandleProps): JSX.Element | null {
+export function SurveyDragHandle({ listeners, hasMultipleQuestions }: SurveyDragHandleProps): JSX.Element | null {
     if (!hasMultipleQuestions) {
-        return null
-    }
-
-    if (!allQuestionsHaveIds && !isDraftSurvey) {
         return null
     }
 
