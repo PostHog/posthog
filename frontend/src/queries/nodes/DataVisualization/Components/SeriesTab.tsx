@@ -1,6 +1,7 @@
 import { IconGear, IconPlusSmall, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
+    LemonColorGlyph,
     LemonInput,
     LemonLabel,
     LemonSegmentedButton,
@@ -13,7 +14,6 @@ import {
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
-import { LemonColorGlyph } from 'lib/lemon-ui/LemonColorGlyph/LemonColorGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'

@@ -1,6 +1,5 @@
-import { LemonButton, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonColorGlyph, Popover } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { LemonColorGlyph } from 'lib/lemon-ui/LemonColorGlyph/LemonColorGlyph'
 import { lightenDarkenColor, RGBToHex } from 'lib/utils'
 import { useState } from 'react'
 import { ColorResult, TwitterPicker } from 'react-color'

@@ -1,6 +1,5 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonColorButton, LemonColorGlyph } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonColorGlyph } from 'lib/lemon-ui/LemonColorGlyph/LemonColorGlyph'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -31,16 +30,16 @@ export function ColorCustomizationColumnItem({ item }: { item: IndexedTrendResul
     const color = getTrendsColor(item)
 
     return (
-        <LemonButton
+        <LemonColorButton
+            color={color}
             onClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
 
                 openModal(item)
             }}
+            type="tertiary"
             size="small"
-        >
-            <CustomizationIcon color={color} />
-        </LemonButton>
+        />
     )
 }
