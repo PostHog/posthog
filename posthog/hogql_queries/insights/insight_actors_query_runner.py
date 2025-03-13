@@ -95,6 +95,9 @@ class InsightActorsQueryRunner(QueryRunner):
         if isinstance(self.source_runner, RetentionQueryRunner):
             retention_runner = cast(RetentionQueryRunner, self.source_runner)
             query = cast(InsightActorsQuery, self.query)
+            if query.interval is None:
+                raise ValueError("Interval is required for insight retention events query")
+
             return retention_runner.to_events_query(
                 interval=query.interval,
             )
