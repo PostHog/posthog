@@ -173,7 +173,7 @@ const teamActionsMapping: Record<
         if (blockSelectorChanged) {
             descriptions.push(
                 <>
-                    {change?.action === 'created' ? 'set' : 'changed'} blocking {blockSelectorAfter} in session replay
+                    {change?.action === 'created' ? 'set' : 'changed'} blocking selector to "{blockSelectorAfter}"
                 </>
             )
         }
