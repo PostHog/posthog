@@ -9,10 +9,8 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
-import { memo } from 'react'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightLogicProps, ProductKey } from '~/types'
 
 import { pageReportsLogic } from './pageReportsLogic'
@@ -87,46 +85,6 @@ function PageUrlSearchHeader(): JSX.Element {
     )
 }
 
-// Map tile IDs to breakdown types
-const tileToBreakdown: Record<
-    | TileId.PAGE_REPORTS_ENTRY_PATHS
-    | TileId.PAGE_REPORTS_EXIT_PATHS
-    | TileId.PAGE_REPORTS_OUTBOUND_CLICKS
-    | TileId.PAGE_REPORTS_CHANNELS
-    | TileId.PAGE_REPORTS_REFERRERS
-    | TileId.PAGE_REPORTS_DEVICE_TYPES
-    | TileId.PAGE_REPORTS_BROWSERS
-    | TileId.PAGE_REPORTS_OPERATING_SYSTEMS
-    | TileId.PAGE_REPORTS_COUNTRIES
-    | TileId.PAGE_REPORTS_REGIONS
-    | TileId.PAGE_REPORTS_CITIES
-    | TileId.PAGE_REPORTS_TIMEZONES
-    | TileId.PAGE_REPORTS_LANGUAGES,
-    WebStatsBreakdown
-> = {
-    // Path tiles
-    [TileId.PAGE_REPORTS_ENTRY_PATHS]: WebStatsBreakdown.InitialPage,
-    [TileId.PAGE_REPORTS_EXIT_PATHS]: WebStatsBreakdown.ExitPage,
-    [TileId.PAGE_REPORTS_OUTBOUND_CLICKS]: WebStatsBreakdown.ExitClick,
-
-    // Source tiles
-    [TileId.PAGE_REPORTS_CHANNELS]: WebStatsBreakdown.InitialChannelType,
-    [TileId.PAGE_REPORTS_REFERRERS]: WebStatsBreakdown.InitialReferringDomain,
-
-    // Device tiles
-    [TileId.PAGE_REPORTS_DEVICE_TYPES]: WebStatsBreakdown.DeviceType,
-    [TileId.PAGE_REPORTS_BROWSERS]: WebStatsBreakdown.Browser,
-    [TileId.PAGE_REPORTS_OPERATING_SYSTEMS]: WebStatsBreakdown.OS,
-
-    // Geography tiles
-    [TileId.PAGE_REPORTS_COUNTRIES]: WebStatsBreakdown.Country,
-    [TileId.PAGE_REPORTS_REGIONS]: WebStatsBreakdown.Region,
-    [TileId.PAGE_REPORTS_CITIES]: WebStatsBreakdown.City,
-    [TileId.PAGE_REPORTS_TIMEZONES]: WebStatsBreakdown.Timezone,
-    [TileId.PAGE_REPORTS_LANGUAGES]: WebStatsBreakdown.Language,
-}
-
-// Define SimpleTile as a standalone component outside of PageReports
 interface SimpleTileProps {
     title: string
     description: string
@@ -143,135 +101,129 @@ interface SimpleTileProps {
     pageUrl: string | null
 }
 
-// Memoize the component to prevent unnecessary re-renders
-const SimpleTile = memo(
-    ({
-        title,
-        description,
-        query,
-        tileId,
-        tabId,
-        pageReportsTileId,
-        createInsightProps,
-        getNewInsightUrl,
-        openModal,
-        dateFilter,
-        shouldFilterTestAccounts,
-        compareFilter,
-        pageUrl,
-    }: SimpleTileProps): JSX.Element => {
-        // Use the tileVisualizationLogic with its own key - MUST be called before any conditionals
-        const uniqueKey = `${pageReportsTileId || tileId}-${tabId}`
-        const { visualization } = useValues(tileVisualizationLogic({ tileId: uniqueKey, tabId }))
-        const { setVisualization } = useActions(tileVisualizationLogic({ tileId: uniqueKey, tabId }))
+const SimpleTile = ({
+    title,
+    description,
+    query,
+    tileId,
+    tabId,
+    pageReportsTileId,
+    createInsightProps,
+    getNewInsightUrl,
+    openModal,
+    dateFilter,
+    shouldFilterTestAccounts,
+    compareFilter,
+    pageUrl,
+}: SimpleTileProps): JSX.Element => {
+    // Use the tileVisualizationLogic with its own key - MUST be called before any conditionals
+    const uniqueKey = `${pageReportsTileId || tileId}-${tabId}`
+    const { visualization } = useValues(tileVisualizationLogic({ tileId: uniqueKey, tabId }))
+    const { setVisualization } = useActions(tileVisualizationLogic({ tileId: uniqueKey, tabId }))
 
-        if (!tileId || !tabId) {
-            return <div>Invalid tile configuration</div>
-        }
+    if (!tileId || !tabId) {
+        return <div>Invalid tile configuration</div>
+    }
 
-        const insightUrl = getNewInsightUrl(tileId, tabId)
+    const insightUrl = getNewInsightUrl(tileId, tabId)
 
-        // Get the appropriate breakdown for this tile
-        const breakdownBy = pageReportsTileId && tileToBreakdown[pageReportsTileId]
+    // Create a processed query based on visualization type
+    let processedQuery = query
 
-        // Create a processed query based on visualization type
-        let processedQuery = query
+    if (query && visualization === 'graph') {
+        // For graph visualization, create a trends query with the appropriate breakdown
+        const breakdownFilter = getWebAnalyticsBreakdownFilter(query.source.breakdownBy)
 
-        if (query && visualization === 'graph' && breakdownBy) {
-            // For graph visualization, create a trends query with the appropriate breakdown
-            const breakdownFilter = getWebAnalyticsBreakdownFilter(breakdownBy)
-
-            processedQuery = {
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    dateRange: {
-                        date_from: dateFilter.dateFrom,
-                        date_to: dateFilter.dateTo,
-                    },
-                    interval: dateFilter.interval,
-                    series: [
-                        {
-                            event: '$pageview',
-                            kind: NodeKind.EventsNode,
-                            math: 'dau',
-                            name: '$pageview',
-                            custom_name: 'Unique visitors',
-                        },
-                    ],
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraph,
-                        showLegend: true,
-                    },
-                    breakdownFilter,
-                    filterTestAccounts: shouldFilterTestAccounts,
-                    compareFilter: compareFilter,
-                    properties: query?.source?.properties || [],
+        processedQuery = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                dateRange: {
+                    date_from: dateFilter.dateFrom,
+                    date_to: dateFilter.dateTo,
                 },
-                hidePersonsModal: true,
-                embedded: true,
-            }
+                interval: dateFilter.interval,
+                series: [
+                    {
+                        event: '$pageview',
+                        kind: NodeKind.EventsNode,
+                        math: 'dau',
+                        name: '$pageview',
+                        custom_name: 'Unique visitors',
+                    },
+                ],
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsLineGraph,
+                    showLegend: true,
+                },
+                breakdownFilter,
+                filterTestAccounts: shouldFilterTestAccounts,
+                compareFilter: compareFilter,
+                properties: query?.source?.properties || [],
+            },
+            hidePersonsModal: true,
+            embedded: true,
         }
+    }
 
-        return (
-            <div>
-                <div className="flex justify-between items-center mb-1">
-                    <div className="flex items-center">
-                        <h3 className="text-base font-semibold m-0">{title}</h3>
-                        <LearnMorePopover title={title} description={description} />
-                    </div>
-                    <div className="flex gap-1">
-                        <LemonButton
-                            icon={<IconExpand45 />}
-                            size="small"
-                            type="secondary"
-                            onClick={() => openModal(tileId, tabId)}
-                        >
-                            Expand
-                        </LemonButton>
-                        <LemonButton
-                            icon={<IconTableChart />}
-                            size="small"
-                            type="secondary"
-                            onClick={() => setVisualization('table')}
-                        >
-                            Table
-                        </LemonButton>
-                        <LemonButton
-                            icon={<IconTrending />}
-                            size="small"
-                            type="secondary"
-                            onClick={() => setVisualization('graph')}
-                        >
-                            Graph
-                        </LemonButton>
-                        {insightUrl && (
-                            <LemonButton icon={<IconOpenInNew />} size="small" type="secondary" to={insightUrl}>
-                                Open
-                            </LemonButton>
-                        )}
-                    </div>
+    return (
+        <div>
+            <div className="flex justify-between items-center mb-1">
+                <div className="flex items-center">
+                    <h3 className="text-base font-semibold m-0">{title}</h3>
+                    <LearnMorePopover title={title} description={description} />
                 </div>
-                <div>
-                    {processedQuery && (
-                        <WebQuery
-                            query={processedQuery}
-                            showIntervalSelect={false}
-                            tileId={tileId}
-                            insightProps={createInsightProps(pageReportsTileId || tileId, tabId)}
-                            key={`${pageReportsTileId || tileId}-${tabId}-${pageUrl || 'none'}-${visualization}`}
-                        />
-                    )}
-                    {!query && (
-                        <div className="text-muted text-center p-4 absolute top-0 left-0 right-0 bottom-0 flex items-center justify-center bg-white bg-opacity-80 z-10">
-                            No data available for this query
-                        </div>
+                <div className="flex gap-1">
+                    <LemonButton
+                        icon={<IconExpand45 />}
+                        size="small"
+                        type="secondary"
+                        onClick={() => openModal(tileId, tabId)}
+                    >
+                        Expand
+                    </LemonButton>
+                    <LemonButton
+                        icon={<IconTableChart />}
+                        size="small"
+                        type="secondary"
+                        onClick={() => setVisualization('table')}
+                    >
+                        Table
+                    </LemonButton>
+                    <LemonButton
+                        icon={<IconTrending />}
+                        size="small"
+                        type="secondary"
+                        onClick={() => setVisualization('graph')}
+                    >
+                        Graph
+                    </LemonButton>
+                    {insightUrl && (
+                        <LemonButton icon={<IconOpenInNew />} size="small" type="secondary" to={insightUrl}>
+                            Open
+                        </LemonButton>
                     )}
                 </div>
             </div>
-        )
-    }
-)
+            <div>
+                {processedQuery && (
+                    <WebQuery
+                        query={processedQuery}
+                        showIntervalSelect={false}
+                        tileId={tileId}
+                        insightProps={createInsightProps(pageReportsTileId || tileId, tabId)}
+                        key={`${pageReportsTileId || tileId}-${tabId}-${pageUrl || 'none'}-${visualization}`}
+                    />
+                )}
+                {!query && (
+                    <div className="text-muted text-center p-4 absolute top-0 left-0 right-0 bottom-0 flex items-center justify-center bg-white bg-opacity-80 z-10">
+                        No data available for this query
+                    </div>
+                )}
+            </div>
+        </div>
+    )
+}
 
 // For better debugging
 SimpleTile.displayName = 'SimpleTile'
