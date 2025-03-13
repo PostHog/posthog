@@ -8,6 +8,10 @@ from posthog.models.utils import sane_repr
 from posthog.utils import absolute_uri
 
 
+from django.db.models.signals import post_save, post_delete
+from django.dispatch import receiver
+
+
 class DashboardManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().exclude(deleted=True)
@@ -116,3 +120,33 @@ class Dashboard(models.Model):
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
         }
+
+
+@receiver(post_save, sender=Dashboard)
+def dashboard_file_system_sync(sender, instance: Dashboard, created, **kwargs):
+    from posthog.models.file_system import create_or_update_file, delete_file
+
+    # if it's a template or deleted, remove from file system
+    if instance.creation_mode == "template" or instance.deleted:
+        delete_file(team=instance.team, file_type="dashboard", ref=str(instance.id))
+    else:
+        create_or_update_file(
+            team=instance.team,
+            base_folder="Unfiled/Dashboards",
+            name=instance.name or "Untitled",
+            file_type="dashboard",
+            ref=str(instance.id),
+            href=f"/dashboard/{instance.id}",
+            meta={
+                "created_at": str(getattr(instance, "created_at", "")),
+                "created_by": instance.created_by_id,
+            },
+            created_by=instance.created_by,
+        )
+
+
+@receiver(post_delete, sender=Dashboard)
+def dashboard_file_system_delete(sender, instance: Dashboard, **kwargs):
+    from posthog.models.file_system import delete_file
+
+    delete_file(team=instance.team, file_type="dashboard", ref=str(instance.id))

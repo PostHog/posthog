@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from posthog.api.utils import action
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.file_system import FileSystem, save_unfiled_files, split_path
+from posthog.models.file_system import FileSystem, split_path
 from posthog.models.user import User
 from posthog.models.team import Team
 
@@ -113,8 +113,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def unfiled(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query_serializer = UnfiledFilesQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
-        file_type = query_serializer.validated_data.get("type")
-        files = save_unfiled_files(self.team, cast(User, request.user), file_type)
+        # file_type = query_serializer.validated_data.get("type")
+        # files = save_unfiled_files(self.team, cast(User, request.user), file_type)
+        files = []
 
         retroactively_fix_folders_and_depth(self.team, cast(User, request.user))
 

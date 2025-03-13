@@ -12,6 +12,9 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.signals import mutable_receiver
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
+
+from django.dispatch import receiver
+
 from posthog.constants import (
     ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
     PropertyOperatorType,
@@ -473,3 +476,42 @@ class FeatureFlagDashboards(models.Model):
                 name="unique feature flag for a dashboard",
             )
         ]
+
+
+@receiver(post_save, sender=FeatureFlag)
+def feature_flag_file_system_sync(sender, instance: FeatureFlag, created, **kwargs):
+    """
+    If a FeatureFlag is created or updated (and not deleted),
+    we create/update the corresponding FileSystem entry.
+    """
+    from posthog.models.file_system import create_or_update_file, delete_file
+
+    if instance.deleted:
+        # if marked as deleted, remove from the file system
+        delete_file(team=instance.team, file_type="feature_flag", ref=str(instance.id))
+    else:
+        # create or update
+        create_or_update_file(
+            team=instance.team,
+            base_folder="Unfiled/Feature Flags",
+            name=instance.name or "Untitled",
+            file_type="feature_flag",
+            ref=str(instance.id),
+            href=f"/feature_flags/{instance.id}",
+            meta={
+                "created_at": str(getattr(instance, "created_at", "")),
+                "created_by": instance.created_by_id,
+            },
+            created_by=instance.created_by,
+        )
+
+
+@receiver(post_delete, sender=FeatureFlag)
+def feature_flag_file_system_delete(sender, instance: FeatureFlag, **kwargs):
+    """
+    If a FeatureFlag is physically deleted from the DB,
+    remove the corresponding FileSystem entry.
+    """
+    from posthog.models.file_system import delete_file
+
+    delete_file(team=instance.team, file_type="feature_flag", ref=str(instance.id))

@@ -2,6 +2,10 @@ from django.db import models
 from django.utils import timezone
 
 
+from django.db.models.signals import post_save, post_delete
+from django.dispatch import receiver
+
+
 class Experiment(models.Model):
     class ExperimentType(models.TextChoices):
         WEB = "web", "web"
@@ -100,3 +104,29 @@ class ExperimentToSavedMetric(models.Model):
 
     def __str__(self):
         return f"{self.experiment.name} - {self.saved_metric.name} - {self.metadata}"
+
+
+@receiver(post_save, sender=Experiment)
+def experiment_file_system_sync(sender, instance: Experiment, created, **kwargs):
+    from posthog.models.file_system import create_or_update_file
+
+    create_or_update_file(
+        team=instance.team,
+        base_folder="Unfiled/Experiments",
+        name=instance.name or "Untitled",
+        file_type="experiment",
+        ref=str(instance.id),
+        href=f"/experiments/{instance.id}",
+        meta={
+            "created_at": str(getattr(instance, "created_at", "")),
+            "created_by": instance.created_by_id,
+        },
+        created_by=instance.created_by,
+    )
+
+
+@receiver(post_delete, sender=Experiment)
+def experiment_file_system_delete(sender, instance: Experiment, **kwargs):
+    from posthog.models.file_system import delete_file
+
+    delete_file(team=instance.team, file_type="experiment", ref=str(instance.id))

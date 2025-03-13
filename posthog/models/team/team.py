@@ -21,8 +21,6 @@ from django.db.models.signals import post_delete, post_save
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.helpers.dashboard_templates import create_dashboard_from_template
-from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
@@ -106,6 +104,8 @@ class TeamManager(models.Manager):
         team.test_account_filters = self.set_test_account_filters(
             kwargs.get("organization_id") or kwargs["organization"].id
         )
+        from posthog.helpers.dashboard_templates import create_dashboard_from_template
+        from posthog.models.dashboard import Dashboard
 
         # Create default dashboards
         dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)

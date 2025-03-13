@@ -15,6 +15,9 @@ from posthog.models.filters.utils import get_filter
 from posthog.models.utils import sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
+from django.db.models.signals import post_save, post_delete
+from django.dispatch import receiver
+
 logger = structlog.get_logger(__name__)
 
 
@@ -256,3 +259,34 @@ def generate_insight_filters_hash(insight: Insight, dashboard: Optional[Dashboar
             exc_info=True,
         )
         raise
+
+
+@receiver(post_save, sender=Insight)
+def insight_file_system_sync(sender, instance: Insight, created, **kwargs):
+    from posthog.models.file_system import create_or_update_file, delete_file
+
+    if instance.deleted or not instance.saved:
+        # If it's deleted or not saved, remove from file system
+        delete_file(team=instance.team, file_type="insight", ref=instance.short_id)
+    else:
+        create_or_update_file(
+            team=instance.team,
+            base_folder="Unfiled/Insights",
+            name=instance.name or "Untitled",
+            file_type="insight",
+            ref=instance.short_id,  # use short_id here
+            href=f"/insights/{instance.short_id}",
+            meta={
+                "created_at": str(getattr(instance, "created_at", "")),
+                "created_by": instance.created_by_id,
+            },
+            created_by=instance.created_by,
+        )
+
+
+@receiver(post_delete, sender=Insight)
+def insight_file_system_delete(sender, instance: Insight, **kwargs):
+    # If physically removed, remove from file system
+    from posthog.models.file_system import delete_file
+
+    delete_file(team=instance.team, file_type="insight", ref=instance.short_id)
