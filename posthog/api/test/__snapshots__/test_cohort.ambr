@@ -164,8 +164,8 @@
                               FROM
                                 (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                                         e.distinct_id AS distinct_id,
-                                        e.uuid AS uuid,
-                                        toTimeZone(e.timestamp, 'UTC') AS timestamp
+                                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                                        e.uuid AS uuid
                                  FROM events AS e
                                  LEFT OUTER JOIN
                                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
