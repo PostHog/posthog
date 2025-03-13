@@ -58,7 +58,13 @@ function LinkedFlagSelector(): JSX.Element | null {
                 <LemonLabel className="text-base">
                     Enable recordings using feature flag {featureFlagLoading && <Spinner />}
                 </LemonLabel>
-                <SupportedPlatforms web={true} ios={true} android={true} reactNative={true} flutter={true} />
+                <SupportedPlatforms
+                    web={{ version: '1.110.0' }}
+                    ios={{ version: '3.11.0' }}
+                    android={{ version: '3.11.0' }}
+                    reactNative={{ version: '3.6.3' }}
+                    flutter={{ version: '4.7.0' }}
+                />
                 <p>Linking a flag means that recordings will only be collected for users who have the flag enabled.</p>
                 <div className="flex flex-row justify-start">
                     <FlagSelector
@@ -246,7 +252,7 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                                 }
                             />
                         </div>
-                        <SupportedPlatforms web={true} />
+                        <SupportedPlatforms web={{ version: '1.85.0' }} />
                         <p>
                             Use this setting to restrict the percentage of sessions that will be recorded. This is
                             useful if you want to reduce the amount of data you collect. 100% means all sessions will be
@@ -268,7 +274,7 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                                 value={currentTeam?.session_recording_minimum_duration_milliseconds}
                             />
                         </div>
-                        <SupportedPlatforms web={true} />
+                        <SupportedPlatforms web={{ version: '1.85.0' }} />
                         <p>
                             Setting a minimum session duration will ensure that only sessions that last longer than that
                             value are collected. This helps you avoid collecting sessions that are too short to be
