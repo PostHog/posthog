@@ -1666,6 +1666,7 @@ name = "cyclotron-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "flate2",
  "futures",
  "serde",
  "sqlx",

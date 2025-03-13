@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     error::QueueError,
+    ops::compress::decompress_vm_state,
     types::{Bytes, Job, JobState, JobUpdate},
 };
 
@@ -85,7 +86,7 @@ where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
     let lock_id = Uuid::now_v7();
-    Ok(sqlx::query_as!(
+    let result = sqlx::query_as!(
         Job,
         r#"
 WITH available AS (
@@ -137,7 +138,16 @@ RETURNING
         lock_id
     )
     .fetch_all(executor)
-    .await?)
+    .await
+    .expect("fetching job state");
+
+    let mut out: Vec<Job> = Vec::with_capacity(result.len());
+    for mut job in result {
+        job.vm_state = decompress_vm_state(job.vm_state);
+        out.push(job);
+    }
+
+    Ok(out)
 }
 
 pub async fn get_vm_state<'c, E>(
@@ -161,7 +171,7 @@ where
     .fetch_one(executor)
     .await?;
 
-    Ok(res.vm_state)
+    Ok(decompress_vm_state(res.vm_state))
 }
 
 // NOTE - this clears the lock_id when the job state is set to anything other than "running", since that indicates

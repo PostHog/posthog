@@ -3,14 +3,18 @@ use uuid::Uuid;
 
 use crate::{
     error::QueueError,
+    ops::compress::compress_vm_state,
     types::{JobInit, JobState},
 };
 
-pub async fn create_job<'c, E>(executor: E, data: JobInit) -> Result<Uuid, QueueError>
+pub async fn create_job<'c, E>(executor: E, mut data: JobInit) -> Result<Uuid, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
     let id = Uuid::now_v7();
+
+    data.vm_state = compress_vm_state(data.vm_state)?;
+
     sqlx::query!(
         r#"
 INSERT INTO cyclotron_jobs
@@ -79,6 +83,8 @@ where
     let mut blob = Vec::with_capacity(jobs.len());
 
     for d in jobs {
+        let vm_state = compress_vm_state(d.vm_state.clone())?;
+
         ids.push(Uuid::now_v7());
         team_ids.push(d.team_id);
         function_ids.push(d.function_id);
@@ -92,7 +98,7 @@ where
         states.push(JobState::Available);
         scheduleds.push(d.scheduled);
         priorities.push(d.priority);
-        vm_states.push(d.vm_state.clone());
+        vm_states.push(vm_state);
         metadatas.push(d.metadata.clone());
         parameters.push(d.parameters.clone());
         blob.push(d.blob.clone());
