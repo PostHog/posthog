@@ -1,8 +1,14 @@
 import { Headers, RequestInfo, RequestInit, Response } from 'node-fetch'
+import { Counter } from 'prom-client'
 
 import { defaultConfig } from '../config/config'
 import { trackedFetch } from './fetch'
 import { UUIDT } from './utils'
+
+const pluginFetchCounter = new Counter({
+    name: 'plugin_fetch_count',
+    help: 'The number of plugin fetches',
+})
 
 export interface RecordedRequest {
     url: string
@@ -40,6 +46,8 @@ export interface ComparisonResult {
         }>
     }
 }
+
+const PROPERTY_DIFFS_TO_IGNORE = new Set(['sentAt'])
 
 export class HttpCallRecorder {
     private calls: RecordedHttpCall[] = []
@@ -219,6 +227,10 @@ export class HttpCallRecorder {
                 continue
             }
 
+            if (PROPERTY_DIFFS_TO_IGNORE.has(key)) {
+                continue
+            }
+
             const valueDiffs = this.findObjectDifferences(
                 obj1[key],
                 obj2[key],
@@ -266,6 +278,8 @@ export async function recordedFetch(url: RequestInfo, init?: RequestInit): Promi
     // Check if recording should be enabled based on config flags
     const shouldRecordHttpCalls =
         defaultConfig.DESTINATION_MIGRATION_DIFFING_ENABLED === true && defaultConfig.TASKS_PER_WORKER === 1
+
+    pluginFetchCounter.inc()
 
     // If recording is disabled, just use trackedFetch directly
     if (!shouldRecordHttpCalls) {

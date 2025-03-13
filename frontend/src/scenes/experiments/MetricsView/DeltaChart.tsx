@@ -17,12 +17,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import {
-    ExperimentFunnelsQuery,
-    ExperimentMetric,
-    ExperimentTrendsQuery,
-    NodeKind,
-} from '~/queries/schema/schema-general'
+import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from '../constants'
@@ -31,16 +26,7 @@ import { ExploreButton, ResultsQuery, VariantTag } from '../ExperimentView/compo
 import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview'
 import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
-
-export function getMetricTag(metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string {
-    if (metric.kind === NodeKind.ExperimentMetric) {
-        return metric.metric_type.charAt(0).toUpperCase() + metric.metric_type.slice(1).toLowerCase()
-    } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
-        return 'Funnel'
-    }
-    return 'Trend'
-}
-
+import { getMetricTag } from './utils'
 export function getDefaultMetricTitle(metric: ExperimentMetric): string {
     if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
         return metric.metric_config.event
