@@ -11,6 +11,8 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 
 from dagster_aws.s3 import S3Resource
 
+NO_SHARD_PATH = "noshard"
+
 
 @dataclass
 class Backup:
@@ -27,7 +29,7 @@ class Backup:
     @property
     def path(self):
         base_path = f"{self.database}"
-        shard_path = "noshard" if self.shard is None else self.shard
+        shard_path = self.shard if self.shard else NO_SHARD_PATH
         if self.table:
             base_path = f"{base_path}/{self.table}"
 
@@ -47,7 +49,7 @@ class Backup:
             date=match.group("date"),
             table=match.group("table"),
             base_backup=None,
-            shard=match.group("shard"),
+            shard=None if match.group("shard") == NO_SHARD_PATH else int(match.group("shard")),
         )
 
     def create(self, client: Client):
@@ -156,11 +158,12 @@ def get_latest_backup(
     """
     Get the latest backup metadata for a ClickHouse database / table from S3.
     """
+    shard_path = shard if shard else NO_SHARD_PATH
+
     base_prefix = f"{config.database}/"
     if config.table:
         base_prefix = f"{base_prefix}{config.table}/"
-    if shard:
-        base_prefix = f"{base_prefix}{shard}/"
+    base_prefix = f"{base_prefix}{shard_path}/"
 
     backups = s3.get_client().list_objects_v2(
         Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=base_prefix, Delimiter="/"
@@ -210,7 +213,7 @@ def run_backup(
 @dagster.job()
 def sharded_backup():
     """
-    Backup ClickHouse database / table to S3 using ClickHouse's native backup functionality.
+    Backup ClickHouse database / table to S3 once per shard
     """
 
     def run_backup_for_shard(shard: int):
@@ -219,6 +222,16 @@ def sharded_backup():
 
     shards: dagster.DynamicOutput = get_shards()
     shards.map(run_backup_for_shard)
+
+
+@dagster.job()
+def non_sharded_backup():
+    """
+    Backup ClickHouse database / table to S3 once (chooses a random shard)
+    """
+
+    latest_backup = get_latest_backup()
+    run_backup(latest_backup)
 
 
 @dagster.schedule(

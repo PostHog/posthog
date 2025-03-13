@@ -62,6 +62,7 @@ defs = dagster.Definitions(
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
         backups.sharded_backup,
+        backups.non_sharded_backup,
     ],
     schedules=[
         exchange_rate.daily_exchange_rates_schedule,
