@@ -324,17 +324,6 @@ async fn send_internal_event(
     Ok(())
 }
 
-#[cfg(test)]
-mod test {
-    use crate::sanitize_string;
-
-    #[test]
-    fn it_replaces_null_characters() {
-        let content = sanitize_string("\u{0000} is not valid JSON".to_string());
-        assert_eq!(content, "� is not valid JSON");
-    }
-}
-
 impl From<String> for IssueStatus {
     fn from(s: String) -> Self {
         match s.as_str() {
@@ -357,5 +346,16 @@ impl Display for IssueStatus {
             IssueStatus::PendingRelease => write!(f, "pending_release"),
             IssueStatus::Suppressed => write!(f, "suppressed"),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::sanitize_string;
+
+    #[test]
+    fn it_replaces_null_characters() {
+        let content = sanitize_string("\u{0000} is not valid JSON".to_string());
+        assert_eq!(content, "� is not valid JSON");
     }
 }
