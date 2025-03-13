@@ -163,8 +163,8 @@
                                      actor_id AS id
                               FROM
                                 (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                                        e.uuid AS uuid,
                                         toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                                        e.uuid AS uuid,
                                         e.distinct_id AS distinct_id
                                  FROM events AS e
                                  LEFT OUTER JOIN
