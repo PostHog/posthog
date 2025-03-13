@@ -26,6 +26,8 @@ use std::{
 };
 use std::{io::Read, sync::Arc};
 
+use super::types::RequestPropertyOverrides;
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Compression {
@@ -347,15 +349,7 @@ async fn fetch_team(state: &State<router::State>, verified_token: &str) -> Resul
 fn prepare_properties(
     context: &RequestContext,
     request: &FlagRequest,
-) -> Result<
-    (
-        Option<HashMap<String, Value>>, // person_property_overrides
-        Option<HashMap<String, HashMap<String, Value>>>, // group_property_overrides
-        Option<HashMap<String, Value>>, // groups
-        Option<String>,                 // hash_key_override
-    ),
-    FlagError,
-> {
+) -> Result<RequestPropertyOverrides, FlagError> {
     let ip = &context.ip;
     let state = &context.state;
 
