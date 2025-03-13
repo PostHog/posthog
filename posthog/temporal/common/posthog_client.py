@@ -16,13 +16,13 @@ from temporalio.worker import (
 logger = structlog.get_logger()
 
 
-def _add_safe_inputs_to_properties(properties: dict[str, Any], input: ExecuteActivityInput | ExecuteWorkflowInput):
-    if len(input.args) == 1 and is_dataclass(input.args[0]) and hasattr(input.args[0], "safe_properties"):
+def _add_inputs_to_properties(properties: dict[str, Any], input: ExecuteActivityInput | ExecuteWorkflowInput):
+    if len(input.args) == 1 and is_dataclass(input.args[0]) and hasattr(input.args[0], "properties_to_log"):
         try:
-            safe_inputs = {
-                k: getattr(input.args[0], k) for k in input.args[0].safe_properties() if hasattr(input.args[0], k)
+            inputs = {
+                k: getattr(input.args[0], k) for k in input.args[0].properties_to_log() if hasattr(input.args[0], k)
             }
-            properties.update(safe_inputs)
+            properties.update(inputs)
         except Exception as e:
             logger.awarning("Failed to get safe properties for %s", input.args[0], exc_info=e)
 
@@ -45,7 +45,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                 "temporal.workflow.run_id": activity_info.workflow_run_id,
                 "temporal.workflow.type": activity_info.workflow_type,
             }
-            _add_safe_inputs_to_properties(properties, input)
+            _add_inputs_to_properties(properties, input)
             if api_key:
                 capture_exception(e, properties=properties)
             raise
@@ -66,7 +66,7 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 "temporal.workflow.type": workflow_info.workflow_type,
                 "temporal.workflow.id": workflow_info.workflow_id,
             }
-            _add_safe_inputs_to_properties(properties, input)
+            _add_inputs_to_properties(properties, input)
             if api_key and not workflow.unsafe.is_replaying():
                 with workflow.unsafe.sandbox_unrestricted():
                     capture_exception(e, properties=properties)
