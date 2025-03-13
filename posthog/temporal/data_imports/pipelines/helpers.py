@@ -1,9 +1,11 @@
-from posthog.warehouse.models import ExternalDataJob
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
 from django.db.models import F
+
+from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.util import database_sync_to_async
-from zoneinfo import ZoneInfo
-from datetime import datetime, date
 
 
 @database_sync_to_async

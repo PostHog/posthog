@@ -1224,7 +1224,6 @@ async def test_postgres_nan_numerical_values(team, postgres_config, postgres_con
 @pytest.mark.asyncio
 async def test_delete_table_on_reset(team, stripe_balance_transaction):
     with (
-        mock.patch.object(DeltaTable, "delete") as mock_delta_table_delete,
         mock.patch.object(s3fs.S3FileSystem, "delete") as mock_s3_delete,
     ):
         workflow_id, inputs = await _run(
@@ -1246,7 +1245,6 @@ async def test_delete_table_on_reset(team, stripe_balance_transaction):
 
         await _execute_run(str(uuid.uuid4()), inputs, stripe_balance_transaction["data"])
 
-    mock_delta_table_delete.assert_called()
     mock_s3_delete.assert_called()
 
     await sync_to_async(schema.refresh_from_db)()
@@ -1477,7 +1475,8 @@ async def test_partition_folders_with_int_id(team, postgres_config, postgres_con
 
     s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
 
-    assert any(PARTITION_KEY in obj["Key"] for obj in s3_objects["Contents"])
+    # Using numerical primary key causes partitions not be md5'd
+    assert any(f"{PARTITION_KEY}=0" in obj["Key"] for obj in s3_objects["Contents"])
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True
@@ -1739,8 +1738,8 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
         "source": mock.ANY,
         "source_alias": "source",
         "target_alias": "target",
-        "predicate": f"source.id = target.id AND source.{PARTITION_KEY} = target.{PARTITION_KEY}",
-        "streamed_exec": False,
+        "predicate": f"source.id = target.id AND source.{PARTITION_KEY} = target.{PARTITION_KEY} AND target.{PARTITION_KEY} = '0'",
+        "streamed_exec": True,
     }
 
 

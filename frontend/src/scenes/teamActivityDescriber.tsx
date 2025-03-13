@@ -148,6 +148,10 @@ const teamActionsMapping: Record<
         const maskAllInputsAfter = isObject(change?.after) ? change?.after.maskAllInputs : !!change?.after
         const maskAllInputsChanged = maskAllInputsBefore !== maskAllInputsAfter
 
+        const blockSelectorBefore = isObject(change?.before) ? change?.before.blockSelector : undefined
+        const blockSelectorAfter = isObject(change?.after) ? change?.after.blockSelector : undefined
+        const blockSelectorChanged = blockSelectorBefore !== blockSelectorAfter
+
         const maskTextSelectorBefore = isObject(change?.before) ? change?.before.maskTextSelector : !!change?.before
         const maskTextSelectorAfter = isObject(change?.after) ? change?.after.maskTextSelector : !!change?.after
         const maskTextSelectorChanged = maskTextSelectorBefore !== maskTextSelectorAfter
@@ -162,6 +166,14 @@ const teamActionsMapping: Record<
                 <>
                     {change?.action === 'created' ? 'set' : 'changed'} masking text selector to {maskTextSelectorAfter}{' '}
                     in session replay
+                </>
+            )
+        }
+
+        if (blockSelectorChanged) {
+            descriptions.push(
+                <>
+                    {change?.action === 'created' ? 'set' : 'changed'} blocking selector to "{blockSelectorAfter}"
                 </>
             )
         }

@@ -77,8 +77,6 @@ describe('ActionMatcher', () => {
             is_calculating: false,
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
-            bytecode: null,
-            bytecode_error: null,
             steps_json: partialSteps
                 ? partialSteps.map(
                       (partialStep): ActionStep => ({
@@ -96,7 +94,6 @@ describe('ActionMatcher', () => {
                       })
                   )
                 : null,
-            pinned_at: null,
         }
         await insertRow(hub.db.postgres, 'posthog_action', action)
         await actionManager.reloadAction(action.team_id, action.id)
