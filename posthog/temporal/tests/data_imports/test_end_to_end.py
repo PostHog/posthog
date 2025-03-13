@@ -1477,7 +1477,8 @@ async def test_partition_folders_with_int_id(team, postgres_config, postgres_con
 
     s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
 
-    assert any(PARTITION_KEY in obj["Key"] for obj in s3_objects["Contents"])
+    # Using numerical primary key causes partitions not be md5'd
+    assert any(f"{PARTITION_KEY}=0" in obj["Key"] for obj in s3_objects["Contents"])
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True
