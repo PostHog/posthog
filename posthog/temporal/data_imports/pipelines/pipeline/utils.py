@@ -571,11 +571,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 if x is None:
                     return None
 
-                if (
-                    math.isnan(x)
-                    or (isinstance(x, decimal.Decimal) and x.is_infinite())
-                    or (isinstance(x, float) and np.isinf(x))
-                ):
+                if math.isnan(x) or np.isinf(x):
                     return None
 
                 return x
