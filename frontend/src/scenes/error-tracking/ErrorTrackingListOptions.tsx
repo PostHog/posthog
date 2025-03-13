@@ -52,6 +52,8 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                             <LemonButton
                                 type="secondary"
                                 size="small"
+                                status="danger"
+                                tooltip="Stop capturing these errors"
                                 onClick={() => {
                                     suppressIssues(selectedIssueIds)
                                     setSelectedIssueIds([])
