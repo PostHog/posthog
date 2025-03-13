@@ -212,6 +212,15 @@ export enum LicensePlan {
     Cloud = 'cloud',
 }
 
+export enum BillingPlan {
+    Free = 'free',
+    Cheap = 'cheap',
+    Teams = 'team',
+    Enterprise = 'enterprise',
+    Startups = 'startup',
+    YC = 'yc',
+}
+
 export enum Realm {
     Cloud = 'cloud',
     Demo = 'demo',
