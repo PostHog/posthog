@@ -182,7 +182,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             (selectors) => [selectors.pageUrl],
             (pageUrl: string | null): string[] => (pageUrl ? [pageUrl] : []),
         ],
-        // Single queries selector that returns all queries
         queries: [
             (s) => [s.tiles, s.pageUrl, s.stripQueryParams],
             (tiles: WebAnalyticsTile[], pageUrl: string | null, stripQueryParams: boolean) => {
@@ -192,16 +191,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     const tile = tiles?.find((t) => t.tileId === tileId) as TabsTile | undefined
                     const query = tile?.tabs.find((tab) => tab.id === tabId)?.query
 
-                    // If we have a query and a pageUrl, and stripQueryParams is true,
-                    // we need to modify the query to use regex for URL matching
-                    if (
-                        query &&
-                        pageUrl &&
-                        'source' in query &&
-                        query.source &&
-                        'kind' in query.source &&
-                        query.source.kind === NodeKind.WebStatsTableQuery
-                    ) {
+                    if (query && pageUrl && 'source' in query && query.source) {
                         // Deep clone the query to avoid modifying the original
                         const modifiedQuery = JSON.parse(JSON.stringify(query))
 
@@ -241,7 +231,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }
             },
         ],
-        // Helper function for creating insight props
+
         createInsightProps: [
             () => [],
             () =>
@@ -251,7 +241,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                 }),
         ],
-        // Combined metrics query - now accepts dateFilter and compareFilter as parameters
         combinedMetricsQuery: [
             (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts],
             (pageUrl: string | null, stripQueryParams: boolean, shouldFilterTestAccounts: boolean) =>
@@ -295,50 +284,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     hidePersonsModal: true,
                     embedded: true,
                 }),
-        ],
-        // Get visualization type for a specific tile
-        getTileVisualization: [
-            (s) => [s.tileVisualizations],
-            (tileVisualizations: Record<TileId, TileVisualizationOption>) =>
-                (tileId: TileId): TileVisualizationOption =>
-                    tileVisualizations[tileId] || 'table',
-        ],
-        // Get query for a specific page reports tile
-        getQueryForTile: [
-            (s) => [s.queries],
-            (queries: Record<string, QuerySchema | undefined>) =>
-                (tileId: TileId): QuerySchema | undefined => {
-                    switch (tileId) {
-                        case TileId.PAGE_REPORTS_ENTRY_PATHS:
-                            return queries.entryPathsQuery
-                        case TileId.PAGE_REPORTS_EXIT_PATHS:
-                            return queries.exitPathsQuery
-                        case TileId.PAGE_REPORTS_OUTBOUND_CLICKS:
-                            return queries.outboundClicksQuery
-                        case TileId.PAGE_REPORTS_CHANNELS:
-                            return queries.channelsQuery
-                        case TileId.PAGE_REPORTS_REFERRERS:
-                            return queries.referrersQuery
-                        case TileId.PAGE_REPORTS_DEVICE_TYPES:
-                            return queries.deviceTypeQuery
-                        case TileId.PAGE_REPORTS_BROWSERS:
-                            return queries.browserQuery
-                        case TileId.PAGE_REPORTS_OPERATING_SYSTEMS:
-                            return queries.osQuery
-                        case TileId.PAGE_REPORTS_COUNTRIES:
-                            return queries.countriesQuery
-                        case TileId.PAGE_REPORTS_REGIONS:
-                            return queries.regionsQuery
-                        case TileId.PAGE_REPORTS_CITIES:
-                            return queries.citiesQuery
-                        case TileId.PAGE_REPORTS_TIMEZONES:
-                            return queries.timezonesQuery
-                        case TileId.PAGE_REPORTS_LANGUAGES:
-                            return queries.languagesQuery
-                        default:
-                            return undefined
-                    }
-                },
         ],
     },
 
