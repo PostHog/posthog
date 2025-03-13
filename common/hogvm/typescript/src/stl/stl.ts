@@ -607,7 +607,7 @@ export const STL: Record<string, STLFunction> = {
     },
     lower: {
         fn: (args) => {
-            if (args[0] === null) return null
+            if (args[0] === null || args[0] === undefined) return null
             return args[0].toLowerCase()
         },
         minArgs: 1,
