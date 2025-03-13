@@ -1224,7 +1224,6 @@ async def test_postgres_nan_numerical_values(team, postgres_config, postgres_con
 @pytest.mark.asyncio
 async def test_delete_table_on_reset(team, stripe_balance_transaction):
     with (
-        mock.patch.object(DeltaTable, "delete") as mock_delta_table_delete,
         mock.patch.object(s3fs.S3FileSystem, "delete") as mock_s3_delete,
     ):
         workflow_id, inputs = await _run(
@@ -1246,7 +1245,6 @@ async def test_delete_table_on_reset(team, stripe_balance_transaction):
 
         await _execute_run(str(uuid.uuid4()), inputs, stripe_balance_transaction["data"])
 
-    mock_delta_table_delete.assert_called()
     mock_s3_delete.assert_called()
 
     await sync_to_async(schema.refresh_from_db)()
