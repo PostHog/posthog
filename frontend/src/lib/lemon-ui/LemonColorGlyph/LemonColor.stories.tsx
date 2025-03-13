@@ -30,6 +30,7 @@ export const LemonColorButton: Story = {
     render: () => (
         <div className="flex gap-1 flex-wrap">
             <LemonColorButtonComponent color={getColorVar(dataColorVars[0])} />
+            <LemonColorButtonComponent type="tertiary" color={getColorVar(dataColorVars[0])} />
         </div>
     ),
 }
