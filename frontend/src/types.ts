@@ -2881,7 +2881,7 @@ export interface Survey {
     response_sampling_interval?: number | null
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
-    store_partial_responses?: boolean | null
+    enable_partial_responses?: boolean | null
 }
 
 export enum SurveyMatchType {

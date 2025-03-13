@@ -110,7 +110,7 @@ export function SurveyOverview(): JSX.Element {
                 )}
                 {featureFlags[FEATURE_FLAGS.SURVEYS_PARTIAL_RESPONSES] && (
                     <SurveyOption label="Partial responses">
-                        {survey.store_partial_responses ? 'Enabled' : 'Disabled'}
+                        {survey.enable_partial_responses ? 'Enabled' : 'Disabled'}
                     </SurveyOption>
                 )}
                 <LemonDivider />
