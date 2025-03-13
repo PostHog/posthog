@@ -17,8 +17,8 @@ class Migration(migrations.Migration):
             model_name="propertydefinition",
             name="posthog_propertydefinition_uniq",
         ),
-        migrations.AlterUniqueTogether(
-            name="eventdefinition",
-            unique_together=set(),
+        migrations.RemoveConstraint(
+            model_name="eventdefinition",
+            name="posthog_eventdefinition_team_id_name_80fa0b87_uniq",
         ),
     ]
