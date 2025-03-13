@@ -12,7 +12,7 @@ import { WebQuery } from './tiles/WebAnalyticsTile'
 import { LearnMorePopover } from './WebAnalyticsDashboard'
 import { TileId, webAnalyticsLogic } from './webAnalyticsLogic'
 
-function PageUrlSearchHeader(): JSX.Element {
+export function PageReportsFilters(): JSX.Element {
     const values = useValues(pageReportsLogic)
     const actions = useActions(pageReportsLogic)
     const { dateFilter } = useValues(webAnalyticsLogic)
@@ -31,7 +31,7 @@ function PageUrlSearchHeader(): JSX.Element {
     }))
 
     return (
-        <div className="flex flex-col gap-2 mb-4">
+        <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
                 <div className="flex-1">
                     <LemonInputSelect
@@ -123,8 +123,6 @@ export const PageReports = (): JSX.Element => {
 
     return (
         <div className="space-y-2 mt-2">
-            <PageUrlSearchHeader />
-
             {!values.hasPageUrl ? (
                 <ProductIntroduction
                     productName="PAGE REPORTS"
