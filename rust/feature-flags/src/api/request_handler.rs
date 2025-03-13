@@ -4,12 +4,13 @@ use crate::{
     cohort::cohort_cache_manager::CohortCacheManager,
     flags::{
         flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
-        flag_models::FeatureFlagList,
+        flag_models::{FeatureFlag, FeatureFlagList},
         flag_request::FlagRequest,
         flag_service::FlagService,
     },
     metrics::metrics_consts::FLAG_CACHE_HIT_COUNTER,
     router,
+    team::team_models::Team,
 };
 use axum::{extract::State, http::HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
@@ -19,8 +20,13 @@ use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_urlencoded;
-use std::{collections::HashMap, net::IpAddr};
+use std::{
+    collections::{HashMap, HashSet},
+    net::IpAddr,
+};
 use std::{io::Read, sync::Arc};
+
+use super::types::{GroupPropertyOverrides, Groups, HashKeyOverride, PersonPropertyOverrides};
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -125,77 +131,35 @@ impl FeatureFlagEvaluationContext {
 /// - Maintains error context through the FlagError enum
 /// - Individual flag evaluation failures don't fail the entire request
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
-    // Destructure context
-    let RequestContext {
-        state,
-        ip,
-        headers,
-        meta,
-        body,
-    } = context;
+    // 1. Parse and authenticate request
+    let (distinct_id, verified_token, request) = parse_and_authenticate_request(&context).await?;
 
-    // Initialize services
-    let flag_service = FlagService::new(state.redis.clone(), state.reader.clone());
-
-    // Process request and authentication
-    let request = decode_request(&headers, body, &meta)?;
-    let distinct_id = request.extract_distinct_id()?;
-    // NB: this method will fail before hitting any of the services if the token is not correctly set in the request,
-    // saving us from hitting the services with an invalid token
-    let token = request.extract_token()?;
-
-    let verified_token = flag_service.verify_token(&token).await?;
-    let team = flag_service
-        .get_team_from_cache_or_pg(&verified_token)
-        .await?;
+    // 2. Get team
+    let team = fetch_team(&context.state, &verified_token).await?;
     let team_id = team.id;
     let project_id = team.project_id;
 
-    // Process properties and overrides
-    let person_property_overrides = get_person_property_overrides(
-        !request.geoip_disable.unwrap_or(false),
-        request.person_properties.clone(),
-        &ip,
-        &state.geoip,
-    );
+    // 3. Prepare property overrides
+    let (person_property_overrides, group_property_overrides, groups, hash_key_override) =
+        prepare_properties(&context, &request)?;
 
-    let groups = request.groups.clone();
-    let group_property_overrides =
-        process_group_property_overrides(groups.clone(), request.group_properties.clone());
-    let hash_key_override = request.anon_distinct_id.clone();
+    // 4. Fetch and filter flags
+    let filtered_flags =
+        fetch_and_filter_flags(&context.state, project_id, team_id, &request).await?;
 
-    // Get flags from cache or database, tracking if we had a cache hit or not
-    // If we do have to hit the database, we also update the cache afterwards
-    let (feature_flags_from_cache_or_pg, cache_hit) = flag_service
-        .get_flags_from_cache_or_pg(project_id, &state.redis, &state.reader)
-        .await?;
-
-    // Track cache hits and misses.
-    inc(
-        FLAG_CACHE_HIT_COUNTER,
-        &[
-            ("team_id".to_string(), team_id.to_string()),
-            ("cache_hit".to_string(), cache_hit.to_string()),
-        ],
-        1,
-    );
-
-    // Evaluate flags
-    let evaluation_context = FeatureFlagEvaluationContext::new(
+    // 5. Evaluate flags
+    let flags_response = evaluate_flags_for_request(
+        &context.state,
         team_id,
         project_id,
         distinct_id,
-        feature_flags_from_cache_or_pg,
-        state.reader.clone(),
-        state.writer.clone(),
-        state.cohort_cache_manager.clone(),
+        filtered_flags,
         person_property_overrides,
         group_property_overrides,
         groups,
         hash_key_override,
-    );
-
-    let flags_response = evaluate_feature_flags(evaluation_context).await;
+    )
+    .await;
 
     Ok(flags_response)
 }
@@ -206,7 +170,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 /// - If no person properties are provided, return None
 pub fn get_person_property_overrides(
     geoip_enabled: bool,
-    person_properties: Option<HashMap<String, Value>>,
+    person_properties: PersonPropertyOverrides,
     ip: &IpAddr,
     geoip_service: &GeoIpClient,
 ) -> Option<HashMap<String, Value>> {
@@ -233,39 +197,6 @@ pub fn get_person_property_overrides(
         }
         (false, Some(props)) => Some(props),
         (false, None) => None,
-    }
-}
-
-/// Processes group property overrides by combining existing overrides with group key overrides
-///
-/// When groups are provided in the format {"group_type": "group_key"}, we need to ensure these
-/// are included in the group property overrides with the special "$group_key" property.
-fn process_group_property_overrides(
-    groups: Option<HashMap<String, Value>>,
-    existing_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-) -> Option<HashMap<String, HashMap<String, Value>>> {
-    match groups {
-        Some(groups) => {
-            let group_key_overrides: HashMap<String, HashMap<String, Value>> = groups
-                .into_iter()
-                .map(|(group_type, group_key)| {
-                    let mut properties = existing_overrides
-                        .as_ref()
-                        .and_then(|g| g.get(&group_type))
-                        .cloned()
-                        .unwrap_or_default();
-
-                    properties.insert("$group_key".to_string(), group_key);
-
-                    (group_type, properties)
-                })
-                .collect();
-
-            let mut result = existing_overrides.unwrap_or_default();
-            result.extend(group_key_overrides);
-            Some(result)
-        }
-        None => existing_overrides,
     }
 }
 
@@ -383,6 +314,170 @@ pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> Fl
             context.hash_key_override,
         )
         .await
+}
+
+async fn parse_and_authenticate_request(
+    context: &RequestContext,
+) -> Result<(String, String, FlagRequest), FlagError> {
+    let RequestContext {
+        headers,
+        body,
+        meta,
+        ..
+    } = context;
+
+    let request = decode_request(headers, body.clone(), meta)?; // parse JSON, validate
+    let distinct_id = request.extract_distinct_id()?;
+    let token = request.extract_token()?;
+
+    // verify token
+    let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
+    let verified_token = flag_service.verify_token(&token).await?;
+
+    Ok((distinct_id, verified_token, request))
+}
+
+async fn fetch_team(state: &State<router::State>, verified_token: &str) -> Result<Team, FlagError> {
+    let flag_service = FlagService::new(state.redis.clone(), state.reader.clone());
+    let team = flag_service
+        .get_team_from_cache_or_pg(verified_token)
+        .await?;
+    Ok(team)
+}
+
+fn prepare_properties(
+    context: &RequestContext,
+    request: &FlagRequest,
+) -> Result<
+    (
+        PersonPropertyOverrides,
+        GroupPropertyOverrides,
+        Groups,
+        HashKeyOverride,
+    ),
+    FlagError,
+> {
+    let ip = &context.ip;
+    let state = &context.state;
+
+    let person_property_overrides = get_person_property_overrides(
+        !request.geoip_disable.unwrap_or(false),
+        request.person_properties.clone(),
+        ip,
+        &state.geoip,
+    );
+
+    let groups = request.groups.clone();
+    let group_property_overrides =
+        process_group_property_overrides(groups.clone(), request.group_properties.clone());
+
+    let hash_key_override = request.anon_distinct_id.clone();
+
+    Ok((
+        person_property_overrides,
+        group_property_overrides,
+        groups,
+        hash_key_override,
+    ))
+}
+
+async fn fetch_and_filter_flags(
+    state: &State<router::State>,
+    project_id: i64,
+    team_id: i32,
+    request: &FlagRequest,
+) -> Result<FeatureFlagList, FlagError> {
+    let flag_service = FlagService::new(state.redis.clone(), state.reader.clone());
+
+    // 1. Fetch flags from cache or DB
+    let (all_flags, cache_hit) = flag_service
+        .get_flags_from_cache_or_pg(project_id, &state.redis, &state.reader)
+        .await?;
+
+    // 2. Track cache hits vs misses
+    inc(
+        FLAG_CACHE_HIT_COUNTER,
+        &[
+            ("team_id".to_string(), team_id.to_string()),
+            ("cache_hit".to_string(), cache_hit.to_string()),
+        ],
+        1,
+    );
+
+    // 3. If there are specific keys to filter on
+    if let Some(flag_keys) = &request.flag_keys {
+        let flag_keys_set: HashSet<String> = flag_keys.into_iter().cloned().collect();
+        let filtered: Vec<FeatureFlag> = all_flags
+            .flags
+            .into_iter()
+            .filter(|flag| flag_keys_set.contains(&flag.key))
+            .collect();
+        Ok(FeatureFlagList::new(filtered))
+    } else {
+        // No filtering needed
+        Ok(all_flags)
+    }
+}
+
+async fn evaluate_flags_for_request(
+    state: &State<router::State>,
+    team_id: i32,
+    project_id: i64,
+    distinct_id: String,
+    filtered_flags: FeatureFlagList,
+    person_property_overrides: PersonPropertyOverrides,
+    group_property_overrides: GroupPropertyOverrides,
+    groups: Groups,
+    hash_key_override: HashKeyOverride,
+) -> FlagsResponse {
+    let evaluation_context = FeatureFlagEvaluationContext::new(
+        team_id,
+        project_id,
+        distinct_id,
+        filtered_flags,
+        state.reader.clone(),
+        state.writer.clone(),
+        state.cohort_cache_manager.clone(),
+        person_property_overrides,
+        group_property_overrides,
+        groups,
+        hash_key_override,
+    );
+
+    evaluate_feature_flags(evaluation_context).await
+}
+
+/// Processes group property overrides by combining existing overrides with group key overrides
+///
+/// When groups are provided in the format {"group_type": "group_key"}, we need to ensure these
+/// are included in the group property overrides with the special "$group_key" property.
+fn process_group_property_overrides(
+    groups: Groups,
+    existing_overrides: GroupPropertyOverrides,
+) -> GroupPropertyOverrides {
+    match groups {
+        Some(groups) => {
+            let group_key_overrides: HashMap<String, HashMap<String, Value>> = groups
+                .into_iter()
+                .map(|(group_type, group_key)| {
+                    let mut properties = existing_overrides
+                        .as_ref()
+                        .and_then(|g| g.get(&group_type))
+                        .cloned()
+                        .unwrap_or_default();
+
+                    properties.insert("$group_key".to_string(), group_key);
+
+                    (group_type, properties)
+                })
+                .collect();
+
+            let mut result = existing_overrides.unwrap_or_default();
+            result.extend(group_key_overrides);
+            Some(result)
+        }
+        None => existing_overrides,
+    }
 }
 
 // TODO: Make sure this protects against zip bombs, etc.  `/capture` does this
