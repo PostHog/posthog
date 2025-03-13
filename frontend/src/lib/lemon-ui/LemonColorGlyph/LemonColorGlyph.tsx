@@ -39,10 +39,10 @@ export function LemonColorGlyph({
         return <div className={cn('LemonColorGlyph LemonColorGlyph--placeholder', className)}>{children}</div>
     }
 
-    const appliedColor = colorToken ? (theme?.[colorToken] as string) : color
+    const effectiveColor = colorToken ? (theme?.[colorToken] as string) : color
 
     // display a glyph for an unset color
-    if (appliedColor == null) {
+    if (effectiveColor == null) {
         return (
             <div className={cn('LemonColorGlyph LemonColorGlyph--unset', className)}>
                 <div className="LemonColorGlyph__strikethrough" />
@@ -57,11 +57,11 @@ export function LemonColorGlyph({
             className={cn('LemonColorGlyph', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                borderColor: appliedColor,
-                color: appliedColor,
+                borderColor: effectiveColor,
+                color: effectiveColor,
                 backgroundColor: isDarkModeOn
-                    ? RGBToRGBA(lightenDarkenColor(appliedColor, -20), 0.3)
-                    : hexToRGBA(appliedColor, 0.2),
+                    ? RGBToRGBA(lightenDarkenColor(effectiveColor, -20), 0.3)
+                    : hexToRGBA(effectiveColor, 0.2),
             }}
         >
             {children}
