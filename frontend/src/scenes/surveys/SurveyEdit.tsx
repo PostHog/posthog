@@ -220,7 +220,7 @@ function SurveyCompletionConditions(): JSX.Element {
                 </LemonField>
             )}
             <SurveyRepeatSchedule />
-            <SurveyResponsesCollection />
+            {featureFlags[FEATURE_FLAGS.SURVEYS_PARTIAL_RESPONSES] && <SurveyResponsesCollection />}
         </div>
     )
 }
