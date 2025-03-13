@@ -24,6 +24,7 @@ export const OnboardingStep = ({
     hideHeader,
     breadcrumbHighlightName,
     fullWidth = false,
+    actions,
 }: {
     stepKey: OnboardingStepKey
     title: string
@@ -39,6 +40,7 @@ export const OnboardingStep = ({
     hideHeader?: boolean
     breadcrumbHighlightName?: OnboardingStepKey
     fullWidth?: boolean
+    actions?: JSX.Element
 }): JSX.Element => {
     const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
@@ -82,9 +84,12 @@ export const OnboardingStep = ({
                             )
                         })}
                     </div>
-                    <h1 className={`font-bold m-0 mt-3 px-2 ${fullWidth && 'text-center'}`}>
-                        {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
-                    </h1>
+                    <div className="flex flex-row justify-between items-center gap-2 mt-3">
+                        <h1 className={`font-bold m-0 px-2 ${fullWidth && 'text-center'}`}>
+                            {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
+                        </h1>
+                        {actions && <div className="flex flex-row gap-2">{actions}</div>}
+                    </div>
                 </div>
             </div>
             <div

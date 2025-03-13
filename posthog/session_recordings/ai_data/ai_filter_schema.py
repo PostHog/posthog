@@ -5,6 +5,7 @@ from pydantic import BaseModel
 class ResultEnum(str, Enum):
     QUESTION = "question"
     FILTER = "filter"
+    MAXAI = "maxai"
 
 
 class FilterOperatorEnum(str, Enum):

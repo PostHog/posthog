@@ -1,4 +1,5 @@
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonModal, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -50,6 +51,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                         ...experiment?.parameters,
                                         recommended_running_time: recommendedRunningTime,
                                         recommended_sample_size: recommendedSampleSize || undefined,
+                                        minimum_detectable_effect: minimumDetectableEffect || undefined,
                                     },
                                 })
                                 closeCalculateRunningTimeModal()
@@ -143,7 +145,23 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                     )}
                                     {standardDeviation !== null && (
                                         <div>
-                                            <div className="card-secondary">Estimated standard deviation</div>
+                                            <div className="card-secondary">
+                                                <span>Est. standard deviation</span>
+                                                <Tooltip
+                                                    className="ml-1"
+                                                    title={
+                                                        <>
+                                                            The estimated standard deviation of the metric in the last
+                                                            14 days. It's the "human-readable" version of the amount of
+                                                            dispersion in the dataset, and is calculated as the square
+                                                            root of the variance. The variance informs the recommended
+                                                            sample size.
+                                                        </>
+                                                    }
+                                                >
+                                                    <IconInfo className="text-secondary ml-1" />
+                                                </Tooltip>
+                                            </div>
                                             <div className="font-semibold">
                                                 ~{humanFriendlyNumber(standardDeviation, 0)}
                                             </div>
