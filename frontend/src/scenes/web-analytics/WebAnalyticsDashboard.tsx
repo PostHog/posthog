@@ -342,9 +342,10 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
-    const { setProductTab } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { mobileLayout } = useValues(navigationLogic)
+
+    const { setProductTab } = useActions(webAnalyticsLogic)
 
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
