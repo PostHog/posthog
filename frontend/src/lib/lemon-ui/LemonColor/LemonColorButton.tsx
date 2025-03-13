@@ -19,6 +19,7 @@ export function LemonColorButton({
     themeId,
     tooltip,
     hideColorDescription = false,
+    size,
     ...rest
 }: LemonColorButtonProps): JSX.Element {
     const { getTheme } = useValues(dataThemeLogic)
@@ -30,8 +31,14 @@ export function LemonColorButton({
     const effectiveTooltip = tooltip ?? derivedTooltip
 
     return (
-        <LemonButton type={type} className={cn('LemonColorButton', className)} tooltip={effectiveTooltip} {...rest}>
-            <LemonColorGlyph color={effectiveColor} themeId={themeId} />
+        <LemonButton
+            type={type}
+            size={size}
+            className={cn('LemonColorButton', className)}
+            tooltip={effectiveTooltip}
+            {...rest}
+        >
+            <LemonColorGlyph color={effectiveColor} size={size} themeId={themeId} />
         </LemonButton>
     )
 }

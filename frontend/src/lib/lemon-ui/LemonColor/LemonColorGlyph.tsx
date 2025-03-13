@@ -8,6 +8,8 @@ import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { LemonButtonWithoutSideActionProps } from '../LemonButton'
+
 export type LemonColorGlyphProps = {
     /** Overwrite the theme id from the context e.g. an insight that has a custom theme set. */
     themeId?: string | null
@@ -19,13 +21,14 @@ export type LemonColorGlyphProps = {
     color?: string | null
     /** Color token to display. Takes precedence over `color`. */
     colorToken?: DataColorToken | null
-}
+} & Pick<LemonButtonWithoutSideActionProps, 'size'>
 
 /** Takes a 6-digit hex color or a color token and displays it as a glyph. */
 export function LemonColorGlyph({
     color,
     colorToken,
     themeId,
+    size,
     className,
     children,
 }: LemonColorGlyphProps): JSX.Element {
@@ -36,7 +39,17 @@ export function LemonColorGlyph({
 
     // display a placeholder while loading the theme
     if (colorToken != null && theme == null) {
-        return <div className={cn('LemonColorGlyph LemonColorGlyph--placeholder', className)}>{children}</div>
+        return (
+            <div
+                className={cn(
+                    'LemonColorGlyph LemonColorGlyph--placeholder',
+                    { 'LemonColorGlyph--small': size === 'small' },
+                    className
+                )}
+            >
+                {children}
+            </div>
+        )
     }
 
     const effectiveColor = colorToken ? (theme?.[colorToken] as string) : color
@@ -44,7 +57,13 @@ export function LemonColorGlyph({
     // display a glyph for an unset color
     if (effectiveColor == null) {
         return (
-            <div className={cn('LemonColorGlyph LemonColorGlyph--unset', className)}>
+            <div
+                className={cn(
+                    'LemonColorGlyph LemonColorGlyph--unset',
+                    { 'LemonColorGlyph--small': size === 'small' },
+                    className
+                )}
+            >
                 <div className="LemonColorGlyph__strikethrough" />
                 {children}
             </div>
@@ -54,7 +73,7 @@ export function LemonColorGlyph({
     // display a glyph for the given color/token
     return (
         <div
-            className={cn('LemonColorGlyph', className)}
+            className={cn('LemonColorGlyph', { 'LemonColorGlyph--small': size === 'small' }, className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 borderColor: effectiveColor,
