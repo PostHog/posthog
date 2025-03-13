@@ -3,6 +3,9 @@ from datetime import datetime
 from typing import cast
 
 import pytest
+from deepeval import assert_test
+from deepeval.metrics import GEval
+from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from langgraph.graph.state import CompiledStateGraph
 
 from ee.hogai.assistant import AssistantGraph
@@ -78,3 +81,53 @@ def test_current_date(call_node):
     assert (date_range.date_from and year in date_range.date_from) or (
         date_range.date_to and year in date_range.date_to
     )
+
+
+@pytest.mark.parametrize(
+    "query, expected_interval",
+    [
+        ("$pageview trends for the last 10 years", "month"),
+        ("$pageview trends for the last 90 days", "week"),
+        ("$pageview trends for the last 45 days", "day"),
+    ],
+)
+def test_granularity(call_node, query, expected_interval):
+    plan = """Series:
+    - event: $pageview
+        - math operation: total count
+
+    Time period: last 10 years
+    """
+    query = call_node(query, plan)
+    assert query.interval == expected_interval
+
+
+def test_sets_default_30_days(call_node):
+    date_metric = GEval(
+        name="Date Correctness",
+        criteria="You will be given a JSON object containing a date range. Check if the date range corresponds to the expected time period.",
+        evaluation_steps=[
+            "Check if the dates or duration is set to the expected time period.",
+        ],
+        evaluation_params=[
+            LLMTestCaseParams.INPUT,
+            LLMTestCaseParams.EXPECTED_OUTPUT,
+            LLMTestCaseParams.ACTUAL_OUTPUT,
+        ],
+        threshold=0.7,
+    )
+
+    query = "How many pageviews do we have?"
+    plan = """Series:
+    - event: $pageview
+        - math operation: total count
+    """
+
+    schema = call_node(query, plan)
+    test_case = LLMTestCase(
+        input=query,
+        expected_output="Last 30 days",
+        actual_output=schema.dateRange.model_dump_json(exclude_none=True) if schema.dateRange else "",
+    )
+
+    assert_test(test_case, [date_metric])

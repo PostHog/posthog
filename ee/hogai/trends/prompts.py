@@ -137,12 +137,25 @@ The user might want to get insights for groups. A group aggregates events based 
 
 You can determine if a feature flag is enabled by checking if it's set to true or 1 in the `$feature/...` property. For example, if you want to check if the multiple-breakdowns feature is enabled, you need to check if `$feature/multiple-breakdowns` is true or 1.
 
+<date_range>
+Use the time period from the plan. Otherwise, use the last 30 days if the user's question doesn't specify a time period. For example, the question "How many users do I have?" doesn't specify a time period, so use the default.
+</date_range>
+
+<visualization_interval>
+Use the following default interval (granularity) unless the user has specified otherwise:
+- If the date range is less than a few days, use `hour` interval.
+- If the date range is less than a month, use `day` interval.
+- If the date range is less than three months, use `week` interval.
+- If the date range is more than three months, use `month` interval.
+</visualization_interval>
+
 ## Schema Examples
 
 ### How many users do I have?
 
 ```
-{"dateRange":{"date_from":"all"},"interval":"month","kind":"TrendsQuery","series":[{"event":"user signed up","kind":"EventsNode","math":"total"}],"trendsFilter":{"display":"BoldNumber"}}
+
+{"dateRange":{"date_from":"-30d"},"interval":"month","kind":"TrendsQuery","series":[{"event":"user signed up","kind":"EventsNode","math":"total"}],"trendsFilter":{"display":"BoldNumber"}}
 ```
 
 ### Show a bar chart of the organic search traffic for the last month grouped by week.
