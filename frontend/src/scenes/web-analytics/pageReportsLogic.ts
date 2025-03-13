@@ -4,7 +4,14 @@ import api from 'lib/api'
 
 import { InsightVizNode, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    ChartDisplayType,
+    InsightLogicProps,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import type { pageReportsLogicType } from './pageReportsLogicType'
 import {
@@ -25,14 +32,23 @@ export interface PageURL {
     count: number
 }
 
-export interface PageReportsLogicProps {
-    initialDateFrom?: string
-    initialDateTo?: string
+/**
+ * Creates a property filter for URL matching that handles query parameters consistently
+ * @param url The URL to match
+ * @param stripQueryParams Whether to strip query parameters
+ * @returns A property filter object for the URL
+ */
+export function createUrlPropertyFilter(url: string, stripQueryParams: boolean): AnyPropertyFilter {
+    return {
+        key: '$current_url',
+        value: stripQueryParams ? `^${url.split('?')[0]}(\\?.*)?$` : url,
+        operator: stripQueryParams ? PropertyOperator.Regex : PropertyOperator.Exact,
+        type: PropertyFilterType.Event,
+    }
 }
 
 export const pageReportsLogic = kea<pageReportsLogicType>({
     path: ['scenes', 'web-analytics', 'pageReportsLogic'],
-    props: {} as PageReportsLogicProps,
 
     connect: {
         values: [webAnalyticsLogic, ['tiles', 'shouldFilterTestAccounts']],
@@ -174,36 +190,31 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 // can use what we already have in the web analytics logic
                 const getQuery = (tileId: TileId, tabId: string): QuerySchema | undefined => {
                     const tile = tiles?.find((t) => t.tileId === tileId) as TabsTile | undefined
-                    const query = tile?.tabs.find((tab) => tab.id === tabId)?.query;
-                    
+                    const query = tile?.tabs.find((tab) => tab.id === tabId)?.query
+
                     // If we have a query and a pageUrl, and stripQueryParams is true,
                     // we need to modify the query to use regex for URL matching
-                    if (query && pageUrl && stripQueryParams && 
-                        typeof query === 'object' && 'source' in query && 
-                        query.source && typeof query.source === 'object' && 
-                        'kind' in query.source && query.source.kind === NodeKind.WebStatsTableQuery) {
+                    if (
+                        query &&
+                        pageUrl &&
+                        'source' in query &&
+                        query.source &&
+                        'kind' in query.source &&
+                        query.source.kind === NodeKind.WebStatsTableQuery
+                    ) {
                         // Deep clone the query to avoid modifying the original
-                        const modifiedQuery = JSON.parse(JSON.stringify(query));
-                        
+                        const modifiedQuery = JSON.parse(JSON.stringify(query))
+
                         // Find and update the $current_url property filter
                         if (modifiedQuery.source.properties) {
-                            modifiedQuery.source.properties = modifiedQuery.source.properties.map((prop: any) => {
-                                if (prop.key === '$current_url') {
-                                    return {
-                                        ...prop,
-                                        value: `^${pageUrl.split('?')[0]}(\\?.*)?$`,
-                                        operator: PropertyOperator.Regex
-                                    };
-                                }
-                                return prop;
-                            });
+                            modifiedQuery.source.properties = [createUrlPropertyFilter(pageUrl, stripQueryParams)]
                         }
-                        
-                        return modifiedQuery;
+
+                        return modifiedQuery
                     }
-                    
-                    return query;
-                };
+
+                    return query
+                }
 
                 // Return an object with all queries
                 return {
@@ -279,21 +290,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         },
                         compareFilter,
                         filterTestAccounts: shouldFilterTestAccounts,
-                        properties: pageUrl
-                            ? [
-                                  {
-                                      key: '$current_url',
-                                      // If stripQueryParams is true, we use regex to match the URL without query parameters
-                                      // It is not optimal but the Contains operator could match more than what we would want
-                                      // Example: For URL "https://example.com/products"
-                                      // - Regex Will match: "https://example.com/products" and "https://example.com/products?id=123"
-                                      // - Regex Won't match: "https://example.com/products-new" or "https://example.com/category/products"
-                                      value: stripQueryParams ? `^${pageUrl.split('?')[0]}(\\?.*)?$` : pageUrl,
-                                      operator: stripQueryParams ? PropertyOperator.Regex : PropertyOperator.Exact,
-                                      type: PropertyFilterType.Event,
-                                  },
-                              ]
-                            : [],
+                        properties: pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : [],
                     },
                     hidePersonsModal: true,
                     embedded: true,
