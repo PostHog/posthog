@@ -446,8 +446,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             }
         )
 
-        if config is not None:
-            self._update_team({"session_recording_masking_config": config})
+        self._update_team({"session_recording_masking_config": config})
 
         response = self._post_decide().json()
         assert response["sessionRecording"]["masking"] == expected
