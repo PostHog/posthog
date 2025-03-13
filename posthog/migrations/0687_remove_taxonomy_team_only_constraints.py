@@ -25,6 +25,8 @@ class Migration(migrations.Migration):
                 ),
             ],
             database_operations=[
+                # Using RunSQL just to work around a decade-old bug in Django's sqlmigrate failing @ AlterUniqueTogether
+                # https://code.djangoproject.com/ticket/26624
                 migrations.RunSQL(
                     "ALTER TABLE posthog_eventdefinition DROP CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq",
                 ),
