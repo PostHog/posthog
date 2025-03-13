@@ -1,3 +1,4 @@
+from collections import defaultdict
 import datetime
 import itertools
 from collections.abc import Iterable, Iterator
@@ -64,7 +65,7 @@ class PartitionRange(dagster.Config):
 
 class MaterializeColumnConfig(dagster.Config):
     table: str
-    column: str  # TODO: maybe make this a list/set so we can minimize the number of mutations?
+    columns: list[str]
     partitions: PartitionRange  # TODO: make optional for non-partitioned tables
 
     def get_mutations_to_run(self, client: Client) -> Iterable[AlterTableMutationRunner]:
@@ -85,9 +86,9 @@ class MaterializeColumnConfig(dagster.Config):
             {"database": settings.CLICKHOUSE_DATABASE, "table": self.table},
         )
 
-        remaining_partitions = {
-            partition
-            for [partition] in client.execute(
+        columns_remaining_by_partition = defaultdict(set)
+        for column in self.columns:
+            results = client.execute(
                 """
                 SELECT partition
                 FROM system.parts_columns
@@ -106,17 +107,19 @@ class MaterializeColumnConfig(dagster.Config):
                     "database": settings.CLICKHOUSE_DATABASE,
                     "table": self.table,
                     "key_column": key_column,
-                    "column": self.column,
+                    "column": column,
                     "partitions": [*self.partitions.iter_ids()],
                 },
             )
-        }
+            for [partition] in results:
+                columns_remaining_by_partition[partition].add(column)
 
         for partition in reversed([*self.partitions.iter_ids()]):
-            if partition in remaining_partitions:
+            columns_remaining = columns_remaining_by_partition[partition]
+            if columns_remaining:
                 yield AlterTableMutationRunner(
                     self.table,
-                    {f"MATERIALIZE COLUMN {self.column} IN PARTITION %(partition)s"},
+                    {f"MATERIALIZE COLUMN {column} IN PARTITION %(partition)s" for column in columns_remaining},
                     parameters={"partition": partition},
                 )
 

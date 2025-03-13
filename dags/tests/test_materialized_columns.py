@@ -84,7 +84,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
         with exit_handlers, materialized("events", f"$test_{time.time()}") as column:
             config = MaterializeColumnConfig(
                 table="sharded_events",
-                column=column.name,
+                columns=[column.name],
                 partitions=partitions,
             )
 
