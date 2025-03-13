@@ -89,6 +89,7 @@ export class PropertyDefsConsumer {
     protected heartbeat = () => {}
     protected promises: Set<Promise<any>> = new Set()
     private propDefsEnabledProjects: ValueMatcher<number>
+    private writeDisabled: boolean
 
     constructor(private hub: Hub) {
         this.groupId = hub.PROPERTY_DEFS_CONSUMER_GROUP_ID
@@ -97,6 +98,7 @@ export class PropertyDefsConsumer {
         this.teamManager = new TeamManager(hub.postgres)
         this.groupTypeManager = new GroupTypeManager(hub.postgres, this.teamManager)
         this.propDefsEnabledProjects = buildIntegerMatcher(hub.PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS, true)
+        this.writeDisabled = hub.PROPERTY_DEFS_WRITE_DISABLED
     }
 
     public get service(): PluginServerService {
@@ -179,7 +181,9 @@ export class PropertyDefsConsumer {
             eventDefTypesCounter.inc(eventDefinitions.length)
             status.info('🔁', `Writing event definitions batch of size ${eventDefinitions.length}`)
             propDefsPostgresWritesCounter.inc({ type: 'event_definitions' })
-            void this.scheduleWork(this.propertyDefsDB.writeEventDefinitions(eventDefinitions))
+            if (!this.writeDisabled) {
+                void this.scheduleWork(this.propertyDefsDB.writeEventDefinitions(eventDefinitions))
+            }
         }
 
         const propertyDefinitions = Object.values(collected.propertyDefinitionsById).flatMap((propertyDefinitions) =>
@@ -192,7 +196,9 @@ export class PropertyDefsConsumer {
             }
             status.info('🔁', `Writing property definitions batch of size ${propertyDefinitions.length}`)
             propDefsPostgresWritesCounter.inc({ type: 'property_definitions' })
-            void this.scheduleWork(this.propertyDefsDB.writePropertyDefinitions(propertyDefinitions))
+            if (!this.writeDisabled) {
+                void this.scheduleWork(this.propertyDefsDB.writePropertyDefinitions(propertyDefinitions))
+            }
         }
 
         const eventProperties = Object.values(collected.eventPropertiesById).flatMap((eventProperties) =>
@@ -203,7 +209,9 @@ export class PropertyDefsConsumer {
             eventPropTypesCounter.inc(eventProperties.length)
             status.info('🔁', `Writing event properties batch of size ${eventProperties.length}`)
             propDefsPostgresWritesCounter.inc({ type: 'event_properties' })
-            void this.scheduleWork(this.propertyDefsDB.writeEventProperties(eventProperties))
+            if (!this.writeDisabled) {
+                void this.scheduleWork(this.propertyDefsDB.writeEventProperties(eventProperties))
+            }
         }
 
         status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })

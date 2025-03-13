@@ -1,5 +1,5 @@
 import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
-import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
+import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
@@ -223,6 +223,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PROPERTY_DEFS_CONSUMER_GROUP_ID: 'property-defs-consumer',
         PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_JSON,
         PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: isDevEnv() ? '*' : '',
+        PROPERTY_DEFS_WRITE_DISABLED: isProdEnv() ? true : false, // For now we don't want to do writes on prod - only count them
 
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
