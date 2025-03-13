@@ -380,7 +380,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
-                        source: insightActorsQuery.source,
+                        source: insightActorsQuery,
                         select: ['*', 'event', 'person', 'timestamp'],
                     },
                     full: true,
