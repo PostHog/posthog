@@ -25,7 +25,7 @@
                     max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestGroupsQueryRunner.test_groups_query_runner.1
+# name: TestGroupsQueryRunner.test_groups_query_runner_with_offset
   '''
   SELECT groups.key AS key,
          groups.created_at AS created_at,

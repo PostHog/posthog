@@ -42,13 +42,11 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_groups_query_runner(self):
         self.create_standard_test_groups()
 
-        # No offset
         query = GroupsQuery(
             group_type_index=0,
             limit=10,
             offset=0,
         )
-
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
@@ -58,7 +56,10 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[1][0], "org1")
         self.assertEqual(result.results[2][0], "org2")
 
-        # Test offset
+    @freeze_time("2025-01-01")
+    @snapshot_clickhouse_queries
+    def test_groups_query_runner_with_offset(self):
+        self.create_standard_test_groups()
         query = GroupsQuery(
             group_type_index=0,
             limit=10,
