@@ -153,7 +153,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
 
             <p>
                 Data will be synced to PostHog and regularly refreshed.{' '}
-                <Link to="https://posthog.com/docs/data-warehouse/setup#stripe">Learn more</Link>
+                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
             </p>
             <LemonTable
                 dataSource={filteredConnectors}
