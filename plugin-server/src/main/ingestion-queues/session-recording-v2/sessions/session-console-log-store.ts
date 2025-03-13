@@ -1,6 +1,7 @@
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
 import { ClickHouseTimestamp, LogLevel } from '../../../../types'
 import { status } from '../../../../utils/status'
+import { SessionBatchMetrics } from './metrics'
 
 export type ConsoleLogEntry = {
     team_id: number
@@ -33,6 +34,8 @@ export class SessionConsoleLogStore {
                 key: log.log_source_id, // Using session_id as the key for partitioning
             })),
         })
+
+        SessionBatchMetrics.incrementConsoleLogsStored(logs.length)
     }
 
     public async flush(): Promise<void> {

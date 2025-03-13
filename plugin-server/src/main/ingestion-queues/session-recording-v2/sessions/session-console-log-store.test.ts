@@ -1,5 +1,6 @@
 import { KafkaProducerWrapper, TopicMessage } from '../../../../kafka/producer'
 import { ClickHouseTimestamp, LogLevel } from '../../../../types'
+import { SessionBatchMetrics } from './metrics'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
 // Helper to create a ClickHouseTimestamp for testing
@@ -7,11 +8,18 @@ const makeTimestamp = (isoString: string): ClickHouseTimestamp => {
     return isoString as unknown as ClickHouseTimestamp
 }
 
+jest.mock('./metrics', () => ({
+    SessionBatchMetrics: {
+        incrementConsoleLogsStored: jest.fn(),
+    },
+}))
+
 describe('SessionConsoleLogStore', () => {
     let store: SessionConsoleLogStore
     let mockProducer: jest.Mocked<KafkaProducerWrapper>
 
     beforeEach(() => {
+        jest.clearAllMocks()
         mockProducer = {
             queueMessages: jest.fn().mockResolvedValue(undefined),
             flush: jest.fn().mockResolvedValue(undefined),
@@ -212,6 +220,81 @@ describe('SessionConsoleLogStore', () => {
             const error = new Error('Flush error')
             mockProducer.flush.mockRejectedValueOnce(error)
             await expect(store.flush()).rejects.toThrow(error)
+        })
+    })
+
+    describe('metrics', () => {
+        it('should increment console logs stored metric', async () => {
+            const logs: ConsoleLogEntry[] = [
+                {
+                    team_id: 1,
+                    message: 'Test log message',
+                    level: LogLevel.Info,
+                    log_source: 'session_replay',
+                    log_source_id: 'session123',
+                    instance_id: null,
+                    timestamp: makeTimestamp('2025-01-01 10:00:00.000'),
+                    batch_id: 'batch123',
+                },
+                {
+                    team_id: 2,
+                    message: 'Another log message',
+                    level: LogLevel.Warn,
+                    log_source: 'session_replay',
+                    log_source_id: 'session456',
+                    instance_id: null,
+                    timestamp: makeTimestamp('2025-01-01 10:00:01.000'),
+                    batch_id: 'batch123',
+                },
+            ]
+
+            await store.storeSessionConsoleLogs(logs)
+            expect(SessionBatchMetrics.incrementConsoleLogsStored).toHaveBeenCalledWith(2)
+        })
+
+        it('should not increment metric for empty logs array', async () => {
+            await store.storeSessionConsoleLogs([])
+            expect(SessionBatchMetrics.incrementConsoleLogsStored).not.toHaveBeenCalled()
+        })
+
+        it('should not increment metric when topic is empty', async () => {
+            store = new SessionConsoleLogStore(mockProducer, '')
+            const logs: ConsoleLogEntry[] = [
+                {
+                    team_id: 1,
+                    message: 'Test log message',
+                    level: LogLevel.Info,
+                    log_source: 'session_replay',
+                    log_source_id: 'session123',
+                    instance_id: null,
+                    timestamp: makeTimestamp('2025-01-01 10:00:00.000'),
+                    batch_id: 'batch123',
+                },
+            ]
+
+            await store.storeSessionConsoleLogs(logs)
+            expect(SessionBatchMetrics.incrementConsoleLogsStored).not.toHaveBeenCalled()
+        })
+
+        it('should not increment metric if producer fails', async () => {
+            const error = new Error('Kafka producer error')
+            mockProducer.queueMessages.mockRejectedValueOnce(error)
+
+            const logs: ConsoleLogEntry[] = [
+                {
+                    team_id: 1,
+                    message: 'Test log message',
+                    level: LogLevel.Info,
+                    log_source: 'session_replay',
+                    log_source_id: 'session123',
+                    instance_id: null,
+                    timestamp: makeTimestamp('2025-01-01 10:00:00.000'),
+                    batch_id: 'batch123',
+                },
+            ]
+
+            await expect(store.storeSessionConsoleLogs(logs)).rejects.toThrow(error)
+            expect(SessionBatchMetrics.incrementConsoleLogsStored).not.toHaveBeenCalled()
         })
     })
 })
