@@ -25,8 +25,8 @@ from dlt.common.libs.deltalake import get_delta_tables
 
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.base import PostHogWorkflow
@@ -111,6 +111,9 @@ class RunDagActivityInputs:
 
     team_id: int
     dag: DAG
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id"]
 
 
 class ModelStatus(enum.StrEnum):
@@ -468,6 +471,9 @@ class BuildDagActivityInputs:
     team_id: int
     select: list[Selector] = dataclasses.field(default_factory=list)
 
+    def properties_to_log(self) -> list[str]:
+        return ["team_id"]
+
 
 class InvalidSelector(Exception):
     def __init__(self, invalid_input: str):
@@ -589,6 +595,9 @@ class StartRunActivityInputs:
     run_at: str
     team_id: int
 
+    def properties_to_log(self) -> list[str]:
+        return ["team_id", "run_at"]
+
 
 @temporalio.activity.defn
 async def start_run_activity(inputs: StartRunActivityInputs) -> None:
@@ -614,6 +623,9 @@ class FinishRunActivityInputs:
     failed: list[str]
     run_at: str
     team_id: int
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id", "run_at"]
 
 
 @temporalio.activity.defn
@@ -641,6 +653,9 @@ async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
 class CreateTableActivityInputs:
     models: list[str]
     team_id: int
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id"]
 
 
 @temporalio.activity.defn
@@ -683,6 +698,9 @@ class RunWorkflowInputs:
 
     team_id: int
     select: list[Selector] = dataclasses.field(default_factory=list)
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id"]
 
 
 @temporalio.workflow.defn(name="data-modeling-run")

@@ -93,6 +93,9 @@ class UpdateExternalDataJobStatusInputs:
     internal_error: str | None
     latest_error: str | None
 
+    def properties_to_log(self) -> list[str]:
+        return ["team_id", "job_id", "schema_id", "source_id", "status"]
+
 
 @activity.defn
 def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
@@ -162,6 +165,9 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 class CreateSourceTemplateInputs:
     team_id: int
     run_id: str
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id", "run_id"]
 
 
 @activity.defn

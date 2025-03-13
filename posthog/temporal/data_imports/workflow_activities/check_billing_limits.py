@@ -1,9 +1,13 @@
 import dataclasses
+
 from django.db import close_old_connections
 from temporalio import activity
 
-
-from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+from ee.billing.quota_limiting import (
+    QuotaLimitingCaches,
+    QuotaResource,
+    list_limited_team_attributes,
+)
 from posthog.models.team.team import Team
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 
@@ -12,6 +16,9 @@ from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 class CheckBillingLimitsActivityInputs:
     team_id: int
     job_id: str
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id", "job_id"]
 
 
 @activity.defn

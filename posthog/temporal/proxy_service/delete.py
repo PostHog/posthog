@@ -1,23 +1,22 @@
-from asgiref.sync import sync_to_async
-from dataclasses import dataclass
 import datetime as dt
-import grpc.aio
 import json
 import uuid
-from django.db import connection
+from dataclasses import dataclass
 
-from temporalio import activity, workflow
+import grpc.aio
 import temporalio.common
+from asgiref.sync import sync_to_async
+from django.db import connection
+from temporalio import activity, workflow
 
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_org_worker_logger
-
 from posthog.temporal.proxy_service.common import (
-    get_grpc_client,
     NonRetriableException,
-    update_proxy_record,
     UpdateProxyRecordInputs,
+    get_grpc_client,
+    update_proxy_record,
 )
 from posthog.temporal.proxy_service.proto import DeleteRequest
 
@@ -27,6 +26,9 @@ class DeleteProxyRecordInputs:
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
 
+    def properties_to_log(self) -> list[str]:
+        return ["organization_id", "proxy_record_id"]
+
 
 @dataclass
 class DeleteManagedProxyInputs:
@@ -35,6 +37,9 @@ class DeleteManagedProxyInputs:
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
     domain: str
+
+    def properties_to_log(self) -> list[str]:
+        return ["organization_id", "proxy_record_id", "domain"]
 
 
 @activity.defn

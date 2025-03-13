@@ -4,12 +4,16 @@ from django.db import close_old_connections
 from temporalio import activity
 
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
-from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
-
-from posthog.warehouse.models import sync_old_schemas_with_new_schemas, ExternalDataSource
+from posthog.temporal.data_imports.pipelines.schemas import (
+    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
+)
+from posthog.warehouse.models import (
+    ExternalDataSource,
+    sync_old_schemas_with_new_schemas,
+)
 from posthog.warehouse.models.external_data_schema import (
-    get_sql_schemas_for_source_type,
     get_snowflake_schemas,
+    get_sql_schemas_for_source_type,
 )
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
@@ -18,6 +22,9 @@ from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 class SyncNewSchemasActivityInputs:
     source_id: str
     team_id: int
+
+    def properties_to_log(self) -> list[str]:
+        return ["source_id", "team_id"]
 
 
 @activity.defn

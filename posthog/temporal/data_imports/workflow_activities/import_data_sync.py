@@ -15,14 +15,14 @@ from posthog.models.integration import Integration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.temporal.data_imports.pipelines.bigquery import delete_all_temp_destination_tables, delete_table
+from posthog.temporal.data_imports.pipelines.bigquery import (
+    delete_all_temp_destination_tables,
+    delete_table,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
-from posthog.warehouse.models import (
-    ExternalDataJob,
-    ExternalDataSource,
-)
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.types import IncrementalFieldType
@@ -35,6 +35,9 @@ class ImportDataActivityInputs:
     source_id: uuid.UUID
     run_id: str
     reset_pipeline: Optional[bool] = None
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id", "schema_id", "source_id", "run_id", "reset_pipeline"]
 
 
 def process_incremental_last_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
@@ -185,8 +188,12 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.MSSQL,
         ]:
             from posthog.temporal.data_imports.pipelines.mysql.mysql import mysql_source
-            from posthog.temporal.data_imports.pipelines.postgres.postgres import postgres_source
-            from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
+            from posthog.temporal.data_imports.pipelines.postgres.postgres import (
+                postgres_source,
+            )
+            from posthog.temporal.data_imports.pipelines.sql_database import (
+                sql_source_for_type,
+            )
 
             host = model.pipeline.job_inputs.get("host")
             port = model.pipeline.job_inputs.get("port")
@@ -514,8 +521,12 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 shutdown_monitor=shutdown_monitor,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.BIGQUERY:
-            from posthog.temporal.data_imports.pipelines.bigquery.source import bigquery_source
-            from posthog.temporal.data_imports.pipelines.sql_database import bigquery_source as sql_bigquery_source
+            from posthog.temporal.data_imports.pipelines.bigquery.source import (
+                bigquery_source,
+            )
+            from posthog.temporal.data_imports.pipelines.sql_database import (
+                bigquery_source as sql_bigquery_source,
+            )
 
             dataset_id = model.pipeline.job_inputs.get("dataset_id")
             project_id = model.pipeline.job_inputs.get("project_id")

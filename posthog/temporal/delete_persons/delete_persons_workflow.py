@@ -55,6 +55,9 @@ class MogrifyDeleteQueriesActivityInputs:
     person_ids: list[int] = dataclasses.field(default_factory=list)
     batch_size: int = 1000
 
+    def properties_to_log(self) -> list[str]:
+        return ["team_id", "batch_size"]
+
 
 @temporalio.activity.defn
 async def mogrify_delete_queries_activity(inputs: MogrifyDeleteQueriesActivityInputs) -> None:
@@ -107,6 +110,9 @@ class DeletePersonsActivityInputs:
     batch_number: int = 1
     batches: int = 1
     batch_size: int = 1000
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id", "batch_size", "batch_number", "batches"]
 
 
 @temporalio.activity.defn
@@ -170,6 +176,9 @@ class DeletePersonsWorkflowInputs:
     person_ids: list[int] = dataclasses.field(default_factory=list)
     batches: int = 1
     batch_size: int = 1000
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id", "batch_size", "batches"]
 
 
 @temporalio.workflow.defn(name="delete-persons")
