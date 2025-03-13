@@ -83,7 +83,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     props: {} as PageReportsLogicProps,
 
     connect: {
-        values: [webAnalyticsLogic, ['tiles', 'shouldFilterTestAccounts', 'compareFilter', 'dateFilter']],
+        values: [webAnalyticsLogic, ['tiles', 'shouldFilterTestAccounts']],
     },
 
     actions: () => ({
@@ -260,65 +260,60 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                 }),
         ],
-        // Combined metrics query
+        // Combined metrics query - now accepts dateFilter and compareFilter as parameters
         combinedMetricsQuery: [
-            (s) => [s.pageUrl, s.stripQueryParams, s.dateFilter, s.compareFilter, s.shouldFilterTestAccounts],
-            (
-                pageUrl: string | null,
-                stripQueryParams: boolean,
-                dateFilter: any,
-                compareFilter: any,
-                shouldFilterTestAccounts: boolean
-            ): InsightVizNode<TrendsQuery> => ({
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    series: [
-                        {
-                            event: '$pageview',
-                            kind: NodeKind.EventsNode,
-                            math: BaseMathType.UniqueUsers,
-                            name: '$pageview',
-                            custom_name: 'Unique visitors',
+            (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts],
+            (pageUrl: string | null, stripQueryParams: boolean, shouldFilterTestAccounts: boolean) =>
+                (dateFilter: any, compareFilter: any): InsightVizNode<TrendsQuery> => ({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                event: '$pageview',
+                                kind: NodeKind.EventsNode,
+                                math: BaseMathType.UniqueUsers,
+                                name: '$pageview',
+                                custom_name: 'Unique visitors',
+                            },
+                            {
+                                event: '$pageview',
+                                kind: NodeKind.EventsNode,
+                                math: BaseMathType.TotalCount,
+                                name: '$pageview',
+                                custom_name: 'Page views',
+                            },
+                            {
+                                event: '$pageview',
+                                kind: NodeKind.EventsNode,
+                                math: BaseMathType.UniqueSessions,
+                                name: '$pageview',
+                                custom_name: 'Sessions',
+                            },
+                        ],
+                        interval: dateFilter.interval,
+                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        trendsFilter: {
+                            display: ChartDisplayType.ActionsLineGraph,
+                            showLegend: true,
                         },
-                        {
-                            event: '$pageview',
-                            kind: NodeKind.EventsNode,
-                            math: BaseMathType.TotalCount,
-                            name: '$pageview',
-                            custom_name: 'Page views',
-                        },
-                        {
-                            event: '$pageview',
-                            kind: NodeKind.EventsNode,
-                            math: BaseMathType.UniqueSessions,
-                            name: '$pageview',
-                            custom_name: 'Sessions',
-                        },
-                    ],
-                    interval: dateFilter.interval,
-                    dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraph,
-                        showLegend: true,
+                        compareFilter,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                        properties: pageUrl
+                            ? [
+                                  {
+                                      key: '$current_url',
+                                      // If stripQueryParams is true, we'll extract the base URL without query params
+                                      value: stripQueryParams ? pageUrl.split('?')[0] : pageUrl,
+                                      operator: PropertyOperator.Exact,
+                                      type: PropertyFilterType.Event,
+                                  },
+                              ]
+                            : [],
                     },
-                    compareFilter,
-                    filterTestAccounts: shouldFilterTestAccounts,
-                    properties: pageUrl
-                        ? [
-                              {
-                                  key: '$current_url',
-                                  // If stripQueryParams is true, we'll extract the base URL without query params
-                                  value: stripQueryParams ? pageUrl.split('?')[0] : pageUrl,
-                                  operator: PropertyOperator.Exact,
-                                  type: PropertyFilterType.Event,
-                              },
-                          ]
-                        : [],
-                },
-                hidePersonsModal: true,
-                embedded: true,
-            }),
+                    hidePersonsModal: true,
+                    embedded: true,
+                }),
         ],
         // Get visualization type for a specific tile
         getTileVisualization: [

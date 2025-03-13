@@ -12,7 +12,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import { memo } from 'react'
 
-import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightLogicProps, ProductKey } from '~/types'
 
@@ -31,51 +31,8 @@ import {
     webAnalyticsLogic,
 } from './webAnalyticsLogic'
 
-// Extended interface for pageReportsLogic values
-interface PageReportsLogicValues {
-    pageUrl: string | null
-    pageUrlSearchTerm: string
-    isInitialLoad: boolean
-    pagesLoading: boolean
-    hasPageUrl: boolean
-    isLoading: boolean
-    pageUrlSearchOptionsWithCount: { url: string; count: number }[]
-    stripQueryParams: boolean
-    // Queries object
-    queries: {
-        entryPathsQuery: any
-        exitPathsQuery: any
-        outboundClicksQuery: any
-        channelsQuery: any
-        referrersQuery: any
-        deviceTypeQuery: any
-        browserQuery: any
-        osQuery: any
-        countriesQuery: any
-        regionsQuery: any
-        citiesQuery: any
-        timezonesQuery: any
-        languagesQuery: any
-    }
-    // Helper functions
-    createInsightProps: (tileId: TileId | PageReportsTileId, tabId?: string) => InsightLogicProps
-    // Combined metrics query
-    combinedMetricsQuery: any
-    // Visualization options
-    getTileVisualization: (tileId: PageReportsTileId) => TileVisualizationOption
-    tileVisualizations: Record<PageReportsTileId, TileVisualizationOption>
-    // Get query for a specific tile
-    getQueryForTile: (tileId: PageReportsTileId) => QuerySchema | undefined
-    // Date filter
-    dateFilter: any
-    // Compare filter
-    compareFilter: any
-    // Filter test accounts
-    shouldFilterTestAccounts: boolean
-}
-
 function PageUrlSearchHeader(): JSX.Element {
-    const values = useValues(pageReportsLogic) as unknown as PageReportsLogicValues
+    const values = useValues(pageReportsLogic)
     const actions = useActions(pageReportsLogic)
     const { dateFilter } = useValues(webAnalyticsLogic)
     const { setDates } = useActions(webAnalyticsLogic)
@@ -320,7 +277,8 @@ SimpleTile.displayName = 'SimpleTile'
 export const PageReports = (): JSX.Element => {
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
     const { openModal } = useActions(webAnalyticsLogic)
-    const values = useValues(pageReportsLogic) as unknown as PageReportsLogicValues
+    const { dateFilter, compareFilter } = useValues(webAnalyticsLogic)
+    const values = useValues(pageReportsLogic)
 
     // Section component for consistent styling
     const Section = ({ title, children }: { title: string; children: React.ReactNode }): JSX.Element => {
@@ -353,7 +311,7 @@ export const PageReports = (): JSX.Element => {
                     <Section title="Trends over time">
                         <div className="w-full min-h-[350px]">
                             <WebQuery
-                                query={values.combinedMetricsQuery}
+                                query={values.combinedMetricsQuery(dateFilter, compareFilter)}
                                 showIntervalSelect={true}
                                 tileId={TileId.GRAPHS}
                                 insightProps={values.createInsightProps(TileId.GRAPHS, 'combined')}
@@ -391,9 +349,9 @@ export const PageReports = (): JSX.Element => {
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
-                                dateFilter={values.dateFilter}
+                                dateFilter={dateFilter}
                                 shouldFilterTestAccounts={values.shouldFilterTestAccounts}
-                                compareFilter={values.compareFilter}
+                                compareFilter={compareFilter}
                                 pageUrl={values.pageUrl}
                             />
 
@@ -407,9 +365,9 @@ export const PageReports = (): JSX.Element => {
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
-                                dateFilter={values.dateFilter}
+                                dateFilter={dateFilter}
                                 shouldFilterTestAccounts={values.shouldFilterTestAccounts}
-                                compareFilter={values.compareFilter}
+                                compareFilter={compareFilter}
                                 pageUrl={values.pageUrl}
                             />
 
@@ -423,9 +381,9 @@ export const PageReports = (): JSX.Element => {
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
-                                dateFilter={values.dateFilter}
+                                dateFilter={dateFilter}
                                 shouldFilterTestAccounts={values.shouldFilterTestAccounts}
-                                compareFilter={values.compareFilter}
+                                compareFilter={compareFilter}
                                 pageUrl={values.pageUrl}
                             />
                         </div>
@@ -444,9 +402,9 @@ export const PageReports = (): JSX.Element => {
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
-                                dateFilter={values.dateFilter}
+                                dateFilter={dateFilter}
                                 shouldFilterTestAccounts={values.shouldFilterTestAccounts}
-                                compareFilter={values.compareFilter}
+                                compareFilter={compareFilter}
                                 pageUrl={values.pageUrl}
                             />
 
@@ -460,9 +418,9 @@ export const PageReports = (): JSX.Element => {
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
-                                dateFilter={values.dateFilter}
+                                dateFilter={dateFilter}
                                 shouldFilterTestAccounts={values.shouldFilterTestAccounts}
-                                compareFilter={values.compareFilter}
+                                compareFilter={compareFilter}
                                 pageUrl={values.pageUrl}
                             />
                         </div>
@@ -481,9 +439,9 @@ export const PageReports = (): JSX.Element => {
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
-                                dateFilter={values.dateFilter}
+                                dateFilter={dateFilter}
                                 shouldFilterTestAccounts={values.shouldFilterTestAccounts}
-                                compareFilter={values.compareFilter}
+                                compareFilter={compareFilter}
                                 pageUrl={values.pageUrl}
                             />
 
@@ -497,9 +455,9 @@ export const PageReports = (): JSX.Element => {
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
-                                dateFilter={values.dateFilter}
+                                dateFilter={dateFilter}
                                 shouldFilterTestAccounts={values.shouldFilterTestAccounts}
-                                compareFilter={values.compareFilter}
+                                compareFilter={compareFilter}
                                 pageUrl={values.pageUrl}
                             />
 
@@ -513,9 +471,9 @@ export const PageReports = (): JSX.Element => {
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
-                                dateFilter={values.dateFilter}
+                                dateFilter={dateFilter}
                                 shouldFilterTestAccounts={values.shouldFilterTestAccounts}
-                                compareFilter={values.compareFilter}
+                                compareFilter={compareFilter}
                                 pageUrl={values.pageUrl}
                             />
                         </div>
@@ -534,9 +492,9 @@ export const PageReports = (): JSX.Element => {
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
-                                dateFilter={values.dateFilter}
+                                dateFilter={dateFilter}
                                 shouldFilterTestAccounts={values.shouldFilterTestAccounts}
-                                compareFilter={values.compareFilter}
+                                compareFilter={compareFilter}
                                 pageUrl={values.pageUrl}
                             />
 
@@ -550,9 +508,9 @@ export const PageReports = (): JSX.Element => {
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
-                                dateFilter={values.dateFilter}
+                                dateFilter={dateFilter}
                                 shouldFilterTestAccounts={values.shouldFilterTestAccounts}
-                                compareFilter={values.compareFilter}
+                                compareFilter={compareFilter}
                                 pageUrl={values.pageUrl}
                             />
 
@@ -566,9 +524,9 @@ export const PageReports = (): JSX.Element => {
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
-                                dateFilter={values.dateFilter}
+                                dateFilter={dateFilter}
                                 shouldFilterTestAccounts={values.shouldFilterTestAccounts}
-                                compareFilter={values.compareFilter}
+                                compareFilter={compareFilter}
                                 pageUrl={values.pageUrl}
                             />
                         </div>
@@ -583,9 +541,9 @@ export const PageReports = (): JSX.Element => {
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
-                                dateFilter={values.dateFilter}
+                                dateFilter={dateFilter}
                                 shouldFilterTestAccounts={values.shouldFilterTestAccounts}
-                                compareFilter={values.compareFilter}
+                                compareFilter={compareFilter}
                                 pageUrl={values.pageUrl}
                             />
 
@@ -599,9 +557,9 @@ export const PageReports = (): JSX.Element => {
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
-                                dateFilter={values.dateFilter}
+                                dateFilter={dateFilter}
                                 shouldFilterTestAccounts={values.shouldFilterTestAccounts}
-                                compareFilter={values.compareFilter}
+                                compareFilter={compareFilter}
                                 pageUrl={values.pageUrl}
                             />
                         </div>
