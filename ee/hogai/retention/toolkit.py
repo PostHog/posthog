@@ -30,6 +30,10 @@ Filters:
         - operator
         - property value
     - property filter 2... Repeat for each property filter.
+
+(if a time period or granularity is explicitly mentioned)
+Time period: description of the time period
+Granularity: hour/day/week/month/year
 ```
 
 Args:

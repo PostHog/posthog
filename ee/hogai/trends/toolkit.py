@@ -48,6 +48,10 @@ class TrendsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
                     - Repeat for each breakdown.
                     ```
 
+                    (if a time period or granularity is explicitly mentioned)
+                    Time period: description of the time period
+                    Granularity: hour/day/week/month/year
+
                     Args:
                         final_response: List all events and properties that you want to use to answer the question.
                 """,

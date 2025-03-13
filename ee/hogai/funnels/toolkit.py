@@ -45,6 +45,10 @@ class FunnelsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
                     Breakdown by:
                     - entity
                     - property name
+
+                    (if a time period or granularity is explicitly mentioned)
+                    Time period: description of the time period
+                    Granularity: hour/day/week/month/year
                     ```
 
                     Args:
