@@ -16,7 +16,7 @@
         "build": "pnpm clean && pnpm typescript:compile && pnpm typescript:compile-cleanup",
         "clean": "rm -rf dist/*",
         "typescript:compile": "tsc -b",
-        "typescript:compile-cleanup": "[ -d dist/src ] && mv dist/src/* dist/ || true",
+        "typescript:compile-cleanup": "[ -d dist/plugin-server/src ] && mv dist/plugin-server/src/* dist/ || true",
         "typescript:check": "tsc --noEmit -p .",
         "lint": "eslint .",
         "lint:fix": "eslint --fix .",
