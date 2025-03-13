@@ -12,7 +12,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import { memo } from 'react'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import { WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightLogicProps, ProductKey } from '~/types'
 
@@ -64,6 +64,8 @@ interface PageReportsLogicValues {
     // Visualization options
     getTileVisualization: (tileId: PageReportsTileId) => TileVisualizationOption
     tileVisualizations: Record<PageReportsTileId, TileVisualizationOption>
+    // Get query for a specific tile
+    getQueryForTile: (tileId: PageReportsTileId) => QuerySchema | undefined
     // Date filter
     dateFilter: any
     // Compare filter
@@ -131,28 +133,27 @@ function PageUrlSearchHeader(): JSX.Element {
 }
 
 // Map tile IDs to breakdown types
-const tileToBreakdown: Record<PageReportsTileId, Record<string, WebStatsBreakdown>> = {
-    [PageReportsTileId.PATHS]: {
-        [PathTab.INITIAL_PATH]: WebStatsBreakdown.InitialPage,
-        [PathTab.END_PATH]: WebStatsBreakdown.ExitPage,
-        [PathTab.EXIT_CLICK]: WebStatsBreakdown.ExitClick,
-    },
-    [PageReportsTileId.SOURCES]: {
-        [SourceTab.CHANNEL]: WebStatsBreakdown.InitialChannelType,
-        [SourceTab.REFERRING_DOMAIN]: WebStatsBreakdown.InitialReferringDomain,
-    },
-    [PageReportsTileId.DEVICES]: {
-        [DeviceTab.DEVICE_TYPE]: WebStatsBreakdown.DeviceType,
-        [DeviceTab.BROWSER]: WebStatsBreakdown.Browser,
-        [DeviceTab.OS]: WebStatsBreakdown.OS,
-    },
-    [PageReportsTileId.GEOGRAPHY]: {
-        [GeographyTab.COUNTRIES]: WebStatsBreakdown.Country,
-        [GeographyTab.REGIONS]: WebStatsBreakdown.Region,
-        [GeographyTab.CITIES]: WebStatsBreakdown.City,
-        [GeographyTab.TIMEZONES]: WebStatsBreakdown.Timezone,
-        [GeographyTab.LANGUAGES]: WebStatsBreakdown.Language,
-    },
+const tileToBreakdown: Record<PageReportsTileId, WebStatsBreakdown> = {
+    // Path tiles
+    [PageReportsTileId.ENTRY_PATHS]: WebStatsBreakdown.InitialPage,
+    [PageReportsTileId.EXIT_PATHS]: WebStatsBreakdown.ExitPage,
+    [PageReportsTileId.OUTBOUND_CLICKS]: WebStatsBreakdown.ExitClick,
+
+    // Source tiles
+    [PageReportsTileId.CHANNELS]: WebStatsBreakdown.InitialChannelType,
+    [PageReportsTileId.REFERRERS]: WebStatsBreakdown.InitialReferringDomain,
+
+    // Device tiles
+    [PageReportsTileId.DEVICE_TYPES]: WebStatsBreakdown.DeviceType,
+    [PageReportsTileId.BROWSERS]: WebStatsBreakdown.Browser,
+    [PageReportsTileId.OPERATING_SYSTEMS]: WebStatsBreakdown.OS,
+
+    // Geography tiles
+    [PageReportsTileId.COUNTRIES]: WebStatsBreakdown.Country,
+    [PageReportsTileId.REGIONS]: WebStatsBreakdown.Region,
+    [PageReportsTileId.CITIES]: WebStatsBreakdown.City,
+    [PageReportsTileId.TIMEZONES]: WebStatsBreakdown.Timezone,
+    [PageReportsTileId.LANGUAGES]: WebStatsBreakdown.Language,
 }
 
 // Define SimpleTile as a standalone component outside of PageReports
@@ -200,8 +201,8 @@ const SimpleTile = memo(
 
         const insightUrl = getNewInsightUrl(tileId, tabId)
 
-        // Get the appropriate breakdown for this tile and tab
-        const breakdownBy = pageReportsTileId && tileToBreakdown[pageReportsTileId]?.[tabId]
+        // Get the appropriate breakdown for this tile
+        const breakdownBy = pageReportsTileId && tileToBreakdown[pageReportsTileId]
 
         // Create a processed query based on visualization type
         let processedQuery = query
@@ -299,7 +300,7 @@ const SimpleTile = memo(
                             showIntervalSelect={false}
                             tileId={tileId}
                             insightProps={createInsightProps(pageReportsTileId || tileId, tabId)}
-                            key={`${tileId}-${tabId}-${pageUrl || 'none'}-${visualization}`}
+                            key={`${pageReportsTileId || tileId}-${tabId}-${pageUrl || 'none'}-${visualization}`}
                         />
                     )}
                     {!query && (
@@ -386,7 +387,7 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.entryPathsQuery}
                                 tileId={TileId.PATHS}
                                 tabId={PathTab.INITIAL_PATH}
-                                pageReportsTileId={PageReportsTileId.PATHS}
+                                pageReportsTileId={PageReportsTileId.ENTRY_PATHS}
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
@@ -402,7 +403,7 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.exitPathsQuery}
                                 tileId={TileId.PATHS}
                                 tabId={PathTab.END_PATH}
-                                pageReportsTileId={PageReportsTileId.PATHS}
+                                pageReportsTileId={PageReportsTileId.EXIT_PATHS}
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
@@ -418,7 +419,7 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.outboundClicksQuery}
                                 tileId={TileId.PATHS}
                                 tabId={PathTab.EXIT_CLICK}
-                                pageReportsTileId={PageReportsTileId.PATHS}
+                                pageReportsTileId={PageReportsTileId.OUTBOUND_CLICKS}
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
@@ -439,7 +440,7 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.channelsQuery}
                                 tileId={TileId.SOURCES}
                                 tabId={SourceTab.CHANNEL}
-                                pageReportsTileId={PageReportsTileId.SOURCES}
+                                pageReportsTileId={PageReportsTileId.CHANNELS}
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
@@ -455,7 +456,7 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.referrersQuery}
                                 tileId={TileId.SOURCES}
                                 tabId={SourceTab.REFERRING_DOMAIN}
-                                pageReportsTileId={PageReportsTileId.SOURCES}
+                                pageReportsTileId={PageReportsTileId.REFERRERS}
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
@@ -476,7 +477,7 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.deviceTypeQuery}
                                 tileId={TileId.DEVICES}
                                 tabId={DeviceTab.DEVICE_TYPE}
-                                pageReportsTileId={PageReportsTileId.DEVICES}
+                                pageReportsTileId={PageReportsTileId.DEVICE_TYPES}
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
@@ -492,7 +493,7 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.browserQuery}
                                 tileId={TileId.DEVICES}
                                 tabId={DeviceTab.BROWSER}
-                                pageReportsTileId={PageReportsTileId.DEVICES}
+                                pageReportsTileId={PageReportsTileId.BROWSERS}
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
@@ -508,7 +509,7 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.osQuery}
                                 tileId={TileId.DEVICES}
                                 tabId={DeviceTab.OS}
-                                pageReportsTileId={PageReportsTileId.DEVICES}
+                                pageReportsTileId={PageReportsTileId.OPERATING_SYSTEMS}
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
@@ -529,7 +530,7 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.countriesQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.COUNTRIES}
-                                pageReportsTileId={PageReportsTileId.GEOGRAPHY}
+                                pageReportsTileId={PageReportsTileId.COUNTRIES}
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
@@ -545,7 +546,7 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.regionsQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.REGIONS}
-                                pageReportsTileId={PageReportsTileId.GEOGRAPHY}
+                                pageReportsTileId={PageReportsTileId.REGIONS}
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
@@ -561,7 +562,7 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.citiesQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.CITIES}
-                                pageReportsTileId={PageReportsTileId.GEOGRAPHY}
+                                pageReportsTileId={PageReportsTileId.CITIES}
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
@@ -578,7 +579,7 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.timezonesQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.TIMEZONES}
-                                pageReportsTileId={PageReportsTileId.GEOGRAPHY}
+                                pageReportsTileId={PageReportsTileId.TIMEZONES}
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
@@ -594,7 +595,7 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.languagesQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.LANGUAGES}
-                                pageReportsTileId={PageReportsTileId.GEOGRAPHY}
+                                pageReportsTileId={PageReportsTileId.LANGUAGES}
                                 createInsightProps={values.createInsightProps}
                                 getNewInsightUrl={getNewInsightUrl}
                                 openModal={openModal}
