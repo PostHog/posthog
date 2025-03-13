@@ -20,25 +20,25 @@ export interface EndResult {
     /** Timestamp of the last event in the session block */
     endDateTime: DateTime
     /** First URL of the session */
-    firstUrl?: string | null
+    firstUrl: string | null
     /** All URLs visited in the session */
-    urls?: string[]
+    urls: string[]
     /** Number of clicks in the session */
-    clickCount?: number
+    clickCount: number
     /** Number of keypresses in the session */
-    keypressCount?: number
+    keypressCount: number
     /** Number of mouse activity events in the session */
-    mouseActivityCount?: number
+    mouseActivityCount: number
     /** Active time in milliseconds */
-    activeMilliseconds?: number
+    activeMilliseconds: number
     /** Size of the session data in bytes */
-    size?: number
+    size: number
     /** Number of messages in the session */
-    messageCount?: number
+    messageCount: number
     /** Source of the snapshot (Web/Mobile) */
-    snapshotSource?: string | null
+    snapshotSource: string | null
     /** Library used for the snapshot */
-    snapshotLibrary?: string | null
+    snapshotLibrary: string | null
     /** ID of the batch this session belongs to */
     batchId: string
 }
