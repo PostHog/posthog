@@ -351,7 +351,7 @@ export class IngestionConsumer {
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('disconnected', async (err) => {
-            if (!this.isStopping) {
+            if (this.isStopping) {
                 return
             }
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect

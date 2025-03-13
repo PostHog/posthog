@@ -7,10 +7,10 @@ from typing import Literal, Optional, Union, cast
 
 from prometheus_client import Counter
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError, DataError
+from django.db import DatabaseError, IntegrityError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
-from django.db.models import Q, Func, F, CharField
+from django.db.models import Q, Func, F, CharField, Expression
 from django.db.models.query import QuerySet
 from sentry_sdk.api import start_span
 from posthog.metrics import LABEL_TEAM_ID
@@ -28,7 +28,6 @@ from posthog.models.team.team import Team
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q, sanitize_property_key
 from posthog.database_healthcheck import (
-    postgres_healthcheck,
     DATABASE_FOR_FLAG_MATCHING,
 )
 from posthog.utils import label_for_team_id_to_track
@@ -78,21 +77,22 @@ class FeatureFlagMatchReason(StrEnum):
     OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
     NO_GROUP_TYPE = "no_group_type"
 
-    def score(self):
-        if self == FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
-            return 4
-        if self == FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
-            return 3.5
-        if self == FeatureFlagMatchReason.CONDITION_MATCH:
-            return 3
-        if self == FeatureFlagMatchReason.NO_GROUP_TYPE:
-            return 2
-        if self == FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
-            return 1
-        if self == FeatureFlagMatchReason.NO_CONDITION_MATCH:
-            return 0
-
-        return -1
+    def score(self) -> float:
+        match self:
+            case FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
+                return 4
+            case FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
+                return 3.5
+            case FeatureFlagMatchReason.CONDITION_MATCH:
+                return 3
+            case FeatureFlagMatchReason.NO_GROUP_TYPE:
+                return 2
+            case FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
+                return 1
+            case FeatureFlagMatchReason.NO_CONDITION_MATCH:
+                return 0
+            case _:
+                raise AssertionError("Unreachable - all enum cases are handled")
 
     def __lt__(self, other):
         if self.__class__ is other.__class__:
@@ -124,8 +124,9 @@ class FlagsMatcherCache:
                 group_type_mapping_rows = GroupTypeMapping.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
                     project_id=self.project_id
                 )
-                return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
-        except DatabaseError:
+                return {row.group_type: cast(GroupTypeIndex, row.group_type_index) for row in group_type_mapping_rows}
+        except DatabaseError as e:
+            logger.exception("group_types_to_indexes database error", error=str(e), exc_info=True)
             self.failed_to_fetch_flags = True
             raise
 
@@ -578,7 +579,7 @@ class FeatureFlagMatcher:
                                     **type_property_annotations,
                                     **{
                                         key: ExpressionWrapper(
-                                            expr if expr else RawSQL("true", []),
+                                            cast(Expression, expr if expr else RawSQL("true", [])),
                                             output_field=BooleanField(),
                                         ),
                                     },
@@ -599,9 +600,9 @@ class FeatureFlagMatcher:
                                     **type_property_annotations,
                                     **{
                                         key: ExpressionWrapper(
-                                            expr if expr else RawSQL("true", []),
+                                            cast(Expression, expr if expr else RawSQL("true", [])),
                                             output_field=BooleanField(),
-                                        )
+                                        ),
                                     },
                                 )
                                 group_fields.append(key)
@@ -668,7 +669,8 @@ class FeatureFlagMatcher:
                                     ), f"Expected 1 group query result, got {len(group_query)}"
                                     all_conditions = {**all_conditions, **group_query[0]}
                     return all_conditions
-        except DatabaseError:
+        except DatabaseError as e:
+            logger.exception("query_conditions database error", error=str(e), exc_info=True)
             self.failed_to_fetch_conditions = True
             raise
         except Exception:
@@ -695,6 +697,8 @@ class FeatureFlagMatcher:
             # TODO: Don't use the cache if self.groups is empty, since that means no groups provided anyway
             # :TRICKY: If aggregating by groups
             group_type_name = self.cache.group_type_index_to_name.get(feature_flag.aggregation_group_type_index)
+            if group_type_name is None:
+                return None
             group_key = self.groups.get(group_type_name)
             return group_key
 
@@ -870,8 +874,7 @@ def get_all_feature_flags(
     )
 
     with start_span(op="without_experience_continuity"):
-        # check every 10 seconds whether the database is alive or not
-        is_database_alive = (not settings.DECIDE_SKIP_POSTGRES_FLAGS) and postgres_healthcheck.is_connected()
+        is_database_alive = not settings.DECIDE_SKIP_POSTGRES_FLAGS
         if not is_database_alive or not flags_have_experience_continuity_enabled:
             return _get_all_feature_flags(
                 all_feature_flags,
@@ -1082,11 +1085,6 @@ def handle_feature_flag_exception(err: Exception, log_message: str = "", set_hea
     if reason == "unknown":
         capture_exception(err)
 
-    # DataErrors are generally not because the db is down, but because of bad data.
-    # We don't want to set the healthcheck down for bad data.
-    if not isinstance(err, DataError) and isinstance(err, DatabaseError) and set_healthcheck:
-        postgres_healthcheck.set_connection(False)
-
 
 def parse_exception_for_error_message(err: Exception):
     reason = "unknown"
@@ -1201,7 +1199,7 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int
             **type_property_annotations,
             **{
                 key: ExpressionWrapper(
-                    expr if expr else RawSQL("true", []),
+                    cast(Expression, expr if expr else RawSQL("true", [])),
                     output_field=BooleanField(),
                 ),
             },

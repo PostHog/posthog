@@ -527,8 +527,24 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "age": HogQLFunctionMeta("age", 3, 3),
     "dateDiff": HogQLFunctionMeta("dateDiff", 3, 3),
     "dateTrunc": HogQLFunctionMeta("dateTrunc", 2, 2),
-    "dateAdd": HogQLFunctionMeta("dateAdd", 2, 2),
-    "dateSub": HogQLFunctionMeta("dateSub", 3, 3),
+    "dateAdd": HogQLFunctionMeta(
+        "dateAdd",
+        2,
+        3,
+        signatures=[
+            ((DateType(), UnknownType()), DateType()),
+            ((StringType(), UnknownType(), DateType()), DateType()),
+        ],
+    ),
+    "dateSub": HogQLFunctionMeta(
+        "dateSub",
+        2,
+        3,
+        signatures=[
+            ((DateType(), UnknownType()), DateType()),
+            ((StringType(), UnknownType(), DateType()), DateType()),
+        ],
+    ),
     "timeStampAdd": HogQLFunctionMeta("timeStampAdd", 2, 2),
     "timeStampSub": HogQLFunctionMeta("timeStampSub", 2, 2),
     "now": HogQLFunctionMeta(
