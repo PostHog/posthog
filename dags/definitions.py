@@ -61,13 +61,14 @@ defs = dagster.Definitions(
         materialized_columns.materialize_column,
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
-        backups.backup,
+        backups.sharded_backup,
     ],
     schedules=[
         exchange_rate.daily_exchange_rates_schedule,
         exchange_rate.hourly_exchange_rates_schedule,
         export_query_logs_to_s3.query_logs_export_schedule,
         person_overrides.squash_schedule,
+        backups.full_sharded_backup_schedule,
     ],
     sensors=[
         deletes.run_deletes_after_squash,
