@@ -348,7 +348,6 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
         key, delta_table, job_id = await materialize_model(
             saved_query.id.hex,
             ateam,
-            "test_workflow",
             saved_query,
             job,
         )

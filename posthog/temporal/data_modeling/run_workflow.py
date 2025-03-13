@@ -273,15 +273,17 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         team_id: The ID of the team who owns this model.
         queue: The execution queue where we will report back results.
     """
+    job = None
 
     async def handle_error(error: Exception, error_message: str):
         await logger.aexception(error_message, model.label, str(error))
 
-        if "job_id" in locals():
-            job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
+        if job:
             job.status = DataModelingJob.Status.FAILED
             job.error = str(error)
             await database_sync_to_async(job.save)()
+        else:
+            await logger.aexception("No job found for model %s", model.label)
 
         await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
 
@@ -289,11 +291,12 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             workflow_id = temporalio.activity.info().workflow_id
+            workflow_run_id = temporalio.activity.info().workflow_run_id
 
             saved_query = await get_saved_query(team, model.label)
-            job = await start_job_modeling_run(team, workflow_id, saved_query)
+            job = await start_job_modeling_run(team, workflow_id, workflow_run_id, saved_query)
 
-            key, delta_table, job_id = await materialize_model(model.label, team, workflow_id, saved_query, job)
+            key, delta_table, job_id = await materialize_model(model.label, team, saved_query, job)
     except CHQueryErrorMemoryLimitExceeded as err:
         await handle_error(err, "Memory limit exceeded for model %s: %s")
     except CannotCoerceColumnException as err:
@@ -307,7 +310,7 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         queue.task_done()
 
 
-async def start_job_modeling_run(team: Team, workflow_id: str, saved_query: DataWarehouseSavedQuery) -> DataModelingJob:
+async def start_job_modeling_run(team: Team, workflow_id: str, workflow_run_id: str, saved_query: DataWarehouseSavedQuery) -> DataModelingJob:
     """Create a DataModelingJob record in an async-safe way."""
     job_create = database_sync_to_async(DataModelingJob.objects.create)
     return await job_create(
@@ -315,6 +318,7 @@ async def start_job_modeling_run(team: Team, workflow_id: str, saved_query: Data
         saved_query=saved_query,
         status=DataModelingJob.Status.RUNNING,
         workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
         created_by_id=saved_query.created_by_id,
     )
 
@@ -337,7 +341,7 @@ async def get_saved_query(team: Team, model_label: str) -> DataWarehouseSavedQue
 
 
 async def materialize_model(
-    model_label: str, team: Team, workflow_id: str, saved_query: DataWarehouseSavedQuery, job: DataModelingJob
+    model_label: str, team: Team, saved_query: DataWarehouseSavedQuery, job: DataModelingJob
 ) -> tuple[str, DeltaTable, uuid.UUID]:
     """Materialize a given model by running its query in a dlt pipeline.
 
@@ -346,8 +350,8 @@ async def materialize_model(
             If it's a valid UUID, then we will assume it's the ID, otherwise we'll assume
             it is the model's name.
         team: The team the model belongs to.
-        workflow_id: The ID of the workflow running the materialization.
         saved_query: The saved query to materialize.
+        job: The DataModelingJob record for this run that tracks the lifecycle and rows of the run.
     """
 
     query_columns = saved_query.columns
@@ -388,6 +392,7 @@ async def materialize_model(
         if "Query exceeds memory limits" in error_message:
             saved_query.latest_error = error_message
             await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, error_message)
             raise CHQueryErrorMemoryLimitExceeded(
                 f"Query for model {model_label} exceeds memory limits. Try reducing its scope by changing the time range."
             ) from e
@@ -395,6 +400,8 @@ async def materialize_model(
         elif "Cannot coerce type" in error_message:
             saved_query.latest_error = error_message
             await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, error_message)
+
             raise CannotCoerceColumnException(f"Type coercion error in model {model_label}: {error_message}") from e
 
     tables = get_delta_tables(pipeline)
@@ -420,6 +427,14 @@ async def materialize_model(
     await database_sync_to_async(job.save)()
 
     return (key, delta_table, job.id)
+
+async def mark_job_as_failed(job: DataModelingJob, error_message: str) -> None:
+    """
+    Mark DataModelingJob as failed
+    """
+    job.status = DataModelingJob.Status.FAILED
+    job.error = error_message
+    await database_sync_to_async(job.save)()
 
 
 def count_delta_table_rows(delta_table: DeltaTable) -> int:

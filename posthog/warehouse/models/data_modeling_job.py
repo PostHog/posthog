@@ -15,4 +15,5 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     rows_materialized = models.IntegerField(default=0)
     error = models.TextField(null=True, blank=True)
     workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
     last_run_at = models.DateTimeField(default=timezone.now)
