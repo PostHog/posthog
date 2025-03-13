@@ -161,16 +161,14 @@ export class PropertyDefsConsumer {
             }
         })
 
-        const groupTypesByProjectId = await this.groupTypeManager.fetchGroupTypesForProjects(projectsToLoadGroupsFor)
-
-        console.log('🔁', `Event batch teams and group indices resolved`)
+        const groupTypesByProjectId = await this.runInstrumented('fetchGroupTypesForProjects', () =>
+            this.groupTypeManager.fetchGroupTypesForProjects(projectsToLoadGroupsFor)
+        )
 
         // extract and dedup event and property definitions
         const collected = await this.runInstrumented('derivePropDefs', () =>
             Promise.resolve(this.extractPropertyDefinitions(parsedMessages, groupTypesByProjectId))
         )
-
-        console.log('🔁', `Property definitions collected`, JSON.stringify(collected, null, 2))
 
         const eventDefinitions = Object.values(collected.eventDefinitionsById).flatMap((eventDefinitions) =>
             Object.values(eventDefinitions)
