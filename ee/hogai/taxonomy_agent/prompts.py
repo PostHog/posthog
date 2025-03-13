@@ -102,7 +102,7 @@ REACT_DEFINITIONS_PROMPT = """
 Here are the event names.
 {{{events}}}
 {{#actions}}
-Here are the action names.
+Here are the actions relevant to the user's question.
 {{{actions}}}
 {{/actions}}
 """.strip()
