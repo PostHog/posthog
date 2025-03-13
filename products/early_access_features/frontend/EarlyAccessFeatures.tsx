@@ -26,8 +26,9 @@ const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
 }
 
 export function EarlyAccessFeatures(): JSX.Element {
-    const { earlyAccessFeatures, earlyAccessFeaturesLoading } = useValues(earlyAccessFeaturesLogic)
-    const shouldShowEmptyState = earlyAccessFeatures.length == 0 && !earlyAccessFeaturesLoading
+    const { featuresWithCounts, earlyAccessFeaturesLoading, featureEnrollmentCountsLoading } =
+        useValues(earlyAccessFeaturesLogic)
+    const shouldShowEmptyState = featuresWithCounts.length === 0 && !earlyAccessFeaturesLoading
 
     return (
         <>
@@ -50,7 +51,7 @@ export function EarlyAccessFeatures(): JSX.Element {
             />
             {!shouldShowEmptyState && (
                 <LemonTable
-                    loading={earlyAccessFeaturesLoading}
+                    loading={earlyAccessFeaturesLoading || featureEnrollmentCountsLoading}
                     columns={[
                         {
                             title: 'Name',
@@ -94,7 +95,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                             sorter: (a, b) => (a.opt_in_count ?? 0) - (b.opt_in_count ?? 0),
                         },
                     ]}
-                    dataSource={earlyAccessFeatures}
+                    dataSource={featuresWithCounts}
                 />
             )}
         </>

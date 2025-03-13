@@ -9,6 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
+from rest_framework import routers
 
 from posthog.api.utils import get_token
 from posthog.auth import (
@@ -31,6 +32,7 @@ from posthog.permissions import (
 )
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
+from posthog.api.early_access_feature import EarlyAccessFeatureViewSet
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -454,3 +456,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             pass
 
         return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
+
+
+router = routers.DefaultRouter()
+# ... existing routes ...
+router.register(r"early_access_feature", EarlyAccessFeatureViewSet, basename="early_access_feature")

@@ -14,26 +14,14 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
             __default: [] as EarlyAccessFeatureType[],
             loadEarlyAccessFeatures: async () => {
                 const response = await api.earlyAccessFeatures.list()
-                const featuresWithCounts = await Promise.all(
-                    response.results.map(async (feature) => {
-                        const key = `$feature_enrollment/${feature.feature_flag.key}`
-                        const optInCount = await api.persons.list({
-                            properties: [
-                                {
-                                    key: key,
-                                    value: ['true'],
-                                    operator: 'exact',
-                                    type: 'person',
-                                },
-                            ],
-                        })
-                        return {
-                            ...feature,
-                            opt_in_count: optInCount.count,
-                        }
-                    })
-                )
-                return featuresWithCounts
+                return response.results
+            },
+        },
+        featureEnrollmentCounts: {
+            __default: {} as Record<string, number>,
+            loadFeatureEnrollmentCounts: async () => {
+                const response = await api.get('api/projects/@current/early_access_feature/enrollment_counts/')
+                return response
             },
         },
     }),
@@ -48,8 +36,17 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
                 },
             ],
         ],
+        featuresWithCounts: [
+            (s) => [s.earlyAccessFeatures, s.featureEnrollmentCounts],
+            (features, counts): EarlyAccessFeatureType[] =>
+                features.map((feature) => ({
+                    ...feature,
+                    opt_in_count: counts[`$feature_enrollment/${feature.feature_flag.key}`] || 0,
+                })),
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadEarlyAccessFeatures()
+        actions.loadFeatureEnrollmentCounts()
     }),
 ])
