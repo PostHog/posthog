@@ -186,7 +186,7 @@ class TrendsActorsQueryBuilder:
         event_columns = {"uuid", "timestamp"}
         if self.include_recordings:
             event_columns.add("$session_id")
-            event_columns.add("window_id")
+            event_columns.add("$window_id")
 
         actor_distinct_id_col = self._actor_distinct_id_col()
         if actor_distinct_id_col:
