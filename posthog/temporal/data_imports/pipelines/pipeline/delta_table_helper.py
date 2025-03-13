@@ -95,13 +95,6 @@ class DeltaTableHelper:
         return None
 
     def reset_table(self):
-        table = self.get_delta_table()
-
-        if table is not None:
-            table.delete()
-        else:
-            self._logger.debug("reset_table: Table does not exist. Continuing to delete via S3")
-
         delta_uri = self._get_delta_table_uri()
 
         s3 = get_s3_client()
