@@ -14,10 +14,10 @@ import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
 import { RevenueExampleExternalTablesData } from './RevenueExampleExternalTablesData'
 
-type Tab = 'revenue-events' | 'external-tables'
+type Tab = 'events' | 'external-tables'
 
 export function RevenueEventsSettings(): JSX.Element {
-    const [activeTab, setActiveTab] = useState<Tab>('revenue-events')
+    const [activeTab, setActiveTab] = useState<Tab>('events')
 
     const { events, externalDataSchemas } = useValues(revenueEventsSettingsLogic)
 
@@ -87,7 +87,7 @@ export function RevenueEventsSettings(): JSX.Element {
                     onChange={(key) => setActiveTab(key as Tab)}
                     tabs={[
                         {
-                            key: 'revenue-events',
+                            key: 'events',
                             label: 'Revenue events',
                             content: <RevenueExampleEventsTable />,
                         },

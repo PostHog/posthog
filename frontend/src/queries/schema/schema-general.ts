@@ -2695,10 +2695,19 @@ export enum CurrencyCode {
     ZMW = 'ZMW',
 }
 
+export type RevenueCurrencyPropertyConfig = {
+    property?: string
+    static?: CurrencyCode
+}
+
 export interface RevenueTrackingEventItem {
     eventName: string
     revenueProperty: string
-    revenueCurrencyProperty: string | undefined
+
+    /**
+     * @default {"static": "USD"}
+     */
+    revenueCurrencyProperty: RevenueCurrencyPropertyConfig
 }
 
 export interface RevenueTrackingExternalDataSchema {

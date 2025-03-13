@@ -11,6 +11,7 @@ from posthog.schema import (
     CurrencyCode,
     RevenueExampleEventsQuery,
     RevenueTrackingConfig,
+    RevenueCurrencyPropertyConfig,
     RevenueExampleEventsQueryResponse,
     RevenueTrackingEventItem,
 )
@@ -40,12 +41,12 @@ REVENUE_TRACKING_CONFIG_WITH_REVENUE_CURRENCY_PROPERTY = RevenueTrackingConfig(
         RevenueTrackingEventItem(
             eventName="purchase_a",
             revenueProperty="revenue_a",
-            revenueCurrencyProperty="currency_a",
+            revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static=CurrencyCode.GBP),
         ),
         RevenueTrackingEventItem(
             eventName="purchase_b",
             revenueProperty="revenue_b",
-            revenueCurrencyProperty="currency_b",
+            revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency_b"),
         ),
     ],
     baseCurrency=CurrencyCode.EUR,
@@ -189,10 +190,11 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         purchase_b, purchase_a = results
 
+        # Stored USD on the event, but `purchase_a`'s revenueCurrencyProperty is set to static GBP
         assert purchase_a[1] == "purchase_a"
         assert purchase_a[2] == Decimal("42")
-        assert purchase_a[3] == Decimal("38.619")  # 42 USD -> 38.61 EUR
-        assert purchase_a[4] == CurrencyCode.USD.value
+        assert purchase_a[3] == Decimal("48.841532819")  # 42 GBP -> 48.84 EUR
+        assert purchase_a[4] == CurrencyCode.GBP.value
         assert purchase_a[5] == CurrencyCode.EUR.value
 
         assert purchase_b[1] == "purchase_b"

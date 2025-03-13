@@ -9,6 +9,7 @@ import {
     CurrencyCode,
     DataTableNode,
     NodeKind,
+    RevenueCurrencyPropertyConfig,
     RevenueExampleEventsQuery,
     RevenueExampleExternalTablesQuery,
     RevenueTrackingConfig,
@@ -40,7 +41,10 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         addEvent: (eventName: string) => ({ eventName }),
         deleteEvent: (eventName: string) => ({ eventName }),
         updateEventRevenueProperty: (eventName: string, revenueProperty: string) => ({ eventName, revenueProperty }),
-        updateEventRevenueCurrencyProperty: (eventName: string, revenueCurrencyProperty: string) => ({
+        updateEventRevenueCurrencyProperty: (
+            eventName: string,
+            revenueCurrencyProperty: RevenueCurrencyPropertyConfig
+        ) => ({
             eventName,
             revenueCurrencyProperty,
         }),
@@ -89,7 +93,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                             {
                                 eventName,
                                 revenueProperty: 'revenue',
-                                revenueCurrencyProperty: undefined,
+                                revenueCurrencyProperty: { static: state.baseCurrency },
                             },
                         ],
                     }
@@ -100,7 +104,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                     }
                     return { ...state, events: state.events.filter((item) => item.eventName !== eventName) }
                 },
-                updatePropertyName: (state, { eventName, revenueProperty }) => {
+                updateEventRevenueProperty: (state, { eventName, revenueProperty }) => {
                     if (!state) {
                         return state
                     }
@@ -114,7 +118,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         }),
                     }
                 },
-                updateCurrencyPropertyName: (state, { eventName, revenueCurrencyProperty }) => {
+                updateEventRevenueCurrencyProperty: (state, { eventName, revenueCurrencyProperty }) => {
                     if (!state) {
                         return state
                     }

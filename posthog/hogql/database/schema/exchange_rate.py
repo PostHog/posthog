@@ -47,9 +47,7 @@ def revenue_currency_expression(config: RevenueTrackingConfig) -> ast.Expr:
                         op=ast.CompareOperationOp.Eq,
                         right=ast.Constant(value=event.eventName),
                     ),
-                    ast.Field(chain=["events", "properties", event.revenueCurrencyProperty])
-                    if event.revenueCurrencyProperty
-                    else ast.Constant(value=None),
+                    event_currency_expression(config, event),
                 ]
             )
 
@@ -81,9 +79,7 @@ def revenue_comparison_and_value_exprs(
         value_expr = ast.Call(
             name="if",
             args=[
-                ast.Call(
-                    name="isNull", args=[ast.Field(chain=["events", "properties", event.revenueCurrencyProperty])]
-                ),
+                ast.Call(name="isNull", args=[event_currency_expression(config, event)]),
                 ast.Call(
                     name="toDecimal",
                     args=[
@@ -93,7 +89,7 @@ def revenue_comparison_and_value_exprs(
                 ),
                 convert_currency_call(
                     ast.Field(chain=["events", "properties", event.revenueProperty]),
-                    ast.Field(chain=["events", "properties", event.revenueCurrencyProperty]),
+                    event_currency_expression(config, event),
                     ast.Constant(value=(config.baseCurrency or CurrencyCode.USD).value),
                     ast.Call(name="_toDate", args=[ast.Field(chain=["events", "timestamp"])]),
                 ),
@@ -109,6 +105,16 @@ def revenue_comparison_and_value_exprs(
         )
 
     return (comparison_expr, value_expr)
+
+
+def event_currency_expression(config: RevenueTrackingConfig, event: RevenueTrackingEventItem) -> ast.Expr:
+    if event.revenueCurrencyProperty.property:
+        return ast.Call(
+            name="upper",
+            args=[ast.Field(chain=["events", "properties", event.revenueCurrencyProperty.property])],
+        )
+
+    return ast.Constant(value=(event.revenueCurrencyProperty.static or config.baseCurrency or CurrencyCode.USD).value)
 
 
 def revenue_expression(

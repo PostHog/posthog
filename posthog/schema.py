@@ -1582,12 +1582,22 @@ class RetentionType(StrEnum):
     RETENTION_FIRST_TIME = "retention_first_time"
 
 
+class RevenueCurrencyPropertyConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: Optional[str] = None
+    static: Optional[CurrencyCode] = None
+
+
 class RevenueTrackingEventItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     eventName: str
-    revenueCurrencyProperty: Optional[str] = None
+    revenueCurrencyProperty: Optional[RevenueCurrencyPropertyConfig] = Field(
+        default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
+    )
     revenueProperty: str
 
 

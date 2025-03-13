@@ -105,7 +105,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
             {
                 eventName: 'purchase',
                 revenueProperty: 'value',
-                revenueCurrencyProperty: undefined,
+                revenueCurrencyProperty: { static: CurrencyCode.ZAR },
             },
         ],
         externalDataSchemas: [],

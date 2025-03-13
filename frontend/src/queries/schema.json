@@ -14167,6 +14167,18 @@
             "required": ["count"],
             "type": "object"
         },
+        "RevenueCurrencyPropertyConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "property": {
+                    "type": "string"
+                },
+                "static": {
+                    "$ref": "#/definitions/CurrencyCode"
+                }
+            },
+            "type": "object"
+        },
         "RevenueExampleEventsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -14349,13 +14361,16 @@
                     "type": "string"
                 },
                 "revenueCurrencyProperty": {
-                    "type": "string"
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig",
+                    "default": {
+                        "static": "USD"
+                    }
                 },
                 "revenueProperty": {
                     "type": "string"
                 }
             },
-            "required": ["eventName", "revenueProperty"],
+            "required": ["eventName", "revenueProperty", "revenueCurrencyProperty"],
             "type": "object"
         },
         "RevenueTrackingExternalDataSchema": {

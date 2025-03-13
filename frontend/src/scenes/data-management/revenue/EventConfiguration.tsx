@@ -5,43 +5,16 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useCallback } from 'react'
 
 import { RevenueTrackingEventItem } from '~/queries/schema/schema-general'
 
+import { CurrencyDropdown } from './CurrencyDropdown'
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 
 export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<HTMLButtonElement> }): JSX.Element {
     const { events, saveDisabledReason } = useValues(revenueEventsSettingsLogic)
     const { addEvent, deleteEvent, updateEventRevenueProperty, updateEventRevenueCurrencyProperty, save } =
         useActions(revenueEventsSettingsLogic)
-
-    const renderPropertyColumn = useCallback(
-        (
-                key: keyof RevenueTrackingEventItem,
-                updatePropertyFunction: (eventName: string, propertyName: string) => void
-            ) =>
-            // eslint-disable-next-line react/display-name
-            (_: string | undefined, item: RevenueTrackingEventItem) => {
-                return (
-                    <TaxonomicPopover
-                        size="small"
-                        className="my-1"
-                        groupType={TaxonomicFilterGroupType.EventProperties}
-                        onChange={(newPropertyName) => updatePropertyFunction(item.eventName, newPropertyName)}
-                        value={item[key]}
-                        placeholder="Choose event property"
-                        showNumericalPropsOnly={true}
-                        disabledReason={
-                            item.eventName === '$pageview' || item.eventName === '$autocapture'
-                                ? 'Built-in events must use revenue'
-                                : undefined
-                        }
-                    />
-                )
-            },
-        []
-    )
 
     return (
         <div>
@@ -53,20 +26,70 @@ export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<H
                         key: 'revenueProperty',
                         title: 'Revenue property',
                         dataIndex: 'revenueProperty',
-                        render: renderPropertyColumn('revenueProperty', updateEventRevenueProperty),
+                        render: (_, item: RevenueTrackingEventItem) => {
+                            return (
+                                <TaxonomicPopover
+                                    showNumericalPropsOnly
+                                    size="small"
+                                    className="my-1"
+                                    groupType={TaxonomicFilterGroupType.EventProperties}
+                                    onChange={(newPropertyName) =>
+                                        updateEventRevenueProperty(item.eventName, newPropertyName)
+                                    }
+                                    value={item.revenueProperty}
+                                    placeholder="Choose event property"
+                                    disabledReason={
+                                        item.eventName === '$pageview' || item.eventName === '$autocapture'
+                                            ? 'Built-in events must use revenue'
+                                            : undefined
+                                    }
+                                />
+                            )
+                        },
                     },
                     {
                         key: 'revenueCurrencyProperty',
                         title: (
                             <span>
                                 Revenue currency property
-                                <Tooltip title="The currency of the revenue event. If not set, the account's default currency will be used.">
+                                <Tooltip title="The currency of the revenue event. You can choose between a property on your event OR a hardcoded currency.">
                                     <IconInfo className="ml-1" />
                                 </Tooltip>
                             </span>
                         ),
                         dataIndex: 'revenueCurrencyProperty',
-                        render: renderPropertyColumn('revenueCurrencyProperty', updateEventRevenueCurrencyProperty),
+                        render: (_, item: RevenueTrackingEventItem) => {
+                            return (
+                                <div className="flex flex-col w-full gap-3 my-1">
+                                    <div className="flex flex-row gap-1">
+                                        <span className="font-bold">Dynamic property: </span>
+                                        <TaxonomicPopover
+                                            size="small"
+                                            groupType={TaxonomicFilterGroupType.EventProperties}
+                                            onChange={(newPropertyName) =>
+                                                updateEventRevenueCurrencyProperty(item.eventName, {
+                                                    property: newPropertyName!,
+                                                })
+                                            }
+                                            value={item.revenueCurrencyProperty.property ?? null}
+                                            placeholder="Choose event property"
+                                        />
+                                    </div>
+                                    <div className="flex flex-row gap-1">
+                                        or <span className="font-bold">Static currency: </span>
+                                        <CurrencyDropdown
+                                            size="small"
+                                            onChange={(currency) =>
+                                                updateEventRevenueCurrencyProperty(item.eventName, {
+                                                    static: currency!,
+                                                })
+                                            }
+                                            value={item.revenueCurrencyProperty.static ?? null}
+                                        />
+                                    </div>
+                                </div>
+                            )
+                        },
                     },
                     {
                         key: 'delete',
