@@ -2,12 +2,11 @@ use std::sync::Arc;
 
 use axum::async_trait;
 
-use chunk_id::{ChunkId, WithChunkId};
+use chunk_id::OrChunkId;
 use reqwest::Url;
 use sourcemap::OwnedSourceMapCache;
-use tracing::warn;
 
-use crate::error::{ChunkIdError, Error};
+use crate::error::Error;
 
 pub mod caching;
 pub mod chunk_id;
@@ -56,46 +55,33 @@ pub trait Provider: Send + Sync + 'static {
 
 pub struct Catalog {
     // "source map provider"
-    pub smp: Box<dyn Provider<Ref = Url, Set = OwnedSourceMapCache, Err = Error>>,
-    pub chunk_id_smp:
-        Box<dyn Provider<Ref = ChunkId, Set = OwnedSourceMapCache, Err = ChunkIdError>>,
+    pub smp: Box<dyn Provider<Ref = OrChunkId<Url>, Set = OwnedSourceMapCache, Err = Error>>,
 }
 
 impl Catalog {
     pub fn new(
-        smp: impl Provider<Ref = Url, Set = OwnedSourceMapCache, Err = Error>,
-        chunk_id_smp: impl Provider<Ref = ChunkId, Set = OwnedSourceMapCache, Err = ChunkIdError>,
+        smp: impl Provider<Ref = OrChunkId<Url>, Set = OwnedSourceMapCache, Err = Error>,
     ) -> Self {
-        Self {
-            smp: Box::new(smp),
-            chunk_id_smp: Box::new(chunk_id_smp),
-        }
+        Self { smp: Box::new(smp) }
     }
 }
 
 #[async_trait]
 impl SymbolCatalog<Url, OwnedSourceMapCache> for Catalog {
     async fn lookup(&self, team_id: i32, r: Url) -> Result<Arc<OwnedSourceMapCache>, Error> {
+        let r = OrChunkId::inner(r);
         self.smp.lookup(team_id, r).await
     }
 }
 
 #[async_trait]
-impl SymbolCatalog<WithChunkId<Url>, OwnedSourceMapCache> for Catalog {
+impl SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache> for Catalog {
     async fn lookup(
         &self,
         team_id: i32,
-        r: WithChunkId<Url>,
+        r: OrChunkId<Url>,
     ) -> Result<Arc<OwnedSourceMapCache>, Error> {
-        match self.chunk_id_smp.lookup(team_id, r.chunk_id).await {
-            Ok(s) => Ok(s),
-            Err(ChunkIdError::Other(e)) => Err(e), // Anything not specifically a chunk id error we just return
-            Err(e) => {
-                // If we hit some chunk id error, we fall back to trying to fetch from the outside world
-                warn!("Chunk ID lookup failed, falling back {:?}", e);
-                self.lookup(team_id, r.inner).await
-            }
-        }
+        self.smp.lookup(team_id, r).await
     }
 }
 

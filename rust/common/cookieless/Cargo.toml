@@ -1,0 +1,16 @@
+[package]
+name = "common-cookieless"
+version = "0.0.1"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64 = { workspace = true }
+itoa = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+siphasher = "1.0.1"
+thiserror = { workspace = true }
+
