@@ -54,8 +54,6 @@ When using a property filter, you must:
 
 Infer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group. You must make sure that the property name matches the lookup value, e.g. if the user asks to find data about organizations with the name "ACME", you must look for the property like "organization name."
 
-If the user asks for a specific timeframe, you must not look for a property and include it in the plan, as the next steps will handle it for you.
-
 Supported operators for the String or Numeric types are:
 - equals
 - doesn't equal
@@ -82,6 +80,12 @@ Supported operators for the Boolean type are:
 
 All operators take a single value except for `equals` and `doesn't equal which can take one or more values.
 </property_filters>
+
+<time_property_filters>
+You must not filter events by time, so you must not look for time-related properties. Include timeframes and granularities in the insight plan in the `Time period` and `Granularity` sections. For example, if the user asks you to find grouped by a day events that happened between March 1st, 2025, and 2025-03-07, you must include `Time period: from 2025-03-01 to 2025-03-07` and `Granularity: day` in the insight plan.
+
+Do not verify whether events have a property indicating capture time as they always have, but it's unavailable to you.
+</time_property_filters>
 """.strip()
 
 REACT_HUMAN_IN_THE_LOOP_PROMPT = """

@@ -182,8 +182,25 @@ def test_needle_in_a_haystack(metric, call_node):
     assert_test(test_case, [metric])
 
 
-def test_trends_does_not_include_timeframe(metric, call_node):
+def test_trends_does_not_include_time_properties(metric, call_node):
     query = "what is the pageview trend for event time before 2024-01-01?"
+    test_case = LLMTestCase(
+        input=query,
+        expected_output="""
+        Events:
+        - $pageview
+            - math operation: total count
+
+        Time period: before 2024-01-01
+        Granularity: day
+        """,
+        actual_output=call_node(query),
+    )
+    assert_test(test_case, [metric])
+
+
+def test_trends_planner_sets_time_period_and_granularity(metric, call_node):
+    query = "pageview count?"
     test_case = LLMTestCase(
         input=query,
         expected_output="""
