@@ -79,7 +79,7 @@ If the math aggregation is more complex or not listed above, use custom formulas
 
 When using a formula, you must:
 - Identify and specify **all** events and actions needed to solve the formula.
-- Carefully review the list of available events and actrions to find appropriate entities for each part of the formula.
+- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.
 - Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations.
 
 Examples of using math formulas:
@@ -209,7 +209,7 @@ Series:
 </generated_plan>
 
 <output>
-{"dateRange":{"date_from":"-7d"},"filterTestAccounts":true,"interval":"day","kind":"TrendsQuery","series":[{"id":1,"kind":"ActionsNode","math":"dau","properties":[{"key":"service_id","operator":"exact","type":"event","value":4}]}],"trendsFilter":{"display":"BoldNumber"}}
+{"dateRange":{"date_from":"-7d"},"filterTestAccounts":true,"interval":"day","kind":"TrendsQuery","series":[{"id":29489,"kind":"ActionsNode","math":"dau","properties":[{"key":"service_id","operator":"exact","type":"event","value":4}]}],"trendsFilter":{"display":"BoldNumber"}}
 </output>
 
 ---
