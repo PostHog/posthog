@@ -43,7 +43,6 @@ from posthog.utils import (
 )
 from posthog.warehouse.models import ExternalDataJob
 from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
-from posthog.sqs.SQSProducer import get_sqs_producer
 
 logger = structlog.get_logger(__name__)
 
@@ -1244,16 +1243,21 @@ def send_all_org_usage_reports(
 
     instance_metadata = get_instance_metadata(period)
 
+    # Get an SQS producer if EE is available
+    producer = None
+    try:
+        if settings.EE_AVAILABLE:
+            from ee.sqs.SQSProducer import get_sqs_producer
+
+            producer = get_sqs_producer("usage_reports")
+    except Exception:
+        pass
+
     try:
         org_reports = _get_all_org_reports(period_start, period_end)
 
         logger.info("Sending usage reports to PostHog and Billing...")  # noqa T201
         time_now = datetime.now()
-
-        producer = get_sqs_producer("usage_reports")
-        if not producer:
-            logger.error("Failed to get SQS producer for 'orders' queue")
-            return
 
         messages = []
         processed_orgs = []
@@ -1280,12 +1284,13 @@ def send_all_org_usage_reports(
             #         at_date=at_date_str,
             #     )
 
-            # Then capture the events to Billing
-            if has_non_zero_usage(full_report):
+            # Then capture the events to Billing (only if producer is available)
+            if has_non_zero_usage(full_report) and producer:
+                logger.info(f"Sending usage report for organization {organization_id}")  # noqa T201
+
                 messages.append({"body": {"organization_id": organization_id, "usage_report": full_report_dict}})
                 processed_orgs.append(organization_id)
 
-                # Send in batches of 10 (SQS batch limit)
                 if len(messages) >= 10:
                     _send_batch(producer, messages, processed_orgs)
                     messages = []
