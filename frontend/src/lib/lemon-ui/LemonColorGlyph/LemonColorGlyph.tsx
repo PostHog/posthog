@@ -1,53 +1,79 @@
 import './LemonColorGlyph.scss'
 
 import { useValues } from 'kea'
+import { DataColorToken } from 'lib/colors'
 import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import { useEffect, useState } from 'react'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-type LemonColorGlyphProps = {
-    /** 6-digit hex color to display. */
-    color?: string | null
+type CommonProps = {
+    /** Overwrite the theme id from the context e.g. an insight that has a custom theme set. */
+    themeId?: string | null
     /** Additional class names. */
     className?: string
     /** Content to display inside the glyph. */
     children?: React.ReactNode
 }
 
-/** Takes a 6-digit hex color and displays it as a glyph. */
-export function LemonColorGlyph({ color, className, children }: LemonColorGlyphProps): JSX.Element {
+type ColorBasedProps = CommonProps & {
+    /** 6-digit hex color to display. */
+    color?: string | null
+    colorToken?: null
+}
+
+type TokenBasedProps = CommonProps & {
+    color?: null
+    /** Color token to display. */
+    colorToken?: DataColorToken | null
+}
+
+type LemonColorGlyphProps = ColorBasedProps | TokenBasedProps
+
+/** Takes a 6-digit hex color or a color token and displays it as a glyph. */
+export function LemonColorGlyph({
+    color,
+    colorToken,
+    themeId,
+    className,
+    children,
+}: LemonColorGlyphProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
-    const [lastValidColor, setLastValidColor] = useState<string>('#000000')
+    const { getTheme } = useValues(dataThemeLogic)
 
-    const isUnset = color == null
+    const theme = getTheme(themeId)
 
-    useEffect(() => {
-        // allow only 6-digit hex colors
-        // other color formats are not supported everywhere e.g. insight visualizations
-        if (!isUnset && /^#[0-9A-Fa-f]{6}$/.test(color)) {
-            setLastValidColor(color)
-        }
-    }, [color, isUnset])
+    // display a placeholder while loading the theme
+    if (colorToken != null && theme == null) {
+        return <div className={cn('LemonColorGlyph LemonColorGlyph--placeholder', className)}>{children}</div>
+    }
 
+    const appliedColor = colorToken ? (theme?.[colorToken] as string) : color
+
+    // display a glyph for an unset color
+    if (appliedColor == null) {
+        return (
+            <div className={cn('LemonColorGlyph LemonColorGlyph--unset', className)}>
+                <div className="LemonColorGlyph__strikethrough" />
+                {children}
+            </div>
+        )
+    }
+
+    // display a glyph for the given color/token
     return (
         <div
-            className={cn('LemonColorGlyph', { 'LemonColorGlyph--unset': isUnset }, className)}
+            className={cn('LemonColorGlyph', className)}
             // eslint-disable-next-line react/forbid-dom-props
-            style={
-                !isUnset
-                    ? {
-                          borderColor: lastValidColor,
-                          color: lastValidColor,
-                          backgroundColor: isDarkModeOn
-                              ? RGBToRGBA(lightenDarkenColor(lastValidColor, -20), 0.3)
-                              : hexToRGBA(lastValidColor, 0.2),
-                      }
-                    : undefined
-            }
+            style={{
+                borderColor: appliedColor,
+                color: appliedColor,
+                backgroundColor: isDarkModeOn
+                    ? RGBToRGBA(lightenDarkenColor(appliedColor, -20), 0.3)
+                    : hexToRGBA(appliedColor, 0.2),
+            }}
         >
-            {isUnset && <div className="LemonColorGlyph__strikethrough" />}
             {children}
         </div>
     )

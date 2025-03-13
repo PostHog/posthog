@@ -9,6 +9,10 @@
     border-radius: 50%;
 }
 
+.LemonColorGlyph--placeholder {
+    border: none;
+}
+
 .LemonColorGlyph--unset {
     background-color: var(--bg-surface-primary);
     border-color: var(--border-primary);
