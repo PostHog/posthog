@@ -63,7 +63,7 @@ class PartitionRange(dagster.Config):
         return datetime.datetime.strptime(value, cls.FORMAT).date()
 
 
-class MaterializeColumnConfig(dagster.Config):
+class MaterializationConfig(dagster.Config):
     table: str
     columns: list[str]
     partitions: PartitionRange  # TODO: make optional for non-partitioned tables
@@ -127,7 +127,7 @@ class MaterializeColumnConfig(dagster.Config):
 @dagster.op
 def run_materialize_mutations(
     context: dagster.OpExecutionContext,
-    config: MaterializeColumnConfig,
+    config: MaterializationConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
     # Since this is only being run on a single host in the shard, we're assuming that the other hosts either have the

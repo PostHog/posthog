@@ -10,7 +10,7 @@ import pytest
 from clickhouse_driver import Client
 
 from dags.materialized_columns import (
-    MaterializeColumnConfig,
+    MaterializationConfig,
     PartitionRange,
     materialize_column,
     run_materialize_mutations,
@@ -82,7 +82,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
         exit_handlers.callback(resume_merges)
 
         with exit_handlers, materialized("events", f"$test_{time.time()}") as column:
-            config = MaterializeColumnConfig(
+            config = MaterializationConfig(
                 table="sharded_events",
                 columns=[column.name],
                 partitions=partitions,
