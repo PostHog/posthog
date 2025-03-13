@@ -116,3 +116,22 @@ def test_needle_in_a_haystack(metric, call_node):
         actual_output=call_node(query),
     )
     assert_test(test_case, [metric])
+
+
+def test_retention_planner_sets_time_period_and_granularity(metric, call_node):
+    query = "Show retention for users who have paid a bill from 2025-02-15 to 2025-02-21"
+    test_case = LLMTestCase(
+        input=query,
+        expected_output="""
+        Target event:
+        - paid_bill
+
+        Returning event:
+        - downloaded_file
+
+        Time period: from 2025-02-15 to 2025-02-21
+        Granularity: day
+        """,
+        actual_output=call_node(query),
+    )
+    assert_test(test_case, [metric])

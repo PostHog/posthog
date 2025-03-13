@@ -218,6 +218,9 @@ def test_funnel_does_not_include_timeframe(metric, call_node):
         Sequence:
         1. $pageview
         2. signed_up
+
+        Time period: before 2024-01-01
+        Granularity: day
         """,
         actual_output=call_node(query),
     )
