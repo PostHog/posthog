@@ -2241,7 +2241,6 @@ dependencies = [
  "common-alloc",
  "common-metrics",
  "common-redis",
- "derive_builder",
  "envconfig",
  "flate2",
  "futures",

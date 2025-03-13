@@ -25,7 +25,7 @@ impl Team {
             FlagError::RedisDataParsingError
         })?;
         if team.project_id == 0 {
-            // If `project_id` is 0, this means the payload is from before December 2025, which we correct for here
+            // If `project_id` is 0, this means the payload is from before December 2024, which we correct for here
             team.project_id = team.id as i64;
         }
 

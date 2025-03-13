@@ -46,7 +46,13 @@ async fn it_sends_flag_request() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -288,7 +294,13 @@ async fn it_handles_multivariate_flags() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -352,7 +364,13 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -413,7 +431,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     let client = setup_redis_client(Some(config.redis_url.clone()));
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+    let team = insert_new_team_in_pg(pg_client.clone(), Some(team.id))
         .await
         .unwrap();
     let token = team.api_token;
@@ -444,7 +462,13 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
         },
     }]);
 
-    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -561,7 +585,13 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(redis_client, team.id, Some(flag_json.to_string())).await?;
+    insert_flags_for_team_in_redis(
+        redis_client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -663,8 +693,13 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
     ]);
 
     // Insert the feature flags into Redis
-    insert_flags_for_team_in_redis(redis_client.clone(), team.id, Some(flags_json.to_string()))
-        .await?;
+    insert_flags_for_team_in_redis(
+        redis_client.clone(),
+        team.id,
+        team.project_id,
+        Some(flags_json.to_string()),
+    )
+    .await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -781,7 +816,13 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -866,7 +907,13 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
 
     let server = ServerHandle::for_config(config).await;
 
