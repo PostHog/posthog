@@ -295,6 +295,7 @@ export function PersonsModal({
                                     onClick={() => {
                                         closeModal()
                                     }}
+                                    targetBlank
                                 >
                                     View events
                                 </LemonButton>

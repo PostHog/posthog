@@ -93,6 +93,7 @@ export function RetentionModal(): JSX.Element | null {
                                 onClick={() => {
                                     closeModal()
                                 }}
+                                targetBlank
                             >
                                 View events
                             </LemonButton>
