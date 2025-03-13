@@ -20,54 +20,6 @@ import {
     WebAnalyticsTile,
 } from './webAnalyticsLogic'
 
-// Define new TileIds for page reports to avoid conflicts with web analytics
-export enum PageReportsTileId {
-    // Path tiles
-    ENTRY_PATHS = 'PAGE_REPORTS_ENTRY_PATHS',
-    EXIT_PATHS = 'PAGE_REPORTS_EXIT_PATHS',
-    OUTBOUND_CLICKS = 'PAGE_REPORTS_OUTBOUND_CLICKS',
-
-    // Source tiles
-    CHANNELS = 'PAGE_REPORTS_CHANNELS',
-    REFERRERS = 'PAGE_REPORTS_REFERRERS',
-
-    // Device tiles
-    DEVICE_TYPES = 'PAGE_REPORTS_DEVICE_TYPES',
-    BROWSERS = 'PAGE_REPORTS_BROWSERS',
-    OPERATING_SYSTEMS = 'PAGE_REPORTS_OPERATING_SYSTEMS',
-
-    // Geography tiles
-    COUNTRIES = 'PAGE_REPORTS_COUNTRIES',
-    REGIONS = 'PAGE_REPORTS_REGIONS',
-    CITIES = 'PAGE_REPORTS_CITIES',
-    TIMEZONES = 'PAGE_REPORTS_TIMEZONES',
-    LANGUAGES = 'PAGE_REPORTS_LANGUAGES',
-}
-
-// Map PageReportsTileId to TileId and TabId for querying data
-export const tileMapping: Record<PageReportsTileId, { tileId: TileId; tabId: string }> = {
-    // Path tiles
-    [PageReportsTileId.ENTRY_PATHS]: { tileId: TileId.PATHS, tabId: PathTab.INITIAL_PATH },
-    [PageReportsTileId.EXIT_PATHS]: { tileId: TileId.PATHS, tabId: PathTab.END_PATH },
-    [PageReportsTileId.OUTBOUND_CLICKS]: { tileId: TileId.PATHS, tabId: PathTab.EXIT_CLICK },
-
-    // Source tiles
-    [PageReportsTileId.CHANNELS]: { tileId: TileId.SOURCES, tabId: SourceTab.CHANNEL },
-    [PageReportsTileId.REFERRERS]: { tileId: TileId.SOURCES, tabId: SourceTab.REFERRING_DOMAIN },
-
-    // Device tiles
-    [PageReportsTileId.DEVICE_TYPES]: { tileId: TileId.DEVICES, tabId: DeviceTab.DEVICE_TYPE },
-    [PageReportsTileId.BROWSERS]: { tileId: TileId.DEVICES, tabId: DeviceTab.BROWSER },
-    [PageReportsTileId.OPERATING_SYSTEMS]: { tileId: TileId.DEVICES, tabId: DeviceTab.OS },
-
-    // Geography tiles
-    [PageReportsTileId.COUNTRIES]: { tileId: TileId.GEOGRAPHY, tabId: GeographyTab.COUNTRIES },
-    [PageReportsTileId.REGIONS]: { tileId: TileId.GEOGRAPHY, tabId: GeographyTab.REGIONS },
-    [PageReportsTileId.CITIES]: { tileId: TileId.GEOGRAPHY, tabId: GeographyTab.CITIES },
-    [PageReportsTileId.TIMEZONES]: { tileId: TileId.GEOGRAPHY, tabId: GeographyTab.TIMEZONES },
-    [PageReportsTileId.LANGUAGES]: { tileId: TileId.GEOGRAPHY, tabId: GeographyTab.LANGUAGES },
-}
-
 export interface PageURL {
     url: string
     count: number
@@ -91,7 +43,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         setPageUrlSearchTerm: (searchTerm: string) => ({ searchTerm }),
         loadPages: (searchTerm: string = '') => ({ searchTerm }),
         toggleStripQueryParams: () => ({}),
-        setTileVisualization: (tileId: PageReportsTileId, visualization: TileVisualizationOption) => ({
+        setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({
             tileId,
             visualization,
         }),
@@ -130,7 +82,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             },
         ],
         tileVisualizations: [
-            {} as Record<PageReportsTileId, TileVisualizationOption>,
+            {} as Record<TileId, TileVisualizationOption>,
             { persist: true },
             {
                 setTileVisualization: (state, { tileId, visualization }) => ({
@@ -254,7 +206,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         createInsightProps: [
             () => [],
             () =>
-                (tileId: TileId | PageReportsTileId, tabId?: string): InsightLogicProps => ({
+                (tileId: TileId, tabId?: string): InsightLogicProps => ({
                     dashboardItemId: `new-${tileId}${tabId ? `-${tabId}` : ''}`,
                     loadPriority: 0,
                     dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
@@ -318,46 +270,41 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         // Get visualization type for a specific tile
         getTileVisualization: [
             (s) => [s.tileVisualizations],
-            (tileVisualizations: Record<PageReportsTileId, TileVisualizationOption>) =>
-                (tileId: PageReportsTileId): TileVisualizationOption =>
+            (tileVisualizations: Record<TileId, TileVisualizationOption>) =>
+                (tileId: TileId): TileVisualizationOption =>
                     tileVisualizations[tileId] || 'table',
         ],
         // Get query for a specific page reports tile
         getQueryForTile: [
             (s) => [s.queries],
             (queries: Record<string, QuerySchema | undefined>) =>
-                (tileId: PageReportsTileId): QuerySchema | undefined => {
-                    const mapping = tileMapping[tileId]
-                    if (!mapping) {
-                        return undefined
-                    }
-
+                (tileId: TileId): QuerySchema | undefined => {
                     switch (tileId) {
-                        case PageReportsTileId.ENTRY_PATHS:
+                        case TileId.PAGE_REPORTS_ENTRY_PATHS:
                             return queries.entryPathsQuery
-                        case PageReportsTileId.EXIT_PATHS:
+                        case TileId.PAGE_REPORTS_EXIT_PATHS:
                             return queries.exitPathsQuery
-                        case PageReportsTileId.OUTBOUND_CLICKS:
+                        case TileId.PAGE_REPORTS_OUTBOUND_CLICKS:
                             return queries.outboundClicksQuery
-                        case PageReportsTileId.CHANNELS:
+                        case TileId.PAGE_REPORTS_CHANNELS:
                             return queries.channelsQuery
-                        case PageReportsTileId.REFERRERS:
+                        case TileId.PAGE_REPORTS_REFERRERS:
                             return queries.referrersQuery
-                        case PageReportsTileId.DEVICE_TYPES:
+                        case TileId.PAGE_REPORTS_DEVICE_TYPES:
                             return queries.deviceTypeQuery
-                        case PageReportsTileId.BROWSERS:
+                        case TileId.PAGE_REPORTS_BROWSERS:
                             return queries.browserQuery
-                        case PageReportsTileId.OPERATING_SYSTEMS:
+                        case TileId.PAGE_REPORTS_OPERATING_SYSTEMS:
                             return queries.osQuery
-                        case PageReportsTileId.COUNTRIES:
+                        case TileId.PAGE_REPORTS_COUNTRIES:
                             return queries.countriesQuery
-                        case PageReportsTileId.REGIONS:
+                        case TileId.PAGE_REPORTS_REGIONS:
                             return queries.regionsQuery
-                        case PageReportsTileId.CITIES:
+                        case TileId.PAGE_REPORTS_CITIES:
                             return queries.citiesQuery
-                        case PageReportsTileId.TIMEZONES:
+                        case TileId.PAGE_REPORTS_TIMEZONES:
                             return queries.timezonesQuery
-                        case PageReportsTileId.LANGUAGES:
+                        case TileId.PAGE_REPORTS_LANGUAGES:
                             return queries.languagesQuery
                         default:
                             return undefined
