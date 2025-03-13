@@ -10,7 +10,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
-import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
@@ -281,15 +281,9 @@ export function renderColumn(
                 {String(value)}
             </CopyToClipboardInline>
         )
-    } else if (key === 'key' && isGroupsQuery(query.source)) {
-        const properties = query.source.select?.includes('properties')
-            ? JSON.parse((record as any[])[query.source.select.indexOf('properties')])
-            : {}
-        return (
-            <Link to={urls.group(query.source.group_type_index, value, false)}>
-                {groupDisplayId(value, properties)}
-            </Link>
-        )
+    } else if (key === 'group_name' && isGroupsQuery(query.source)) {
+        const key = (record as any[])[1] // 'key' is the second column in the groups query
+        return <Link to={urls.group(query.source.group_type_index, key, false)}>{value}</Link>
     }
     if (typeof value === 'object') {
         return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />

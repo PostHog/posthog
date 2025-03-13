@@ -15,11 +15,12 @@ class GroupsQueryRunner(QueryRunner):
         if self.query.group_type_index is None:
             raise ValueError("group_type_index is required")
 
-        self.columns = self.query.select or [
+        self.columns = [
+            "group_name",
             "key",
-            "created_at",
-            "properties",
         ]
+        if self.query.select:
+            self.columns.extend([col for col in self.query.select if col not in self.columns])
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
@@ -39,7 +40,10 @@ class GroupsQueryRunner(QueryRunner):
         where = ast.And(exprs=conditions) if conditions else None
 
         return ast.SelectQuery(
-            select=[*[ast.Field(chain=[col]) for col in self.columns]],
+            select=[
+                ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]),
+                *[ast.Field(chain=col.split(".")) for col in self.columns[1:]],
+            ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
             where=where,
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")],

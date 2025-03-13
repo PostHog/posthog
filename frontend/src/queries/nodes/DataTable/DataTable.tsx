@@ -56,11 +56,13 @@ import { QueryContext } from '~/queries/types'
 import {
     isActorsQuery,
     isEventsQuery,
+    isGroupsQuery,
     isHogQlAggregation,
     isHogQLQuery,
     isInsightActorsQuery,
     isRevenueExampleEventsQuery,
     taxonomicEventFilterToHogQL,
+    taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
 import { EventType, InsightLogicProps } from '~/types'
@@ -290,6 +292,8 @@ export function DataTable({
                             onChange={(v, g) => {
                                 const hogQl = isActorsQuery(query.source)
                                     ? taxonomicPersonFilterToHogQL(g, v)
+                                    : isGroupsQuery(query.source)
+                                    ? taxonomicGroupFilterToHogQL(g, v)
                                     : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
@@ -319,6 +323,8 @@ export function DataTable({
                             onChange={(v, g) => {
                                 const hogQl = isActorsQuery(query.source)
                                     ? taxonomicPersonFilterToHogQL(g, v)
+                                    : isGroupsQuery(query.source)
+                                    ? taxonomicGroupFilterToHogQL(g, v)
                                     : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)

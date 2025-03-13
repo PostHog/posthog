@@ -130,6 +130,7 @@ export type AnyDataNode =
     | PersonsNode // old persons API endpoint
     | EventsQuery
     | ActorsQuery
+    | GroupsQuery
     | InsightActorsQuery
     | InsightActorsQueryOptions
     | SessionsTimelineQuery

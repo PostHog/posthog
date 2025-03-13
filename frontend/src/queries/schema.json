@@ -336,6 +336,9 @@
                     "$ref": "#/definitions/ActorsQuery"
                 },
                 {
+                    "$ref": "#/definitions/GroupsQuery"
+                },
+                {
                     "$ref": "#/definitions/InsightActorsQuery"
                 },
                 {

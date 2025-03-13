@@ -480,6 +480,16 @@ export function taxonomicPersonFilterToHogQL(
     return null
 }
 
+export function taxonomicGroupFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    return null
+}
+
 export function isHogQlAggregation(hogQl: string): boolean {
     return (
         hogQl.includes('count(') ||

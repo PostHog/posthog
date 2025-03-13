@@ -26,7 +26,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team_id=self.team.pk,
                 group_type_index=0,
                 group_key=f"org{i}",
-                properties={"name": f"org{i}.inc"},
+                properties={"name": f"org{i}.inc", "arr": f"${i*150}"},
             )
 
         for i in range(5):
@@ -51,10 +51,10 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 3)
-        self.assertEqual(result.columns, ["key", "created_at", "properties"])
-        self.assertEqual(result.results[0][0], "org0")
-        self.assertEqual(result.results[1][0], "org1")
-        self.assertEqual(result.results[2][0], "org2")
+        self.assertEqual(result.columns, ["group_name", "key"])
+        self.assertEqual(result.results[0][0], "org0.inc")
+        self.assertEqual(result.results[1][0], "org1.inc")
+        self.assertEqual(result.results[2][0], "org2.inc")
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
@@ -70,5 +70,26 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         self.assertEqual(len(result.results), 1)
-        self.assertEqual(result.columns, ["key", "created_at", "properties"])
-        self.assertEqual(result.results[0][0], "org2")
+        self.assertEqual(result.columns, ["group_name", "key"])
+        self.assertEqual(result.results[0][0], "org2.inc")
+
+    @freeze_time("2025-01-01")
+    @snapshot_clickhouse_queries
+    def test_groups_query_runner_with_property_columns(self):
+        self.create_standard_test_groups()
+        query = GroupsQuery(
+            group_type_index=0,
+            limit=10,
+            offset=0,
+            select=["properties.arr"],
+        )
+
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.results), 3)
+        self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
+        self.assertEqual(result.results[0][0], "org0.inc")
+        self.assertEqual(result.results[0][2], "$0")
+        self.assertEqual(result.results[1][2], "$150")
+        self.assertEqual(result.results[2][2], "$300")

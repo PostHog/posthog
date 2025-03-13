@@ -52,7 +52,17 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
     }
 
     if (featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
-        return <Query query={query} setQuery={setQuery} context={{ refresh: 'blocking' }} dataAttr="groups-table" />
+        return (
+            <Query
+                query={query}
+                setQuery={setQuery}
+                context={{
+                    refresh: 'blocking',
+                    emptyStateHeading: 'No groups found',
+                }}
+                dataAttr="groups-table"
+            />
+        )
     }
 
     const columns: LemonTableColumns<Group> = [
