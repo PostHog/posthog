@@ -345,6 +345,8 @@ graphql-core==3.2.5
     #   graphql-relay
 graphql-relay==3.2.0
     # via graphene
+greenlet==3.1.1
+    # via sqlalchemy
 grpcio==1.63.2
     # via
     #   -r requirements.in
@@ -911,6 +913,8 @@ trio==0.26.0
     #   trio-websocket
 trio-websocket==0.11.1
     # via selenium
+types-cachetools==5.5.0.20240820
+    # via -r requirements.in
 types-protobuf==4.22.0.0
     # via temporalio
 types-requests==2.31.0.6
