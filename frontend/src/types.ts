@@ -1,3 +1,4 @@
+import type { HedgehogActorAccessoryOption } from '@posthog/hedgehog-mode'
 import { LemonInputProps, LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { LogLevel } from '@posthog/rrweb-plugin-console-record'
@@ -332,7 +333,7 @@ export interface HedgehogConfig extends MinimalHedgehogConfig {
     enabled: boolean
     color: HedgehogColorOptions | null
     skin?: HedgehogSkin
-    accessories: string[]
+    accessories: HedgehogActorAccessoryOption[]
     walking_enabled: boolean
     interactions_enabled: boolean
     controls_enabled: boolean

@@ -1,9 +1,14 @@
+import { StaticHedgehogRenderer } from '@posthog/hedgehog-mode'
+import { LemonSkeleton } from '@posthog/lemon-ui'
+import { useEffect, useState } from 'react'
+
 import { HedgehogConfig } from '~/types'
 
-import { COLOR_TO_FILTER_MAP } from './hedgehogBuddyLogic'
-import { spriteAccessoryUrl, spriteUrl, standardAccessories } from './sprites/sprites'
-
 export type HedgehogBuddyStaticProps = Partial<HedgehogConfig> & { size?: number | string }
+
+const staticHedgehogRenderer = new StaticHedgehogRenderer({
+    assetsUrl: '/static/hedgehog-mode/',
+})
 
 // Takes a range of options and renders a static hedgehog
 export function HedgehogBuddyStatic({
@@ -11,43 +16,40 @@ export function HedgehogBuddyStatic({
     color,
     size,
     skin = 'default',
-}: HedgehogBuddyStaticProps): JSX.Element {
+}: HedgehogBuddyStaticProps): JSX.Element | null {
     const imgSize = size ?? 60
 
-    const accessoryInfos = accessories?.map((x) => standardAccessories[x])
-    const filter = color ? COLOR_TO_FILTER_MAP[color] : null
+    const [dataUrl, setDataUrl] = useState<string | null>(null)
+
+    useEffect(() => {
+        void staticHedgehogRenderer
+            .render({
+                id: JSON.stringify({
+                    skin,
+                    accessories: accessories as any,
+                    color: color as any,
+                }),
+                skin,
+                accessories: accessories as any,
+                color: color as any,
+            })
+            .then((src) => {
+                setDataUrl(src)
+            })
+            .catch((e) => {
+                console.error('Error rendering hedgehog', e)
+            })
+    }, [skin, accessories, color])
 
     return (
-        <div
-            className="relative overflow-hidden select-none flex-none m-[-2px]"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                width: imgSize,
-                height: imgSize,
-            }}
-        >
-            <div
-                className="object-cover absolute inset-0 rendering-pixelated size-[400%] bg-cover"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    filter: filter as any,
-                    backgroundImage: `url(${spriteUrl(skin, 'wave')})`,
-                }}
-            />
-
-            {accessoryInfos?.map((accessory, index) => (
-                <img
-                    key={index}
-                    src={`${spriteAccessoryUrl(accessory.img)}`}
-                    className="object-cover absolute inset-0 rendering-pixelated pointer-events-none"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        width: imgSize,
-                        height: imgSize,
-                        filter: filter as any,
-                    }}
-                />
-            ))}
+        // eslint-disable-next-line react/forbid-dom-props
+        <div className="relative" style={{ width: imgSize, height: imgSize }}>
+            {dataUrl ? (
+                <img src={dataUrl} width={imgSize} height={imgSize} />
+            ) : (
+                <LemonSkeleton className="w-full h-full" />
+            )}
+            <div className="absolute inset-0 bg-background-primary/50" />
         </div>
     )
 }
@@ -55,7 +57,7 @@ export function HedgehogBuddyStatic({
 export function HedgehogBuddyProfile({ size, ...props }: HedgehogBuddyStaticProps): JSX.Element {
     return (
         <div
-            className="relative rounded-full overflow-hidden"
+            className="relative overflow-hidden rounded-full"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: size,

@@ -133,7 +133,7 @@ export class HedgehogActor {
     }
 
     private accessories(): AccessoryInfo[] {
-        return this.hedgehogConfig.accessories?.map((acc) => standardAccessories[acc]) ?? []
+        return this.hedgehogConfig.accessories?.map((acc) => standardAccessories[acc]).filter((acc) => !!acc) ?? []
     }
 
     private log(message: string, ...args: any[]): void {
