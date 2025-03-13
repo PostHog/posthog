@@ -20,7 +20,7 @@ describe('SurveyDragHandle', () => {
                 isDraftSurvey={true}
                 hasMultipleQuestions={true}
                 listeners={mockListeners}
-                allQuestionsHaveIds={true}
+                allQuestionsHaveIds={false}
             />
         )
 
@@ -55,7 +55,12 @@ describe('SurveyDragHandle', () => {
 
     it('does not render for surveys with only one question', () => {
         const { queryByTestId } = render(
-            <SurveyDragHandle isDraftSurvey={true} hasMultipleQuestions={false} listeners={mockListeners} />
+            <SurveyDragHandle
+                isDraftSurvey={true}
+                hasMultipleQuestions={false}
+                listeners={mockListeners}
+                allQuestionsHaveIds={false}
+            />
         )
 
         expect(queryByTestId('survey-question-drag-handle')).not.toBeInTheDocument()
