@@ -3,11 +3,10 @@ import LRU from 'lru-cache'
 
 import { ONE_MINUTE } from '../../config/constants'
 import { TeamIDWithConfig } from '../../main/ingestion-queues/session-recording/session-recordings-consumer'
-import { PipelineEvent, ProjectId, Team, TeamId, TeamIdRow } from '../../types'
+import { PipelineEvent, ProjectId, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { captureTeamEvent } from '../../utils/posthog'
-import { status } from '../../utils/status'
 
 export class TeamManager {
     postgres: PostgresRouter
@@ -53,26 +52,6 @@ export class TeamManager {
         } finally {
             clearTimeout(timeout)
         }
-    }
-
-    // why not just fetch nice Team objects here? it's hacky but if
-    // we care about query overhead, the caller only needs IDs and
-    // this will be covered by the table's clustering index, so
-    // should be faster/cheaper than fetching row data too
-    async fetchIdsForTeams(teamIds: TeamId[]): Promise<number[]> {
-        const result = await this.postgres
-            .query<TeamIdRow>(
-                PostgresUse.COMMON_READ,
-                `SELECT id AS team_id FROM posthog_team WHERE id = ANY ($1)`,
-                [teamIds],
-                'fetchIdsForTeams'
-            )
-            .catch((e) => {
-                status.error('🔁', `Error fetching team IDs`, { error: e.message })
-                throw e
-            })
-
-        return result.rows.map((row: TeamIdRow) => row.teamId)
     }
 
     public getCachedTeam(teamId: TeamId): Team | null | undefined {
