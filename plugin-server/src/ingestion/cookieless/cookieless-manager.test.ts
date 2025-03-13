@@ -1,8 +1,8 @@
 import type { PluginEvent } from '@posthog/plugin-scaffold'
+import fs from 'fs'
 
 import { createOrganization, createTeam } from '~/tests/helpers/sql'
 
-import doHashTestCases from '../../../../rust/common/cookieless/src/test_cases.json'
 import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
 import { CookielessServerHashMode, Hub } from '../../types'
 import { RedisOperationError } from '../../utils/db/error'
@@ -488,7 +488,11 @@ describe('CookielessManager', () => {
     })
 
     describe('doHash', () => {
-        it.each(doHashTestCases.test_cases)(
+        // don't import, as importing from outside our package directory will change the shape of the build directory
+        // instead, just find the file path and load it directly
+        const testCasesPath = require.resolve('../../../../rust/common/cookieless/src/test_cases.json')
+        const doHashTestCases: any[] = JSON.parse(fs.readFileSync(testCasesPath, 'utf-8')).test_cases
+        it.each(doHashTestCases)(
             'should hash',
             ({ salt, team_id, ip, expected, root_domain, user_agent, n, hash_extra }) => {
                 const saltBuf = Buffer.from(salt, 'base64')
