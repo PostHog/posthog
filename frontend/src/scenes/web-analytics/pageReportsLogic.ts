@@ -33,15 +33,17 @@ export interface PageURL {
     count: number
 }
 
-export interface PageReportsLogicProps {}
+export interface PageReportsLogicProps {
+    initialDateFrom?: string
+    initialDateTo?: string
+}
 
 export const pageReportsLogic = kea<pageReportsLogicType>({
     path: ['scenes', 'web-analytics', 'pageReportsLogic'],
     props: {} as PageReportsLogicProps,
 
     connect: {
-        values: [webAnalyticsLogic, ['dateFilter', 'tiles', 'shouldFilterTestAccounts', 'compareFilter']],
-        actions: [webAnalyticsLogic, ['togglePropertyFilter']],
+        values: [webAnalyticsLogic, ['tiles', 'shouldFilterTestAccounts', 'compareFilter', 'dateFilter']],
     },
 
     actions: () => ({
@@ -262,19 +264,17 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     },
                     compareFilter,
                     filterTestAccounts: shouldFilterTestAccounts,
-                    properties: [
-                        {
-                            key: stripQueryParams
-                                ? 'cutQueryStringAndFragment(properties.$current_url)'
-                                : '$current_url',
-                            value: pageUrl,
-                            // Use IContains when stripQueryParams is active to group URLs
-                            operator: stripQueryParams
-                                ? PropertyOperator.IContains
-                                : PropertyOperator.IsCleanedPathExact,
-                            type: PropertyFilterType.Event,
-                        },
-                    ],
+                    properties: pageUrl
+                        ? [
+                              {
+                                  key: '$current_url',
+                                  // If stripQueryParams is true, we'll extract the base URL without query params
+                                  value: stripQueryParams ? pageUrl.split('?')[0] : pageUrl,
+                                  operator: PropertyOperator.Exact,
+                                  type: PropertyFilterType.Event,
+                              },
+                          ]
+                        : [],
                 },
                 hidePersonsModal: true,
                 embedded: true,
@@ -297,27 +297,13 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             // When URL changes, make sure we update the URL in the browser
             // This will trigger the actionToUrl handler
             router.actions.replace('/web/page-reports', url ? { pageURL: url } : {}, router.values.hashParams)
-
-            // Apply or remove the filter when pageUrl changes
-            const stripQueryParams = values.stripQueryParams
-            const key = stripQueryParams ? 'cutQueryStringAndFragment(properties.$current_url)' : '$current_url'
-
-            // Call the connected action directly
-            const urlValue = Array.isArray(url) ? (url.length > 0 ? url[0] : '') : url || ''
-            actions.togglePropertyFilter(PropertyFilterType.Event, key, urlValue)
         },
         toggleStripQueryParams: () => {
             // Reload pages when the strip query params option changes
             actions.loadPages(values.pageUrlSearchTerm)
-
-            // Update the property filter with the new key and operator
-            const stripQueryParams = values.stripQueryParams
-            const key = stripQueryParams ? 'cutQueryStringAndFragment(properties.$current_url)' : '$current_url'
-
-            // Call the connected action directly
-            actions.togglePropertyFilter(PropertyFilterType.Event, key, values.pageUrl || '')
         },
         [webAnalyticsLogic.actionTypes.setDates]: () => {
+            // Also reload pages when web analytics dates change
             actions.loadPages(values.pageUrlSearchTerm)
         },
     }),

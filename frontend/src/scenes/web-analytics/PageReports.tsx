@@ -72,19 +72,9 @@ interface PageReportsLogicValues {
     shouldFilterTestAccounts: boolean
 }
 
-// Extended interface for pageReportsLogic actions
-interface PageReportsLogicActions {
-    setPageUrl: (url: string | string[] | null) => void
-    setPageUrlSearchTerm: (searchTerm: string) => void
-    loadPages: (searchTerm?: string) => void
-    toggleStripQueryParams: () => void
-    setTileVisualization: (tileId: PageReportsTileId, visualization: TileVisualizationOption) => void
-}
-
-// URL Search Header component
 function PageUrlSearchHeader(): JSX.Element {
     const values = useValues(pageReportsLogic) as unknown as PageReportsLogicValues
-    const actions = useActions(pageReportsLogic) as unknown as PageReportsLogicActions
+    const actions = useActions(pageReportsLogic)
     const { dateFilter } = useValues(webAnalyticsLogic)
     const { setDates } = useActions(webAnalyticsLogic)
 
