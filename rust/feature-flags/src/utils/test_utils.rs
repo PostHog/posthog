@@ -52,6 +52,7 @@ pub async fn insert_new_team_in_redis(
 pub async fn insert_flags_for_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
     team_id: i32,
+    project_id: i64,
     json_value: Option<String>,
 ) -> Result<(), Error> {
     let payload = match json_value {
@@ -62,7 +63,7 @@ pub async fn insert_flags_for_team_in_redis(
             "name": "flag1 description",
             "active": true,
             "deleted": false,
-            "team_id": team_id,
+            "team_id": team_id,  // generate this?
             "filters": {
                 "groups": [
                     {
@@ -81,7 +82,10 @@ pub async fn insert_flags_for_team_in_redis(
     };
 
     client
-        .set(format!("{}{}", TEAM_FLAGS_CACHE_PREFIX, team_id), payload)
+        .set(
+            format!("{}{}", TEAM_FLAGS_CACHE_PREFIX, project_id),
+            payload,
+        )
         .await?;
 
     Ok(())
@@ -177,6 +181,7 @@ pub async fn insert_new_team_in_pg(
 ) -> Result<Team, Error> {
     const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
+    // Create new organization from scratch
     client.run_query(
         r#"INSERT INTO posthog_organization
         (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist) 
@@ -187,19 +192,7 @@ pub async fn insert_new_team_in_pg(
         Some(2000),
     ).await?;
 
-    client
-        .run_query(
-            r#"INSERT INTO posthog_project
-        (id, organization_id, name, created_at) 
-        VALUES
-        (1, $1::uuid, 'Test Team', '2024-06-17 14:40:51.329772+00:00')
-        ON CONFLICT DO NOTHING"#
-                .to_string(),
-            vec![ORG_ID.to_string()],
-            Some(2000),
-        )
-        .await?;
-
+    // Create team model
     let id = match team_id {
         Some(value) => value,
         None => rand::thread_rng().gen_range(0..10_000_000),
@@ -215,6 +208,7 @@ pub async fn insert_new_team_in_pg(
 
     let mut conn = client.get_connection().await?;
 
+    // Insert a project for the team
     let res = sqlx::query(
         r#"INSERT INTO posthog_project
         (id, organization_id, name, created_at) VALUES
@@ -227,6 +221,7 @@ pub async fn insert_new_team_in_pg(
     .await?;
     assert_eq!(res.rows_affected(), 1);
 
+    // Insert a team with the correct team-project relationship
     let res = sqlx::query(
         r#"INSERT INTO posthog_team 
         (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical) VALUES
@@ -259,29 +254,6 @@ pub async fn insert_new_team_in_pg(
         assert_eq!(res.rows_affected(), 1);
     }
     Ok(team)
-}
-
-pub async fn insert_group_type_mapping_in_pg(
-    client: Arc<dyn Client + Send + Sync>,
-    team_id: i32,
-    group_type: &str,
-    group_type_index: i32,
-) -> Result<(), Error> {
-    let mut conn = client.get_connection().await?;
-    let res = sqlx::query(
-        r#"INSERT INTO posthog_grouptypemapping
-           (team_id, project_id, group_type, group_type_index, name_singular, name_plural)
-           VALUES
-           ($1, $1, $2, $3, NULL, NULL)
-           ON CONFLICT (team_id, group_type) DO NOTHING"#,
-    )
-    .bind(team_id)
-    .bind(group_type)
-    .bind(group_type_index)
-    .execute(&mut *conn)
-    .await?;
-    assert_eq!(res.rows_affected(), 1);
-    Ok(())
 }
 
 pub async fn insert_flag_for_team_in_pg(
