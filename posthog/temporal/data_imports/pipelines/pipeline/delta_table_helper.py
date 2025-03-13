@@ -96,18 +96,20 @@ class DeltaTableHelper:
 
     def reset_table(self):
         table = self.get_delta_table()
-        if table is None:
-            return
+
+        if table is not None:
+            table.delete()
+        else:
+            self._logger.debug("reset_table: Table does not exist. Continuing to delete via S3")
 
         delta_uri = self._get_delta_table_uri()
-
-        table.delete()
 
         s3 = get_s3_client()
         s3.delete(delta_uri, recursive=True)
 
         self.get_delta_table.cache_clear()
 
+        self._logger.debug("reset_table: _is_first_sync=True")
         self._is_first_sync = True
 
     def write_to_deltalake(
