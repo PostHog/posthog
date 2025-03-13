@@ -2,6 +2,7 @@ import { status } from '../../../../utils/status'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionMetadataStore } from './session-metadata-store'
 
 export interface SessionBatchManagerConfig {
@@ -15,6 +16,8 @@ export interface SessionBatchManagerConfig {
     fileStorage: SessionBatchFileStorage
     /** Manages storing session metadata */
     metadataStore: SessionMetadataStore
+    /** Manages storing console logs */
+    consoleLogStore: SessionConsoleLogStore
 }
 
 /**
@@ -58,6 +61,7 @@ export class SessionBatchManager {
     private readonly offsetManager: KafkaOffsetManager
     private readonly fileStorage: SessionBatchFileStorage
     private readonly metadataStore: SessionMetadataStore
+    private readonly consoleLogStore: SessionConsoleLogStore
     private lastFlushTime: number
 
     constructor(config: SessionBatchManagerConfig) {
@@ -66,7 +70,13 @@ export class SessionBatchManager {
         this.offsetManager = config.offsetManager
         this.fileStorage = config.fileStorage
         this.metadataStore = config.metadataStore
-        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.fileStorage, this.metadataStore)
+        this.consoleLogStore = config.consoleLogStore
+        this.currentBatch = new SessionBatchRecorder(
+            this.offsetManager,
+            this.fileStorage,
+            this.metadataStore,
+            this.consoleLogStore
+        )
         this.lastFlushTime = Date.now()
     }
 
@@ -83,7 +93,12 @@ export class SessionBatchManager {
     public async flush(): Promise<void> {
         status.info('🔁', 'session_batch_manager_flushing', { batchSize: this.currentBatch.size })
         await this.currentBatch.flush()
-        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.fileStorage, this.metadataStore)
+        this.currentBatch = new SessionBatchRecorder(
+            this.offsetManager,
+            this.fileStorage,
+            this.metadataStore,
+            this.consoleLogStore
+        )
         this.lastFlushTime = Date.now()
     }
 

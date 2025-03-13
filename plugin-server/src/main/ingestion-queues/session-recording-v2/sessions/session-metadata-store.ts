@@ -47,6 +47,8 @@ export class SessionMetadataStore {
             })),
         })
 
+        await this.producer.flush()
+
         status.info('🔍', 'session_metadata_store_blocks_stored', { count: events.length })
     }
 }

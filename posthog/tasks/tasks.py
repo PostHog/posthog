@@ -840,21 +840,15 @@ def send_org_usage_reports() -> None:
 
 
 @shared_task(ignore_result=True)
-def update_quota_limiting() -> None:
+def run_quota_limiting() -> None:
     try:
-        from ee.billing.quota_limiting import report_quota_limiting_event
         from ee.billing.quota_limiting import update_all_orgs_billing_quotas
 
-        report_quota_limiting_event("update_quota_limiting task started", {})
-
         update_all_orgs_billing_quotas()
-
-        report_quota_limiting_event("update_quota_limiting task finished", {})
     except ImportError:
-        report_quota_limiting_event("update_quota_limiting task failed", {"error": "ImportError"})
+        pass
     except Exception as e:
         capture_exception(e)
-        report_quota_limiting_event("update_quota_limiting task failed", {"error": str(e)})
 
 
 @shared_task(ignore_result=True)
