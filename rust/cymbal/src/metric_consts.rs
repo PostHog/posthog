@@ -39,3 +39,4 @@ pub const CHUNK_ID_NOT_FOUND: &str = "cymbal_chunk_id_not_found";
 pub const CHUNK_ID_PARSE_ERROR: &str = "cymbal_chunk_id_parse_error";
 pub const CHUNK_ID_FAILURE_FETCHED: &str = "cymbal_chunk_id_failure_fetched";
 pub const CHUNK_ID_FAILURE_SAVED: &str = "cymbal_chunk_id_failure_saved";
+pub const SUPPRESSED_ISSUE_DROPPED_EVENTS: &str = "cymbal_suppressed_issue_drop";

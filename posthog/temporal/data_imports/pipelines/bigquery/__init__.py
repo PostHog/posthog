@@ -1,13 +1,12 @@
-from collections import defaultdict
 import contextlib
-from typing import Optional
-from google.oauth2 import service_account
+from collections import defaultdict
+
 from google.cloud import bigquery
+from google.oauth2 import service_account
+
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.warehouse.types import IncrementalFieldType
-from posthog.exceptions_capture import capture_exception
-
-# Actual data ingestion happens via the `sql_database` source. This is more for BigQuery utils
 
 
 @contextlib.contextmanager
@@ -49,7 +48,7 @@ def delete_all_temp_destination_tables(
     private_key_id: str,
     client_email: str,
     token_uri: str,
-    logger: Optional[FilteringBoundLogger],
+    logger: None | FilteringBoundLogger,
 ) -> None:
     with bigquery_client(project_id, private_key, private_key_id, client_email, token_uri) as bq:
         try:

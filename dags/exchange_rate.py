@@ -27,9 +27,9 @@ class ExchangeRateConfig(dagster.Config):
 
 
 # We'll have one partition for each day, starting from 2025-01-01 for the daily job
-# And one partition for hourly updates for the hourly job
+# And one partition for hourly updates for the hourly job (starting in March 2025 because that's when we started using hourly updates)
 DAILY_PARTITION_DEFINITION = dagster.DailyPartitionsDefinition(start_date="2025-01-01")
-HOURLY_PARTITION_DEFINITION = dagster.HourlyPartitionsDefinition(start_date="2025-01-01-00:00Z")
+HOURLY_PARTITION_DEFINITION = dagster.HourlyPartitionsDefinition(start_date="2025-03-10-00:00Z")
 
 
 def get_date_partition_from_hourly_partition(hourly_partition: str) -> str:
@@ -317,6 +317,8 @@ def daily_exchange_rates_schedule(context):
 )
 def hourly_exchange_rates_schedule(context):
     """Process current day's exchange rates data for this hour."""
-    current_day = context.scheduled_execution_time
-    timestamp = current_day.strftime("%Y-%m-%d-%H:%M")
+    current_hour = context.scheduled_execution_time
+    timestamp = current_hour.strftime(
+        "%Y-%m-%d-%H:00"
+    )  # This runs at 45 minutes, but the partition is always at the top of the hour
     return dagster.RunRequest(run_key=timestamp, partition_key=timestamp)
