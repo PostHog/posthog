@@ -177,6 +177,31 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                     assign_issue(
                         issue, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
                     )
+            elif action == "suppress":
+                for issue in issues:
+                    log_activity(
+                        organization_id=self.organization.id,
+                        team_id=self.team_id,
+                        user=request.user,
+                        was_impersonated=is_impersonated_session(request),
+                        item_id=issue.id,
+                        scope="ErrorTrackingIssue",
+                        activity="updated",
+                        detail=Detail(
+                            name=issue.name,
+                            changes=[
+                                Change(
+                                    type="ErrorTrackingIssue",
+                                    action="changed",
+                                    field="status",
+                                    before=issue.status,
+                                    after=ErrorTrackingIssue.Status.SUPPRESSED,
+                                )
+                            ],
+                        ),
+                    )
+
+                issues.update(status=ErrorTrackingIssue.Status.SUPPRESSED)
 
         return Response({"success": True})
 
