@@ -996,6 +996,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     @action(methods=["GET"], detail=True, url_path="analyze/similar")
     def similar_recordings(self, request: request.Request, **kwargs) -> Response:
         """Find recordings with similar event sequences to the given recording."""
+        timer = ServerTimingsGathered()
         recording = self.get_object()
 
         if recording.deleted:
@@ -1005,17 +1006,19 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.NotFound("Recording not found")
 
         # Get events for the target recording
-        target_events = SessionReplayEvents().get_events_for_session(
-            session_id=str(recording.session_id), team=self.team
-        )
+        with timer("get_target_events"):
+            target_events = SessionReplayEvents().get_events_for_session(
+                session_id=str(recording.session_id), team=self.team
+            )
 
         if not target_events:
             return Response({"count": 0, "results": []})
 
         # Find recordings with similar event sequences using ClickHouse
-        similar_recordings = SessionReplayEvents().get_similar_recordings(
-            session_id=str(recording.session_id), team=self.team, limit=10, similarity_range=0.5
-        )
+        with timer("get_similar_recordings"):
+            similar_recordings = SessionReplayEvents().get_similar_recordings(
+                session_id=str(recording.session_id), team=self.team, limit=10, similarity_range=0.5
+            )
 
         recordings = []
         recording_ids = []
@@ -1025,10 +1028,17 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             recording_ids.append(recording_instance.session_id)
 
         # Filter out recordings that have been viewed by the current user
-        viewed_recordings = current_user_viewed(recording_ids, cast(User, request.user), self.team)
-        unviewed_recordings = [rec for rec in recordings if rec.session_id not in viewed_recordings]
+        with timer("filter_viewed_recordings"):
+            viewed_recordings = current_user_viewed(recording_ids, cast(User, request.user), self.team)
+            unviewed_recordings = [rec for rec in recordings if rec.session_id not in viewed_recordings]
 
-        return Response({"count": len(unviewed_recordings), "results": [rec.session_id for rec in unviewed_recordings]})
+        response = Response(
+            {"count": len(unviewed_recordings), "results": [rec.session_id for rec in unviewed_recordings]}
+        )
+        response.headers["Server-Timing"] = ", ".join(
+            f"{key};dur={round(duration, ndigits=2)}" for key, duration in _generate_timings(None, timer).items()
+        )
+        return response
 
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
