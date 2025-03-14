@@ -184,11 +184,12 @@ def clean_varying_query_parts(query, replace_all_numbers):
     )
     # and where the HogQL doesn't match the above
     # KLUDGE we tend not to replace dates in tests so trying to avoid replacing every date here
+    # replace all dates where the date is
     if "equals(argMax(person_distinct_id_overrides.is_deleted" in query or "INSERT INTO cohortpeople" in query:
         # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
         query = re.sub(
-            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d(.\d+)', 6, 'UTC'\)",
-            r"toDateTime64('explicit_redacted_timestamp\1', 6, 'UTC')",
+            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d(.\d+)', 6, '.+?'\)",
+            r"toDateTime64('explicit_redacted_timestamp', 6, 'UTC')",
             query,
         )
     # replace cohort generated conditions
@@ -636,16 +637,23 @@ def cleanup_materialized_columns():
 
 
 @contextmanager
-def materialized(table, property) -> Iterator[MaterializedColumn]:
+def materialized(table, property, create_minmax_index: bool = False) -> Iterator[MaterializedColumn]:
     """Materialize a property within the managed block, removing it on exit."""
     try:
-        from ee.clickhouse.materialized_columns.analyze import materialize
+        from ee.clickhouse.materialized_columns.columns import get_minmax_index_name, materialize
     except ModuleNotFoundError as e:
         pytest.xfail(str(e))
 
+    column = None
     try:
-        yield materialize(table, property)
+        column = materialize(table, property, create_minmax_index=create_minmax_index)
+        yield column
     finally:
+        if create_minmax_index and column is not None:
+            data_table = "sharded_events" if table == "events" else table
+            sync_execute(
+                f"ALTER TABLE {data_table} DROP INDEX {get_minmax_index_name(column.name)} SETTINGS mutations_sync = 2"
+            )
         cleanup_materialized_columns()
 
 

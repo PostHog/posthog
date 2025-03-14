@@ -3,11 +3,13 @@ import { Spinner } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
+import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+
 import { iconForType } from './defaultTree'
-import { FileSystemImport, FolderState } from './types'
+import { FolderState } from './types'
 
 export function convertFileSystemEntryToTreeDataItem(
-    imports: FileSystemImport[],
+    imports: (FileSystemImport | FileSystemEntry)[],
     folderStates: Record<string, FolderState>,
     root = 'project'
 ): TreeDataItem[] {
@@ -61,11 +63,11 @@ export function convertFileSystemEntryToTreeDataItem(
         const node: TreeDataItem = {
             id: `${root}/${item.id || item.path}`,
             name: itemName,
-            icon: item.icon || iconForType(item.type),
+            icon: ('icon' in item && item.icon) || iconForType(item.type),
             record: item,
             onClick: () => {
                 if (item.href) {
-                    router.actions.push(item.href)
+                    router.actions.push(typeof item.href === 'function' ? item.href(item.ref) : item.href)
                 }
             },
         }

@@ -13,13 +13,17 @@ use crate::{
 use axum::{extract::State, http::HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
-use derive_builder::Builder;
 use flate2::read::GzDecoder;
+use limiters::redis::ServiceName;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_urlencoded;
-use std::{collections::HashMap, net::IpAddr};
-use std::{io::Read, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    io::Read,
+    net::IpAddr,
+    sync::Arc,
+};
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -45,126 +49,274 @@ impl Compression {
 
 #[derive(Clone, Deserialize, Default)]
 pub struct FlagsQueryParams {
+    /// Optional API version identifier
     #[serde(alias = "v")]
     pub version: Option<String>,
 
+    /// Compression type for the incoming request
     pub compression: Option<Compression>,
 
+    /// Library version (alias: "ver")
     #[serde(alias = "ver")]
     pub lib_version: Option<String>,
 
+    /// Optional timestamp indicating when the request was sent
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
 }
-
 pub struct RequestContext {
+    /// Shared state holding services (DB, Redis, GeoIP, etc.)
     pub state: State<router::State>,
+
+    /// Client IP
     pub ip: IpAddr,
+
+    /// HTTP headers
     pub headers: HeaderMap,
+
+    /// Query params (contains compression, library version, etc.)
     pub meta: FlagsQueryParams,
+
+    /// Raw request body
     pub body: Bytes,
 }
 
-#[derive(Builder, Clone)]
-#[builder(setter(into))]
-pub struct FeatureFlagEvaluationContext {
-    team_id: i32,
-    distinct_id: String,
-    feature_flags: FeatureFlagList,
-    reader: Arc<dyn Client + Send + Sync>,
-    writer: Arc<dyn Client + Send + Sync>,
-    cohort_cache: Arc<CohortCacheManager>,
-    #[builder(default)]
-    person_property_overrides: Option<HashMap<String, Value>>,
-    #[builder(default)]
-    group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-    #[builder(default)]
-    groups: Option<HashMap<String, Value>>,
-    #[builder(default)]
-    hash_key_override: Option<String>,
-}
+/// Represents the various property overrides that can be passed around
+/// (person, group, groups, and optional hash key).
+pub type RequestPropertyOverrides = (
+    Option<HashMap<String, Value>>, // person_property_overrides
+    Option<HashMap<String, HashMap<String, Value>>>, // group_property_overrides
+    Option<HashMap<String, Value>>, // groups
+    Option<String>,                 // hash_key_override
+);
 
-/// Process a feature flag request and return the evaluated flags
-///
-/// ## Flow
-/// 1. Decodes and validates the request
-/// 2. Extracts and verifies the authentication token
-/// 3. Retrieves team information
-/// 4. Processes person and group properties
-/// 5. Retrieves feature flags
-/// 6. Evaluates flags based on the context
-///
-/// ## Error Handling
-/// - Returns early if any step fails
-/// - Maintains error context through the FlagError enum
-/// - Individual flag evaluation failures don't fail the entire request
+/// Primary entry point for feature flag requests.  
+/// 1) Parses and authenticates the request,  
+/// 2) Fetches the team and feature flags,  
+/// 3) Prepares property overrides,  
+/// 4) Evaluates the requested flags,  
+/// 5) Returns a [`FlagsResponse`] or an error.
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
-    // Destructure context
-    let RequestContext {
-        state,
-        ip,
-        headers,
-        meta,
-        body,
-    } = context;
+    let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
 
-    // Initialize services
-    let flag_service = FlagService::new(state.redis.clone(), state.reader.clone());
+    let (distinct_id, verified_token, request) =
+        parse_and_authenticate_request(&context, &flag_service).await?;
 
-    // Process request and authentication
-    let request = decode_request(&headers, body, &meta)?;
-    let distinct_id = request.extract_distinct_id()?;
-    // NB: this method will fail before hitting any of the services if the token is not correctly set in the request,
-    // saving us from hitting the services with an invalid token
-    let token = request.extract_token()?;
+    // Once we've verified the token, check if the token is billing limited (this will save us from hitting the DB if we have a quota-limited token)
+    let billing_limited = context
+        .state
+        .billing_limiter
+        .is_limited(verified_token.as_str())
+        .await;
+    if billing_limited {
+        // return an empty FlagsResponse with a quotaLimited field called "feature_flags"
+        // TODO docs
+        return Ok(FlagsResponse {
+            feature_flags: HashMap::new(),
+            feature_flag_payloads: HashMap::new(),
+            errors_while_computing_flags: false,
+            quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
+        });
+    }
 
-    let verified_token = flag_service.verify_token(&token).await?;
+    // again, now we can start doing heavier queries, since at this point most stuff has been from redis
+
     let team = flag_service
         .get_team_from_cache_or_pg(&verified_token)
         .await?;
     let team_id = team.id;
+    let project_id = team.project_id;
 
-    // Process properties and overrides
+    let filtered_flags = fetch_and_filter_flags(&flag_service, project_id, &request).await?;
+
+    let (person_prop_overrides, group_prop_overrides, groups, hash_key_override) =
+        prepare_property_overrides(&context, &request)?;
+
+    let response = evaluate_flags_for_request(
+        &context.state,
+        team_id,
+        project_id,
+        distinct_id,
+        filtered_flags,
+        person_prop_overrides,
+        group_prop_overrides,
+        groups,
+        hash_key_override,
+    )
+    .await;
+
+    Ok(response)
+}
+
+/// Parses the request body, extracts the distinct_id and token, then verifies the token.
+async fn parse_and_authenticate_request(
+    context: &RequestContext,
+    flag_service: &FlagService,
+) -> Result<(String, String, FlagRequest), FlagError> {
+    let RequestContext {
+        headers,
+        body,
+        meta,
+        ..
+    } = context;
+
+    let request = decode_request(headers, body.clone(), meta)?;
+    let distinct_id = request.extract_distinct_id()?;
+    let token = request.extract_token()?;
+    let verified_token = flag_service.verify_token(&token).await?;
+
+    Ok((distinct_id, verified_token, request))
+}
+
+/// Fetches flags from cache/DB and filters them based on requested keys, if any.
+async fn fetch_and_filter_flags(
+    flag_service: &FlagService,
+    project_id: i64,
+    request: &FlagRequest,
+) -> Result<FeatureFlagList, FlagError> {
+    let all_flags = flag_service.get_flags_from_cache_or_pg(project_id).await?;
+    if let Some(flag_keys) = &request.flag_keys {
+        let keys: HashSet<String> = flag_keys.iter().cloned().collect();
+        let filtered = all_flags
+            .flags
+            .into_iter()
+            .filter(|f| keys.contains(&f.key))
+            .collect();
+        Ok(FeatureFlagList::new(filtered))
+    } else {
+        Ok(all_flags)
+    }
+}
+
+/// Determines property overrides for person and group properties,
+/// applying geoip if enabled, and returning the optional hash key override.
+fn prepare_property_overrides(
+    context: &RequestContext,
+    request: &FlagRequest,
+) -> Result<RequestPropertyOverrides, FlagError> {
+    let geoip_enabled = !request.geoip_disable.unwrap_or(false);
     let person_property_overrides = get_person_property_overrides(
-        !request.geoip_disable.unwrap_or(false),
+        geoip_enabled,
         request.person_properties.clone(),
-        &ip,
-        &state.geoip,
+        &context.ip,
+        &context.state.geoip,
     );
 
     let groups = request.groups.clone();
     let group_property_overrides =
         process_group_property_overrides(groups.clone(), request.group_properties.clone());
+
     let hash_key_override = request.anon_distinct_id.clone();
 
-    // Get and evaluate flags
-    let feature_flags_from_cache_or_pg = flag_service
-        .get_flags_from_cache_or_pg(team_id, &state.redis, &state.reader)
-        .await?;
-
-    let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-        .team_id(team_id)
-        .distinct_id(distinct_id)
-        .feature_flags(feature_flags_from_cache_or_pg)
-        .reader(state.reader.clone())
-        .writer(state.writer.clone())
-        .cohort_cache(state.cohort_cache_manager.clone())
-        .person_property_overrides(person_property_overrides)
-        .group_property_overrides(group_property_overrides)
-        .groups(groups)
-        .hash_key_override(hash_key_override)
-        .build()
-        .expect("Failed to build FeatureFlagEvaluationContext");
-
-    let flags_response = evaluate_feature_flags(evaluation_context).await;
-
-    Ok(flags_response)
+    Ok((
+        person_property_overrides,
+        group_property_overrides,
+        groups,
+        hash_key_override,
+    ))
 }
 
-/// Get person property overrides based on the request
-/// - If geoip is enabled, fetch geoip properties and merge them with any person properties
-/// - If geoip is disabled, return the person properties as is
-/// - If no person properties are provided, return None
+/// Represents all context required for evaluating a set of feature flags.
+pub struct FeatureFlagEvaluationContext {
+    pub team_id: i32,
+    pub project_id: i64,
+    pub distinct_id: String,
+    pub feature_flags: FeatureFlagList,
+    pub reader: Arc<dyn Client + Send + Sync>,
+    pub writer: Arc<dyn Client + Send + Sync>,
+    pub cohort_cache: Arc<CohortCacheManager>,
+    pub person_property_overrides: Option<HashMap<String, Value>>,
+    pub group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+    pub groups: Option<HashMap<String, Value>>,
+    pub hash_key_override: Option<String>,
+}
+
+/// Constructs a [`FeatureFlagEvaluationContext`] and evaluates the flags using the provided overrides.
+#[allow(clippy::too_many_arguments)]
+async fn evaluate_flags_for_request(
+    state: &State<router::State>,
+    team_id: i32,
+    project_id: i64,
+    distinct_id: String,
+    filtered_flags: FeatureFlagList,
+    person_property_overrides: Option<HashMap<String, Value>>,
+    group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+    groups: Option<HashMap<String, Value>>,
+    hash_key_override: Option<String>,
+) -> FlagsResponse {
+    let ctx = FeatureFlagEvaluationContext {
+        team_id,
+        project_id,
+        distinct_id,
+        feature_flags: filtered_flags,
+        reader: state.reader.clone(),
+        writer: state.writer.clone(),
+        cohort_cache: state.cohort_cache_manager.clone(),
+        person_property_overrides,
+        group_property_overrides,
+        groups,
+        hash_key_override,
+    };
+
+    evaluate_feature_flags(ctx).await
+}
+
+/// Translates the request body and query params into a [`FlagRequest`] by examining Content-Type and compression settings.
+pub fn decode_request(
+    headers: &HeaderMap,
+    body: Bytes,
+    query: &FlagsQueryParams,
+) -> Result<FlagRequest, FlagError> {
+    let content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+
+    if content_type.starts_with("application/json; encoding=base64")
+        && !matches!(query.compression, Some(Compression::Base64))
+    {
+        return FlagRequest::from_bytes(decode_base64(body)?);
+    }
+
+    match content_type {
+        "application/json" => {
+            let decoded_body = decode_body(body, query.compression)?;
+            FlagRequest::from_bytes(decoded_body)
+        }
+        "application/x-www-form-urlencoded" => decode_form_data(body, query.compression),
+        ct => Err(FlagError::RequestDecodingError(format!(
+            "unsupported content type: {ct}"
+        ))),
+    }
+}
+
+/// Evaluates all requested feature flags in the provided context, returning a [`FlagsResponse`].
+pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> FlagsResponse {
+    let group_type_mapping_cache =
+        GroupTypeMappingCache::new(context.project_id, context.reader.clone());
+
+    let mut matcher = FeatureFlagMatcher::new(
+        context.distinct_id,
+        context.team_id,
+        context.project_id,
+        context.reader,
+        context.writer,
+        context.cohort_cache,
+        Some(group_type_mapping_cache),
+        context.groups,
+    );
+
+    matcher
+        .evaluate_all_feature_flags(
+            context.feature_flags,
+            context.person_property_overrides,
+            context.group_property_overrides,
+            context.hash_key_override,
+        )
+        .await
+}
+
+/// Determines whether to merge geoip properties into the existing person properties.
 pub fn get_person_property_overrides(
     geoip_enabled: bool,
     person_properties: Option<HashMap<String, Value>>,
@@ -197,28 +349,23 @@ pub fn get_person_property_overrides(
     }
 }
 
-/// Processes group property overrides by combining existing overrides with group key overrides
-///
-/// When groups are provided in the format {"group_type": "group_key"}, we need to ensure these
-/// are included in the group property overrides with the special "$group_key" property.
-fn process_group_property_overrides(
+/// Incorporates `groups` into group property overrides by assigning each `$group_key`.
+pub fn process_group_property_overrides(
     groups: Option<HashMap<String, Value>>,
     existing_overrides: Option<HashMap<String, HashMap<String, Value>>>,
 ) -> Option<HashMap<String, HashMap<String, Value>>> {
     match groups {
-        Some(groups) => {
-            let group_key_overrides: HashMap<String, HashMap<String, Value>> = groups
+        Some(group_map) => {
+            let group_key_overrides: HashMap<String, HashMap<String, Value>> = group_map
                 .into_iter()
                 .map(|(group_type, group_key)| {
-                    let mut properties = existing_overrides
+                    let mut merged_props = existing_overrides
                         .as_ref()
-                        .and_then(|g| g.get(&group_type))
+                        .and_then(|m| m.get(&group_type))
                         .cloned()
                         .unwrap_or_default();
-
-                    properties.insert("$group_key".to_string(), group_key);
-
-                    (group_type, properties)
+                    merged_props.insert("$group_key".to_string(), group_key);
+                    (group_type, merged_props)
                 })
                 .collect();
 
@@ -230,123 +377,8 @@ fn process_group_property_overrides(
     }
 }
 
-/// Decode a request into a `FlagRequest`
-pub fn decode_request(
-    headers: &HeaderMap,
-    body: Bytes,
-    query: &FlagsQueryParams,
-) -> Result<FlagRequest, FlagError> {
-    let content_type = headers
-        .get("content-type")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-
-    match content_type {
-        "application/json" => {
-            // Apply compression first if specified
-            let decoded_body = match query.compression {
-                Some(Compression::Gzip) => decompress_gzip(body)?,
-                Some(Compression::Base64) => {
-                    let decoded = general_purpose::STANDARD.decode(body).map_err(|e| {
-                        FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
-                    })?;
-                    Bytes::from(decoded)
-                }
-                Some(Compression::Unsupported) => {
-                    return Err(FlagError::RequestDecodingError(
-                        "Unsupported compression type".to_string(),
-                    ))
-                }
-                None => body,
-            };
-            FlagRequest::from_bytes(decoded_body)
-        }
-        "application/json; encoding=base64" => {
-            let decoded = general_purpose::STANDARD.decode(body).map_err(|e| {
-                FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
-            })?;
-            FlagRequest::from_bytes(Bytes::from(decoded))
-        }
-        "application/x-www-form-urlencoded" => {
-            // For form data, first parse the form
-            let form_data = String::from_utf8(body.to_vec()).map_err(|e| {
-                FlagError::RequestDecodingError(format!("Invalid UTF-8 in form data: {}", e))
-            })?;
-
-            #[derive(Deserialize)]
-            struct FormData {
-                data: String,
-            }
-
-            let form: FormData = serde_urlencoded::from_str(&form_data).map_err(|e| {
-                FlagError::RequestDecodingError(format!("Failed to parse form data: {}", e))
-            })?;
-
-            // URL-decode the data field
-            let data = urlencoding::decode(&form.data)
-                .map_err(|e| {
-                    FlagError::RequestDecodingError(format!("Failed to URL-decode data: {}", e))
-                })?
-                .into_owned();
-
-            // Now handle compression if specified
-            let decoded = match query.compression {
-                Some(Compression::Base64) | None => {
-                    general_purpose::STANDARD.decode(data).map_err(|e| {
-                        FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
-                    })?
-                }
-                Some(Compression::Gzip) => {
-                    return Err(FlagError::RequestDecodingError(
-                        "Gzip compression not supported for form-urlencoded data".to_string(),
-                    ))
-                }
-                Some(Compression::Unsupported) => {
-                    return Err(FlagError::RequestDecodingError(
-                        "Unsupported compression type".to_string(),
-                    ))
-                }
-            };
-
-            FlagRequest::from_bytes(Bytes::from(decoded))
-        }
-        ct => Err(FlagError::RequestDecodingError(format!(
-            "unsupported content type: {}",
-            ct
-        ))),
-    }
-}
-
-/// Evaluate feature flags for a given distinct_id
-/// - Returns a map of feature flag keys to their values
-/// - If an error occurs while evaluating a flag, we'll set `errors_while_computing_flags` to true be logged,
-///   and that flag will be omitted from the result (we will still attempt to evaluate other flags)
-// TODO: it could be a cool idea to store the errors as a tuple instead of top-level, so that users can see
-// which flags failed to evaluate
-pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> FlagsResponse {
-    let group_type_mapping_cache =
-        GroupTypeMappingCache::new(context.team_id, context.reader.clone());
-    let mut feature_flag_matcher = FeatureFlagMatcher::new(
-        context.distinct_id,
-        context.team_id,
-        context.reader,
-        context.writer,
-        context.cohort_cache,
-        Some(group_type_mapping_cache),
-        context.groups,
-    );
-    feature_flag_matcher
-        .evaluate_all_feature_flags(
-            context.feature_flags,
-            context.person_property_overrides,
-            context.group_property_overrides,
-            context.hash_key_override,
-        )
-        .await
-}
-
-// TODO: Make sure this protects against zip bombs, etc.  `/capture` does this
-// and it's a good idea to do that here as well, probably worth extracting that method into
-// /common given that it's used in multiple places
+/// Decompresses GZIP data into raw bytes.  
+/// Security note: ensure you have proper limits for data size to prevent zip bombs.
 fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
     let mut decoder = GzDecoder::new(&compressed[..]);
     let mut decompressed = Vec::new();
@@ -354,6 +386,63 @@ fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
         FlagError::RequestDecodingError(format!("gzip decompression failed: {}", e))
     })?;
     Ok(Bytes::from(decompressed))
+}
+
+/// Decodes and decompresses raw bytes according to the provided [`Compression`].
+fn decode_body(body: Bytes, compression: Option<Compression>) -> Result<Bytes, FlagError> {
+    match compression {
+        Some(Compression::Gzip) => decompress_gzip(body),
+        Some(Compression::Base64) => decode_base64(body),
+        Some(Compression::Unsupported) => Err(FlagError::RequestDecodingError(
+            "Unsupported compression type".to_string(),
+        )),
+        None => Ok(body),
+    }
+}
+
+/// Decodes base64 into raw bytes.
+fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
+    let decoded = general_purpose::STANDARD
+        .decode(body)
+        .map_err(|e| FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e)))?;
+    Ok(Bytes::from(decoded))
+}
+
+/// Parses an `application/x-www-form-urlencoded` body, extracting the `data` field, and decodes it.
+fn decode_form_data(
+    body: Bytes,
+    compression: Option<Compression>,
+) -> Result<FlagRequest, FlagError> {
+    #[derive(Deserialize)]
+    struct FormData {
+        data: String,
+    }
+
+    let form_data_str = String::from_utf8(body.to_vec()).map_err(|e| {
+        FlagError::RequestDecodingError(format!("Invalid UTF-8 in form data: {}", e))
+    })?;
+    let form: FormData = serde_urlencoded::from_str(&form_data_str).map_err(|e| {
+        FlagError::RequestDecodingError(format!("Failed to parse form data: {}", e))
+    })?;
+
+    let data_str = urlencoding::decode(&form.data)
+        .map_err(|e| FlagError::RequestDecodingError(format!("URL decode error: {}", e)))?
+        .into_owned();
+
+    match compression {
+        Some(Compression::Gzip) => Err(FlagError::RequestDecodingError(
+            "Gzip compression not supported for form-urlencoded data".to_string(),
+        )),
+        Some(Compression::Unsupported) => Err(FlagError::RequestDecodingError(
+            "Unsupported compression type".to_string(),
+        )),
+        _ => {
+            let decoded_bytes = general_purpose::STANDARD.decode(data_str).map_err(|e| {
+                FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
+            })?;
+            FlagRequest::from_bytes(Bytes::from(decoded_bytes))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -502,16 +591,19 @@ mod tests {
         let mut person_properties = HashMap::new();
         person_properties.insert("country".to_string(), json!("US"));
 
-        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-            .team_id(1)
-            .distinct_id("user123".to_string())
-            .feature_flags(feature_flag_list)
-            .reader(reader)
-            .writer(writer)
-            .cohort_cache(cohort_cache)
-            .person_property_overrides(Some(person_properties))
-            .build()
-            .expect("Failed to build FeatureFlagEvaluationContext");
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: 1,
+            project_id: 1,
+            distinct_id: "user123".to_string(),
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: Some(person_properties),
+            group_property_overrides: None,
+            groups: None,
+            hash_key_override: None,
+        };
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
@@ -688,15 +780,19 @@ mod tests {
 
         let feature_flag_list = FeatureFlagList { flags };
 
-        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-            .team_id(1)
-            .distinct_id("user123".to_string())
-            .feature_flags(feature_flag_list)
-            .reader(reader)
-            .writer(writer)
-            .cohort_cache(cohort_cache)
-            .build()
-            .expect("Failed to build FeatureFlagEvaluationContext");
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: 1,
+            project_id: 1,
+            distinct_id: "user123".to_string(),
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: None,
+            group_property_overrides: None,
+            groups: None,
+            hash_key_override: None,
+        };
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
@@ -788,19 +884,23 @@ mod tests {
             ]),
         )]);
 
-        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-            .team_id(team.id)
-            .distinct_id("user123".to_string())
-            .feature_flags(feature_flag_list)
-            .reader(reader)
-            .writer(writer)
-            .cohort_cache(cohort_cache)
-            .group_property_overrides(Some(group_property_overrides))
-            .groups(Some(groups))
-            .build()
-            .expect("Failed to build FeatureFlagEvaluationContext");
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: team.id,
+            project_id: team.project_id,
+            distinct_id: "user123".to_string(),
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: None,
+            group_property_overrides: Some(group_property_overrides),
+            groups: Some(groups),
+            hash_key_override: None,
+        };
 
         let result = evaluate_feature_flags(evaluation_context).await;
+
+        println!("result: {:?}", result);
 
         assert!(
             !result.errors_while_computing_flags,
@@ -852,15 +952,19 @@ mod tests {
 
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
-        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-            .team_id(1)
-            .distinct_id(long_id)
-            .feature_flags(feature_flag_list)
-            .reader(reader)
-            .writer(writer)
-            .cohort_cache(cohort_cache)
-            .build()
-            .expect("Failed to build FeatureFlagEvaluationContext");
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: 1,
+            project_id: 1,
+            distinct_id: long_id,
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: None,
+            group_property_overrides: None,
+            groups: None,
+            hash_key_override: None,
+        };
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
