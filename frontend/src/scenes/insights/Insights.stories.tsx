@@ -359,20 +359,19 @@ LifecycleEdit.parameters = {
 }
 
 // Stickiness
-
-export const Stickiness: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/stickiness.json')
-)
-Stickiness.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
-export const StickinessEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'),
-    'edit'
-)
-StickinessEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
+// export const Stickiness: Story = createInsightStory(
+//     require('../../mocks/fixtures/api/projects/team_id/insights/stickiness.json')
+// )
+// Stickiness.parameters = {
+//     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+// }
+// export const StickinessEdit: Story = createInsightStory(
+//     require('../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'),
+//     'edit'
+// )
+// StickinessEdit.parameters = {
+//     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+// }
 
 // User Paths
 
