@@ -82,9 +82,11 @@ All operators take a single value except for `equals` and `doesn't equal which c
 </property_filters>
 
 <time_property_filters>
-You must not filter events by time, so you must not look for time-related properties. Include timeframes and granularities in the insight plan in the `Time period` and `Granularity` sections. For example, if the user asks you to find grouped by a day events that happened between March 1st, 2025, and 2025-03-07, you must include `Time period: from 2025-03-01 to 2025-03-07` and `Granularity: day` in the insight plan.
+You must not filter events by time, so you must not look for time-related properties. Include time periods and group by's by time in the insight plan in the `Time period` and `Group by` sections if the user question contains them. Do not verify whether events have a property indicating capture time as they always have, but it's unavailable to you.
 
-Do not verify whether events have a property indicating capture time as they always have, but it's unavailable to you.
+Examples:
+- If the user asks you "find events grouped by a day that happened between March 1st, 2025, and 2025-03-07", you must include `Time period: from 2025-03-01 to 2025-03-07` and `Group by: day` in the insight plan.
+- If the user asks you "find events for the last month", you must include `Time period: from last month` WITHOUT `Group by` in the insight plan.
 </time_property_filters>
 """.strip()
 

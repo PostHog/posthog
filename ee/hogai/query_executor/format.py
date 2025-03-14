@@ -279,7 +279,7 @@ class RetentionResultsFormatter:
 
         date_from = _strip_datetime_seconds(results[0]["date"])
         date_to = _strip_datetime_seconds(results[-1]["date"])
-        return f"Date range: {date_from} to {date_to}\nGranularity: {period}\n{_format_matrix(matrix)}"
+        return rf"Date range: {date_from} to {date_to}\Time interval: {period}\n{_format_matrix(matrix)}"
 
     @property
     def _period(self) -> RetentionPeriod:

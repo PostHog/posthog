@@ -372,7 +372,7 @@ class TestCompression(BaseTest):
                 AssistantRetentionQuery(retentionFilter=AssistantRetentionFilter()), results
             ).format(),
             "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
-            "Granularity: Day\n"
+            "Time interval: Day\n"
             "Date|Number of persons on date|Day 0|Day 1|Day 2|Day 3\n"
             "2025-01-21 00:00|100|100%|100%|50%|25%\n"
             "2025-01-22 00:00|100|100%|50%|25%\n"
@@ -405,7 +405,7 @@ class TestCompression(BaseTest):
                 AssistantRetentionQuery(retentionFilter=AssistantRetentionFilter()), results
             ).format(),
             "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
-            "Granularity: Day\n"
+            "Time interval: Day\n"
             "Date|Number of persons on date|Day 0|Day 1|Day 2|Day 3\n"
             "2025-01-21 00:00|0|100%|0%|0%|0%\n"
             "2025-01-22 00:00|0|100%|0%|0%\n"

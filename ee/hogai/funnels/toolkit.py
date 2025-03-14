@@ -46,9 +46,9 @@ class FunnelsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
                     - entity
                     - property name
 
-                    (if a time period or granularity is explicitly mentioned)
-                    Time period: from and/or to dates or durations. For example: `last 1 week`, `last 12 days`, `from 2025-01-15 to 2025-01-20`, `2025-01-15`, from `-1m` to `2024-11-15`.
-                    Granularity: hour/day/week/month/year
+                    (if a time period or grouping is explicitly mentioned)
+                    Time period: from and/or to dates or durations. For example: `last 1 week`, `last 12 days`, `from 2025-01-15 to 2025-01-20`, `2025-01-15`, from `last month` to `2024-11-15`.
+                    Group by: hour/day/week/month/year
                     ```
 
                     Args:
