@@ -1,21 +1,18 @@
-use anyhow::Error;
-use axum::async_trait;
-use serde_json::{json, Value};
-use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres, Row};
-use std::sync::Arc;
-use uuid::Uuid;
-
 use crate::{
-    client::{
-        database::{get_pool, Client, CustomDatabaseError},
-        redis::{Client as RedisClientTrait, RedisClient},
-    },
+    client::database::{get_pool, Client, CustomDatabaseError},
     cohort::cohort_models::Cohort,
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::flag_models::{FeatureFlag, FeatureFlagRow, TEAM_FLAGS_CACHE_PREFIX},
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
+use anyhow::Error;
+use axum::async_trait;
+use common_redis::{Client as RedisClientTrait, RedisClient};
 use rand::{distributions::Alphanumeric, Rng};
+use serde_json::{json, Value};
+use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres, Row};
+use std::sync::Arc;
+use uuid::Uuid;
 
 pub fn random_string(prefix: &str, length: usize) -> String {
     let suffix: String = rand::thread_rng()
