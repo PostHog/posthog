@@ -138,8 +138,7 @@ RETURNING
         lock_id
     )
     .fetch_all(executor)
-    .await
-    .expect("fetching job state");
+    .await?;
 
     let mut out: Vec<Job> = Vec::with_capacity(result.len());
     for mut job in result {
