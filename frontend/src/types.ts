@@ -39,6 +39,7 @@ import type {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
+    FileSystemImport,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
@@ -526,6 +527,7 @@ export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-lo
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
+    blockSelector?: string
 }
 
 export enum ActivationTaskStatus {
@@ -4452,6 +4454,23 @@ export type BatchExportConfiguration = {
     latest_runs?: BatchExportRun[]
 }
 
+export type BatchExportConfigurationTestStepStatus = 'Passed' | 'Failed'
+
+export type BatchExportConfigurationTestStepResult = {
+    status: BatchExportConfigurationTestStepStatus
+    message: string
+}
+
+export type BatchExportConfigurationTestStep = {
+    name: string
+    description: string
+    result: BatchExportConfigurationTestStepResult | null
+}
+
+export type BatchExportConfigurationTest = {
+    steps: BatchExportConfigurationTestStep[]
+}
+
 export type RawBatchExportRun = {
     id: string
     status:
@@ -5062,10 +5081,17 @@ export interface CoreMemory {
     text: string
 }
 
+export interface FileSystemType {
+    icon?: JSX.Element
+    href?: (ref: string) => string
+}
+
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>
     routes?: Record<string, [string /** Scene */, string /** Scene Key (unique for layout tabs) */]>
     redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
     urls?: Record<string, string | ((...args: any[]) => string)>
+    fileSystemTypes?: Record<string, FileSystemType>
+    treeItems?: FileSystemImport[]
 }

@@ -198,8 +198,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BATCH_SIZE: 300,
-
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
+        CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
+        CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
@@ -229,6 +230,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
         SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
+        SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: '',
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,

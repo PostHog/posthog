@@ -6501,7 +6501,7 @@
                     "type": ["string", "null"]
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release"],
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
                     "type": "string"
                 }
             },
@@ -6630,7 +6630,7 @@
                     "type": "string"
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "all"],
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
                     "type": "string"
                 }
             },
@@ -6715,7 +6715,7 @@
                     "type": ["string", "null"]
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release"],
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
                     "type": "string"
                 }
             },
@@ -7824,33 +7824,62 @@
                     "type": "string"
                 },
                 "type": {
-                    "$ref": "#/definitions/FileSystemType",
-                    "description": "Type of object, used for icon, e.g. feature_flag, insight, etc"
+                    "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
+                    "type": "string"
                 }
             },
             "required": ["path"],
             "type": "object"
         },
-        "FileSystemType": {
-            "enum": [
-                "aichat",
-                "broadcast",
-                "dashboard",
-                "destination",
-                "experiment",
-                "feature_flag",
-                "feature",
-                "folder",
-                "insight",
-                "notebook",
-                "repl",
-                "site_app",
-                "source",
-                "sql",
-                "survey",
-                "transformation"
-            ],
-            "type": "string"
+        "FileSystemImport": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "description": "Timestamp when file was added. Used to check persistence",
+                    "type": "string"
+                },
+                "flag": {
+                    "type": "string"
+                },
+                "href": {
+                    "$comment": "(ref?: string) => string",
+                    "properties": {
+                        "namedArgs": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "ref": {
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "type": "object"
+                },
+                "icon": {},
+                "id": {
+                    "description": "Unique UUID for tree entry",
+                    "type": "string"
+                },
+                "meta": {
+                    "description": "Metadata",
+                    "type": "object"
+                },
+                "path": {
+                    "description": "Object's name and folder",
+                    "type": "string"
+                },
+                "ref": {
+                    "description": "Object's ID or other unique reference",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
+                    "type": "string"
+                }
+            },
+            "required": ["href", "path"],
+            "type": "object"
         },
         "FilterLogicalOperator": {
             "enum": ["AND", "OR"],

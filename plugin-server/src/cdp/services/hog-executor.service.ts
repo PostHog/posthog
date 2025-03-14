@@ -118,13 +118,17 @@ export const buildGlobalsWithInputs = (
     }
 
     const orderedInputs = Object.entries(inputs ?? {}).sort(([_, input1], [__, input2]) => {
-        return (input1.order ?? -1) - (input2.order ?? -1)
+        return (input1?.order ?? -1) - (input2?.order ?? -1)
     })
 
     for (const [key, input] of orderedInputs) {
+        if (!input) {
+            continue
+        }
+
         newGlobals.inputs[key] = input.value
 
-        if (input.bytecode) {
+        if (input?.bytecode) {
             // Use the bytecode to compile the field
             newGlobals.inputs[key] = formatInput(input.bytecode, newGlobals, key)
         }

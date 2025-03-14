@@ -18,7 +18,6 @@ import {
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
     FileSystemEntry,
-    FileSystemType,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
@@ -35,7 +34,10 @@ import {
     AppMetricsV2Response,
     BatchExportBackfill,
     BatchExportConfiguration,
+    BatchExportConfigurationTest,
+    BatchExportConfigurationTestStep,
     BatchExportRun,
+    BatchExportService,
     CohortType,
     CommentType,
     CoreMemory,
@@ -374,7 +376,7 @@ class ApiRequest {
     public fileSystem(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('file_system')
     }
-    public fileSystemUnfiled(type?: FileSystemType, projectId?: ProjectType['id']): ApiRequest {
+    public fileSystemUnfiled(type?: string, projectId?: ProjectType['id']): ApiRequest {
         const path = this.fileSystem(projectId).addPathComponent('unfiled')
         if (type) {
             path.withQueryString({ type })
@@ -1229,7 +1231,7 @@ const api = {
         ): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystem().withQueryString({ parent, depth, limit, offset }).get()
         },
-        async unfiled(type?: FileSystemType): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+        async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
         },
         async create(data: FileSystemEntry): Promise<FileSystemEntry> {
@@ -2103,6 +2105,10 @@ const api = {
             return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'resolve', ids } })
         },
 
+        async bulkSuppress(ids: ErrorTrackingIssue['id'][]): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'suppress', ids } })
+        },
+
         async bulkAssign(
             ids: ErrorTrackingIssue['id'][],
             assignee: ErrorTrackingIssue['assignee']
@@ -2429,6 +2435,25 @@ const api = {
             params: LogEntryRequestParams = {}
         ): Promise<PaginatedResponse<LogEntry>> {
             return await new ApiRequest().batchExport(id).withAction('logs').withQueryString(params).get()
+        },
+        async test(destination: BatchExportService['type']): Promise<BatchExportConfigurationTest> {
+            return await new ApiRequest().batchExports().withAction('test').withQueryString({ destination }).get()
+        },
+        async runTestStep(
+            id: BatchExportConfiguration['id'],
+            step: number,
+            data: Record<string, any>
+        ): Promise<BatchExportConfigurationTestStep> {
+            return await new ApiRequest()
+                .batchExport(id)
+                .withAction('run_test_step')
+                .create({ data: { ...{ step: step }, ...data } })
+        },
+        async runTestStepNew(step: number, data: Record<string, any>): Promise<BatchExportConfigurationTestStep> {
+            return await new ApiRequest()
+                .batchExports()
+                .withAction('run_test_step_new')
+                .create({ data: { ...{ step: step }, ...data } })
         },
     },
 
