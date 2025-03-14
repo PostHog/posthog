@@ -1490,6 +1490,7 @@ export interface GroupsQueryResponse extends AnalyticsQueryResponseBase<any[][]>
 export interface GroupsQuery extends DataNode<GroupsQueryResponse> {
     kind: NodeKind.GroupsQuery
     select?: HogQLExpression[]
+    search?: string
     group_type_index: integer
     orderBy?: string[]
     limit?: integer

@@ -37,6 +37,24 @@ class GroupsQueryRunner(QueryRunner):
             )
         )
 
+        if self.query.search is not None and self.query.search != "":
+            conditions.append(
+                ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Field(chain=["properties", "name"]),
+                            right=ast.Constant(value=f"%{self.query.search}%"),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Call(name="toString", args=[ast.Field(chain=["key"])]),
+                            right=ast.Constant(value=f"%{self.query.search}%"),
+                        ),
+                    ]
+                )
+            )
+
         where = ast.And(exprs=list(conditions)) if conditions else None
 
         return ast.SelectQuery(

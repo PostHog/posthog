@@ -8907,6 +8907,9 @@
                 "response": {
                     "$ref": "#/definitions/GroupsQueryResponse"
                 },
+                "search": {
+                    "type": "string"
+                },
                 "select": {
                     "items": {
                         "$ref": "#/definitions/HogQLExpression"

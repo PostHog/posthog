@@ -47,6 +47,7 @@ import {
     DataTableNode,
     EventsNode,
     EventsQuery,
+    GroupsQuery,
     HogQLQuery,
     PersonsNode,
     SessionAttributionExplorerQuery,
@@ -67,6 +68,7 @@ import {
 } from '~/queries/utils'
 import { EventType, InsightLogicProps } from '~/types'
 
+import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
 
 interface DataTableProps {
@@ -407,6 +409,7 @@ export function DataTable({
                 | EventsQuery
                 | PersonsNode
                 | ActorsQuery
+                | GroupsQuery
                 | HogQLQuery
                 | SessionAttributionExplorerQuery
                 | TracesQuery
@@ -440,6 +443,9 @@ export function DataTable({
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
+        ) : null,
+        showSearch && sourceFeatures.has(QueryFeature.groupsSearch) ? (
+            <GroupsSearch key="groups-search" query={query.source as GroupsQuery} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
             <EventPropertyFilters

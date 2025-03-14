@@ -22,6 +22,7 @@ export enum QueryFeature {
     eventPropertyFilters,
     personPropertyFilters,
     personsSearch,
+    groupsSearch,
     savedEventsQueries,
     columnConfigurator,
     resultIsArrayOfArrays,
@@ -69,6 +70,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     }
 
     if (isGroupsQuery(query)) {
+        features.add(QueryFeature.groupsSearch)
         features.add(QueryFeature.selectAndOrderByColumns)
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)

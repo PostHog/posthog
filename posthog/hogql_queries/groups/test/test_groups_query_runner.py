@@ -93,3 +93,21 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[0][2], "$0")
         self.assertEqual(result.results[1][2], "$150")
         self.assertEqual(result.results[2][2], "$300")
+
+    @freeze_time("2025-01-01")
+    @snapshot_clickhouse_queries
+    def test_groups_query_runner_with_search(self):
+        self.create_standard_test_groups()
+        query = GroupsQuery(
+            group_type_index=0,
+            limit=10,
+            offset=0,
+            search="org2",
+        )
+
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.results), 1)
+        self.assertEqual(result.columns, ["group_name", "key"])
+        self.assertEqual(result.results[0][0], "org2.inc")

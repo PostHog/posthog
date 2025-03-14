@@ -7066,6 +7066,7 @@ class GroupsQuery(BaseModel):
     offset: Optional[int] = None
     orderBy: Optional[list[str]] = None
     response: Optional[GroupsQueryResponse] = None
+    search: Optional[str] = None
     select: Optional[list[str]] = None
 
 
