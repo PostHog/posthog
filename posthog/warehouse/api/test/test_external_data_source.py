@@ -1,20 +1,20 @@
-from freezegun import freeze_time
-from posthog.models.project import Project
-from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
-from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
 import uuid
 from unittest.mock import patch
+
+import psycopg
+from django.conf import settings
+from django.test import override_settings
+from freezegun import freeze_time
+from rest_framework import status
+
+from posthog.models import Team
+from posthog.models.project import Project
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
-from django.test import override_settings
-from django.conf import settings
-from posthog.models import Team
-import psycopg
-from rest_framework import status
-
-
+from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
+from posthog.test.base import APIBaseTest
+from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 
@@ -369,6 +369,28 @@ class TestExternalDataSource(APIBaseTest):
         )
         assert response.status_code == 400
         assert len(ExternalDataSource.objects.all()) == 0
+
+    def test_create_external_data_source_missing_required_bigquery_job_input(self):
+        """Test we fail source creation when missing inputs."""
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "BigQuery",
+                "payload": {
+                    "dataset_id": "my_dataset",
+                    "key_file": {
+                        "project_id": "my_project",
+                        "token_uri": "https://google.com",
+                        "client_email": "test@posthog.com",
+                    },
+                },
+            },
+        )
+        assert response.status_code == 400
+        assert len(ExternalDataSource.objects.all()) == 0
+        assert response.json()["detail"].startswith("Missing required BigQuery inputs")
+        assert "'private_key'" in response.json()["detail"]
+        assert "'private_key_id'" in response.json()["detail"]
 
     def test_list_external_data_source(self):
         self._create_external_data_source()
