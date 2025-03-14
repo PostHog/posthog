@@ -232,6 +232,7 @@ export type HogFunctionInvocationResult = {
     error?: any
     // asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
     logs: LogEntry[]
+    metrics?: HogFunctionAppMetric[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
     execResult?: unknown
 }

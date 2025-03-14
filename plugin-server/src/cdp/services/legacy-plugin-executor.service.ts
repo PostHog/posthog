@@ -121,6 +121,7 @@ export class LegacyPluginExecutorService {
             finished: true,
             capturedPostHogEvents: [],
             logs: [],
+            metrics: [],
         }
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
@@ -219,7 +220,18 @@ export class LegacyPluginExecutorService {
 
                 if (isTestFunction && method.toUpperCase() !== 'GET') {
                     // For testing we mock out all non-GET requests
-                    addLog('info', 'Fetch called but mocked due to test function')
+                    addLog('info', 'Fetch called but mocked due to test function', {
+                        url: args[0],
+                        method,
+                    })
+
+                    result.metrics!.push({
+                        team_id: invocation.hogFunction.team_id,
+                        app_source_id: invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    })
                     // Simulate a mini bit of fetch delay
                     await new Promise((resolve) => setTimeout(resolve, 200))
                     return {
@@ -257,6 +269,8 @@ export class LegacyPluginExecutorService {
                     properties: event.properties || {},
                 }
 
+                const start = performance.now()
+
                 await plugin.onEvent?.(processedEvent, {
                     ...state.meta,
                     // NOTE: We override logger and fetch here so we can track the calls
@@ -264,6 +278,8 @@ export class LegacyPluginExecutorService {
                     fetch,
                     storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                 })
+
+                addLog('info', `Function completed in ${performance.now() - start}ms.`)
             } else {
                 if (plugin === firstTimeEventTrackerPlugin) {
                     // Special fallback case until this is fully removed

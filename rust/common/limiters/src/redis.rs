@@ -1,15 +1,15 @@
+use common_redis::{Client, CustomRedisError};
 use metrics::gauge;
 use std::time::Duration as StdDuration;
 use std::{collections::HashSet, sync::Arc};
+use strum::Display;
 use time::{Duration, OffsetDateTime};
 use tokio::sync::RwLock;
 use tokio::task;
 use tokio::time::interval;
 use tracing::instrument;
 
-use crate::redis::Client;
-
-/// Limit events by checking if a value is present in Redis
+/// Limit resources by checking if a value is present in Redis
 ///
 /// We have an async celery worker that regularly checks on accounts + assesses if they are beyond
 /// a billing limit. If this is the case, a key is set in redis.
@@ -17,10 +17,13 @@ use crate::redis::Client;
 /// For replay sessions we also check if too many events are coming in in ingestion for a single session
 /// and set a redis key to redirect further events to overflow.
 ///
+/// For feature flag evaluations we still return a 200 response, but add an entry to the response body
+/// to indicate that the flag evaluation was quota-limited.
+///
 /// Requirements
 ///
 /// 1. Updates from the celery worker should be reflected in capture within a short period of time
-/// 2. Capture should cope with redis being _totally down_, and fail open
+/// 2. Quota limited services should cope with redis being _totally down_, and fail open
 /// 3. We should not hit redis for every single request
 ///
 /// The solution here is to read from the cache and update the set in a background thread.
@@ -31,16 +34,17 @@ use crate::redis::Client;
 /// However, ideally we should not allow requests from some pods but 429 from others.
 
 // todo: fetch from env
+// due to historical reasons we use different suffixes for quota limits and overflow
+// hopefully we can unify these in the future
 pub const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
 pub const OVERFLOW_LIMITER_CACHE_KEY: &str = "@posthog/capture-overflow/";
 
 #[derive(Debug)]
 pub enum QuotaResource {
     Events,
-    // due to historical reasons we use different suffixes for quota limits and overflow
-    // hopefully we can unify these in the future
     Recordings,
     Replay,
+    FeatureFlags,
 }
 
 impl QuotaResource {
@@ -49,6 +53,22 @@ impl QuotaResource {
             Self::Events => "events",
             Self::Recordings => "recordings",
             Self::Replay => "replay",
+            Self::FeatureFlags => "feature_flag_requests",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display)]
+pub enum ServiceName {
+    FeatureFlags,
+    Capture,
+}
+
+impl ServiceName {
+    pub fn as_string(&self) -> String {
+        match self {
+            ServiceName::FeatureFlags => "feature_flags".to_string(),
+            ServiceName::Capture => "capture".to_string(),
         }
     }
 }
@@ -59,6 +79,7 @@ pub struct RedisLimiter {
     redis: Arc<dyn Client + Send + Sync>,
     key: String,
     interval: Duration,
+    service_name: ServiceName,
 }
 
 impl RedisLimiter {
@@ -76,6 +97,7 @@ impl RedisLimiter {
         limiter_cache_key: String,
         redis_key_prefix: Option<String>,
         resource: QuotaResource,
+        service_name: ServiceName,
     ) -> anyhow::Result<RedisLimiter> {
         let limited = Arc::new(RwLock::new(HashSet::new()));
         let key_prefix = redis_key_prefix.unwrap_or_default();
@@ -85,6 +107,7 @@ impl RedisLimiter {
             redis: redis.clone(),
             key: format!("{key_prefix}{limiter_cache_key}{}", resource.as_str()),
             interval,
+            service_name,
         };
 
         // Spawn a background task to periodically fetch data from Redis
@@ -98,6 +121,7 @@ impl RedisLimiter {
         let redis = Arc::clone(&self.redis);
         let interval_duration = StdDuration::from_nanos(self.interval.whole_nanoseconds() as u64);
         let key = self.key.clone();
+        let service_name = self.service_name.as_string();
 
         // Spawn a task to periodically update the cache from Redis
         task::spawn(async move {
@@ -107,7 +131,7 @@ impl RedisLimiter {
                     Ok(set) => {
                         let set = HashSet::from_iter(set.iter().cloned());
                         gauge!(
-                            "capture_billing_limits_loaded_tokens",
+                            format!("{}_billing_limits_loaded_tokens", service_name),
                             "cache_key" => key.clone(),
                         )
                         .set(set.len() as f64);
@@ -129,7 +153,7 @@ impl RedisLimiter {
     async fn fetch_limited(
         client: &Arc<dyn Client + Send + Sync>,
         key: &String,
-    ) -> anyhow::Result<Vec<String>> {
+    ) -> anyhow::Result<Vec<String>, CustomRedisError> {
         let now = OffsetDateTime::now_utc().unix_timestamp();
         client
             .zrangebyscore(key.to_string(), now.to_string(), String::from("+Inf"))
@@ -145,14 +169,11 @@ impl RedisLimiter {
 
 #[cfg(test)]
 mod tests {
-    use crate::limiters::redis::{OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
+    use super::{OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
+    use crate::redis::{QuotaResource, RedisLimiter, ServiceName};
+    use common_redis::MockRedisClient;
     use std::sync::Arc;
     use time::Duration;
-
-    use crate::{
-        limiters::redis::{QuotaResource, RedisLimiter},
-        redis::MockRedisClient,
-    };
 
     #[tokio::test]
     async fn test_dynamic_limited() {
@@ -168,6 +189,7 @@ mod tests {
             OVERFLOW_LIMITER_CACHE_KEY.to_string(),
             None,
             QuotaResource::Replay,
+            ServiceName::Capture,
         )
         .expect("Failed to create billing limiter");
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
@@ -191,6 +213,7 @@ mod tests {
             QUOTA_LIMITER_CACHE_KEY.to_string(),
             None,
             QuotaResource::Events,
+            ServiceName::Capture,
         )
         .expect("Failed to create billing limiter");
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
@@ -203,11 +226,35 @@ mod tests {
             QUOTA_LIMITER_CACHE_KEY.to_string(),
             Some("prefix//".to_string()),
             QuotaResource::Events,
+            ServiceName::Capture,
         )
         .expect("Failed to create billing limiter");
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
 
         assert!(!prefixed_limiter.is_limited("not_limited").await);
         assert!(prefixed_limiter.is_limited("banana").await);
+    }
+
+    #[tokio::test]
+    async fn test_feature_flag_limiter() {
+        let client = MockRedisClient::new().zrangebyscore_ret(
+            "@posthog/quota-limits/feature_flag_requests",
+            vec![String::from("banana")],
+        );
+        let client = Arc::new(client);
+
+        let limiter = RedisLimiter::new(
+            Duration::seconds(1),
+            client,
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            None,
+            QuotaResource::FeatureFlags,
+            ServiceName::FeatureFlags,
+        )
+        .expect("Failed to create feature flag limiter");
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+
+        assert!(!limiter.is_limited("not_limited").await);
+        assert!(limiter.is_limited("banana").await);
     }
 }

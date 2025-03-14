@@ -810,6 +810,7 @@ class Status(StrEnum):
     ACTIVE = "active"
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
+    SUPPRESSED = "suppressed"
 
 
 class ErrorTrackingIssueAggregations(BaseModel):
@@ -842,6 +843,7 @@ class Status1(StrEnum):
     ACTIVE = "active"
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
+    SUPPRESSED = "suppressed"
     ALL = "all"
 
 
@@ -850,6 +852,7 @@ class Status2(StrEnum):
     ACTIVE = "active"
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
+    SUPPRESSED = "suppressed"
 
 
 class Interval(StrEnum):
@@ -971,23 +974,51 @@ class FailureMessage(BaseModel):
     type: Literal["ai/failure"] = "ai/failure"
 
 
-class FileSystemType(StrEnum):
-    AICHAT = "aichat"
-    BROADCAST = "broadcast"
-    DASHBOARD = "dashboard"
-    DESTINATION = "destination"
-    EXPERIMENT = "experiment"
-    FEATURE_FLAG = "feature_flag"
-    FEATURE = "feature"
-    FOLDER = "folder"
-    INSIGHT = "insight"
-    NOTEBOOK = "notebook"
-    REPL = "repl"
-    SITE_APP = "site_app"
-    SOURCE = "source"
-    SQL = "sql"
-    SURVEY = "survey"
-    TRANSFORMATION = "transformation"
+class FileSystemEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: Optional[str] = Field(
+        default=None, description="Timestamp when file was added. Used to check persistence"
+    )
+    href: Optional[str] = Field(default=None, description="Object's URL")
+    id: Optional[str] = Field(default=None, description="Unique UUID for tree entry")
+    meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
+    path: str = Field(..., description="Object's name and folder")
+    ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    type: Optional[str] = Field(
+        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
+    )
+
+
+class NamedArgs(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ref: Optional[str] = None
+
+
+class Href(BaseModel):
+    namedArgs: Optional[NamedArgs] = None
+
+
+class FileSystemImport(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: Optional[str] = Field(
+        default=None, description="Timestamp when file was added. Used to check persistence"
+    )
+    flag: Optional[str] = None
+    href: Href
+    icon: Optional[Any] = None
+    id: Optional[str] = Field(default=None, description="Unique UUID for tree entry")
+    meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
+    path: str = Field(..., description="Object's name and folder")
+    ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    type: Optional[str] = Field(
+        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
+    )
 
 
 class FilterLogicalOperator(StrEnum):
@@ -2469,23 +2500,6 @@ class FeaturePropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
-
-
-class FileSystemEntry(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: Optional[str] = Field(
-        default=None, description="Timestamp when file was added. Used to check persistence"
-    )
-    href: Optional[str] = Field(default=None, description="Object's URL")
-    id: Optional[str] = Field(default=None, description="Unique UUID for tree entry")
-    meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
-    path: str = Field(..., description="Object's name and folder")
-    ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
-    type: Optional[FileSystemType] = Field(
-        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
-    )
 
 
 class FunnelCorrelationResult(BaseModel):
