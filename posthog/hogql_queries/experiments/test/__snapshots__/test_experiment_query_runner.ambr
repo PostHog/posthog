@@ -8,7 +8,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -32,7 +32,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -71,7 +71,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -95,7 +95,7 @@
                1 AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -158,7 +158,7 @@
                1 AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -197,7 +197,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -327,7 +327,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -392,7 +392,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -457,7 +457,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -522,7 +522,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -587,7 +587,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -652,7 +652,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -717,7 +717,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -782,7 +782,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -847,7 +847,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -912,7 +912,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -977,7 +977,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1011,7 +1011,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1060,7 +1060,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1084,7 +1084,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1123,7 +1123,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1147,7 +1147,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1186,7 +1186,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1210,7 +1210,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1249,7 +1249,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1273,7 +1273,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1312,7 +1312,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1336,7 +1336,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1384,7 +1384,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1411,7 +1411,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1453,7 +1453,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1477,7 +1477,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1536,7 +1536,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1563,7 +1563,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1605,7 +1605,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1629,7 +1629,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1668,7 +1668,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1700,7 +1700,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1747,7 +1747,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1771,7 +1771,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1810,7 +1810,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1834,7 +1834,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1873,7 +1873,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1897,7 +1897,7 @@
                usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1936,7 +1936,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2023,7 +2023,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2118,7 +2118,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2183,7 +2183,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2248,7 +2248,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2313,7 +2313,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2378,7 +2378,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2452,7 +2452,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2526,7 +2526,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2611,7 +2611,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2685,7 +2685,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2750,7 +2750,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2839,7 +2839,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2904,7 +2904,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2969,7 +2969,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -3727,7 +3727,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -3792,7 +3792,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -3857,7 +3857,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -3922,7 +3922,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            sum(coalesce(accurateCastOrNull(events_after_exposure.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
