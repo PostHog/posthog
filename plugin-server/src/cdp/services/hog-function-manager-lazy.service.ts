@@ -160,6 +160,12 @@ export class HogFunctionManagerLazyService {
         return (await this.lazyLoader.get(id)) ?? null
     }
 
+    public async getHogFunctions(
+        ids: HogFunctionType['id'][]
+    ): Promise<Record<HogFunctionType['id'], HogFunctionType | null>> {
+        return (await this.lazyLoader.getMany(ids)) ?? null
+    }
+
     // public teamHasHogDestinations(teamId: Team['id']): boolean {
     //     return !!Object.keys(this.getTeamHogFunctions(teamId)).length
     // }
