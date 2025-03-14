@@ -9,6 +9,7 @@ members = [
     "common/cookieless",
     "common/dns",
     "common/health",
+    "common/limiters",
     "common/metrics",
     "common/symbol_data",
     "common/types",

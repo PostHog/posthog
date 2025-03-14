@@ -18,7 +18,6 @@ import {
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
     FileSystemEntry,
-    FileSystemType,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
@@ -377,7 +376,7 @@ class ApiRequest {
     public fileSystem(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('file_system')
     }
-    public fileSystemUnfiled(type?: FileSystemType, projectId?: ProjectType['id']): ApiRequest {
+    public fileSystemUnfiled(type?: string, projectId?: ProjectType['id']): ApiRequest {
         const path = this.fileSystem(projectId).addPathComponent('unfiled')
         if (type) {
             path.withQueryString({ type })
@@ -1232,7 +1231,7 @@ const api = {
         ): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystem().withQueryString({ parent, depth, limit, offset }).get()
         },
-        async unfiled(type?: FileSystemType): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+        async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
         },
         async create(data: FileSystemEntry): Promise<FileSystemEntry> {
@@ -2303,6 +2302,12 @@ const api = {
 
         async aiRegex(regex: string): Promise<{ result: string; data: any }> {
             return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex } })
+        },
+
+        async getSimilarRecordings(
+            session_recording_id: SessionRecordingType['id']
+        ): Promise<{ count: number; results: string[] }> {
+            return await new ApiRequest().recording(session_recording_id).withAction('analyze/similar').get()
         },
     },
 
