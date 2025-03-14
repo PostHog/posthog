@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import abc
-from functools import cache
 import itertools
 import logging
 import time
@@ -312,7 +311,6 @@ class ClickhouseCluster:
             return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in hosts})
 
 
-@cache
 def get_cluster(
     logger: logging.Logger | None = None,
     client_settings: Mapping[str, str] | None = None,
