@@ -100,11 +100,12 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
             const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
 
+            let lazyLoadedTeams: Record<TeamId, HogFunctionType[]> | undefined
+
             if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
-                const lazyLoadedTeams = await this.hogFunctionManagerLazy.getHogFunctionsForTeams(
-                    teamsToLoad,
-                    this.hogTypes
-                )
+                lazyLoadedTeams = await this.hogFunctionManagerLazy.getHogFunctionsForTeams(teamsToLoad, this.hogTypes)
+
+                status.info('🧐', `Lazy loaded ${Object.keys(lazyLoadedTeams).length} teams`)
             }
             const hogFunctionsByTeam = teamsToLoad.reduce((acc, teamId) => {
                 acc[teamId] = this.hogFunctionManager.getTeamHogFunctions(teamId)
@@ -114,6 +115,15 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             const possibleInvocations = (
                 await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
                     const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
+
+                    if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && lazyLoadedTeams) {
+                        const lazyLoadedTeamHogFunctions = lazyLoadedTeams[globals.project.id]
+                        status.info(
+                            '🧐',
+                            `Lazy loaded ${lazyLoadedTeamHogFunctions.length} functions in comparison to ${teamHogFunctions.length}`
+                        )
+                    }
+
                     const { invocations, metrics, logs } = this.hogExecutor.buildHogFunctionInvocations(
                         teamHogFunctions,
                         globals

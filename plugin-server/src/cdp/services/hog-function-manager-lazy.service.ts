@@ -73,11 +73,11 @@ export class HogFunctionManagerLazyService {
         this.started = false
 
         this.pubSub = new PubSub(this.hub, {
-            'reload-integrations': (message) => {
-                const { integrationIds, teamId } = JSON.parse(message) as {
-                    integrationIds: IntegrationType['id'][]
-                    teamId: Team['id']
-                }
+            'reload-integrations': () => {
+                // const { integrationIds, teamId } = JSON.parse(message) as {
+                //     integrationIds: IntegrationType['id'][]
+                //     teamId: Team['id']
+                // }
                 // TODO: Decide if we want to reload integrations here or just let the lazy loader handle it
             },
             'reload-hog-functions': (message) => {
