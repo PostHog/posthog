@@ -26,4 +26,6 @@ pub enum JobError {
     DeadlineExceeded(Uuid),
     #[error("Update dropped before being flushed.")]
     UpdateDropped,
+    #[error("vm_state compression error: {0}")]
+    CompressionError(String),
 }

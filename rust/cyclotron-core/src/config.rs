@@ -53,6 +53,8 @@ pub struct WorkerConfig {
     pub max_bytes_buffered: Option<usize>, // Defaults to 10MB
     #[serde(alias = "flushLoopIntervalMs")]
     pub flush_loop_interval_ms: Option<u64>, // Defaults to 10
+    #[serde(alias = "shouldCompressVmState")]
+    pub should_compress_vm_state: Option<bool>, // Defaults to "false"
 }
 
 impl WorkerConfig {
@@ -74,5 +76,9 @@ impl WorkerConfig {
 
     pub fn max_bytes_buffered(&self) -> usize {
         self.max_bytes_buffered.unwrap_or(10_000_000)
+    }
+
+    pub fn should_compress_vm_state(&self) -> bool {
+        self.should_compress_vm_state.unwrap_or(false)
     }
 }

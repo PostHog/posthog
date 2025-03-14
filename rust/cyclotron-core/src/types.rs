@@ -42,6 +42,7 @@ pub struct JobInit {
     pub parameters: Option<Bytes>,
     pub blob: Option<Bytes>,
     pub metadata: Option<Bytes>,
+    pub should_compress_vm_state: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
