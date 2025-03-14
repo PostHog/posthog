@@ -100,6 +100,7 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystem rows for the same objects.
         """
         FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         first_response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
         self.assertEqual(first_response.status_code, status.HTTP_200_OK)
@@ -126,6 +127,7 @@ class TestFileSystemAPI(APIBaseTest):
         Dashboard.objects.create(team=self.team, name="User Dashboard", created_by=self.user)
         Insight.objects.create(team=self.team, saved=True, name="Marketing Insight", created_by=self.user)
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
@@ -152,6 +154,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         flag = FeatureFlag.objects.create(team=self.team, name="Only Flag", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", feature_flag=flag, created_by=self.user)
+        FileSystem.objects.all().delete()
 
         # Filter for feature_flag only => creates 1 new 'leaf' item
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/?type=feature_flag")
@@ -274,6 +277,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         # Create a FeatureFlag
         FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         # Call unfiled - that should create the new FileSystem item
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
@@ -296,6 +300,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         # If a user enters something with a slash in the name...
         FeatureFlag.objects.create(team=self.team, name="Flag / With Slash", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         # This becomes "Unfiled/Feature Flags/Flag \/ With Slash"
         # but that is still 3 path segments from the perspective of split_path()
