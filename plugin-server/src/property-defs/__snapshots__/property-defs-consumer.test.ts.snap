@@ -19,7 +19,7 @@ exports[`PropertyDefsConsumer group updates should create group properties from 
 [
   {
     "group_type_index": null,
-    "id": "<REPLACED_NUMBER>",
+    "id": "<REPLACED-UUID-0>",
     "is_numerical": false,
     "name": "$group_key",
     "project_id": "2",
@@ -32,7 +32,7 @@ exports[`PropertyDefsConsumer group updates should create group properties from 
   },
   {
     "group_type_index": null,
-    "id": "<REPLACED_NUMBER>",
+    "id": "<REPLACED-UUID-1>",
     "is_numerical": false,
     "name": "$group_type",
     "project_id": "2",
@@ -45,7 +45,7 @@ exports[`PropertyDefsConsumer group updates should create group properties from 
   },
   {
     "group_type_index": 0,
-    "id": "<REPLACED_NUMBER>",
+    "id": "<REPLACED-UUID-2>",
     "is_numerical": false,
     "name": "prop1",
     "project_id": "2",
@@ -58,7 +58,7 @@ exports[`PropertyDefsConsumer group updates should create group properties from 
   },
   {
     "group_type_index": 0,
-    "id": "<REPLACED_NUMBER>",
+    "id": "<REPLACED-UUID-3>",
     "is_numerical": true,
     "name": "prop2",
     "project_id": "2",
@@ -76,7 +76,7 @@ exports[`PropertyDefsConsumer property updates should batch multiple writes 1`]
 [
   {
     "group_type_index": null,
-    "id": "<REPLACED_NUMBER>",
+    "id": "<REPLACED-UUID-0>",
     "is_numerical": false,
     "name": "foo",
     "project_id": "2",
@@ -89,7 +89,7 @@ exports[`PropertyDefsConsumer property updates should batch multiple writes 1`]
   },
   {
     "group_type_index": null,
-    "id": "<REPLACED_NUMBER>",
+    "id": "<REPLACED-UUID-1>",
     "is_numerical": true,
     "name": "test",
     "project_id": "2",
@@ -102,7 +102,7 @@ exports[`PropertyDefsConsumer property updates should batch multiple writes 1`]
   },
   {
     "group_type_index": null,
-    "id": "<REPLACED_NUMBER>",
+    "id": "<REPLACED-UUID-2>",
     "is_numerical": false,
     "name": "url",
     "project_id": "2",
@@ -169,7 +169,7 @@ exports[`PropertyDefsConsumer property updates should only write the first seen 
 [
   {
     "group_type_index": null,
-    "id": "<REPLACED_NUMBER>",
+    "id": "<REPLACED-UUID-0>",
     "is_numerical": false,
     "name": "url",
     "project_id": "2",
@@ -214,7 +214,7 @@ exports[`PropertyDefsConsumer property updates should write simple property defs
 [
   {
     "group_type_index": null,
-    "id": "<REPLACED_NUMBER>",
+    "id": "<REPLACED-UUID-0>",
     "is_numerical": false,
     "name": "url",
     "project_id": "2",
