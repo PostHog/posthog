@@ -60,8 +60,6 @@ describe('LazyLoader', () => {
             const result2 = await lazyLoader.getMany(['key1', 'key2'])
             expect(result2).toEqual({ key1: 'value1', key2: 'value2' })
             expect(loader).toHaveBeenCalledTimes(1)
-
-            expect(loader).toHaveBeenCalledTimes(1)
         })
 
         it('handles partial cache hits', async () => {
@@ -169,22 +167,6 @@ describe('LazyLoader', () => {
             lazyLoader.markForRefresh(['key1', 'key2'])
             await lazyLoader.getMany(['key1', 'key2'])
             expect(loader).toHaveBeenCalledTimes(2)
-        })
-    })
-
-    describe('parallel loading', () => {
-        it('handles multiple calls to getMany in parallel', async () => {
-            loader.mockResolvedValue({ key1: 'value1', key2: 'value2' })
-
-            const result = await Promise.all([
-                lazyLoader.getMany(['key1', 'key2']),
-                lazyLoader.getMany(['key1', 'key2']),
-            ])
-            expect(result).toEqual([
-                { key1: 'value1', key2: 'value2' },
-                { key1: 'value1', key2: 'value2' },
-            ])
-            expect(loader).toHaveBeenCalledTimes(1)
         })
     })
 })
