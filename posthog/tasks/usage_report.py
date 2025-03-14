@@ -1289,6 +1289,7 @@ def send_all_org_usage_reports(
             properties={
                 "total_orgs": total_orgs,
                 "total_orgs_sent": total_orgs_sent,
+                "region": get_instance_region(),
             },
         )
 
@@ -1333,6 +1334,7 @@ def send_all_org_usage_reports(
                 "total_orgs": total_orgs,
                 "total_orgs_sent": total_orgs_sent,
                 "total_time": time_since.total_seconds(),
+                "region": get_instance_region(),
             },
         )
 
