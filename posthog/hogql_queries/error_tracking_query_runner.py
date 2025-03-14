@@ -258,7 +258,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
             [
                 ast.OrderExpr(
                     expr=ast.Field(chain=[self.query.orderBy]),
-                    order="ASC" if self.query.orderBy == "first_seen" else "DESC",
+                    order=self.query.orderDirection.value
+                    if self.query.orderDirection
+                    else "ASC"
+                    if self.query.orderBy == "first_seen"
+                    else "DESC",
                 )
             ]
             if self.query.orderBy

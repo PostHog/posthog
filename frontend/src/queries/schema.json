@@ -6623,6 +6623,10 @@
                     "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
+                "orderDirection": {
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
                 },
@@ -7081,6 +7085,10 @@
                         "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightActorsQuery",
+                    "description": "source for querying events for insights"
                 },
                 "where": {
                     "description": "HogQL filters to apply on returned data",

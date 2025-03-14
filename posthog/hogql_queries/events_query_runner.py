@@ -1,5 +1,6 @@
 from datetime import timedelta
-from typing import Optional
+from functools import cached_property
+from typing import Optional, cast
 
 from django.db.models import Prefetch
 from django.utils.timezone import now
@@ -9,11 +10,12 @@ from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
-from posthog.hogql.parser import parse_expr, parse_order_expr
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
@@ -43,6 +45,16 @@ class EventsQueryRunner(QueryRunner):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
+        )
+
+    @cached_property
+    def source_runner(self) -> InsightActorsQueryRunner:
+        if not self.query.source:
+            raise ValueError("Source query is required")
+
+        return cast(
+            InsightActorsQueryRunner,
+            get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers),
         )
 
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
@@ -156,9 +168,9 @@ class EventsQueryRunner(QueryRunner):
             # where & having
             with self.timings.measure("where"):
                 where_list = [expr for expr in where_exprs if not has_aggregation(expr)]
-                where = ast.And(exprs=where_list) if len(where_list) > 0 else None
+                where: ast.Expr | None = ast.And(exprs=where_list) if len(where_list) > 0 else None
                 having_list = [expr for expr in where_exprs if has_aggregation(expr)]
-                having = ast.And(exprs=having_list) if len(having_list) > 0 else None
+                having: ast.Expr | None = ast.And(exprs=having_list) if len(having_list) > 0 else None
 
             # order by
             with self.timings.measure("order"):
@@ -176,6 +188,20 @@ class EventsQueryRunner(QueryRunner):
                     order_by = []
 
             with self.timings.measure("select"):
+                if self.query.source is not None:
+                    subselect = parse_select(
+                        "select uuid from {source}", {"source": self.source_runner.to_events_query()}
+                    )
+                    filter = ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["uuid"]),
+                        right=subselect,
+                    )
+                    if where is None:
+                        where = cast(ast.Expr, filter)
+                    else:
+                        where = ast.And(exprs=[where, filter])
+
                 stmt = ast.SelectQuery(
                     select=select,
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -184,6 +210,7 @@ class EventsQueryRunner(QueryRunner):
                     group_by=group_by if has_any_aggregation else None,
                     order_by=order_by,
                 )
+
                 return stmt
 
     def calculate(self) -> EventsQueryResponse:
