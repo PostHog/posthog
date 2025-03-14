@@ -5,7 +5,7 @@
   FROM
     (SELECT events.distinct_id AS distinct_id
      FROM events
-     WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('2025-03-13 19:47:50.112397', 6, 'US/Pacific')), in(events.uuid,
+     WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('2025-03-13 20:07:21.542931', 6, 'US/Pacific')), in(events.uuid,
                                                                                                                                                                   (SELECT uuid AS uuid
                                                                                                                                                                    FROM
                                                                                                                                                                      (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid, e.distinct_id AS distinct_id
