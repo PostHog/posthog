@@ -1,5 +1,3 @@
-import { FeatureFlagKey } from 'lib/constants'
-
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 export interface ProjectTreeAction {
@@ -7,11 +5,6 @@ export interface ProjectTreeAction {
     item: FileSystemEntry
     path: string
     newPath?: string
-}
-
-export interface FileSystemImport extends FileSystemEntry {
-    icon?: JSX.Element
-    flag?: FeatureFlagKey
 }
 
 export type FolderState = 'loading' | 'loaded' | 'has-more' | 'error'
