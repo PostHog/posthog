@@ -218,6 +218,7 @@ export class SessionBatchRecorder {
                         snapshotSource,
                         snapshotLibrary,
                         batchId,
+                        eventCount,
                     })
 
                     totalEvents += eventCount

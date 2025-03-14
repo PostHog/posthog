@@ -65,6 +65,7 @@ export enum KafkaSaslMechanism {
 
 export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
+    property_defs = 'property-defs',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
@@ -331,6 +332,11 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
+
+    PROPERTY_DEFS_CONSUMER_GROUP_ID: string
+    PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
+    PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: string
+    PROPERTY_DEFS_WRITE_DISABLED: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -383,6 +389,7 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
+    propertyDefs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
@@ -702,6 +709,7 @@ export type PersonMode = 'full' | 'propertyless' | 'force_upgrade'
 
 /** Raw event row from ClickHouse. */
 export interface RawClickHouseEvent extends BaseEvent {
+    project_id: ProjectId
     timestamp: ClickHouseTimestamp
     created_at: ClickHouseTimestamp
     properties?: string
@@ -731,6 +739,7 @@ export interface RawKafkaEvent extends RawClickHouseEvent {
 
 /** Parsed event row from ClickHouse. */
 export interface ClickHouseEvent extends BaseEvent {
+    project_id: ProjectId
     timestamp: DateTime
     created_at: DateTime
     properties: Record<string, any>
@@ -1114,7 +1123,6 @@ export interface EventDefinitionType {
     query_usage_30_day: number | null
     team_id: number
     project_id: number | null
-    last_seen_at: string // DateTime
     created_at: string // DateTime
 }
 
@@ -1144,19 +1152,23 @@ export enum PropertyDefinitionTypeEnum {
     Event = 1,
     Person = 2,
     Group = 3,
+    Session = 4,
 }
+
+export type ResolvedGroups = Record<string, number>
 
 export interface PropertyDefinitionType {
     id: string
     name: string
     is_numerical: boolean
-    volume_30_day: number | null
-    query_usage_30_day: number | null
     team_id: number
     project_id: number | null
-    property_type?: PropertyType
+    property_type: PropertyType | null
     type: PropertyDefinitionTypeEnum
-    group_type_index: number | null
+    group_type_name?: string
+    group_type_index?: number | null
+    volume_30_day?: number | null
+    query_usage_30_day?: number | null
 }
 
 export interface EventPropertyType {

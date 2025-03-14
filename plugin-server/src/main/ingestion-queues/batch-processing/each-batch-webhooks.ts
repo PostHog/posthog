@@ -157,7 +157,7 @@ async function addGroupPropertiesToPostIngestionEvent(
     organizationManager: OrganizationManager,
     postgres: PostgresRouter
 ): Promise<PostIngestionEvent> {
-    let groupTypes: GroupTypeToColumnIndex | undefined = undefined
+    let groupTypes: GroupTypeToColumnIndex | null = null
     if (await organizationManager.hasAvailableFeature(event.teamId, 'group_analytics')) {
         // If the organization has group analytics enabled then we enrich the event with group data
         groupTypes = await groupTypeManager.fetchGroupTypes(event.projectId)

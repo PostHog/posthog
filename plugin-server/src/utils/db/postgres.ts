@@ -87,28 +87,6 @@ export class PostgresRouter {
         }
     }
 
-    public async bulkInsert<T extends Array<any>>(
-        usage: PostgresUse | TransactionClient,
-        // Should have {VALUES} as a placeholder
-        queryWithPlaceholder: string,
-        values: Array<T>,
-        tag: string
-    ): Promise<void> {
-        if (values.length === 0) {
-            return
-        }
-
-        const valuesWithPlaceholders = values
-            .map((array, index) => {
-                const len = array.length
-                const valuesWithIndexes = array.map((_, subIndex) => `$${index * len + subIndex + 1}`)
-                return `(${valuesWithIndexes.join(', ')})`
-            })
-            .join(', ')
-
-        await this.query(usage, queryWithPlaceholder.replace('{VALUES}', valuesWithPlaceholders), values.flat(), tag)
-    }
-
     public async transaction<ReturnType>(
         usage: PostgresUse,
         tag: string,

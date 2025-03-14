@@ -8,42 +8,62 @@ import { TeamManager } from './team-manager'
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5
 
+export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
+
 export class GroupTypeManager {
     private groupTypesCache: Map<ProjectId, [GroupTypeToColumnIndex, number]>
-    private instanceSiteUrl: string
 
-    constructor(private postgres: PostgresRouter, private teamManager: TeamManager, instanceSiteUrl?: string | null) {
+    constructor(private postgres: PostgresRouter, private teamManager: TeamManager) {
         this.groupTypesCache = new Map()
-        this.instanceSiteUrl = instanceSiteUrl || 'unknown'
     }
 
-    public async fetchGroupTypes(projectId: ProjectId): Promise<GroupTypeToColumnIndex> {
-        const cachedGroupTypes = getByAge(this.groupTypesCache, projectId)
-        if (cachedGroupTypes) {
-            return cachedGroupTypes
+    public async fetchGroupTypes(projectId: ProjectId): Promise<GroupTypeToColumnIndex | null> {
+        const response = await this.fetchGroupTypesForProjects([projectId])
+        return response[projectId]
+    }
+
+    public async fetchGroupTypesForProjects(projectIds: ProjectId[] | Set<ProjectId>): Promise<GroupTypesByProjectId> {
+        const projectIdsSet = new Set(projectIds)
+        const projectIdsToLoad = new Set<ProjectId>()
+        const response: GroupTypesByProjectId = {}
+
+        for (const projectId of projectIdsSet) {
+            const cachedGroupTypes = getByAge(this.groupTypesCache, projectId)
+
+            response[projectId] = cachedGroupTypes ?? {}
+
+            if (!cachedGroupTypes) {
+                projectIdsToLoad.add(projectId)
+            }
+        }
+
+        if (projectIdsToLoad.size === 0) {
+            return response
         }
 
         const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
         try {
             const { rows } = await this.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `SELECT * FROM posthog_grouptypemapping WHERE project_id = $1`,
-                [projectId],
+                PostgresUse.COMMON_READ,
+                `SELECT * FROM posthog_grouptypemapping WHERE project_id = ANY($1)`,
+                [Array.from(projectIdsToLoad)],
                 'fetchGroupTypes'
             )
 
-            const teamGroupTypes: GroupTypeToColumnIndex = {}
-
             for (const row of rows) {
-                teamGroupTypes[row.group_type] = row.group_type_index
+                const groupTypes = (response[row.project_id] = response[row.project_id] ?? {})
+                groupTypes[row.group_type] = row.group_type_index
             }
 
-            this.groupTypesCache.set(projectId, [teamGroupTypes, Date.now()])
-
-            return teamGroupTypes
+            for (const projectId of projectIdsToLoad) {
+                response[projectId] = response[projectId] ?? {}
+                this.groupTypesCache.set(projectId, [response[projectId], Date.now()])
+            }
         } finally {
             clearTimeout(timeout)
         }
+
+        return response
     }
 
     public async fetchGroupTypeIndex(
@@ -51,28 +71,28 @@ export class GroupTypeManager {
         projectId: ProjectId,
         groupType: string
     ): Promise<GroupTypeIndex | null> {
-        const groupTypes = await this.fetchGroupTypes(projectId)
+        const groupTypes = (await this.fetchGroupTypes(projectId)) ?? {}
 
         if (groupType in groupTypes) {
             return groupTypes[groupType]
-        } else {
-            const [groupTypeIndex, isInsert] = await this.insertGroupType(
-                teamId,
-                projectId,
-                groupType,
-                Object.keys(groupTypes).length
-            )
-            if (groupTypeIndex !== null) {
-                this.groupTypesCache.delete(projectId)
-            }
-
-            if (isInsert && groupTypeIndex !== null) {
-                // TODO: Is the `group type ingested` event being valuable? If not, we can remove
-                // `captureGroupTypeInsert()`. If yes, we should move this capture to use the project instead of team
-                await this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
-            }
-            return groupTypeIndex
         }
+
+        const [groupTypeIndex, isInsert] = await this.insertGroupType(
+            teamId,
+            projectId,
+            groupType,
+            Object.keys(groupTypes).length
+        )
+        if (groupTypeIndex !== null) {
+            this.groupTypesCache.delete(projectId)
+        }
+
+        if (isInsert && groupTypeIndex !== null) {
+            // TODO: Is the `group type ingested` event being valuable? If not, we can remove
+            // `captureGroupTypeInsert()`. If yes, we should move this capture to use the project instead of team
+            await this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
+        }
+        return groupTypeIndex
     }
 
     public async insertGroupType(
