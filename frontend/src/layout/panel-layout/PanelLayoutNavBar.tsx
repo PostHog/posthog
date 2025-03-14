@@ -1,13 +1,11 @@
 import {
-    IconBolt,
     IconChevronRight,
     IconClock,
     IconFolderOpen,
     IconGear,
-    IconPeople,
     IconPlusSmall,
     IconSearch,
-    IconToolbar,
+    IconToolbar
 } from '@posthog/icons'
 import { cva } from 'class-variance-authority'
 import clsx from 'clsx'
@@ -25,11 +23,13 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { panelLayoutLogic, PanelLayoutNavItem } from '~/layout/panel-layout/panelLayoutLogic'
+import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { router } from 'kea-router'
+import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
-import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
 const panelStyles = cva('z-[var(--z-project-panel-layout)] h-screen left-0', {
@@ -44,11 +44,15 @@ const panelStyles = cva('z-[var(--z-project-panel-layout)] h-screen left-0', {
     },
 })
 
+type PanelItemIdentifier = 'project';
+
+const panelItemIdentifiers: PanelItemIdentifier[] = ['project'];
+
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const { showLayoutPanel, setActiveLayoutNavBarItem, clearActiveLayoutNavBarItem } = useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, activeLayoutNavBarItem } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, toggleLayoutPanelPinned, setActivePanelIdentifier, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { isLayoutPanelVisible, activePanelIdentifier } = useValues(panelLayoutLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { navbarItems } = useValues(navigation3000Logic)
     const { activeScene } = useValues(sceneLogic)
@@ -56,19 +60,113 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen } = useValues(navigationLogic)
 
-    function handleClick(item: PanelLayoutNavItem): void {
-        if (activeLayoutNavBarItem !== item) {
-            setActiveLayoutNavBarItem(item)
+    const activeSceneLower = activeScene?.toLowerCase() as PanelLayoutNavIdentifier
+
+    function handleTopNavBarItemClick(identifier: PanelItemIdentifier): void {
+        if (activeSceneLower === identifier) {
+            if (isLayoutPanelVisible) {
+                showLayoutPanel(false)
+                clearActivePanelIdentifier()
+            } else {
+                showLayoutPanel(true)
+            }
+        } else {
+            setActivePanelIdentifier(identifier)
             showLayoutPanel(true)
         }
     }
+    
+    function handleBottomNavBarItemClick(): void {
+        showLayoutPanel(false)
+        toggleLayoutPanelPinned(false)
+    }
+
+    const treeData: TreeDataItem[] = [
+        {
+            id: 'project' as PanelLayoutNavIdentifier,
+            name: 'Project',
+            icon: <IconWrapper><IconFolderOpen className="stroke-[1.2]" /></IconWrapper>,
+            onClick: () => {
+                handleTopNavBarItemClick('project')
+            },
+            type: 'trigger',
+            active: activePanelIdentifier === 'project',
+            sideIcon: <IconWrapper><IconChevronRight /></IconWrapper>,
+        },
+        {
+            id: 'search',
+            name: 'Search',
+            icon: <IconWrapper><IconSearch /></IconWrapper>,
+            onClick: () => toggleSearchBar(),
+            type: 'trigger',
+        },
+        // {
+        //     id: 'data' as PanelLayoutNavIdentifier,
+        //     name: 'Data',
+        //     icon: <IconWrapper><IconBolt /></IconWrapper>,
+        //     onClick: () => handleTopNavBarItemClick('data'),
+        // },
+        // {
+        //     id: 'people' as PanelLayoutNavIdentifier,
+        //     name: 'People',
+        //     icon: <IconWrapper><IconPeople /></IconWrapper>,
+        //     onClick: () => handleTopNavBarItemClick('persons'),
+        // },
+        {
+            id: 'activity',
+            name: 'Activity',
+            icon: <IconWrapper><IconClock /></IconWrapper>,
+            onClick: () => {
+                router.actions.push(urls.activity())
+            },
+        },
+        {
+            id: 'separator',
+            name: 'Separator',
+            type: 'separator',
+        },
+        ...navbarItems.flatMap((section) => 
+            section.map((item): TreeDataItem | null => {
+                const identifier = item.identifier.toLowerCase()
+
+                if (item.featureFlag && !featureFlags[item.featureFlag]) {
+                    return null
+                }
+
+                // Hide certain items (they're handled in the top nav bar)
+                if (identifier === 'activity') {
+                    return null
+                }
+
+                // Create tree item
+                const treeItem: TreeDataItem = {
+                    id: identifier,
+                    name: item.label,
+                    icon: <IconWrapper>{item.icon}</IconWrapper>,
+                    onClick: () => {
+                        // Hide panel
+                        showLayoutPanel(false)
+                        // Unpin panel
+                        toggleLayoutPanelPinned(false)
+                        // Clear active panel identifier
+                        clearActivePanelIdentifier()
+                        // If item is a link, navigate to it
+                        if ('to' in item && item.to) {
+                            router.actions.push(item.to)
+                        }
+                    },
+                }
+                return treeItem
+            }).filter((item): item is TreeDataItem => item !== null)
+        )
+    ]
 
     return (
         <>
             <div className="flex gap-0 relative">
                 <nav
                     className={clsx(
-                        'relative flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-project-panel-layout)] w-[250px] border-r border-primary'
+                        'relative flex flex-col max-h-screen min-h-screen bg-surface-secondary z-[var(--z-project-panel-layout)] w-[250px] border-r border-primary'
                     )}
                     ref={containerRef}
                 >
@@ -80,7 +178,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             type="tertiary"
                             tooltip="Create new"
                             onClick={() =>
-                                alert('global “new” button which would let you create a bunch of new things')
+                                alert('global "new" button which would let you create a bunch of new things')
                             }
                             className="hover:bg-fill-highlight-100 shrink-0"
                             icon={
@@ -92,19 +190,24 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto pt-1">
-                        <ScrollableShadows innerClassName="overflow-y-auto px-2 " direction="vertical" className="pb-2">
+                        <ScrollableShadows innerClassName="overflow-y-auto" direction="vertical" className="pb-2">
                             <div className="pb-3">
-                                <LemonButton
+                            <LemonTree
+                                className="px-0 py-1"
+                                data={treeData}
+                                defaultSelectedFolderOrNodeId={activeSceneLower}
+                            />
+                                {/* <LemonButton
                                     className={cn(
                                         'hover:bg-fill-highlight-100',
-                                        activeLayoutNavBarItem === 'project' && 'bg-fill-highlight-50'
+                                        activeIdentifier === 'project' && 'bg-fill-highlight-50'
                                     )}
                                     icon={
                                         <IconWrapper>
                                             <IconFolderOpen className="stroke-[1.2]" />
                                         </IconWrapper>
                                     }
-                                    onClick={() => handleClick('project')}
+                                    onClick={() => handleTopNavBarItemClick('project')}
                                     fullWidth
                                     size="small"
                                     sideIcon={
@@ -149,7 +252,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 <LemonButton
                                     className={cn(
                                         'hover:bg-fill-highlight-100',
-                                        activeLayoutNavBarItem === 'persons' && 'bg-fill-highlight-50'
+                                        activeIdentifier === 'persons' && 'bg-fill-highlight-50'
                                     )}
                                     fullWidth
                                     icon={
@@ -163,14 +266,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                             <IconChevronRight />
                                         </IconWrapper>
                                     }
-                                    onClick={() => handleClick('persons')}
+                                    onClick={() => handleTopNavBarItemClick('persons')}
                                 >
                                     <span>People</span>
                                 </LemonButton>
                                 <LemonButton
                                     className={cn(
                                         'hover:bg-fill-highlight-100',
-                                        activeLayoutNavBarItem === 'activity' && 'bg-fill-highlight-50'
+                                        activeIdentifier === 'activity' && 'bg-fill-highlight-50'
                                     )}
                                     fullWidth
                                     icon={
@@ -184,16 +287,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         if (isLayoutPanelVisible) {
                                             showLayoutPanel(false)
                                         }
-                                        setActiveLayoutNavBarItem('activity')
+                                        setActiveIdentifier('activity')
                                     }}
                                 >
                                     <span>Activity</span>
-                                </LemonButton>
+                                </LemonButton> */}
                             </div>
 
                             <div className="border-b border-secondary h-px -mx-2" />
 
-                            <div className="pt-3">
+                            {/* <div className="pt-3">
                                 <div className="flex justify-between items-center pt-1 pl-2 pr-0 pb-2">
                                     <span className="text-xs font-bold text-tertiary">Products</span>
                                 </div>
@@ -213,7 +316,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                     size="small"
                                                     to={'to' in item ? item.to : undefined}
                                                     onClick={() => {
-                                                        clearActiveLayoutNavBarItem()
+                                                        handleBottomNavBarItemClick(item.identifier.toLowerCase() as PanelLayoutNavIdentifier)
                                                         item.onClick?.()
                                                     }}
                                                 >
@@ -223,7 +326,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         )}
                                     </ul>
                                 ))}
-                            </div>
+                            </div> */}
                         </ScrollableShadows>
 
                         <div className="border-b border-secondary h-px" />
@@ -243,7 +346,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 size="small"
                                 to={urls.toolbarLaunch()}
                                 onClick={() => {
-                                    clearActiveLayoutNavBarItem()
+                                    handleBottomNavBarItemClick()
                                 }}
                             >
                                 Toolbar
@@ -262,7 +365,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 size="small"
                                 to={urls.settings('project')}
                                 onClick={() => {
-                                    clearActiveLayoutNavBarItem()
+                                    handleBottomNavBarItemClick()
                                 }}
                             >
                                 Settings

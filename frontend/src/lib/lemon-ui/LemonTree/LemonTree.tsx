@@ -35,7 +35,17 @@ export type TreeDataItem = {
     /** Disabled: The reason the item is disabled. */
     disabledReason?: string
 
-    type?: 'node' | 'separator'
+    /** Whether the item is active. */
+    active?: boolean
+
+    /** The icon to use for the side action. */
+    sideIcon?: React.ReactNode
+
+    // Type node, normal behavior
+    // Type separator, render as separator
+    // Type trigger, don't set selectedId
+    type?: 'node' | 'separator' | 'trigger'
+
     /**
      * Handle a click on the item.
      * @param open - boolean to indicate if it's a folder and it's open state
@@ -187,8 +197,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     'cursor-pointer',
                                                     (focusedId === item.id || isContextMenuOpenForItem === item.id) &&
                                                         'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary',
-                                                    selectedId === item.id &&
-                                                        'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
+                                                    selectedId === item.id && item.type !== 'trigger' &&
+                                                        'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm',
+                                                    item.active && item.type === 'trigger' &&
+                                                        'bg-fill-highlight-50'
                                                 )}
                                                 onClick={() => {
                                                     handleClick(item)
@@ -345,9 +357,14 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         // Scrollable container
         const containerRef = useRef<HTMLDivElement>(null)
 
+        // Current state (when matching defaultSelectedFolderOrNodeId)
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
+       
+        // Focused state
         const [focusedId, setFocusedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
+       
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
+       
         // Add new state for type-ahead
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
         const typeAheadTimeoutRef = useRef<NodeJS.Timeout>()
@@ -544,7 +561,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 // Handle click on a node
                 if (!isFolder) {
                     if (onNodeClick) {
-                        setSelectedId(item?.id)
+                        // If trigger, don't set selectedId
+                        item?.type !== 'trigger' && setSelectedId(item?.id)
                         onNodeClick(item)
                         // Only focus content if this was triggered by a keyboard action
                         if (isKeyboardAction) {
@@ -878,7 +896,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     className="flex-1"
                     innerClassName="p-2"
                 >
-                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} className="h-full pb-32">
+                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} className="h-full">
                         <LemonTreeNode
                             data={data}
                             selectedId={selectedId}

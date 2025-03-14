@@ -61,10 +61,10 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         isLayoutPanelVisible,
         isLayoutNavbarVisibleForMobile,
         isLayoutNavbarVisibleForDesktop,
-        activeLayoutNavBarItem,
+        activePanelIdentifier,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { showLayoutPanel, showLayoutNavBar, clearActiveLayoutNavBarItem } = useActions(panelLayoutLogic)
+    const { showLayoutPanel, showLayoutNavBar, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
 
     const showMobileNavbarOverlay = isLayoutNavbarVisibleForMobile
     const showDesktopNavbarOverlay = isLayoutNavbarVisibleForDesktop && !isLayoutPanelPinned && isLayoutPanelVisible
@@ -84,8 +84,8 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 )}
             >
                 <PanelLayoutNavBar>
-                    {activeLayoutNavBarItem === 'project' && <ProjectTree mainRef={mainRef} />}
-                    {activeLayoutNavBarItem === 'persons' && <PersonsTree mainRef={mainRef} />}
+                    {activePanelIdentifier === 'project' && <ProjectTree mainRef={mainRef} />}
+                    {activePanelIdentifier === 'persons' && <PersonsTree mainRef={mainRef} />}
                 </PanelLayoutNavBar>
             </div>
 
@@ -94,7 +94,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     onClick={() => {
                         showLayoutNavBar(false)
                         showLayoutPanel(false)
-                        clearActiveLayoutNavBarItem()
+                        clearActivePanelIdentifier()
                     }}
                     className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
                 />
@@ -103,7 +103,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 <div
                     onClick={() => {
                         showLayoutPanel(false)
-                        clearActiveLayoutNavBarItem()
+                        clearActivePanelIdentifier()
                     }}
                     className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
                 />

@@ -4,7 +4,7 @@ import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
-export type PanelLayoutNavItem = 'project' | 'activity' | 'persons'
+export type PanelLayoutNavIdentifier = 'project' // Add more identifiers here for more panels
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>({
@@ -18,8 +18,8 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
         toggleLayoutPanelPinned: (pinned: boolean) => ({ pinned }),
         // TODO: This is a temporary action to set the active navbar item
         // We should remove this once we have a proper way to handle the navbar item
-        setActiveLayoutNavBarItem: (item: PanelLayoutNavItem) => ({ item }),
-        clearActiveLayoutNavBarItem: true,
+        setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => ({ identifier }),
+        clearActivePanelIdentifier: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         clearSearch: true,
         setPanelTreeRef: (ref: PanelLayoutTreeRef) => ({ ref }),
@@ -53,11 +53,11 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
                 toggleLayoutPanelPinned: (_, { pinned }) => pinned,
             },
         ],
-        activeLayoutNavBarItem: [
+        activePanelIdentifier: [
             '',
             {
-                setActiveLayoutNavBarItem: (_, { item }) => item,
-                clearActiveLayoutNavBarItem: () => '',
+                setActivePanelIdentifier: (_, { identifier }) => identifier,
+                clearActivePanelIdentifier: () => '',
             },
         ],
         searchTerm: [
