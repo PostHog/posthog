@@ -7065,6 +7065,7 @@ class GroupsQuery(BaseModel):
     )
     offset: Optional[int] = None
     orderBy: Optional[list[str]] = None
+    properties: Optional[list[Union[GroupPropertyFilter, HogQLPropertyFilter]]] = None
     response: Optional[GroupsQueryResponse] = None
     search: Optional[str] = None
     select: Optional[list[str]] = None

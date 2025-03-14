@@ -1,5 +1,6 @@
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_order_expr
+from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import GroupsQuery, GroupsQueryResponse, CachedGroupsQueryResponse
@@ -28,9 +29,9 @@ class GroupsQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        conditions = []
+        where_exprs = []
 
-        conditions.append(
+        where_exprs.append(
             ast.CompareOperation(
                 left=ast.Field(chain=["index"]),
                 op=ast.CompareOperationOp.Eq,
@@ -38,8 +39,11 @@ class GroupsQueryRunner(QueryRunner):
             )
         )
 
+        if self.query.properties:
+            where_exprs.append(property_to_expr(self.query.properties, self.team, scope="group"))
+
         if self.query.search is not None and self.query.search != "":
-            conditions.append(
+            where_exprs.append(
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
@@ -56,7 +60,7 @@ class GroupsQueryRunner(QueryRunner):
                 )
             )
 
-        where = ast.And(exprs=list(conditions)) if conditions else None
+        where = ast.And(exprs=list(where_exprs)) if where_exprs else None
 
         order_by: list[ast.OrderExpr] = []
         order_by_exprs = self.query.orderBy if self.query.orderBy else ["created_at DESC"]

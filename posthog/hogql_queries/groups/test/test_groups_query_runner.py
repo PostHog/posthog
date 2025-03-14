@@ -1,9 +1,11 @@
 from django.test import override_settings
 from freezegun import freeze_time
+import pytest
 from posthog.hogql_queries.groups.groups_query_runner import GroupsQueryRunner
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.schema import GroupsQuery
+from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.schema import GroupsQuery, PropertyOperator, GroupPropertyFilter
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -19,6 +21,15 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
+        )
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="arr",
+            property_type=PropertyType.Numeric,
+            is_numerical=True,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
         )
 
         for i in range(3):
@@ -170,3 +181,60 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[0][0], "org2.inc")
         self.assertEqual(result.results[1][0], "org1.inc")
         self.assertEqual(result.results[2][0], "org0.inc")
+
+    @freeze_time("2025-01-01")
+    @snapshot_clickhouse_queries
+    def test_groups_query_runner_with_string_property(self):
+        self.create_standard_test_groups()
+
+        # DESC
+        query = GroupsQuery(
+            group_type_index=0,
+            limit=10,
+            offset=0,
+            properties=[
+                GroupPropertyFilter(
+                    key="name",
+                    type="group",
+                    operator=PropertyOperator.EXACT,
+                    value="org0.inc",
+                    group_type_index=0,
+                )
+            ],
+        )
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.results), 1)
+        self.assertEqual(result.columns, ["group_name", "key"])
+        self.assertEqual(result.results[0][0], "org0.inc")
+
+    @freeze_time("2025-01-01")
+    @snapshot_clickhouse_queries
+    @pytest.mark.skip("Doesn't work yet")
+    def test_groups_query_runner_with_numeric_property(self):
+        self.create_standard_test_groups()
+
+        # DESC
+        query = GroupsQuery(
+            group_type_index=0,
+            limit=10,
+            offset=0,
+            properties=[
+                GroupPropertyFilter(
+                    key="arr",
+                    type="group",
+                    operator=PropertyOperator.GT,
+                    value=100,
+                    group_type_index=0,
+                )
+            ],
+            select=["properties.arr"],
+        )
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.results), 2)
+        self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
+        self.assertEqual(result.results[0][2], "150")
+        self.assertEqual(result.results[1][2], "300")

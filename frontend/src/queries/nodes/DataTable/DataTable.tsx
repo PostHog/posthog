@@ -68,6 +68,7 @@ import {
 } from '~/queries/utils'
 import { EventType, InsightLogicProps } from '~/types'
 
+import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
 
@@ -461,6 +462,9 @@ export function DataTable({
                 query={query.source as PersonsNode}
                 setQuery={setQuerySource}
             />
+        ) : null,
+        showPropertyFilter && sourceFeatures.has(QueryFeature.groupPropertyFilters) ? (
+            <GroupPropertyFilters key="group-property" query={query.source as GroupsQuery} setQuery={setQuerySource} />
         ) : null,
     ].filter((x) => !!x)
 

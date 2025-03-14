@@ -21,6 +21,7 @@ export enum QueryFeature {
     eventNameFilter,
     eventPropertyFilters,
     personPropertyFilters,
+    groupPropertyFilters,
     personsSearch,
     groupsSearch,
     savedEventsQueries,
@@ -70,6 +71,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     }
 
     if (isGroupsQuery(query)) {
+        features.add(QueryFeature.groupPropertyFilters)
         features.add(QueryFeature.groupsSearch)
         features.add(QueryFeature.selectAndOrderByColumns)
         features.add(QueryFeature.columnsInResponse)

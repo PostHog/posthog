@@ -3,6 +3,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import {
     AnyFilterLike,
+    AnyGroupScopeFilter,
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
@@ -1491,6 +1492,7 @@ export interface GroupsQuery extends DataNode<GroupsQueryResponse> {
     kind: NodeKind.GroupsQuery
     select?: HogQLExpression[]
     search?: string
+    properties?: AnyGroupScopeFilter[]
     group_type_index: integer
     orderBy?: string[]
     limit?: integer

@@ -426,6 +426,16 @@
                 }
             ]
         },
+        "AnyGroupScopeFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/GroupPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/HogQLPropertyFilter"
+                }
+            ]
+        },
         "AnyPersonScopeFilter": {
             "anyOf": [
                 {
@@ -8901,6 +8911,12 @@
                 "orderBy": {
                     "items": {
                         "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyGroupScopeFilter"
                     },
                     "type": "array"
                 },
