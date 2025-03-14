@@ -142,7 +142,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
 
             materialize_column.execute_in_process(
                 run_config=dagster.RunConfig(
-                    {run_materialize_mutations.name: {"config": materialize_column_config.model_dump()}},
+                    {run_materialize_mutations.name: {"config": materialize_column_and_index_config.model_dump()}},
                 ),
                 resources={"cluster": cluster},
             )
