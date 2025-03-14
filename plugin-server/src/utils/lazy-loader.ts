@@ -85,7 +85,6 @@ export class LazyLoader<T> {
 
                 if (now > cacheUntil) {
                     keysToLoad.add(key)
-                    console.log('cache miss', key)
                     lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
                     continue
                 }
