@@ -12,7 +12,7 @@ ADD COLUMN IF NOT EXISTS $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt1
 
 ADD_COLUMNS_EVENTS = """
 ALTER TABLE {table} ON CLUSTER {cluster}
-ADD COLUMN IF NOT EXISTS $session_id_uuid Nullable(UInt128) COMMENT 'column_materializer::$session_id_uuid'
+ADD COLUMN IF NOT EXISTS $session_id_uuid Nullable(UInt128)
 """
 
 
