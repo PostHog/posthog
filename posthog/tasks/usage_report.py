@@ -1232,8 +1232,8 @@ def _queue_report(producer, organization_id: str, full_report_dict: dict[str, An
     compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
 
     message_attributes = {
-        "content_encoding": {"DataType": "String", "StringValue": "gzip"},
-        "content_type": {"DataType": "String", "StringValue": "application/json"},
+        "content_encoding": "gzip",
+        "content_type": "application/json",
     }
 
     response = producer.send_message(message_body=compressed_b64, message_attributes=message_attributes)
