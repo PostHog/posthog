@@ -14,12 +14,6 @@ pub enum QueueError {
     CompressionError(String),
 }
 
-impl From<std::io::Error> for QueueError {
-    fn from(io_err: std::io::Error) -> Self {
-        QueueError::CompressionError(io_err.to_string())
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum JobError {
     #[error("Unknown job id: {0}")]
