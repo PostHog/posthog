@@ -54,7 +54,7 @@ export class GroupTypeManager {
         projectId: ProjectId,
         groupType: string
     ): Promise<GroupTypeIndex | null> {
-        const groupTypes = (await this.fetchGroupTypes(projectId)) ?? {}
+        const groupTypes = await this.fetchGroupTypes(projectId)
         if (groupType in groupTypes) {
             return groupTypes[groupType]
         }
