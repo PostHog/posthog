@@ -152,7 +152,7 @@ export class PropertyDefsConsumer {
         parsedMessages = parsedMessages.filter((msg) => this.propDefsEnabledProjects(msg.project_id))
 
         if (parsedMessages.length === 0) {
-            status.debug('🔁', `No messages to process`)
+            logger.debug('🔁', `No messages to process`)
             return
         }
 
@@ -214,9 +214,9 @@ export class PropertyDefsConsumer {
             }
         }
 
-        status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
+        logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
-        status.debug('🔁', `Processed batch`)
+        logger.debug('🔁', `Processed batch`)
     }
 
     private extractPropertyDefinitions(
@@ -393,7 +393,7 @@ export class PropertyDefsConsumer {
 
                 events.push(clickHouseEvent)
             } catch (e) {
-                status.error('Error parsing message', e)
+                logger.error('Error parsing message', e)
             }
         })
 
