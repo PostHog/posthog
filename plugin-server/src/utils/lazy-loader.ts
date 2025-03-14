@@ -1,4 +1,5 @@
 const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
+const REFRESH_JITTER_MS = 1000 * 60 // 1 minutes
 
 /**
  * We have a common pattern across consumers where we want to:
@@ -11,20 +12,21 @@ const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
 export class LazyLoader<T> {
     private cache: Record<string, T | null | undefined>
     private lastUsed: Record<string, number | undefined>
-    private lastRefreshed: Record<string, number | undefined>
+    private cacheUntil: Record<string, number | undefined>
 
     constructor(
         private readonly options: {
             loader: (key: string[]) => Promise<Record<string, T | undefined>>
             refreshAge?: number
             refreshNullAge?: number
+            refreshJitterMs?: number
             dropAge?: number
             throwOnLoadError?: boolean
         }
     ) {
         this.cache = {}
         this.lastUsed = {}
-        this.lastRefreshed = {}
+        this.cacheUntil = {}
     }
 
     /**
@@ -38,7 +40,12 @@ export class LazyLoader<T> {
         const results: Record<string, T | null> = {}
 
         const now = Date.now()
-        const { loader, refreshAge = REFRESH_AGE, refreshNullAge = REFRESH_AGE } = this.options
+        const {
+            loader,
+            refreshAge = REFRESH_AGE,
+            refreshNullAge = REFRESH_AGE,
+            refreshJitterMs = REFRESH_JITTER_MS,
+        } = this.options
         const keysToLoad = new Set<string>()
 
         // First, check if all keys are already cached and update the lastUsed time
@@ -49,9 +56,9 @@ export class LazyLoader<T> {
                 results[key] = cached
                 this.lastUsed[key] = now
 
-                const lastRefreshed = this.lastRefreshed[key] ?? 0
+                const cacheUntil = this.cacheUntil[key] ?? 0
 
-                if (now - lastRefreshed > (cached === null ? refreshNullAge : refreshAge)) {
+                if (now - cacheUntil > (cached === null ? refreshNullAge : refreshAge)) {
                     keysToLoad.add(key)
                 }
             } else {
@@ -62,7 +69,7 @@ export class LazyLoader<T> {
         const loaded = await loader(Array.from(keysToLoad))
         for (const key of keysToLoad) {
             this.cache[key] = loaded[key] ?? null
-            this.lastRefreshed[key] = now
+            this.cacheUntil[key] = now + Math.floor(Math.random() * refreshJitterMs)
             this.lastUsed[key] = now
         }
 
@@ -79,6 +86,6 @@ export class LazyLoader<T> {
     }
 
     public markForRefresh(key: string): void {
-        delete this.lastRefreshed[key]
+        delete this.cacheUntil[key]
     }
 }
