@@ -8,35 +8,6 @@ from posthog.models.user import User
 from posthog.models.utils import uuid7
 
 
-def split_path(path: str) -> list[str]:
-    segments = []
-    current = ""
-    i = 0
-    while i < len(path):
-        if path[i] == "\\" and i < len(path) - 1 and path[i + 1] in ["/", "\\"]:
-            current += path[i + 1]
-            i += 2
-            continue
-        elif path[i] == "/":
-            segments.append(current)
-            current = ""
-        else:
-            current += path[i]
-        i += 1
-    segments.append(current)
-    return [s for s in segments if s != ""]
-
-
-def escape_path(path: str) -> str:
-    path = path.replace("\\", "\\\\")
-    path = path.replace("/", "\\/")
-    return path
-
-
-def join_path(segments: list[str]) -> str:
-    return "/".join(escape_path(segment) for segment in segments)
-
-
 class FileSystem(models.Model):
     """
     A generic "file system" model that can represent hierarchical
@@ -416,3 +387,39 @@ def save_unfiled_files(team: Team, user: User, file_type: Optional[str] = None) 
 
     # If it's an unknown/unsupported file type, return empty
     return []
+
+
+def split_path(path: str) -> list[str]:
+    segments = []
+    current = ""
+    i = 0
+    while i < len(path):
+        # If we encounter a backslash, and the next char is either / or \
+        if path[i] == "\\" and i < len(path) - 1 and path[i + 1] in ["/", "\\"]:
+            current += path[i + 1]
+            i += 2
+            continue
+        elif path[i] == "/":
+            segments.append(current)
+            current = ""
+        else:
+            current += path[i]
+        i += 1
+
+    # Push any remaining part of the path into segments
+    segments.append(current)
+
+    # Filter out empty segments
+    return [s for s in segments if s != ""]
+
+
+def escape_path(path: str) -> str:
+    # Replace backslash with double-backslash, and forward slash with backslash-slash
+    path = path.replace("\\", "\\\\")
+    path = path.replace("/", "\\/")
+    return path
+
+
+def join_path(paths: list[str]) -> str:
+    # Join all segments using '/', while escaping each segment
+    return "/".join(escape_path(segment) for segment in paths)
