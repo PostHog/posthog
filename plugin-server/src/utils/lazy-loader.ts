@@ -1,3 +1,5 @@
+import { status } from './status'
+
 const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
 const REFRESH_JITTER_MS = 1000 * 60 // 1 minutes
 
@@ -9,21 +11,27 @@ const REFRESH_JITTER_MS = 1000 * 60 // 1 minutes
  * - "Refresh" the value after a certain age
  * - "Drop" the value after a much longer age
  */
+
+export type LazyLoaderOptions<T> = {
+    /** Function to load the values */
+    loader: (key: string[]) => Promise<Record<string, T | undefined>>
+    /** How long to cache the value */
+    refreshAge?: number
+    /** How long to cache null values */
+    refreshNullAge?: number
+    /** How much jitter to add to the refresh time */
+    refreshJitterMs?: number
+    /** How long to keep the value in the cache after it's loaded */
+    dropAge?: number
+    /** Whether to throw an error if the loader function throws an error */
+    throwOnLoadError?: boolean
+}
 export class LazyLoader<T> {
     private cache: Record<string, T | null | undefined>
     private lastUsed: Record<string, number | undefined>
     private cacheUntil: Record<string, number | undefined>
 
-    constructor(
-        private readonly options: {
-            loader: (key: string[]) => Promise<Record<string, T | undefined>>
-            refreshAge?: number
-            refreshNullAge?: number
-            refreshJitterMs?: number
-            dropAge?: number
-            throwOnLoadError?: boolean
-        }
-    ) {
+    constructor(private readonly options: LazyLoaderOptions<T>) {
         this.cache = {}
         this.lastUsed = {}
         this.cacheUntil = {}
@@ -45,6 +53,7 @@ export class LazyLoader<T> {
             refreshAge = REFRESH_AGE,
             refreshNullAge = REFRESH_AGE,
             refreshJitterMs = REFRESH_JITTER_MS,
+            throwOnLoadError = true,
         } = this.options
         const keysToLoad = new Set<string>()
 
@@ -66,7 +75,16 @@ export class LazyLoader<T> {
             }
         }
 
-        const loaded = await loader(Array.from(keysToLoad))
+        let loaded: Record<string, T | undefined>
+        try {
+            loaded = await loader(Array.from(keysToLoad))
+        } catch (error) {
+            if (throwOnLoadError) {
+                throw error
+            }
+            status.error('🍿', `[LazyLoader] Error loading values but silently ignoring: ${error}`)
+            loaded = {}
+        }
         for (const key of keysToLoad) {
             this.cache[key] = loaded[key] ?? null
             this.cacheUntil[key] = now + Math.floor(Math.random() * refreshJitterMs)
