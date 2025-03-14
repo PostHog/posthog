@@ -175,7 +175,7 @@ def test_retention_planner_handles_time_intervals(call_node, time_period):
 
 
 def test_trends_planner_uses_default_time_period_and_interval(call_node):
-    query = "$pageview trends"
+    query = "show retention of uploading files"
     plan = call_node(query)
 
     test_case = LLMTestCase(

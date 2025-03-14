@@ -90,7 +90,7 @@ def test_current_date(call_node):
         ("the last 12 hours", "hour"),
     ],
 )
-def test_granularity(call_node, query, expected_interval):
+def test_trends_generator_applies_interval_from_plan(call_node, query, expected_interval):
     plan = f"""Series:
     - event: $pageview
         - math operation: total count
