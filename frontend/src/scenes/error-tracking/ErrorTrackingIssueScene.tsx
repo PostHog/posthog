@@ -1,20 +1,21 @@
 import './ErrorTracking.scss'
 
-import { LemonButton, LemonDivider, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import PanelLayout from 'lib/components/PanelLayout/PanelLayout'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AssigneeSelect } from './AssigneeSelect'
+import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
-import { Events } from './issue/Events'
 import { Metadata } from './issue/Metadata'
-import { SparklinePanel } from './issue/Sparkline'
+import { EventsTab } from './issue/tabs/EventsTab'
+import { DetailsWidget } from './issue/widgets/DetailsWidget'
+import { StacktraceWidget } from './issue/widgets/StacktraceWidget'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -36,10 +37,11 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 export function ErrorTrackingIssueScene(): JSX.Element {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { updateIssue, initIssue, assignIssue } = useActions(errorTrackingIssueSceneLogic)
+    const [activeTab, setActiveTab] = useState('stacktrace')
 
     useEffect(() => {
         initIssue()
-    }, [])
+    }, [initIssue])
 
     return (
         <ErrorTrackingSetupPrompt>
@@ -93,15 +95,34 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 {issue ? (
                     <div className="ErrorTrackingIssue">
                         <Metadata />
-                        <LemonDivider className="my-4" />
-                        <PanelLayout>
-                            <PanelLayout.Container column primary>
-                                <SparklinePanel />
-                                <PanelLayout.Panel primary>
-                                    <Events />
-                                </PanelLayout.Panel>
-                            </PanelLayout.Container>
-                        </PanelLayout>
+                        <LemonTabs
+                            activeKey={activeTab}
+                            onChange={(key) => setActiveTab(key)}
+                            tabs={[
+                                {
+                                    key: 'stacktrace',
+                                    label: 'Overview',
+                                    content: (
+                                        <div className="space-y-2">
+                                            <DetailsWidget />
+                                            <StacktraceWidget />
+                                        </div>
+                                    ),
+                                },
+                                {
+                                    key: 'events',
+                                    label: 'Events',
+                                    content: (
+                                        <div className="space-y-2">
+                                            <ErrorTrackingFilters />
+                                            <div className="border-1 overflow-hidden border-accent-primary border-primary rounded bg-surface-primary relative">
+                                                <EventsTab />
+                                            </div>
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
                     </div>
                 ) : (
                     <Spinner />
