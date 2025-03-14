@@ -249,7 +249,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         refreshExperimentResults: (forceRefresh?: boolean) => ({ forceRefresh }),
-        updateExperimentGoal: true,
+        updateExperimentMetrics: true,
         updateExperimentCollectionGoal: true,
         updateExposureCriteria: true,
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
@@ -688,7 +688,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openPrimaryMetricModal: (_, { index }) => index,
                 closePrimaryMetricModal: () => null,
-                updateExperimentGoal: () => null,
+                updateExperimentMetrics: () => null,
                 setEditingPrimaryMetricIndex: (_, { index }) => index,
             },
         ],
@@ -712,7 +712,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openSecondaryMetricModal: (_, { index }) => index,
                 closeSecondaryMetricModal: () => null,
-                updateExperimentGoal: () => null,
+                updateExperimentMetrics: () => null,
             },
         ],
         editingSharedMetricId: [
@@ -720,7 +720,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openPrimarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
                 openSecondarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
-                updateExperimentGoal: () => null,
+                updateExperimentMetrics: () => null,
             },
         ],
         secondaryMetricsResultErrors: [
@@ -942,26 +942,10 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.loadSecondaryMetricResults(forceRefresh)
             actions.loadExposures(forceRefresh)
         },
-        updateExperimentGoal: async () => {
-            // Reset MDE to the recommended setting
-            actions.setExperiment({
-                parameters: {
-                    ...values.experiment.parameters,
-                    minimum_detectable_effect: undefined,
-                },
-            })
-
-            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
-
+        updateExperimentMetrics: async () => {
             actions.updateExperiment({
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
-                parameters: {
-                    ...values.experiment?.parameters,
-                    recommended_running_time: recommendedRunningTime,
-                    recommended_sample_size: recommendedSampleSize,
-                    minimum_detectable_effect: minimumDetectableEffect,
-                },
             })
         },
         updateExperimentCollectionGoal: async () => {
@@ -2173,8 +2157,8 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         hasMinimumExposureForResults: [
-            (s) => [s.exposures, s.shouldUseExperimentMetrics],
-            (exposures, shouldUseExperimentMetrics): boolean => {
+            (s) => [s.exposures, s.shouldUseExperimentMetrics, s.experiment],
+            (exposures, shouldUseExperimentMetrics, experiment): boolean => {
                 // Not relevant for old metrics
                 if (!shouldUseExperimentMetrics) {
                     return true
@@ -2184,10 +2168,15 @@ export const experimentLogic = kea<experimentLogicType>([
                     return false
                 }
 
-                const exposureValues = Object.values(exposures.total_exposures)
+                const variantKeys = experiment.parameters.feature_flag_variants?.map((variant) => variant.key) || []
+                for (const variant of variantKeys) {
+                    const exposure = exposures.total_exposures[variant]
+                    if (!exposure || exposure < EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS) {
+                        return false
+                    }
+                }
 
-                const smallestExposure = Math.min(...(exposureValues as number[]))
-                return smallestExposure >= EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS
+                return true
             },
         ],
         exposureCriteriaLabel: [

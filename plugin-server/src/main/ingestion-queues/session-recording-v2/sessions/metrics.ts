@@ -21,6 +21,11 @@ export class SessionBatchMetrics {
         help: 'Number of bytes written to storage',
     })
 
+    private static readonly consoleLogsStored = new Counter({
+        name: 'recording_blob_ingestion_v2_console_logs_stored_total',
+        help: 'Number of console logs stored',
+    })
+
     public static incrementBatchesFlushed(): void {
         this.batchesFlushed.inc()
     }
@@ -35,5 +40,9 @@ export class SessionBatchMetrics {
 
     public static incrementBytesWritten(bytes: number): void {
         this.bytesWritten.inc(bytes)
+    }
+
+    public static incrementConsoleLogsStored(count: number = 1): void {
+        this.consoleLogsStored.inc(count)
     }
 }

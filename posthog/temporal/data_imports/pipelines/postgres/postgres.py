@@ -128,7 +128,7 @@ class TableStructureRow:
     numeric_scale: Optional[int]
 
 
-def _get_partition_count(cursor: psycopg.Cursor, schema: str, table_name: str) -> int | None:
+def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str) -> tuple[int, int] | None:
     query = sql.SQL("""
         SELECT
             CASE WHEN count(*) = 0 OR pg_table_size({schema_table_name_literal}) = 0 THEN NULL
@@ -157,9 +157,9 @@ def _get_partition_count(cursor: psycopg.Cursor, schema: str, table_name: str) -
     partition_count = math.floor(total_rows / partition_size)
 
     if partition_count == 0:
-        return 1
+        return 1, partition_size
 
-    return partition_count
+    return partition_count, partition_size
 
 
 def _get_table_structure(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[TableStructureRow]:
@@ -278,7 +278,7 @@ def postgres_source(
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table_structure = _get_table_structure(cursor, schema, table_name)
             chunk_size = _get_table_chunk_size(cursor, schema, table_name, logger)
-            partition_count = _get_partition_count(cursor, schema, table_name) if is_incremental else None
+            partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
 
             # Falback on checking for an `id` field on the table
             if primary_keys is None:
@@ -332,5 +332,6 @@ def postgres_source(
         name=name,
         items=get_rows(chunk_size),
         primary_keys=primary_keys,
-        partition_count=partition_count,
+        partition_count=partition_settings[0] if partition_settings else None,
+        partition_size=partition_settings[1] if partition_settings else None,
     )
