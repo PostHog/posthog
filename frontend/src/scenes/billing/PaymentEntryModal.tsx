@@ -1,8 +1,6 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { useActions, useValues } from 'kea'
-// @ts-expect-error
-import LoadingAnimation from 'public/loading-animation.gif'
 import { useEffect, useState } from 'react'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
@@ -98,7 +96,10 @@ export const PaymentEntryModal = (): JSX.Element => {
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">
                         <div className="text-4xl">
-                            <img src={LoadingAnimation} alt="Loading animation" />
+                            <img
+                                src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                alt="Loading animation"
+                            />
                         </div>
                         <p className="text-secondary text-md mt-4">We're contacting the Hedgehogs for approval.</p>
                     </div>
