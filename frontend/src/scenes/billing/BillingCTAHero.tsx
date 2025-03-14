@@ -107,8 +107,8 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
     const copyVariation = COPY_VARIATIONS[billingPlan]
 
     return (
-        <div className="flex relative justify-between items-center rounded-lg bg-accent-primary-highlight">
-            <div className="p-4">
+        <div className="flex relative justify-between items-stretch rounded-lg bg-accent-primary-highlight">
+            <div className="p-4 flex-1 sm:basis-2/3 sm:flex-none">
                 {copyVariation.title && <h1 className="mb-0">{copyVariation.title}</h1>}
                 {copyVariation.subtitle && <h1 className="text-danger">{copyVariation.subtitle}</h1>}
                 <div className="mt-2 mb-0 max-w-xl">{copyVariation.description}</div>
@@ -153,11 +153,11 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                     </div>
                 )}
             </div>
-            <div className="absolute md:relative top-4 right-4 md:grow-1 md:flex md:items-center md:justify-center md:max-w-100">
+            <div className="absolute sm:static top-2 right-2 sm:basis-1/3 sm:flex sm:items-center sm:justify-center">
                 <img
                     src={PLAN_BADGES[billingPlan]}
                     alt={`${billingPlan} plan badge`}
-                    className="w-32 md:w-50 object-contain"
+                    className="w-20 sm:w-50 object-contain"
                 />
             </div>
             {showUpgradeOptions && (
