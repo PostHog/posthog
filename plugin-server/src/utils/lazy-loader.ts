@@ -24,6 +24,10 @@ const lazyLoaderFullCacheHits = new Counter({
  * - Keep that value cached ensuring any caller to retrieve it will get the value
  * - "Refresh" the value after a certain age
  * - "Drop" the value after a much longer age
+ *
+ * Follow up improvements:
+ * - Soft and hard refresh times - if soft it can be refreshed in the background, non blocking
+ * - Parallel loading defense - multiple calls for the same value in parallel only loads once
  */
 
 export type LazyLoaderOptions<T> = {
@@ -41,6 +45,7 @@ export type LazyLoaderOptions<T> = {
     /** Whether to throw an error if the loader function throws an error */
     throwOnLoadError?: boolean
 }
+
 export class LazyLoader<T> {
     private cache: Record<string, T | null | undefined>
     private lastUsed: Record<string, number | undefined>
