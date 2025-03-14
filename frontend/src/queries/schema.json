@@ -6624,7 +6624,8 @@
                     "type": "string"
                 },
                 "orderDirection": {
-                    "$ref": "#/definitions/WebAnalyticsOrderByDirection"
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
                 },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
