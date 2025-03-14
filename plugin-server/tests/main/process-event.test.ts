@@ -85,7 +85,7 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
 }
 
 const TEST_CONFIG: Partial<PluginsServerConfig> = {
-    LOG_LEVEL: LogLevel.Log,
+    LOG_LEVEL: LogLevel.Info,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 }
 

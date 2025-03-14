@@ -5,7 +5,6 @@ import {
     createSessionReplayEvent,
     gatherConsoleLogEvents,
     getTimestampsFrom,
-    LogLevel,
     SummarizedSessionRecordingEvent,
 } from '../../../../src/main/ingestion-queues/session-recording/process-event'
 import { RRWebEvent, TimestampFormat } from '../../../../src/types'
@@ -694,26 +693,26 @@ describe('session recording process event', () => {
     })
 
     test.each([
-        { browserLogLevel: 'log', logLevel: 'info' },
-        { browserLogLevel: 'trace', logLevel: 'info' },
-        { browserLogLevel: 'dir', logLevel: 'info' },
-        { browserLogLevel: 'dirxml', logLevel: 'info' },
-        { browserLogLevel: 'group', logLevel: 'info' },
-        { browserLogLevel: 'groupCollapsed', logLevel: 'info' },
-        { browserLogLevel: 'debug', logLevel: 'info' },
-        { browserLogLevel: 'timeLog', logLevel: 'info' },
-        { browserLogLevel: 'info', logLevel: 'info' },
-        { browserLogLevel: 'count', logLevel: 'info' },
-        { browserLogLevel: 'timeEnd', logLevel: 'info' },
-        { browserLogLevel: 'warn', logLevel: 'warn' },
-        { browserLogLevel: 'countReset', logLevel: 'warn' },
-        { browserLogLevel: 'error', logLevel: 'error' },
-        { browserLogLevel: 'assert', logLevel: 'error' },
-        { browserLogLevel: 'countReset', logLevel: 'warn' },
-        { browserLogLevel: 'wakanda forever', logLevel: 'info' },
-        { browserLogLevel: '\\n\\r\\t\\0\\b\\f', logLevel: 'info' },
-        { browserLogLevel: null, logLevel: 'info' },
-        { browserLogLevel: undefined, logLevel: 'info' },
+        { browserLogLevel: 'log', logLevel: 'log' as const },
+        { browserLogLevel: 'trace', logLevel: 'log' as const },
+        { browserLogLevel: 'dir', logLevel: 'log' as const },
+        { browserLogLevel: 'dirxml', logLevel: 'log' as const },
+        { browserLogLevel: 'group', logLevel: 'log' as const },
+        { browserLogLevel: 'groupCollapsed', logLevel: 'log' as const },
+        { browserLogLevel: 'debug', logLevel: 'log' as const },
+        { browserLogLevel: 'timeLog', logLevel: 'log' as const },
+        { browserLogLevel: 'info', logLevel: 'log' as const },
+        { browserLogLevel: 'count', logLevel: 'log' as const },
+        { browserLogLevel: 'timeEnd', logLevel: 'log' as const },
+        { browserLogLevel: 'warn', logLevel: 'warn' as const },
+        { browserLogLevel: 'countReset', logLevel: 'warn' as const },
+        { browserLogLevel: 'error', logLevel: 'error' as const },
+        { browserLogLevel: 'assert', logLevel: 'error' as const },
+        { browserLogLevel: 'countReset', logLevel: 'warn' as const },
+        { browserLogLevel: 'wakanda forever', logLevel: 'log' as const },
+        { browserLogLevel: '\\n\\r\\t\\0\\b\\f', logLevel: 'log' as const },
+        { browserLogLevel: null, logLevel: 'log' as const },
+        { browserLogLevel: undefined, logLevel: 'log' as const },
     ])('log level console log processing: %s', ({ browserLogLevel, logLevel }) => {
         const consoleLogEntries = gatherConsoleLogEvents(12345, 'session_id', [
             consoleMessageFor(['test'], browserLogLevel),
@@ -721,7 +720,7 @@ describe('session recording process event', () => {
         expect(consoleLogEntries).toEqual([
             {
                 team_id: 12345,
-                level: logLevel as LogLevel,
+                level: logLevel,
                 log_source: 'session_replay',
                 log_source_id: 'session_id',
                 instance_id: null,

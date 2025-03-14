@@ -76,9 +76,9 @@ const browserLogLevels = [
 type BrowserLogLevel = (typeof browserLogLevels)[number]
 // we don't want that many log levels
 const logLevels = ['info', 'warn', 'error'] as const
-export type LogLevel = (typeof logLevels)[number]
+export type ConsoleLogLevel = (typeof logLevels)[number]
 
-const levelMapping: Record<BrowserLogLevel, LogLevel> = {
+const levelMapping: Record<BrowserLogLevel, ConsoleLogLevel> = {
     info: 'info',
     count: 'info',
     timeEnd: 'info',
@@ -99,7 +99,7 @@ const levelMapping: Record<BrowserLogLevel, LogLevel> = {
 
 // level is effectively user provided input, so we don't want to fire it into kafka to head to CH
 // without ensuring it only has known/expected values
-function safeLevel(level: unknown): LogLevel {
+function safeLevel(level: unknown): ConsoleLogLevel {
     const needle = typeof level === 'string' ? level : 'info'
     return levelMapping[needle as BrowserLogLevel] || 'info'
 }
@@ -107,7 +107,7 @@ function safeLevel(level: unknown): LogLevel {
 export type ConsoleLogEntry = {
     team_id: number
     message: string
-    level: LogLevel
+    level: ConsoleLogLevel
     log_source: 'session_replay'
     // the session_id
     log_source_id: string

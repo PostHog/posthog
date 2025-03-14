@@ -47,7 +47,7 @@ describe('events dead letter queue', () => {
     let hub: Hub
 
     beforeEach(async () => {
-        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
+        hub = await createHub({ LOG_LEVEL: LogLevel.Info })
         console.warn = jest.fn() as any
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()

@@ -20,7 +20,7 @@ jest.mock('../../../src/utils/logger')
 jest.setTimeout(30000)
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    LOG_LEVEL: LogLevel.Log,
+    LOG_LEVEL: LogLevel.Info,
 }
 
 describe('postgres parity', () => {

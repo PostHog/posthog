@@ -1,12 +1,13 @@
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
-import { ClickHouseTimestamp, LogLevel } from '../../../../types'
+import { ClickHouseTimestamp } from '../../../../types'
 import { logger } from '../../../../utils/logger'
+import { ConsoleLogLevel } from '../rrweb-types'
 import { SessionBatchMetrics } from './metrics'
 
 export type ConsoleLogEntry = {
     team_id: number
     message: string
-    level: LogLevel
+    level: ConsoleLogLevel
     log_source: 'session_replay'
     log_source_id: string
     instance_id: string | null
