@@ -33,6 +33,8 @@ pub struct FlagRequest {
     #[serde(alias = "$anon_distinct_id", skip_serializing_if = "Option::is_none")]
     pub anon_distinct_id: Option<String>,
     pub ip_address: Option<String>,
+    #[serde(default)]
+    pub flag_keys: Option<Vec<String>>,
 }
 
 impl FlagRequest {

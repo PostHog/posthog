@@ -1,5 +1,7 @@
+import { IconGraph } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
+import { urls } from 'scenes/urls'
 
 import { HogQLFilters, HogQLVariable } from '~/queries/schema/schema-general'
 
@@ -56,4 +58,42 @@ export const manifest: ProductManifest = {
         alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
         alerts: (): string => `/insights?tab=alerts`,
     },
+    fileSystemTypes: {
+        insight: {
+            icon: <IconGraph />,
+            href: (ref: string) => urls.insightView(ref as InsightShortId),
+        },
+    },
+    treeItems: [
+        {
+            path: `Create new/Insight/Trends`,
+            type: 'insight',
+            href: () => urls.insightNew({ type: InsightType.TRENDS }),
+        },
+        {
+            path: `Create new/Insight/Funnels`,
+            type: 'insight',
+            href: () => urls.insightNew({ type: InsightType.FUNNELS }),
+        },
+        {
+            path: `Create new/Insight/Retention`,
+            type: 'insight',
+            href: () => urls.insightNew({ type: InsightType.RETENTION }),
+        },
+        {
+            path: `Create new/Insight/User paths`,
+            type: 'insight',
+            href: () => urls.insightNew({ type: InsightType.PATHS }),
+        },
+        {
+            path: `Create new/Insight/Stickiness`,
+            type: 'insight',
+            href: () => urls.insightNew({ type: InsightType.STICKINESS }),
+        },
+        {
+            path: `Create new/Insight/Lifecycle`,
+            type: 'insight',
+            href: () => urls.insightNew({ type: InsightType.LIFECYCLE }),
+        },
+    ],
 }

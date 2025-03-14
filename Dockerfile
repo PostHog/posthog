@@ -75,9 +75,9 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=6144" pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    NODE_OPTIONS="--max-old-space-size=6144" pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    NODE_OPTIONS="--max-old-space-size=6144" bin/turbo --filter=@posthog/plugin-transpiler build
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
 # Build the plugin server.
 #
@@ -87,17 +87,17 @@ COPY ./plugin-server/src/ ./plugin-server/src/
 COPY ./plugin-server/tests/ ./plugin-server/tests/
 
 # Build cyclotron first with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=6144" bin/turbo --filter=@posthog/cyclotron build
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
 
 # Then build the plugin server with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=6144" bin/turbo --filter=@posthog/plugin-server build
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server build
 
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=6144" pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
-    NODE_OPTIONS="--max-old-space-size=6144" bin/turbo --filter=@posthog/plugin-server prepare
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server prepare
 
 #
 # ---------------------------------------------------------
@@ -162,7 +162,7 @@ RUN apt-get update && \
 # ---------------------------------------------------------
 #
 # NOTE: v1.32 is running bullseye, v1.33 is running bookworm
-FROM unit:1.33.0-python3.11 
+FROM unit:1.33.0-python3.11
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1

@@ -105,13 +105,13 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend typegen:write && pnpm --filter=@posthog/frontend typescript:check
               env:
-                  NODE_OPTIONS: --max-old-space-size=6144
+                  NODE_OPTIONS: --max-old-space-size=16384
 
             - name: Lint with ESLint
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend lint:js
               env:
-                  NODE_OPTIONS: --max-old-space-size=6144
+                  NODE_OPTIONS: --max-old-space-size=16384
 
             - name: Check if "schema.json" is up to date
               if: needs.changes.outputs.frontend == 'true'
@@ -171,7 +171,7 @@ jobs:
               run: bin/turbo run test --filter=@posthog/frontend
               if: needs.changes.outputs.frontend == 'true'
               env:
-                  NODE_OPTIONS: --max-old-space-size=6144
+                  NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
                   SHARD_COUNT: 3
 

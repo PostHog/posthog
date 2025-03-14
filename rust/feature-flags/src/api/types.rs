@@ -28,3 +28,15 @@ pub struct FlagsResponse {
 pub struct FlagsOptionsResponse {
     pub status: FlagsResponseCode,
 }
+
+/// Properties prepared for feature flag evaluation, containing:
+/// - person_property_overrides: Optional properties to override for the person (e.g. geoip data)
+/// - group_property_overrides: Optional properties to override for each group
+/// - groups: Optional group memberships for the person
+/// - hash_key_override: Optional override for the hash key used in flag evaluation
+pub type RequestPropertyOverrides = (
+    Option<HashMap<String, Value>>, // person_property_overrides
+    Option<HashMap<String, HashMap<String, Value>>>, // group_property_overrides
+    Option<HashMap<String, Value>>, // groups
+    Option<String>,                 // hash_key_override
+);
