@@ -108,10 +108,10 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "events": [
             {
               "eventName": "purchase",
-              "revenueProperty": "value",
               "revenueCurrencyProperty": {
                 "static": "ZAR",
               },
+              "revenueProperty": "value",
             },
           ],
           "externalDataSchemas": [],

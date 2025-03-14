@@ -108,6 +108,10 @@ def revenue_comparison_and_value_exprs(
 
 
 def event_currency_expression(config: RevenueTrackingConfig, event: RevenueTrackingEventItem) -> ast.Expr:
+    # Shouldn't happen but we need it here to make the type checker happy
+    if not event.revenueCurrencyProperty:
+        return ast.Constant(value=(config.baseCurrency or CurrencyCode.USD).value)
+
     if event.revenueCurrencyProperty.property:
         return ast.Call(
             name="upper",
