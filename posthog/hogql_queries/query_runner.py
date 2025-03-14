@@ -754,10 +754,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
-        with (
-            get_api_personal_rate_limiter().run(
-                is_api=self.query_endpoint_with_personal_key(), team_id=self.team.pk, task_id=self.query_id
-            ),
+        with get_api_personal_rate_limiter().run(
+            is_api=self.query_endpoint_with_personal_key(), team_id=self.team.pk, task_id=self.query_id
         ):
             if self.query_endpoint_with_personal_key():
                 tag_queries(qaas=True)
