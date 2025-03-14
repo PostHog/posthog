@@ -8,11 +8,6 @@ import { logger } from './src/utils/logger'
 
 // Setup spies on the logger for all tests to use
 
-jest.spyOn(logger, 'info')
-jest.spyOn(logger, 'warn')
-jest.spyOn(logger, 'debug')
-jest.spyOn(logger, 'error')
-
 jest.mock('node-fetch', () => ({
     __esModule: true,
     ...jest.requireActual('node-fetch'), // Only mock fetch(), leave Request, Response, FetchError, etc. alone
@@ -20,6 +15,11 @@ jest.mock('node-fetch', () => ({
 }))
 
 beforeEach(() => {
+    jest.spyOn(logger, 'info')
+    jest.spyOn(logger, 'warn')
+    jest.spyOn(logger, 'debug')
+    jest.spyOn(logger, 'error')
+
     jest.mocked(logger.info).mockClear()
     jest.mocked(logger.warn).mockClear()
     jest.mocked(logger.debug).mockClear()
