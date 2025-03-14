@@ -1,5 +1,5 @@
 import { Message } from 'node-rdkafka'
-import { Counter, Gauge, Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
@@ -31,28 +31,10 @@ export const histogramKafkaBatchSizeKb = new Histogram({
     buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
 })
 
-export const counterFunctionInvocation = new Counter({
-    name: 'cdp_function_invocation',
-    help: 'A function invocation was evaluated with an outcome',
-    labelNames: ['outcome'], // One of 'failed', 'succeeded', 'overflowed', 'disabled', 'filtered'
-})
-
 export const counterParseError = new Counter({
     name: 'cdp_function_parse_error',
     help: 'A function invocation was parsed with an error',
     labelNames: ['error'],
-})
-
-export const gaugeBatchUtilization = new Gauge({
-    name: 'cdp_cyclotron_batch_utilization',
-    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
-    labelNames: ['queue'],
-})
-
-export const counterJobsProcessed = new Counter({
-    name: 'cdp_cyclotron_jobs_processed',
-    help: 'The number of jobs we are managing to process',
-    labelNames: ['queue'],
 })
 
 export interface TeamIDWithConfig {
@@ -96,6 +78,10 @@ export abstract class CdpConsumerBase {
             healthcheck: () => this.isHealthy() ?? false,
             batchConsumer: this.batchConsumer,
         }
+    }
+
+    protected runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
+        return runInstrumentedFunction<T>({ statsKey: `cdpConsumer.${name}`, func })
     }
 
     protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
@@ -151,12 +137,8 @@ export abstract class CdpConsumerBase {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                return await runInstrumentedFunction({
-                    statsKey: `cdpConsumer.handleEachBatch`,
-                    sendTimeoutGuardToSentry: false,
-                    func: async () => {
-                        await options.handleBatch(messages)
-                    },
+                return await this.runInstrumented('handleEachBatch', async () => {
+                    await options.handleBatch(messages)
                 })
             },
             callEachBatchWhenEmpty: false,

@@ -3,6 +3,7 @@ import {
     LemonButton,
     LemonDivider,
     LemonInput,
+    LemonMenu,
     LemonSelect,
     LemonSkeleton,
     LemonTag,
@@ -187,13 +188,36 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                     </LemonButton>
                                 )}
                                 {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
-                                    <LemonButton
-                                        onClick={() => updateStage(EarlyAccessFeatureStage.Beta)}
-                                        tooltip="Make beta feature available"
-                                        type="primary"
+                                    <LemonMenu
+                                        items={[
+                                            {
+                                                title: 'Choose stage',
+                                                items: [
+                                                    {
+                                                        label: 'Concept',
+                                                        onClick: () => updateStage(EarlyAccessFeatureStage.Concept),
+                                                    },
+                                                    {
+                                                        label: 'Alpha',
+                                                        onClick: () => updateStage(EarlyAccessFeatureStage.Alpha),
+                                                    },
+                                                    {
+                                                        label: 'Beta (default)',
+                                                        onClick: () => updateStage(EarlyAccessFeatureStage.Beta),
+                                                    },
+                                                    {
+                                                        label: 'General availability',
+                                                        onClick: () =>
+                                                            updateStage(EarlyAccessFeatureStage.GeneralAvailability),
+                                                    },
+                                                ],
+                                            },
+                                        ]}
                                     >
-                                        Release beta
-                                    </LemonButton>
+                                        <LemonButton tooltip="Publish this feature to make it available" type="primary">
+                                            Release
+                                        </LemonButton>
+                                    </LemonMenu>
                                 )}
                                 <LemonDivider vertical />
                                 {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
