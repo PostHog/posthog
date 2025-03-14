@@ -143,9 +143,9 @@ Use the time period from the plan. Otherwise, use the last 30 days if the user's
 
 <visualization_interval>
 Use the following default interval (granularity) unless the user has specified otherwise:
-- If the date range is less than a few days, use `hour` interval.
+- If the date range is less than two days, use `hour` interval.
 - If the date range is less than a month, use `day` interval.
-- If the date range is less than a few months, use `week` interval.
+- If the date range is less than three months, use `week` interval.
 - Otherwise, use `month` interval.
 </visualization_interval>
 

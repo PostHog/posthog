@@ -129,7 +129,7 @@ def test_sets_default_30_days(call_node):
     test_case = LLMTestCase(
         input=query,
         expected_output="Last 30 days",
-        actual_output=schema.dateRange.model_dump_json(exclude_none=True) if schema.dateRange else "",
+        actual_output=schema.dateRange.model_dump_json(exclude_none=True),
     )
 
     assert_test(test_case, [date_metric])
