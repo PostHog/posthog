@@ -23,6 +23,7 @@ import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { isObject, objectsEqual } from 'lib/utils'
 import { ReactNode, useState } from 'react'
+import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SessionRecordingAIConfig, type SessionRecordingMaskingLevel } from '~/types'
@@ -555,12 +556,7 @@ export function ReplayMaskingSettings(): JSX.Element {
 
     const handleMaskingChange = (level: SessionRecordingMaskingLevel): void => {
         updateCurrentTeam({
-            session_recording_masking_config: {
-                ...currentTeam?.session_recording_masking_config,
-                maskAllInputs: level !== 'free-love',
-                maskTextSelector: level === 'total-privacy' ? '*' : undefined,
-                blockSelector: level === 'total-privacy' ? 'img' : undefined,
-            },
+            session_recording_masking_config: getMaskingConfigFromLevel(level),
         })
     }
 
@@ -570,12 +566,7 @@ export function ReplayMaskingSettings(): JSX.Element {
         blockSelector: currentTeam?.session_recording_masking_config?.blockSelector,
     }
 
-    const maskingLevel =
-        maskingConfig.maskTextSelector === '*' && maskingConfig.maskAllInputs
-            ? 'total-privacy'
-            : maskingConfig.maskTextSelector === undefined && !maskingConfig.maskAllInputs
-            ? 'free-love'
-            : 'normal'
+    const maskingLevel = getMaskingLevelFromConfig(maskingConfig)
 
     return (
         <div>
