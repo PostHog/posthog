@@ -75,7 +75,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: 'info',
+                level: 'log',
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
