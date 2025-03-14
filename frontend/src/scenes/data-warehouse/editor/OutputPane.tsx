@@ -388,7 +388,7 @@ function InternalDataTableVisualization(
 
 const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
     return (
-        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0')}>
+        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail
@@ -437,7 +437,7 @@ const Content = ({
 
         return responseLoading ? (
             <div className="flex flex-1 p-2 w-full justify-center items-center">
-                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} spinner />
+                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
             </div>
         ) : !response ? (
             <div className="flex flex-1 justify-center items-center">

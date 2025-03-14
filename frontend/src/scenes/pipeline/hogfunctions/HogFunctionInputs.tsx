@@ -480,7 +480,7 @@ export function HogFunctionInputWithSchema({
                                         </span>
                                         <LemonButton
                                             onClick={() => {
-                                                onChange({ value: undefined })
+                                                onChange({ value: '' })
                                             }}
                                             size="small"
                                             type="secondary"

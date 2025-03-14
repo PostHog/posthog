@@ -1,5 +1,7 @@
+import re
 import uuid
 from unittest.mock import patch
+from unittest.mock import MagicMock
 
 from boto3 import resource
 from botocore.client import Config
@@ -13,10 +15,12 @@ from posthog.settings import (
 from posthog.storage.object_storage import (
     health_check,
     read,
+    read_bytes,
     write,
     get_presigned_url,
     list_objects,
     copy_objects,
+    ObjectStorage,
 )
 from posthog.test.base import APIBaseTest
 
@@ -39,7 +43,7 @@ class TestStorage(APIBaseTest):
     @patch("posthog.storage.object_storage.client")
     def test_does_not_create_client_if_storage_is_disabled(self, patched_s3_client) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
-            self.assertFalse(health_check())
+            assert not health_check()
             patched_s3_client.assert_not_called()
 
     def test_write_and_read_works_with_known_content(self) -> None:
@@ -49,7 +53,7 @@ class TestStorage(APIBaseTest):
             name = f"{session_id}/{0}-{chunk_id}"
             file_name = f"{TEST_BUCKET}/test_write_and_read_works_with_known_content/{name}"
             write(file_name, "my content")
-            self.assertEqual(read(file_name), "my content")
+            assert read(file_name) == "my content"
 
     def test_write_and_read_works_with_known_byte_content(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
@@ -58,7 +62,7 @@ class TestStorage(APIBaseTest):
             name = f"{session_id}/{0}-{chunk_id}"
             file_name = f"{TEST_BUCKET}/test_write_and_read_works_with_known_content/{name}"
             write(file_name, b"my content")
-            self.assertEqual(read(file_name), "my content")
+            assert read(file_name) == "my content"
 
     def test_can_generate_presigned_url_for_existing_file(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
@@ -70,9 +74,9 @@ class TestStorage(APIBaseTest):
 
             presigned_url = get_presigned_url(file_name)
             assert presigned_url is not None
-            self.assertRegex(
-                presigned_url,
+            assert re.match(
                 r"^http://localhost:\d+/posthog/test_storage_bucket/test_can_generate_presigned_url_for_existing_file/.*\?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=.*$",
+                presigned_url,
             )
 
     def test_can_generate_presigned_url_for_non_existent_file(self) -> None:
@@ -82,9 +86,9 @@ class TestStorage(APIBaseTest):
 
             presigned_url = get_presigned_url(file_name)
             assert presigned_url is not None
-            self.assertRegex(
-                presigned_url,
+            assert re.match(
                 r"^http://localhost:\d+/posthog/test_storage_bucket/test_can_ignore_presigned_url_for_non_existent_file/.*?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=.*$",
+                presigned_url,
             )
 
     def test_can_list_objects_with_prefix(self) -> None:
@@ -157,3 +161,40 @@ class TestStorage(APIBaseTest):
                 "test_storage_bucket/a_shared_prefix/b",
                 "test_storage_bucket/a_shared_prefix/c",
             ]
+
+    def test_read_bytes_with_byte_range(self):
+        # Setup
+        mock_client = MagicMock()
+        mock_body = MagicMock()
+
+        # For the first test, return a specific content
+        mock_body.read.return_value = b"test content"
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = ObjectStorage(mock_client)
+
+        # Test with both first_byte and last_byte
+        storage.read_bytes("test-bucket", "test-key", first_byte=5, last_byte=10)
+        mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-10")
+
+        # Test with only first_byte
+        storage.read_bytes("test-bucket", "test-key", first_byte=5)
+        mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-")
+
+        # Test without byte range
+        storage.read_bytes("test-bucket", "test-key")
+        mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key")
+
+    def test_read_specific_byte_range(self):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            # Setup
+            session_id = str(uuid.uuid4())
+            chunk_id = uuid.uuid4()
+            name = f"{session_id}/{0}-{chunk_id}"
+            file_name = f"{TEST_BUCKET}/test_read_specific_byte_range/{name}"
+            content = b"abcdefghij" * 11  # 110 bytes total
+            write(file_name, content)
+
+            result = read_bytes(file_name, first_byte=91, last_byte=101)
+
+            assert result == b"bcdefghijab"
+            assert len(result) == 11
