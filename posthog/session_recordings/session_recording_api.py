@@ -9,7 +9,7 @@ from json import JSONDecodeError
 from typing import Any, Optional, cast, Literal
 
 from posthoganalytics.ai.openai import OpenAI
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 
 import posthoganalytics
 import requests
@@ -49,7 +49,6 @@ from posthog.session_recordings.models.session_recording_event import (
 )
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.queries.session_replay_events_v2_test import SessionReplayEventsV2Test
 from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
@@ -67,7 +66,6 @@ from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
 )
 from posthog.session_recordings.utils import clean_prompt_whitespace
-import snappy
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -644,14 +642,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             return self._send_realtime_snapshots_to_client(recording, request, event_properties)
         elif source == "blob":
             return self._stream_blob_to_client(recording, request, event_properties)
-        elif source == "blob_v2":
-            blob_key = request.GET.get("blob_key")
-            if blob_key:
-                return self._stream_blob_v2_to_client(recording, request, event_properties)
-            else:
-                return self._gather_session_recording_sources(recording)
         else:
-            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2]")
+            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
@@ -683,26 +675,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         blob_keys: list[str] | None = None
         blob_prefix = ""
 
-        v2_metadata = SessionReplayEventsV2Test().get_metadata(str(recording.session_id), self.team)
-        if v2_metadata:
-            blocks = sorted(
-                zip(
-                    v2_metadata["block_first_timestamps"],
-                    v2_metadata["block_last_timestamps"],
-                    v2_metadata["block_urls"],
-                ),
-                key=lambda x: x[0],
-            )
-            for i, (start_timestamp, end_timestamp, _) in enumerate(blocks):
-                sources.append(
-                    {
-                        "source": "blob_v2",
-                        "start_timestamp": start_timestamp,
-                        "end_timestamp": end_timestamp,
-                        "blob_key": str(i),
-                    }
-                )
-            might_have_realtime = False
         if recording.object_storage_path:
             blob_prefix = recording.object_storage_path
             blob_keys = object_storage.list_objects(cast(str, blob_prefix))
@@ -879,86 +851,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 response["Content-Disposition"] = "inline"
 
                 return response
-
-    def _stream_blob_v2_to_client(
-        self, recording: SessionRecording, request: request.Request, event_properties: dict
-    ) -> HttpResponse:
-        """Stream a v2 session recording blob to the client.
-
-        The blob_key is the block index in the metadata arrays.
-        """
-        blob_key = request.GET.get("blob_key", "")
-        if not blob_key:
-            raise exceptions.ValidationError("Must provide a blob key")
-
-        try:
-            block_index = int(blob_key)
-        except ValueError:
-            raise exceptions.ValidationError("Blob key must be an integer")
-
-        event_properties["source"] = "blob_v2"
-        event_properties["blob_key"] = blob_key
-        posthoganalytics.capture(
-            self._distinct_id_from_request(request),
-            "session recording snapshots v2 loaded",
-            event_properties,
-        )
-
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
-            # Get metadata for the session
-            metadata = SessionReplayEventsV2Test().get_metadata(recording.session_id, self.team)
-            if not metadata:
-                raise exceptions.NotFound("Session recording not found")
-
-            # Sort blocks by first timestamp
-            blocks = sorted(
-                zip(metadata["block_first_timestamps"], metadata["block_last_timestamps"], metadata["block_urls"]),
-                key=lambda x: x[0],
-            )
-
-            # Validate block index
-            if block_index >= len(blocks):
-                raise exceptions.NotFound("Block index out of range")
-
-            # Get the block URL
-            block_url = blocks[block_index][2]
-            if not block_url:
-                raise exceptions.NotFound("Block URL not found")
-
-            # Parse URL and extract key and byte range
-            parsed_url = urlparse(block_url)
-            key = parsed_url.path.lstrip("/")
-            query_params = parse_qs(parsed_url.query)
-            byte_range = query_params.get("range", [""])[0].replace("bytes=", "")
-            start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
-
-            # Read and return the specific byte range from the object
-            if start_byte is None or end_byte is None:
-                raise exceptions.NotFound("Invalid byte range")
-
-            expected_length = end_byte - start_byte + 1
-            compressed_block = object_storage.read_bytes(key, first_byte=start_byte, last_byte=end_byte)
-
-            if not compressed_block:
-                raise exceptions.NotFound("Block content not found")
-
-            if len(compressed_block) != expected_length:
-                raise exceptions.APIException(
-                    f"Unexpected data length. Expected {expected_length} bytes, got {len(compressed_block)} bytes."
-                )
-
-            decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
-
-            response = HttpResponse(
-                content=decompressed_block,
-                content_type="application/jsonl",
-            )
-
-            # Set caching headers - blocks are immutable so we can cache for a while
-            response["Cache-Control"] = "max-age=3600"
-            response["Content-Disposition"] = "inline"
-
-            return response
 
     def _send_realtime_snapshots_to_client(
         self, recording: SessionRecording, request: request.Request, event_properties: dict
