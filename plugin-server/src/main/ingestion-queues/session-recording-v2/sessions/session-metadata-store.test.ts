@@ -24,6 +24,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user1',
                 batchId: 'batch123',
                 blockLength: 100,
+                eventCount: 25,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                 blockUrl: 's3://bucket/file1?range=bytes=0-99',
@@ -47,6 +48,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user2',
                 batchId: 'batch123',
                 blockLength: 150,
+                eventCount: 15,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:01.500Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:03.500Z'),
                 blockUrl: 's3://bucket/file1?range=bytes=100-249',
@@ -70,6 +72,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user1',
                 batchId: 'batch123',
                 blockLength: 200,
+                eventCount: 35,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:03.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:05.000Z'),
                 blockUrl: 's3://bucket/file1?range=bytes=250-449',
@@ -120,6 +123,7 @@ describe('SessionMetadataStore', () => {
                 message_count: 50,
                 snapshot_source: 'web',
                 snapshot_library: 'rrweb@1.0.0',
+                event_count: 25,
             },
             {
                 uuid: expect.any(String),
@@ -143,6 +147,7 @@ describe('SessionMetadataStore', () => {
                 message_count: 30,
                 snapshot_source: 'web',
                 snapshot_library: 'rrweb@1.0.0',
+                event_count: 15,
             },
             {
                 uuid: expect.any(String),
@@ -166,6 +171,7 @@ describe('SessionMetadataStore', () => {
                 message_count: 70,
                 snapshot_source: 'web',
                 snapshot_library: 'rrweb@1.0.0',
+                event_count: 35,
             },
         ])
 
@@ -201,6 +207,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user1',
                 batchId: 'batch123',
                 blockLength: 100,
+                eventCount: 10,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                 blockUrl: null,
@@ -231,6 +238,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user1',
                 batchId: 'batch123',
                 blockLength: 100,
+                eventCount: 8,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                 blockUrl: null,
@@ -254,6 +262,7 @@ describe('SessionMetadataStore', () => {
 
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
         const parsedEvent = JSON.parse(queuedMessage.messages[0].value as string)
+        expect(parsedEvent.event_count).toBe(8)
         expect(parsedEvent.block_url).toBeNull()
         expect(parsedEvent.distinct_id).toBe('user1')
         expect(parsedEvent.first_url).toBe('https://example.com')
@@ -280,6 +289,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user1',
                 batchId: 'batch1',
                 blockLength: 100,
+                eventCount: 12,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                 blockUrl: 's3://bucket/file1',
@@ -303,6 +313,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user2',
                 batchId: 'batch2',
                 blockLength: 200,
+                eventCount: 18,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:03.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:05.000Z'),
                 blockUrl: 's3://bucket/file2',
@@ -332,6 +343,7 @@ describe('SessionMetadataStore', () => {
         expect(parsedEvents[0]).toMatchObject({
             first_url: 'https://example.com',
             urls: ['https://example.com'],
+            event_count: 12,
             click_count: 1,
             keypress_count: 2,
             mouse_activity_count: 3,
@@ -347,6 +359,7 @@ describe('SessionMetadataStore', () => {
         expect(parsedEvents[1]).toMatchObject({
             first_url: 'https://example.com/other',
             urls: ['https://example.com/other'],
+            event_count: 18,
             click_count: 4,
             keypress_count: 5,
             mouse_activity_count: 6,
@@ -373,6 +386,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user1',
                 batchId: 'batch1',
                 blockLength: 100,
+                eventCount: 15,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                 blockUrl: 's3://bucket/file1',

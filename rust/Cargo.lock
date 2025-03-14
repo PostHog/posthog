@@ -1193,12 +1193,13 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-redis",
  "common-types",
  "envconfig",
  "flate2",
  "futures",
- "governor",
  "health",
+ "limiters",
  "metrics",
  "metrics-exporter-prometheus",
  "once_cell",
@@ -1410,6 +1411,17 @@ dependencies = [
  "axum 0.7.5",
  "metrics",
  "metrics-exporter-prometheus",
+ "tokio",
+]
+
+[[package]]
+name = "common-redis"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "redis",
+ "serde-pickle",
+ "thiserror 1.0.69",
  "tokio",
 ]
 
@@ -2227,11 +2239,12 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-metrics",
- "derive_builder",
+ "common-redis",
  "envconfig",
  "flate2",
  "futures",
  "health",
+ "limiters",
  "maxminddb",
  "metrics",
  "moka",
@@ -2242,13 +2255,13 @@ dependencies = [
  "regex",
  "reqwest 0.12.3",
  "serde",
- "serde-pickle",
  "serde_json",
  "serde_urlencoded",
  "sha1",
  "sqlx",
  "strum",
  "thiserror 1.0.69",
+ "time",
  "tokio",
  "tower",
  "tower-http",
@@ -3603,6 +3616,21 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "limiters"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "common-redis",
+ "governor",
+ "metrics",
+ "rand",
+ "strum",
+ "time",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

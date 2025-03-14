@@ -28,6 +28,7 @@ import {
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { DefaultBatchConsumerFactory } from './main/ingestion-queues/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
+import { PropertyDefsConsumer } from './property-defs/property-defs-consumer'
 import { setupCommonRoutes } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { closeHub, createHub } from './utils/db/hub'
@@ -230,6 +231,14 @@ export class PluginServer {
             if (capabilities.cdpProcessedEvents) {
                 serviceLoaders.push(async () => {
                     const consumer = new CdpProcessedEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.propertyDefs) {
+                serviceLoaders.push(async () => {
+                    const consumer = new PropertyDefsConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })

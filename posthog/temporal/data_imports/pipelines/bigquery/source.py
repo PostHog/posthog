@@ -10,6 +10,7 @@ from google.oauth2 import service_account
 
 from posthog.temporal.data_imports.pipelines.bigquery import bigquery_client
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.warehouse.types import IncrementalFieldType
 
@@ -104,7 +105,7 @@ def bigquery_source(
         bq_table = bq_client.get_table(fully_qualified_table_name)
         primary_keys = get_primary_keys(bq_table, bq_client)
 
-    def get_rows() -> collections.abc.Iterator[pa.Table]:
+    def get_rows(max_table_size: int) -> collections.abc.Iterator[pa.Table]:
         with bigquery_client(
             project_id=project_id,
             private_key=private_key,
@@ -178,7 +179,20 @@ def bigquery_source(
                 read_rows_stream = bq_storage.read_rows(stream_name)
                 rows_iterator = read_rows_stream.rows()
 
+                record_batches = []
+                table_size_bytes = 0
                 for page in rows_iterator.pages:
-                    yield pa.Table.from_batches([page.to_arrow()])
+                    record_batch = page.to_arrow()
+                    # TODO: Perhaps we should support slicing record batches like we do in batch exports.
+                    table_size_bytes += record_batch.get_total_buffer_size()
+                    record_batches.append(record_batch)
 
-    return SourceResponse(name=name, items=get_rows(), primary_keys=primary_keys)
+                    if table_size_bytes > max_table_size:
+                        yield pa.Table.from_batches(record_batches)
+                        record_batches = []
+                        table_size_bytes = 0
+
+                if record_batches:
+                    yield pa.Table.from_batches(record_batches)
+
+    return SourceResponse(name=name, items=get_rows(DEFAULT_TABLE_SIZE_BYTES), primary_keys=primary_keys)
