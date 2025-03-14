@@ -10,10 +10,9 @@ from google.oauth2 import service_account
 
 from posthog.temporal.data_imports.pipelines.bigquery import bigquery_client
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.warehouse.types import IncrementalFieldType
-
-DEFAULT_TABLE_SIZE_BYTES = 150 * 1024 * 1024  # 150 MB
 
 
 @contextlib.contextmanager
