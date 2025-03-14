@@ -30,6 +30,7 @@ export enum ProductIntentContext {
     WEB_VITALS_INSIGHT = 'web_vitals_insight',
     WEB_ANALYTICS_RECORDINGS = 'web_analytics_recordings',
     WEB_ANALYTICS_ERROR_TRACKING = 'web_analytics_error_tracking',
+    WEB_ANALYTICS_ERRORS = 'web_analytics_errors',
 
     // Actions
     ACTION_VIEW_RECORDINGS = 'action_view_recordings',
