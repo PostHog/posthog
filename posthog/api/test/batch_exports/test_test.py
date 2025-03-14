@@ -8,7 +8,11 @@ from django.conf import settings
 from django.test.client import Client as HttpClient
 from rest_framework import status
 
+from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.api.test.batch_exports.fixtures import create_organization
+from posthog.api.test.batch_exports.operations import (
+    create_batch_export_ok,
+)
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 
@@ -85,7 +89,7 @@ async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
                 await minio_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
 
-def test_can_run_s3_test_step_for_destination(client: HttpClient, bucket_name, minio_client):
+def test_can_run_s3_test_step_for_new_destination(client: HttpClient, bucket_name, minio_client):
     destination_data = {
         "type": "S3",
         "config": {
@@ -110,10 +114,55 @@ def test_can_run_s3_test_step_for_destination(client: HttpClient, bucket_name, m
     client.force_login(user)
 
     response = client.post(
-        f"/api/projects/{team.pk}/batch_exports/run_test_step",
+        f"/api/projects/{team.pk}/batch_exports/run_test_step_new",
         {**{"step": 0}, **batch_export_data},
         content_type="application/json",
     )
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    destination_test = response.json()
+
+    assert destination_test["result"]["status"] == "Passed", destination_test
+    assert destination_test["result"]["message"] is None
+
+
+def test_can_run_s3_test_step_for_destination(client: HttpClient, bucket_name, minio_client, temporal):
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": bucket_name,
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        batch_export = create_batch_export_ok(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+        response = client.post(
+            f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
+            {**{"step": 0}, **batch_export_data},
+            content_type="application/json",
+        )
 
     assert response.status_code == status.HTTP_200_OK, response.json()
 

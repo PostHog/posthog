@@ -1,9 +1,11 @@
 use std::net::IpAddr;
 
 use crate::{
-    api::errors::FlagError,
-    api::request_handler::{process_request, FlagsQueryParams, RequestContext},
-    api::types::{FlagsOptionsResponse, FlagsResponse, FlagsResponseCode},
+    api::{
+        errors::FlagError,
+        request_handler::{process_request, FlagsQueryParams, RequestContext},
+        types::{FlagsOptionsResponse, FlagsResponse, FlagsResponseCode},
+    },
     router,
 };
 // TODO: stream this instead

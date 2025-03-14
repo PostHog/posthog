@@ -541,6 +541,22 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         return response.Response(destination_test.as_dict())
 
     @action(methods=["POST"], detail=False, required_scopes=["INTERNAL"])
+    def run_test_step_new(self, request: request.Request, *args, **kwargs) -> response.Response:
+        test_step = request.data.pop("step", 0)
+
+        serializer = self.get_serializer(data=request.data)
+        _ = serializer.is_valid(raise_exception=True)
+
+        destination_test = get_destination_test(
+            destination=serializer.validated_data["destination"]["type"],
+        )
+        test_configuration = serializer.validated_data["destination"]["config"]
+        destination_test.configure(**test_configuration)
+
+        result = destination_test.run_step(test_step)
+        return response.Response(result.as_dict())
+
+    @action(methods=["POST"], detail=True, required_scopes=["INTERNAL"])
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
         test_step = request.data.pop("step", 0)
 
@@ -550,7 +566,9 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         destination_test = get_destination_test(
             destination=serializer.validated_data["destination"]["type"],
         )
-        destination_test.configure(**serializer.validated_data["destination"]["config"])
+        batch_export = self.get_object()
+        test_configuration = {**batch_export.destination.config, **serializer.validated_data["destination"]["config"]}
+        destination_test.configure(**test_configuration)
 
         result = destination_test.run_step(test_step)
         return response.Response(result.as_dict())

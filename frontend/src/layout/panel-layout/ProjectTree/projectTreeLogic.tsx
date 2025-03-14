@@ -13,11 +13,11 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
+import { panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
 import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
-
 const PAGINATION_LIMIT = 100
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
@@ -28,6 +28,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ['aggregationLabel', 'groupTypes', 'groupsAccessStatus'],
             featureFlagLogic,
             ['featureFlags'],
+            panelLayoutLogic,
+            ['searchTerm'],
         ],
     }),
     actions({
@@ -56,8 +58,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
         rename: (path: string) => ({ path }),
         createFolder: (parentPath: string) => ({ parentPath }),
-        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        clearSearch: true,
     }),
     loaders(({ actions, values }) => ({
         allUnfiledItems: [
@@ -181,13 +181,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             true,
             {
                 setHelpNoticeVisibility: (_, { visible }) => visible,
-            },
-        ],
-        searchTerm: [
-            '',
-            {
-                setSearchTerm: (_, { searchTerm }) => searchTerm,
-                clearSearch: () => '',
             },
         ],
     }),

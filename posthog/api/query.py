@@ -264,7 +264,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
         json_data = auth_content["data"]
         data = QueryRequest.model_validate(json_data)
         team = await Team.objects.aget(pk=auth_content["team_id"])
-        query, client_query_id, execution_mode = _process_query_request(
+        query, client_query_id, execution_mode = await sync_to_async(_process_query_request)(
             data,
             team,
             data.client_query_id,

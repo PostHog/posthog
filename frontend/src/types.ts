@@ -527,6 +527,7 @@ export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-lo
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
+    blockSelector?: string
 }
 
 export enum ActivationTaskStatus {

@@ -1243,15 +1243,26 @@ def send_all_org_usage_reports(
 
     instance_metadata = get_instance_metadata(period)
 
+    # Get an SQS producer if EE is available
+    producer = None
+    try:
+        if settings.EE_AVAILABLE:
+            from ee.sqs.SQSProducer import get_sqs_producer
+
+            producer = get_sqs_producer("usage_reports")
+    except Exception:
+        pass
+
     try:
         org_reports = _get_all_org_reports(period_start, period_end)
 
         logger.info("Sending usage reports to PostHog and Billing...")  # noqa T201
         time_now = datetime.now()
-        for org_report in org_reports.values():
-            org_id = org_report.organization_id
 
-            if only_organization_id and only_organization_id != org_id:
+        for org_report in org_reports.values():
+            organization_id = org_report.organization_id
+
+            if only_organization_id and only_organization_id != organization_id:
                 continue
 
             full_report = _get_full_org_usage_report(org_report, instance_metadata)
@@ -1261,18 +1272,24 @@ def send_all_org_usage_reports(
                 continue
 
             # First capture the events to PostHog
-            if not skip_capture_event:
-                at_date_str = at_date.isoformat() if at_date else None
-                capture_report.delay(
-                    capture_event_name=capture_event_name,
-                    org_id=org_id,
-                    full_report_dict=full_report_dict,
-                    at_date=at_date_str,
-                )
+            # if not skip_capture_event:
+            #     at_date_str = at_date.isoformat() if at_date else None
+            #     capture_report.delay(
+            #         capture_event_name=capture_event_name,
+            #         org_id=org_id,
+            #         full_report_dict=full_report_dict,
+            #         at_date=at_date_str,
+            #     )
 
-            # Then capture the events to Billing
-            if has_non_zero_usage(full_report):
-                send_report_to_billing_service.delay(org_id=org_id, report=full_report_dict)
+            # Then capture the events to Billing (only if producer is available)
+            if has_non_zero_usage(full_report) and producer:
+                logger.info(f"Sending usage report for organization {organization_id}")  # noqa T201
+                response = producer.send_message(
+                    message_body={"organization_id": organization_id, "usage_report": full_report_dict}
+                )
+                if not response:
+                    logger.error(f"Failed to send usage report for organization {organization_id}")
+
         time_since = datetime.now() - time_now
         logger.debug(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
     except Exception as err:
