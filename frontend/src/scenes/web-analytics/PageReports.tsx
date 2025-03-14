@@ -5,9 +5,10 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import React from 'react'
 
 import { pageReportsLogic } from './pageReportsLogic'
-import { SectionsTileItem } from './WebAnalyticsDashboard'
+import { SectionsList } from './WebAnalyticsDashboard'
 
 export function PageReportsFilters(): JSX.Element {
     const { pagesUrls, pageUrl, isLoading, stripQueryParams, dateFilter } = useValues(pageReportsLogic)
@@ -67,10 +68,9 @@ export function PageReportsFilters(): JSX.Element {
     )
 }
 
-export const PageReports = (): JSX.Element => {
+export function PageReports(): JSX.Element {
     const { hasPageUrl, sections } = useValues(pageReportsLogic)
 
-    // If we don't have a page URL, show the introduction
     if (!hasPageUrl) {
         return (
             <div className="space-y-2 mt-2">
@@ -85,10 +85,9 @@ export const PageReports = (): JSX.Element => {
         )
     }
 
-    // Otherwise, show the full report with sections
     return (
         <div className="space-y-2 mt-2">
-            <SectionsTileItem sections={sections} />
+            <SectionsList sections={sections} />
         </div>
     )
 }

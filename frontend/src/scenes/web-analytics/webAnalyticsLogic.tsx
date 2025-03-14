@@ -199,6 +199,12 @@ export interface ErrorTrackingTile extends BaseTile {
     query: QuerySchema
 }
 
+export interface WebSectionTile {
+    title: string
+    tiles: WebAnalyticsTile[]
+    gridClassName?: string
+}
+
 export type WebAnalyticsTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
 
 export interface WebAnalyticsModalQuery {

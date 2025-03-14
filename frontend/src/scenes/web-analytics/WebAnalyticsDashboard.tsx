@@ -19,7 +19,7 @@ import React, { useState } from 'react'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
-import { WebQuery, WebSection } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
+import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import {
     ProductTab,
@@ -29,6 +29,7 @@ import {
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     webAnalyticsLogic,
+    WebSectionTile,
 } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 
@@ -173,31 +174,32 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
     )
 }
 
-export const SectionsTileItem = ({ sections }: { sections: WebSection[] }): JSX.Element => {
+export const SectionTileItem = ({ section }: { section: WebSectionTile }): JSX.Element => {
+    return (
+        <div className="col-span-full mb-4">
+            <h2 className="text-lg font-semibold mb-2">{section.title}</h2>
+            <div className={`grid ${section.gridClassName || 'grid-cols-1 md:grid-cols-3'} gap-4`}>
+                {section.tiles.map((tile) => {
+                    if (tile.kind === 'query') {
+                        return <QueryTileItem key={tile.tileId} tile={tile} />
+                    } else if (tile.kind === 'tabs') {
+                        return <TabsTileItem key={tile.tileId} tile={tile} />
+                    }
+                    return null
+                })}
+            </div>
+        </div>
+    )
+}
+
+export const SectionsList = ({ sections }: { sections: WebSectionTile[] }): JSX.Element => {
     return (
         <>
-            {sections.map((section) => (
-                <div key={section.title} className="col-span-full">
-                    <div className="flex items-center justify-between mb-2">
-                        <h2 className="text-xl font-semibold">{section.title}</h2>
-                    </div>
-                    <div
-                        className={`grid ${section.gridClassName || 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}
-                    >
-                        {section.tiles.map((tile) => {
-                            if (tile.kind === 'query') {
-                                return (
-                                    <div key={tile.tileId}>
-                                        <QueryTileItem tile={tile} />
-                                    </div>
-                                )
-                            }
-
-                            return null
-                        })}
-                    </div>
-                    <LemonDivider className="my-4" />
-                </div>
+            {sections.map((section, index) => (
+                <React.Fragment key={section.title}>
+                    <SectionTileItem section={section} />
+                    {index < sections.length - 1 && <LemonDivider className="my-3" />}
+                </React.Fragment>
             ))}
         </>
     )

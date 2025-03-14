@@ -14,7 +14,6 @@ import {
 } from '~/types'
 
 import type { pageReportsLogicType } from './pageReportsLogicType'
-import { WebSection } from './tiles/WebAnalyticsTile'
 import {
     DeviceTab,
     GeographyTab,
@@ -26,6 +25,7 @@ import {
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     webAnalyticsLogic,
     WebAnalyticsTile,
+    WebSectionTile,
 } from './webAnalyticsLogic'
 
 export interface PageURL {
@@ -324,7 +324,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 ) => InsightVizNode<TrendsQuery>,
                 dateFilter: typeof webAnalyticsLogic.values.dateFilter,
                 compareFilter: CompareFilter
-            ): WebSection[] => {
+            ): WebSectionTile[] => {
                 if (!pageUrl) {
                     return []
                 }
