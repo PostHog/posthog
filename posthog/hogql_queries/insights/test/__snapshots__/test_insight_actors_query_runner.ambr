@@ -5,10 +5,10 @@
   FROM
     (SELECT events.distinct_id AS distinct_id
      FROM events
-     WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('2025-03-13 14:29:55.777627', 6, 'US/Pacific')), in(events.uuid,
+     WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('2025-03-14 00:23:26.496244', 6, 'US/Pacific')), in(events.uuid,
                                                                                                                                                                   (SELECT uuid AS uuid
                                                                                                                                                                    FROM
-                                                                                                                                                                     (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, e.uuid AS uuid, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.distinct_id AS distinct_id
+                                                                                                                                                                     (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid, e.distinct_id AS distinct_id
                                                                                                                                                                       FROM events AS e
                                                                                                                                                                       LEFT OUTER JOIN
                                                                                                                                                                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -310,8 +310,8 @@
                count() AS event_count
         FROM
           (SELECT e.`$group_0` AS actor_id,
-                  e.uuid AS uuid,
-                  toTimeZone(e.timestamp, 'US/Pacific') AS timestamp
+                  toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
+                  e.uuid AS uuid
            FROM events AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), notEquals(e.`$group_0`, ''), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
