@@ -11,12 +11,12 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
-import { FileSystemImport, FolderState, ProjectTreeAction } from './types'
+import { FolderState, ProjectTreeAction } from './types'
 import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
 const PAGINATION_LIMIT = 100
 
@@ -298,12 +298,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         ? [
                               {
                                   path: 'Groups',
-                                  href: urls.groups(0),
+                                  href: () => urls.groups(0),
                               },
                           ]
                         : Array.from(groupTypes.values()).map((groupType) => ({
                               path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                              href: urls.groups(groupType.group_type_index),
+                              href: () => urls.groups(groupType.group_type_index),
                           }))),
                 ]
 
