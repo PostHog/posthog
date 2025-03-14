@@ -121,6 +121,7 @@ export class LegacyPluginExecutorService {
             finished: true,
             capturedPostHogEvents: [],
             logs: [],
+            metrics: [],
         }
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
@@ -222,6 +223,14 @@ export class LegacyPluginExecutorService {
                     addLog('info', 'Fetch called but mocked due to test function', {
                         url: args[0],
                         method,
+                    })
+
+                    result.metrics!.push({
+                        team_id: invocation.hogFunction.team_id,
+                        app_source_id: invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
                     })
                     // Simulate a mini bit of fetch delay
                     await new Promise((resolve) => setTimeout(resolve, 200))

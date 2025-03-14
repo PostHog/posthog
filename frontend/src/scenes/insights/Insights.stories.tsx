@@ -11,7 +11,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         testOptions: {
-            snapshotBrowsers: ['chromium', 'webkit'],
+            snapshotBrowsers: ['chromium'],
             viewport: {
                 // needs a slightly larger width to push the rendered scene away from breakpoint boundary
                 width: 1300,

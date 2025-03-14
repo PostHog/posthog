@@ -34,7 +34,9 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
+    def read_bytes(
+        self, bucket: str, key: str, first_byte: Optional[int] = None, last_byte: Optional[int] = None
+    ) -> Optional[bytes]:
         pass
 
     @abc.abstractmethod
@@ -64,10 +66,12 @@ class UnavailableStorage(ObjectStorageClient):
         pass
 
     def read(self, bucket: str, key: str) -> Optional[str]:
-        pass
+        return None
 
-    def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
-        pass
+    def read_bytes(
+        self, bucket: str, key: str, first_byte: Optional[int] = None, last_byte: Optional[int] = None
+    ) -> Optional[bytes]:
+        return None
 
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
         pass
@@ -127,10 +131,18 @@ class ObjectStorage(ObjectStorageClient):
         else:
             return None
 
-    def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
+    def read_bytes(
+        self, bucket: str, key: str, first_byte: Optional[int] = None, last_byte: Optional[int] = None
+    ) -> Optional[bytes]:
         s3_response = {}
         try:
-            s3_response = self.aws_client.get_object(Bucket=bucket, Key=key)
+            kwargs = {"Bucket": bucket, "Key": key}
+            if first_byte is not None and last_byte is not None:
+                kwargs["Range"] = f"bytes={first_byte}-{last_byte}"
+            elif first_byte is not None:
+                kwargs["Range"] = f"bytes={first_byte}-"
+
+            s3_response = self.aws_client.get_object(**kwargs)
             return s3_response["Body"].read()
         except Exception as e:
             logger.exception(
@@ -235,8 +247,11 @@ def read(file_name: str, bucket: str | None = None) -> Optional[str]:
     return object_storage_client().read(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
 
-def read_bytes(file_name: str) -> Optional[bytes]:
-    return object_storage_client().read_bytes(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
+def read_bytes(
+    file_name: str, bucket: str | None = None, first_byte: Optional[int] = None, last_byte: Optional[int] = None
+) -> Optional[bytes]:
+    bucket = bucket or settings.OBJECT_STORAGE_BUCKET
+    return object_storage_client().read_bytes(bucket, file_name, first_byte, last_byte)
 
 
 def list_objects(prefix: str) -> Optional[list[str]]:
