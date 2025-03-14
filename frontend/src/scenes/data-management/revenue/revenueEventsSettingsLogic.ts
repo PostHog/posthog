@@ -201,6 +201,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                 resetConfig: () => {
                     return values.savedRevenueTrackingConfig
                 },
+                saveChanges: (_, team) => team.revenue_tracking_config || createEmptyConfig(values.preflight?.region),
             },
         ],
         savedRevenueTrackingConfig: [
