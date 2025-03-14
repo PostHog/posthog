@@ -47,7 +47,8 @@ export class Logger {
     private _log(level: LogLevel, ...args: any[]) {
         // Get the last arg - if it is an object then we spread it into our log values
         const lastArg = args[args.length - 1]
-        const extra = typeof lastArg === 'object' ? lastArg : undefined
+        // Check if it is an object and not an error
+        const extra = typeof lastArg === 'object' && !(lastArg instanceof Error) ? lastArg : undefined
 
         // If there is an extra object, we spread it into our log values
         if (extra) {
