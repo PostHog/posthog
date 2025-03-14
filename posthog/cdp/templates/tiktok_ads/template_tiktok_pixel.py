@@ -80,7 +80,7 @@ export function onLoad({ inputs }) {
             userProperties[key] = value;
         }
     };
-    ttq.instance(inputs.pixelId).identify(userProperties)
+    ttq.instance(inputs.pixelId).identify(userProperties);
 }
 export function onEvent({ inputs }) {
     let eventProperties = {};
