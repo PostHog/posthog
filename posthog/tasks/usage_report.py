@@ -47,10 +47,6 @@ from posthog.utils import (
 from posthog.warehouse.models import ExternalDataJob
 from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
 
-if settings.EE_AVAILABLE:
-    from ee.sqs.SQSProducer import SQSProducer
-else:
-    SQSProducer = object
 
 logger = structlog.get_logger(__name__)
 
@@ -1227,7 +1223,7 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
     return dataclasses.asdict(full_report)
 
 
-def _queue_report(producer: SQSProducer, organization_id: str, full_report_dict: dict[str, Any]) -> None:
+def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[str, Any]) -> None:
     logger.info(f"Sending usage report for organization {organization_id}")  # noqa T201
 
     json_data = json.dumps(
