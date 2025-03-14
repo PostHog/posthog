@@ -1,5 +1,3 @@
-# posthog/models/test/test_file_system_mixin.py
-
 from django.test import TestCase
 
 from posthog.models import (
@@ -30,7 +28,7 @@ class TestFileSystemSyncMixin(TestCase):
         flag = FeatureFlag.objects.create(team=self.team, name="My Feature", deleted=False, created_by=self.user)
         # The Mixin's post_save signal should create a FileSystem row
         fs_entry = FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).first()
-        self.assertIsNotNone(fs_entry)
+        assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/My Feature")
         self.assertEqual(fs_entry.created_by, self.user)
 
@@ -49,7 +47,7 @@ class TestFileSystemSyncMixin(TestCase):
 
         # The Mixin's post_save should remove the corresponding FileSystem entry
         fs_entry = FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).first()
-        self.assertIsNone(fs_entry)
+        assert fs_entry is None
         self.assertEqual(FileSystem.objects.count(), 0)
 
     def test_feature_flag_physical_delete_triggers_file_removal(self):
@@ -62,7 +60,7 @@ class TestFileSystemSyncMixin(TestCase):
         flag_id = flag.id
         flag.delete()  # triggers post_delete
         fs_entry = FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag_id)).first()
-        self.assertIsNone(fs_entry)
+        assert fs_entry is None
         self.assertEqual(FileSystem.objects.count(), 0)
 
     def test_feature_flag_name_update_renames_file_system_path(self):
@@ -91,7 +89,7 @@ class TestFileSystemSyncMixin(TestCase):
         ff = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user, key="flaggy")
         exp = Experiment.objects.create(team=self.team, name="Exp #1", created_by=self.user, feature_flag=ff)
         fs_entry = FileSystem.objects.filter(team=self.team, type="experiment", ref=str(exp.id)).first()
-        self.assertIsNotNone(fs_entry)
+        assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Experiments/Exp #1")
 
         # If we manually add a field `deleted=True` (if it existed),
@@ -112,7 +110,7 @@ class TestFileSystemSyncMixin(TestCase):
             team=self.team, name="My Insight", saved=True, deleted=False, created_by=self.user
         )
         fs_entry = FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).first()
-        self.assertIsNotNone(fs_entry)
+        assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Insights/My Insight")
 
         # Mark as not saved
@@ -120,7 +118,7 @@ class TestFileSystemSyncMixin(TestCase):
         insight.save()
         self.assertFalse(Insight.objects.get(id=insight.id).saved)
         fs_entry = FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).first()
-        self.assertIsNone(fs_entry)  # Should be removed
+        assert fs_entry is None
 
         # Now mark as saved again
         insight.saved = True
@@ -128,13 +126,13 @@ class TestFileSystemSyncMixin(TestCase):
         insight.save()
         # Because we updated from "deleted or not saved" => false, we should get a new entry
         new_fs_entry = FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).first()
-        self.assertIsNotNone(new_fs_entry)
+        assert new_fs_entry is not None
 
         # Mark as deleted
         insight.deleted = True
         insight.save()
         fs_entry2 = FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).first()
-        self.assertIsNone(fs_entry2)
+        assert fs_entry2 is None
 
     def test_dashboard_delete_field_removal(self):
         """
@@ -144,13 +142,13 @@ class TestFileSystemSyncMixin(TestCase):
         """
         dash = Dashboard.objects.create(team=self.team, name="Main Dash", created_by=self.user, deleted=False)
         fs_entry = FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(dash.id)).first()
-        self.assertIsNotNone(fs_entry)
+        assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Dashboards/Main Dash")
 
         dash.deleted = True
         dash.save()
         fs_entry_after = FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(dash.id)).first()
-        self.assertIsNone(fs_entry_after)
+        assert fs_entry_after is None
 
     def test_notebook_basic_lifecycle(self):
         """
@@ -159,11 +157,11 @@ class TestFileSystemSyncMixin(TestCase):
         """
         note = Notebook.objects.create(team=self.team, title="My Notebook", deleted=False, created_by=self.user)
         fs_entry = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note.id)).first()
-        self.assertIsNotNone(fs_entry)
+        assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Notebooks/My Notebook")
 
         # Physical delete
         note_id = note.id
         note.delete()
         fs_entry2 = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note_id)).first()
-        self.assertIsNone(fs_entry2)
+        assert fs_entry2 is None
