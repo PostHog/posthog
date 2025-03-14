@@ -10,6 +10,7 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { projectLogic } from 'scenes/projectLogic'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
+import { actionsModel } from '~/models/actionsModel'
 import {
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -55,6 +56,8 @@ export const maxLogic = kea<maxLogicType>([
             ['dataProcessingAccepted'],
             maxSettingsLogic,
             ['coreMemory'],
+            actionsModel({ params: 'include_count=1' }),
+            ['actions'],
         ],
     }),
     actions({

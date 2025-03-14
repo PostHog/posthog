@@ -1,13 +1,14 @@
 from datetime import datetime
+from textwrap import dedent
 
 from django.test import override_settings
 from freezegun import freeze_time
 
-from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
+from ee.hogai.taxonomy_agent.toolkit import FinalAnswerTool, TaxonomyAgentToolkit, ToolkitTool
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
@@ -198,14 +199,15 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
     def test_retrieve_event_properties_returns_descriptive_feedback_without_properties(self):
         toolkit = DummyToolkit(self.team)
         self.assertEqual(
-            toolkit.retrieve_event_properties("pageview"),
+            toolkit.retrieve_event_or_action_properties("pageview"),
             "Properties do not exist in the taxonomy for the event pageview.",
         )
 
     def test_empty_events(self):
         toolkit = DummyToolkit(self.team)
         self.assertEqual(
-            toolkit.retrieve_event_properties("test"), "Properties do not exist in the taxonomy for the event test."
+            toolkit.retrieve_event_or_action_properties("test"),
+            "Properties do not exist in the taxonomy for the event test.",
         )
 
         _create_person(
@@ -222,14 +224,14 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
         toolkit = DummyToolkit(self.team)
         self.assertEqual(
-            toolkit.retrieve_event_properties("event1"),
+            toolkit.retrieve_event_or_action_properties("event1"),
             "Properties do not exist in the taxonomy for the event event1.",
         )
 
     def test_retrieve_event_properties(self):
         self._create_taxonomy()
         toolkit = DummyToolkit(self.team)
-        prompt = toolkit.retrieve_event_properties("event1")
+        prompt = toolkit.retrieve_event_or_action_properties("event1")
 
         self.assertIn(
             "<Numeric><prop><name>id</name></prop></Numeric>",
@@ -252,15 +254,15 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self._create_taxonomy()
         toolkit = DummyToolkit(self.team)
 
-        self.assertIn('"Chrome"', toolkit.retrieve_event_property_values("event1", "$browser"))
-        self.assertIn('"Firefox"', toolkit.retrieve_event_property_values("event1", "$browser"))
-        self.assertEqual(toolkit.retrieve_event_property_values("event1", "bool"), "true")
+        self.assertIn('"Chrome"', toolkit.retrieve_event_or_action_property_values("event1", "$browser"))
+        self.assertIn('"Firefox"', toolkit.retrieve_event_or_action_property_values("event1", "$browser"))
+        self.assertEqual(toolkit.retrieve_event_or_action_property_values("event1", "bool"), "true")
         self.assertEqual(
-            toolkit.retrieve_event_property_values("event1", "id"),
+            toolkit.retrieve_event_or_action_property_values("event1", "id"),
             "9, 8, 7, 6, 5, 4, 3, 2, 1, 0",
         )
         self.assertEqual(
-            toolkit.retrieve_event_property_values("event1", "date"), f'"{datetime(2024, 1, 1).isoformat()}"'
+            toolkit.retrieve_event_or_action_property_values("event1", "date"), f'"{datetime(2024, 1, 1).isoformat()}"'
         )
 
     def test_enrich_props_with_descriptions(self):
@@ -271,3 +273,57 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(prop, "$geoip_city_name")
         self.assertEqual(type, "String")
         self.assertIsNotNone(description)
+
+
+class TestFinalAnswerTool(BaseTest):
+    def test_normalize_plan(self):
+        original = """
+        Series:
+        - series 1: Interacted with file
+            - action id: 1
+            - math operation: unique users
+            - property filter 1:
+                - entity: action
+                - property name: $geoip_country_code
+                - property type: String
+                - operator: equals
+                - property value: AU
+            - property filter 2:
+                - action
+                - property name: icp_score
+                - property type: String
+                - operator: equals
+                - property value: 10
+            - property filter 3:
+                - action
+                - property name: action
+                - property type: String
+                - operator: equals
+                - property value: action
+        """
+        normalized = """
+        Series:
+        - series 1: Interacted with file
+            - action id: 1
+            - math operation: unique users
+            - property filter 1:
+                - entity: event
+                - property name: $geoip_country_code
+                - property type: String
+                - operator: equals
+                - property value: AU
+            - property filter 2:
+                - entity: event
+                - property name: icp_score
+                - property type: String
+                - operator: equals
+                - property value: 10
+            - property filter 3:
+                - entity: event
+                - property name: action
+                - property type: String
+                - operator: equals
+                - property value: action
+        """
+        tool = FinalAnswerTool(name="final_answer", arguments=dedent(original))
+        self.assertEqual(tool.arguments.strip(), dedent(normalized).strip())
