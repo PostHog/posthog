@@ -1024,12 +1024,12 @@ class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
-    public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
+    public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('external_data_schemas')
     }
 
     public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.dataWarehouseTables(teamId).addPathComponent(schemaId)
+        return this.externalDataSchemas(teamId).addPathComponent(schemaId)
     }
 
     // Insight Variables
@@ -2638,7 +2638,7 @@ const api = {
         },
     },
 
-    dataWarehouseTables: {
+    externalDataSchemas: {
         async update(
             schemaId: ExternalDataSourceSchema['id'],
             data: Partial<ExternalDataSourceSchema>
