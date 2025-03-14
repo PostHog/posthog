@@ -4253,15 +4253,14 @@ export interface ExternalDataSource {
 
 export interface DataModelingJob {
     id: string
-    team_id: number
     saved_query_id: string
     status: 'Running' | 'Completed' | 'Failed'
     rows_materialized: number
     error: string | null
     created_at: string
     last_run_at: string
-    workflow_id: string | null
-    workflow_run_id: string | null
+    workflow_id: string
+    workflow_run_id: string
 }
 
 export interface SimpleExternalDataSourceSchema {
