@@ -131,7 +131,7 @@
          events.event AS event,
          multiIf(equals(events.event, 'purchase_a'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), equals(events.event, 'purchase_b'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), NULL) AS original_revenue,
          multiIf(equals(events.event, 'purchase_a'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_a'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), equals(events.event, 'purchase_b'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue_b'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), NULL) AS revenue,
-         multiIf(equals(events.event, 'purchase_a'), 'USD', equals(events.event, 'purchase_b'), upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), NULL) AS original_currency,
+         multiIf(equals(events.event, 'purchase_a'), 'GBP', equals(events.event, 'purchase_b'), upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), NULL) AS original_currency,
          'EUR' AS currency,
          tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties),
          nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
