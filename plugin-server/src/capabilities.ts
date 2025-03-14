@@ -9,7 +9,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case null:
             return {
                 mmdb: true,
-                propertyDefs: true,
                 ingestionV2Combined: true,
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
