@@ -38,7 +38,7 @@ impl QueueManager {
                 .shard_depth_check_interval_seconds
                 .unwrap_or(DEFAULT_SHARD_HEALTH_CHECK_INTERVAL) as i64,
         );
-        let should_compress_vm_state = config.should_compress_vm_state.is_some_and(|flag| flag);
+        let should_compress_vm_state = config.should_compress_vm_state.unwrap_or(false);
 
         for shard in config.shards {
             let pool = shard.connect().await.unwrap();
