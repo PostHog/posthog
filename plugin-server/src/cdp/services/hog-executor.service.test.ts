@@ -11,15 +11,6 @@ import { logger } from '../../../src/utils/logger'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../_tests/fixtures'
 
-jest.mock('../../../src/utils/logger', () => ({
-    status: {
-        error: jest.fn(),
-        info: jest.fn(),
-        warn: jest.fn(),
-        debug: jest.fn(),
-    },
-}))
-
 const setupFetchResponse = (
     invocation: HogFunctionInvocation,
     options?: Partial<HogFunctionInvocation['queueParameters']>

@@ -16,15 +16,6 @@ import { propertyFilterPlugin } from '../legacy-plugins/_transformations/propert
 import { HogFunctionTemplate } from '../templates/types'
 import { HogTransformerService } from './hog-transformer.service'
 
-jest.mock('../../utils/logger', () => ({
-    status: {
-        warn: jest.fn(),
-        info: jest.fn(),
-        debug: jest.fn(),
-        error: jest.fn(),
-    },
-}))
-
 const createPluginEvent = (event: Partial<PluginEvent> = {}, teamId: number = 1): PluginEvent => {
     return {
         ip: '12.87.118.0',
