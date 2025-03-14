@@ -1519,6 +1519,13 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The parameters used to configure the model in the LLM API, in JSON',
             examples: ['{"temperature": 0.5, "max_tokens": 50}'],
         },
+        $ai_tools: {
+            label: 'AI Tools (LLM)',
+            description: 'The tools available to the LLM',
+            examples: [
+                '[{"type": "function", "function": {"name": "tool1", "arguments": {"arg1": "value1", "arg2": "value2"}}}]',
+            ],
+        },
         $ai_stream: {
             label: 'AI Stream (LLM)',
             description: 'Whether the response from the LLM API was streamed',
