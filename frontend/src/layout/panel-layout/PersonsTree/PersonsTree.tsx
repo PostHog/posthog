@@ -35,8 +35,6 @@ export function PersonsTree({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 contentRef={mainRef}
                 className="px-0 py-1"
                 data={treeData}
-                // isFinishedBuildingTreeData={Object.keys(loadingPaths).length === 0}
-                // defaultSelectedFolderOrNodeId={lastViewedId || undefined}
                 // onNodeClick={(node) => {
                 // if (node?.record?.path) {
                 //     setLastViewedId(node?.id || '')
