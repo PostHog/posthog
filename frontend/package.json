@@ -59,7 +59,7 @@
         "@posthog/ee": "workspace:*",
         "@posthog/esbuilder": "workspace:*",
         "@posthog/hogvm": "workspace:*",
-        "@posthog/icons": "0.11.5",
+        "@posthog/icons": "0.11.6",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@posthog/products-dashboards": "workspace:*",
         "@posthog/products-early-access-features": "workspace:*",

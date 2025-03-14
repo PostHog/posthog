@@ -19,7 +19,7 @@ const iconWrapperVariants = cva('flex place-items-center aspect-square', {
     },
     defaultVariants: {
         size: 'md',
-        intent: 'default',
+        intent: 'secondary',
     },
 })
 
@@ -30,7 +30,7 @@ export type IconWrapper = VariantProps<typeof iconWrapperVariants> & {
 }
 
 export const IconWrapper = forwardRef<HTMLDivElement, IconWrapper>(
-    ({ className, size = 'md', intent = 'default', children }, ref) => {
+    ({ className, size = 'md', intent = 'secondary', children }, ref) => {
         return (
             <div className={cn(iconWrapperVariants({ size, intent }), className)} ref={ref}>
                 {children}

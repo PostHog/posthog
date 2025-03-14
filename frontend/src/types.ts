@@ -39,6 +39,7 @@ import type {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
+    FileSystemImport,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
@@ -974,6 +975,7 @@ export const SnapshotSourceType = {
     blob: 'blob',
     realtime: 'realtime',
     file: 'file',
+    blob_v2: 'blob_v2',
 } as const
 
 export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
@@ -988,6 +990,10 @@ export interface SessionRecordingSnapshotSource {
 export type SessionRecordingSnapshotParams =
     | {
           source: 'blob'
+          blob_key?: string
+      }
+    | {
+          source: 'blob_v2'
           blob_key?: string
       }
     | {
@@ -5080,10 +5086,17 @@ export interface CoreMemory {
     text: string
 }
 
+export interface FileSystemType {
+    icon?: JSX.Element
+    href?: (ref: string) => string
+}
+
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>
     routes?: Record<string, [string /** Scene */, string /** Scene Key (unique for layout tabs) */]>
     redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
     urls?: Record<string, string | ((...args: any[]) => string)>
+    fileSystemTypes?: Record<string, FileSystemType>
+    treeItems?: FileSystemImport[]
 }
