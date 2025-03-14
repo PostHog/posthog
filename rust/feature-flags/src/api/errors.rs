@@ -39,6 +39,8 @@ pub enum FlagError {
     TokenValidationError,
     #[error("Row not found in postgres")]
     RowNotFound,
+    #[error("failed to deserialize filters")]
+    DeserializeFiltersError,
     #[error("failed to parse redis cache data")]
     RedisDataParsingError,
     #[error("failed to update redis cache")]
@@ -103,6 +105,13 @@ impl IntoResponse for FlagError {
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Failed to parse internal data. This is likely a temporary issue. Please try again later.".to_string(),
+                )
+            }
+            FlagError::DeserializeFiltersError => {
+                tracing::error!("Failed to deserialize filters: {:?}", self);
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Failed to deserialize filters. Please check your request format and try again.".to_string(),
                 )
             }
             FlagError::CacheUpdateError => {

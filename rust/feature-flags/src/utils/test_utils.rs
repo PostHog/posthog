@@ -12,7 +12,10 @@ use crate::{
     },
     cohort::cohort_models::Cohort,
     config::{Config, DEFAULT_TEST_CONFIG},
-    flags::flag_models::{FeatureFlag, FeatureFlagRow, TEAM_FLAGS_CACHE_PREFIX},
+    flags::{
+        flag_matching::PersonId,
+        flag_models::{FeatureFlag, FeatureFlagRow, TEAM_FLAGS_CACHE_PREFIX},
+    },
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use rand::{distributions::Alphanumeric, Rng};
@@ -214,7 +217,7 @@ pub async fn insert_new_team_in_pg(
         (id, organization_id, name, created_at) VALUES
         ($1, $2::uuid, $3, '2024-06-17 14:40:51.332036+00:00')"#,
     )
-    .bind(team.id)
+    .bind(team.project_id)
     .bind(ORG_ID)
     .bind(&team.name)
     .execute(&mut *conn)
@@ -310,7 +313,7 @@ pub async fn insert_person_for_team_in_pg(
     team_id: i32,
     distinct_id: String,
     properties: Option<Value>,
-) -> Result<i32, Error> {
+) -> Result<PersonId, Error> {
     // Changed return type to Result<i32, Error>
     let payload = match properties {
         Some(value) => value,
@@ -346,7 +349,7 @@ pub async fn insert_person_for_team_in_pg(
     .fetch_one(&mut *conn)
     .await?;
 
-    let person_id: i32 = row.get::<i32, _>("person_id");
+    let person_id = row.get::<PersonId, _>("person_id");
     Ok(person_id)
 }
 
