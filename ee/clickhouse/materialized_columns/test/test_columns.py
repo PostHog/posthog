@@ -29,7 +29,6 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)] + [
     "$session_id",
     "$window_id",
-    "$session_id_uuid",
 ]
 
 
