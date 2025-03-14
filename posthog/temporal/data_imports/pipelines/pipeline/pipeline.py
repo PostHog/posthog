@@ -196,11 +196,11 @@ class PipelineNonDLT:
             partition_keys = self._schema.partitioning_keys or self._resource.primary_keys
             if partition_count and partition_keys and partition_size:
                 # This needs to happen before _evolve_pyarrow_schema
-                pa_table, partition_mode = append_partition_key_to_table(
+                pa_table, partition_mode, updated_partition_keys = append_partition_key_to_table(
                     table=pa_table,
                     partition_count=partition_count,
                     partition_size=partition_size,
-                    primary_keys=partition_keys,
+                    partition_keys=partition_keys,
                     partition_mode=self._schema.partition_mode,
                     logger=self._logger,
                 )
@@ -210,7 +210,7 @@ class PipelineNonDLT:
                         f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}"
                     )
                     self._schema.set_partitioning_enabled(
-                        partition_keys, partition_count, partition_size, partition_mode
+                        updated_partition_keys, partition_count, partition_size, partition_mode
                     )
             else:
                 self._logger.debug(

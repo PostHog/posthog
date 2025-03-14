@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 import tempfile
 import os
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 from django.db import models
 from django_deprecate_fields import deprecate_field
 import numpy
@@ -14,6 +14,8 @@ import uuid
 import psycopg2
 from psycopg2 import sql
 import pymysql
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionMode
 from .external_data_source import ExternalDataSource
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
@@ -138,7 +140,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         return None
 
     @property
-    def partition_mode(self) -> Literal["md5"] | Literal["numerical"] | None:
+    def partition_mode(self) -> PartitionMode | None:
         if self.sync_type_config:
             return self.sync_type_config.get("partition_mode", None)
 
@@ -156,7 +158,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         partitioning_keys: list[str],
         partition_count: int,
         partition_size: int,
-        partition_mode: Literal["md5"] | Literal["numerical"],
+        partition_mode: PartitionMode,
     ) -> None:
         self.sync_type_config["partitioning_enabled"] = True
         self.sync_type_config["partition_count"] = partition_count
@@ -169,9 +171,11 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         self.sync_type_config.pop("reset_pipeline", None)
         self.sync_type_config.pop("incremental_field_last_value", None)
         self.sync_type_config.pop("partitioning_enabled", None)
-        self.sync_type_config.pop("partitioning_size", None)  # Legacy key
+        self.sync_type_config.pop("partition_size", None)
         self.sync_type_config.pop("partition_count", None)
         self.sync_type_config.pop("partitioning_keys", None)
+        self.sync_type_config.pop("partition_mode", None)
+
         self.save()
 
     def update_incremental_field_last_value(self, last_value: Any) -> None:
