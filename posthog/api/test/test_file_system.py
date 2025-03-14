@@ -1,7 +1,7 @@
 from rest_framework import status
 from posthog.test.base import APIBaseTest
 from posthog.models import FeatureFlag, Dashboard, Experiment, Insight, Notebook
-from posthog.models.file_system import FileSystem
+from posthog.models.file_system.file_system import FileSystem
 
 
 class TestFileSystemAPI(APIBaseTest):

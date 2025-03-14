@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.utils import get_filter
 from posthog.models.utils import sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
@@ -23,11 +24,13 @@ class InsightManager(models.Manager):
         return super().get_queryset().exclude(deleted=True)
 
 
-class Insight(models.Model):
+class Insight(FileSystemSyncMixin, models.Model):
     """
     Stores saved insights along with their entire configuration options. Saved insights can be stored as standalone
     reports or part of a dashboard.
     """
+
+    file_system_config_key = "insight"
 
     name = models.CharField(max_length=400, null=True, blank=True)
     derived_name = models.CharField(max_length=400, null=True, blank=True)

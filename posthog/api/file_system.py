@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from posthog.api.utils import action
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.file_system import FileSystem, save_unfiled_files, split_path
+from posthog.models.file_system.file_system import FileSystem, save_unfiled_files, split_path
 from posthog.models.user import User
 from posthog.models.team import Team
 

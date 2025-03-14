@@ -1,6 +1,6 @@
 from django.test import TestCase
 from posthog.models import FeatureFlag, Experiment, Dashboard, Insight, Notebook, Team, User, Organization
-from posthog.models.file_system import (
+from posthog.models.file_system.file_system import (
     FileSystem,
     save_unfiled_files,
     UnfiledFileSaver,
@@ -37,6 +37,7 @@ class TestFileSystemModel(TestCase):
         Dashboard.objects.create(team=self.team, name="Main Dashboard", created_by=self.user)
         Insight.objects.create(team=self.team, name="Traffic Insight", created_by=self.user, saved=True)
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         # Call the saver
         created = save_unfiled_files(self.team, self.user)
@@ -61,6 +62,7 @@ class TestFileSystemModel(TestCase):
         FeatureFlag.objects.create(
             team=self.team, name="Deleted Flag", created_by=self.user, deleted=True, key="flaggy2"
         )
+        FileSystem.objects.all().delete()
         created = save_unfiled_files(self.team, self.user)
         self.assertEqual(len(created), 1)
         self.assertEqual(FileSystem.objects.count(), 1)
@@ -72,6 +74,7 @@ class TestFileSystemModel(TestCase):
         """
         Insight.objects.create(team=self.team, name="Active Insight", created_by=self.user, deleted=False, saved=True)
         Insight.objects.create(team=self.team, name="Deleted Insight", created_by=self.user, deleted=True, saved=True)
+        FileSystem.objects.all().delete()
         created = save_unfiled_files(self.team, self.user)
         self.assertEqual(len(created), 1)
         self.assertEqual(FileSystem.objects.count(), 1)
@@ -84,6 +87,7 @@ class TestFileSystemModel(TestCase):
         """
         ff = FeatureFlag.objects.create(team=self.team, name="Some Flag", created_by=self.user, key="flaggy1")
         Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
+        FileSystem.objects.all().delete()
         created = save_unfiled_files(self.team, self.user)
         self.assertEqual(len(created), 2)  # 1 FeatureFlag, 1 Experiment
         exp_item = FileSystem.objects.filter(type="experiment").first()
@@ -96,6 +100,7 @@ class TestFileSystemModel(TestCase):
         should NOT be recreated.
         """
         FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user, key="flaggy")
+        FileSystem.objects.all().delete()
 
         first_created = save_unfiled_files(self.team, self.user)
         self.assertEqual(len(first_created), 1)
@@ -122,10 +127,6 @@ class TestFileSystemModel(TestCase):
         )
 
         FeatureFlag.objects.create(team=self.team, name="Duplicate Name", created_by=self.user)
-        created = save_unfiled_files(self.team, self.user)
-
-        self.assertEqual(len(created), 1)
-        self.assertEqual(created[0].path, "Unfiled/Feature Flags/Duplicate Name (1)")
         self.assertTrue(FileSystem.objects.filter(path="Unfiled/Feature Flags/Duplicate Name (1)").exists())
 
     def test_naming_collisions_among_multiple_new_items_same_run(self):
@@ -135,6 +136,7 @@ class TestFileSystemModel(TestCase):
         """
         FeatureFlag.objects.create(team=self.team, name="Same Name", key="name-1", created_by=self.user)
         FeatureFlag.objects.create(team=self.team, name="Same Name", key="name-2", created_by=self.user)
+        FileSystem.objects.all().delete()
         created = save_unfiled_files(self.team, self.user)
 
         self.assertEqual(len(created), 2)
@@ -238,6 +240,7 @@ class TestFileSystemModel(TestCase):
         # Create a FeatureFlag and a Dashboard
         FeatureFlag.objects.create(team=self.team, name="A Flag", created_by=self.user, key="flaggy")
         Dashboard.objects.create(team=self.team, name="A Dashboard", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         # Call with file_type=FEATURE_FLAG
         created_flags = save_unfiled_files(self.team, self.user, file_type="feature_flag")

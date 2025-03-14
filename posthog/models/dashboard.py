@@ -3,6 +3,7 @@ from typing import Any
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.utils import sane_repr
 
 from posthog.utils import absolute_uri
@@ -13,7 +14,9 @@ class DashboardManager(models.Manager):
         return super().get_queryset().exclude(deleted=True)
 
 
-class Dashboard(models.Model):
+class Dashboard(FileSystemSyncMixin, models.Model):
+    file_system_config_key = "dashboard"
+
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
         TEMPLATE = (
