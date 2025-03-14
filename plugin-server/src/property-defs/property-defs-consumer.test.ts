@@ -6,7 +6,15 @@ import { forSnapshot as _forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { insertHogFunction as _insertHogFunction } from '../cdp/_tests/fixtures'
-import { ClickHouseEvent, Hub, ProjectId, RawClickHouseEvent, Team, TimestampFormat } from '../types'
+import {
+    ClickHouseEvent,
+    Hub,
+    ProjectId,
+    PropertyDefinitionType,
+    RawClickHouseEvent,
+    Team,
+    TimestampFormat,
+} from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { PostgresUse } from '../utils/db/postgres'
 import { castTimestampOrNow } from '../utils/utils'
@@ -110,16 +118,6 @@ const createKafkaMessages: (events: ClickHouseEvent[]) => Message[] = (events) =
     })
 }
 
-/**
- * TEST CASES TO COVER:
- * - $groupidentify
- *   - Should create group properties from the $group_set property
- *   - Should create property properties from its own event properties
- *   - Should limit to the max number of groups using the group types
- * - batching
- *   - Should only write once per unique constraint (team_id, event, property etc)
- */
-
 describe('PropertyDefsConsumer', () => {
     let ingester: PropertyDefsConsumer
     let hub: Hub
@@ -186,6 +184,12 @@ describe('PropertyDefsConsumer', () => {
         })
     }
 
+    const sortPropertyDefinitions = (propertyDefinitions: PropertyDefinitionType[]) => {
+        return propertyDefinitions.sort((a, b) =>
+            `${a.project_id}-${a.name}-${a.type}`.localeCompare(`${b.project_id}-${b.name}-${b.type}`)
+        )
+    }
+
     describe('property updates', () => {
         it('should write simple property defs to the DB', async () => {
             await ingester.handleKafkaBatch(
@@ -213,7 +217,11 @@ describe('PropertyDefsConsumer', () => {
                 })
             ).toMatchSnapshot()
 
-            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
+            expect(
+                forSnapshot(sortPropertyDefinitions(await propertyDefsDB.listPropertyDefinitions(team.id)), {
+                    id: '<REPLACED_NUMBER>',
+                })
+            ).toMatchSnapshot()
         })
 
         it('should only write the first seen property defs to the DB', async () => {
@@ -248,7 +256,11 @@ describe('PropertyDefsConsumer', () => {
             expect(propertyDefsDB.writeEventProperties).toHaveBeenCalledTimes(1)
 
             // Snapshot shows a String type as it was the first seen value
-            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
+            expect(
+                forSnapshot(sortPropertyDefinitions(await propertyDefsDB.listPropertyDefinitions(team.id)), {
+                    id: '<REPLACED_NUMBER>',
+                })
+            ).toMatchSnapshot()
         })
 
         it('should batch multiple writes', async () => {
@@ -279,7 +291,11 @@ describe('PropertyDefsConsumer', () => {
             expect(propertyDefsDB.writeEventProperties).toHaveBeenCalledTimes(1)
 
             // Snapshot shows a String type as it was the first seen value
-            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
+            expect(
+                forSnapshot(sortPropertyDefinitions(await propertyDefsDB.listPropertyDefinitions(team.id)), {
+                    id: '<REPLACED_NUMBER>',
+                })
+            ).toMatchSnapshot()
         })
 
         it('should handle existing property defs', async () => {
@@ -350,7 +366,11 @@ describe('PropertyDefsConsumer', () => {
             expect(propertyDefsDB.writeEventProperties).toHaveBeenCalledTimes(1)
 
             expect(forSnapshot(await propertyDefsDB.listEventDefinitions(team.id))).toMatchSnapshot()
-            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
+            expect(
+                forSnapshot(sortPropertyDefinitions(await propertyDefsDB.listPropertyDefinitions(team.id)), {
+                    id: '<REPLACED_NUMBER>',
+                })
+            ).toMatchSnapshot()
         })
     })
 })
