@@ -154,7 +154,7 @@ describe('runningTimeCalculatorLogic', () => {
             logic.actions.setMinimumDetectableEffect(50)
             logic.actions.setMetricResult({
                 uniqueUsers: 1000,
-                conversionRate: 0.1,
+                automaticConversionRateDecimal: 0.1,
             })
 
             await expectLogic(logic).toFinishAllListeners()

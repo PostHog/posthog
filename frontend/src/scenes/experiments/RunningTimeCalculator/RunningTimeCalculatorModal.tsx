@@ -1,12 +1,113 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
 
+import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-general'
+
 import { experimentLogic } from '../experimentLogic'
 import { getMetricTitle } from '../MetricsView/DeltaChart'
-import { runningTimeCalculatorLogic, TIMEFRAME_HISTORICAL_DATA_DAYS } from './runningTimeCalculatorLogic'
+import {
+    AverageEventsPerUserPanel,
+    AveragePropertyValuePerUserPanel,
+    StandardDeviationPanel,
+    UniqueUsersPanel,
+} from './components'
+import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
+
+const MeanMetricDataPanel = (): JSX.Element => {
+    const { experimentId } = useValues(experimentLogic)
+    const { uniqueUsers, averageEventsPerUser, averagePropertyValuePerUser, standardDeviation } = useValues(
+        runningTimeCalculatorLogic({ experimentId })
+    )
+    return (
+        <div className="grid grid-cols-3 gap-4">
+            <UniqueUsersPanel uniqueUsers={uniqueUsers} />
+            <AverageEventsPerUserPanel averageEventsPerUser={averageEventsPerUser} />
+            <AveragePropertyValuePerUserPanel averagePropertyValuePerUser={averagePropertyValuePerUser} />
+            <StandardDeviationPanel standardDeviation={standardDeviation} />
+        </div>
+    )
+}
+
+const FunnelMetricDataPanel = (): JSX.Element => {
+    const { experimentId } = useValues(experimentLogic)
+    const { conversionRateInputType, uniqueUsers, automaticConversionRateDecimal, manualConversionRate } = useValues(
+        runningTimeCalculatorLogic({ experimentId })
+    )
+    const { setConversionRateInputType, setManualConversionRate } = useActions(
+        runningTimeCalculatorLogic({ experimentId })
+    )
+    return (
+        <div>
+            <div className="grid grid-cols-3 gap-4">
+                <UniqueUsersPanel uniqueUsers={uniqueUsers} />
+                <div>
+                    <div className="card-secondary">
+                        <span>Conversion rate input</span>
+                        <Tooltip
+                            className="ml-1"
+                            title={
+                                <>
+                                    <strong>Automatic:</strong> Uses historical conversion rate between your exposure
+                                    event and the conversion event. It may not always be representative of expected
+                                    performance.
+                                    <br />
+                                    <br />
+                                    <strong>Manual:</strong> Allows you to set a custom conversion rate based on your
+                                    own knowledge of the funnel.
+                                </>
+                            }
+                        >
+                            <IconInfo className="text-secondary ml-1" />
+                        </Tooltip>
+                    </div>
+                    <LemonSegmentedButton
+                        className="mt-2"
+                        size="small"
+                        options={[
+                            {
+                                label: 'Manual',
+                                value: ConversionRateInputType.MANUAL,
+                            },
+                            {
+                                label: 'Automatic',
+                                value: ConversionRateInputType.AUTOMATIC,
+                            },
+                        ]}
+                        onChange={(value) => {
+                            setConversionRateInputType(value)
+                        }}
+                        value={conversionRateInputType}
+                    />
+                    {conversionRateInputType === ConversionRateInputType.MANUAL && (
+                        <div className="flex items-center gap-2">
+                            <LemonInput
+                                className="w-[80px] mt-2"
+                                min={0}
+                                step={0.01}
+                                type="number"
+                                value={manualConversionRate || undefined}
+                                onChange={(newValue) => {
+                                    if (newValue !== null && newValue !== undefined) {
+                                        setManualConversionRate(newValue)
+                                    }
+                                }}
+                            />
+                            <div>%</div>
+                        </div>
+                    )}
+                    {conversionRateInputType === ConversionRateInputType.AUTOMATIC && (
+                        <div className="font-semibold mt-2">
+                            ~{humanFriendlyNumber(automaticConversionRateDecimal * 100, 2)}%
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+}
 
 export function RunningTimeCalculatorModal(): JSX.Element {
     const { experimentId, isCalculateRunningTimeModalOpen } = useValues(experimentLogic)
@@ -14,15 +115,12 @@ export function RunningTimeCalculatorModal(): JSX.Element {
 
     const {
         experiment,
+        metric,
         minimumDetectableEffect,
         recommendedSampleSize,
         recommendedRunningTime,
-        standardDeviation,
         metricIndex,
         uniqueUsers,
-        averageEventsPerUser,
-        averagePropertyValuePerUser,
-        conversionRate,
         metricResultLoading,
     } = useValues(runningTimeCalculatorLogic({ experimentId }))
     const { setMinimumDetectableEffect, setMetricIndex } = useActions(runningTimeCalculatorLogic({ experimentId }))
@@ -107,67 +205,12 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                             </div>
                         ) : (
                             <div className="border-t pt-2">
-                                <div className="grid grid-cols-3 gap-4">
-                                    {uniqueUsers !== null && (
-                                        <div>
-                                            <div className="card-secondary">Unique users</div>
-                                            <div className="font-semibold">
-                                                ~{humanFriendlyNumber(uniqueUsers || 0, 0)} persons
-                                            </div>
-                                            <div className="text-xs text-muted">
-                                                Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days
-                                            </div>
-                                        </div>
-                                    )}
-                                    {averageEventsPerUser !== null && (
-                                        <div>
-                                            <div className="card-secondary">Avg. events per user</div>
-                                            <div className="font-semibold">
-                                                ~{humanFriendlyNumber(averageEventsPerUser || 0, 0)}
-                                            </div>
-                                        </div>
-                                    )}
-                                    {averagePropertyValuePerUser !== null && (
-                                        <div>
-                                            <div className="card-secondary">Avg. property value per user</div>
-                                            <div className="font-semibold">
-                                                ~{humanFriendlyNumber(averagePropertyValuePerUser, 0)}
-                                            </div>
-                                        </div>
-                                    )}
-                                    {conversionRate !== null && (
-                                        <div>
-                                            <div className="card-secondary">Conversion rate</div>
-                                            <div className="font-semibold">
-                                                ~{humanFriendlyNumber(conversionRate * 100, 2)}%
-                                            </div>
-                                        </div>
-                                    )}
-                                    {standardDeviation !== null && (
-                                        <div>
-                                            <div className="card-secondary">
-                                                <span>Est. standard deviation</span>
-                                                <Tooltip
-                                                    className="ml-1"
-                                                    title={
-                                                        <>
-                                                            The estimated standard deviation of the metric in the last
-                                                            14 days. It's the "human-readable" version of the amount of
-                                                            dispersion in the dataset, and is calculated as the square
-                                                            root of the variance. The variance informs the recommended
-                                                            sample size.
-                                                        </>
-                                                    }
-                                                >
-                                                    <IconInfo className="text-secondary ml-1" />
-                                                </Tooltip>
-                                            </div>
-                                            <div className="font-semibold">
-                                                ~{humanFriendlyNumber(standardDeviation, 0)}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
+                                {(metric as ExperimentMetric)?.metric_type === ExperimentMetricType.MEAN && (
+                                    <MeanMetricDataPanel />
+                                )}
+                                {(metric as ExperimentMetric)?.metric_type === ExperimentMetricType.FUNNEL && (
+                                    <FunnelMetricDataPanel />
+                                )}
                             </div>
                         )}
                     </div>
