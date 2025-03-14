@@ -1,5 +1,5 @@
-import { IconSort } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { IconFilter, IconSort } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ChainedStackTraces } from 'lib/components/Errors/StackTraces'
@@ -25,7 +25,7 @@ export function StacktraceWidget(): JSX.Element {
                 <div className="flex gap-2">
                     <LemonButton
                         className="space-x-2"
-                        type="primary"
+                        type="tertiary"
                         size="xsmall"
                         onClick={() => reverseFrameOrder(!frameOrderReversed)}
                     >
@@ -33,24 +33,15 @@ export function StacktraceWidget(): JSX.Element {
                         <IconSort />
                     </LemonButton>
                     {hasAnyInApp && (
-                        <LemonSegmentedButton
-                            onChange={(value, e) => {
-                                setShowAllFrames(value === 'full')
-                                e.stopPropagation()
-                            }}
-                            value={showAllFrames ? 'full' : 'in-app'}
-                            options={[
-                                {
-                                    value: 'in-app',
-                                    label: 'In app only',
-                                },
-                                {
-                                    value: 'full',
-                                    label: 'Show full stack',
-                                },
-                            ]}
+                        <LemonButton
+                            className="space-x-2"
+                            type="tertiary"
                             size="xsmall"
-                        />
+                            onClick={() => setShowAllFrames(!showAllFrames)}
+                        >
+                            <span className="me-1">{showAllFrames ? 'Full stack' : 'In app'}</span>
+                            <IconFilter />
+                        </LemonButton>
                     )}
                 </div>
             </Widget.Header>
