@@ -17,7 +17,7 @@ import { HogWatcherState } from '../services/hog-watcher.service'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
-export const histogramCyclotronInsertBatchSize = new Histogram({
+export const histogramCyclotronJobsCreated = new Histogram({
     name: 'cdp_cyclotron_jobs_created_per_batch',
     help: 'The number of jobs we are creating in a single batch',
     buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
@@ -55,10 +55,10 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             }
         })
         try {
+            histogramCyclotronJobsCreated.observe(cyclotronJobs.length)
             // Cyclotron batches inserts into one big INSERT which can lead to contention writing WAL information hence we chunk into batches
 
             const chunkedCyclotronJobs = chunk(cyclotronJobs, this.hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
-            histogramCyclotronInsertBatchSize.observe(chunkedCyclotronJobs.length)
 
             if (this.hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
                 // NOTE: It's not super clear the perf tradeoffs of doing this in parallel hence the config option
