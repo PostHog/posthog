@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, UTC
+from functools import partial
 import re
 import time
 from typing import Optional
@@ -12,6 +13,13 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from dagster_aws.s3 import S3Resource
 
 NO_SHARD_PATH = "noshard"
+
+
+@dataclass
+class BackupStatus:
+    hostname: str
+    status: str
+    error: Optional[str] = None
 
 
 @dataclass
@@ -76,20 +84,26 @@ class Backup:
 
         client.execute(query, query_id=f"{self.id}-{self.shard if self.shard else 'noshard'}")
 
-    def throw_on_error(self, client: Client) -> None:
+    def status(self, client: Client) -> "BackupStatus":
         rows = client.execute(
             f"""
-            SELECT hostname(), argMax(status, event_time_microseconds), argMax(left(error, 200), event_time_microseconds)
+            SELECT hostname(), argMax(status, event_time_microseconds), argMax(left(error, 400), event_time_microseconds)
             FROM system.backup_log
             WHERE (start_time >= (now() - toIntervalDay(7))) AND name LIKE '%{self.path}%'
             GROUP BY hostname()
             """
         )
 
-        if len(rows) > 0:
-            statuses = [status for _, status, _ in rows]
-            if any(status != "BACKUP_CREATED" for status in statuses):
-                raise ValueError(f"The backup {self.path} finished with unexpected statuses in different nodes: {rows}")
+        (hostname, status, error) = rows[0]
+
+        return BackupStatus(hostname=hostname, status=status, error=error) if rows else None
+
+    def throw_on_error(self, client: Client) -> None:
+        status = self.status(client)
+        if status and status.status != "BACKUP_CREATED":
+            raise ValueError(
+                f"The backup {self.path} finished in status {status.status} in host {status.hostname} with an error: {status.error}"
+            )
 
     def is_done(self, client: Client) -> bool:
         # We query the processes table to check if the backup is in progress,
@@ -177,6 +191,66 @@ def get_latest_backup(
 
 
 @dagster.op
+def check_latest_backup_status(
+    context: dagster.OpExecutionContext,
+    latest_backup: Backup,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> str:
+    """
+    Check if the latest backup is done.
+    In case it is not, wait for it to finish.
+    If it's done and failed, clean its path in S3.
+    """
+    map_hosts = (
+        partial(cluster.map_all_hosts_in_shard, shard=latest_backup.shard)
+        if latest_backup.shard
+        else cluster.map_all_hosts
+    )
+
+    is_done = map_hosts(latest_backup.is_done).result()
+    if not all(is_done):
+        context.log.info(f"Latest backup {latest_backup.path} is still in progress, waiting for it to finish")
+        return "IN_PROGRESS"
+    else:
+        status = map_hosts(latest_backup.status).result()
+        if any(status.status != "BACKUP_CREATED" for status in status):
+            context.log.info(f"Latest backup {latest_backup.path} finished with an error, cleaning it from S3")
+            return "FAILED"
+        else:
+            context.log.info(f"Latest backup {latest_backup.path} finished successfully")
+            return "SUCCESS"
+
+
+@dagster.op
+def clean_s3_backup_path(
+    context: dagster.OpExecutionContext,
+    backup: Backup,
+    s3: S3Resource,
+):
+    """
+    Delete a backup path from S3 recursively using batch operations.
+    """
+    context.log.info(f"Recursively deleting backup {backup.path} from S3")
+
+    paginator = s3.get_client().get_paginator("list_objects_v2")
+    pages = paginator.paginate(Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=backup.path)
+
+    total_deleted = 0
+
+    for page in pages:
+        if "Contents" in page:
+            objects_to_delete = [{"Key": obj["Key"]} for obj in page["Contents"]]
+            if objects_to_delete:
+                response = s3.get_client().delete_objects(
+                    Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Delete={"Objects": objects_to_delete}
+                )
+                deleted = len(response.get("Deleted", []))
+                total_deleted += deleted
+
+    context.log.info(f"Deleted {total_deleted} objects from {backup.path}")
+
+
+@dagster.op
 def run_backup(
     context: dagster.OpExecutionContext,
     config: BackupConfig,
@@ -185,7 +259,7 @@ def run_backup(
     shard: Optional[int] = None,
 ):
     """
-    Run the incremental or full backup and wait for it to finish.
+    Run the incremental or full backup
     """
     if config.incremental:
         if not latest_backup:
@@ -201,12 +275,24 @@ def run_backup(
     )
 
     if backup.shard:
-        # Run the backup on any host in the shard, but launch the wait
-        # on all hosts since we don't know which host will be used
         cluster.map_any_host_in_shards({backup.shard: backup.create}).result()
-        cluster.map_all_hosts_in_shard(backup.shard, backup.wait).result()
     else:
         cluster.any_host(backup.create).result()
+
+    return backup
+
+
+@dagster.op
+def wait_for_backup(
+    backup: Backup,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+):
+    """
+    Wait for a backup to finish.
+    """
+    if backup.shard:
+        cluster.map_all_hosts_in_shard(backup.shard, backup.wait).result()
+    else:
         cluster.map_all_hosts(backup.wait).result()
 
 
@@ -215,13 +301,14 @@ def sharded_backup():
     """
     Backup ClickHouse database / table to S3 once per shard
     """
+    pass
 
-    def run_backup_for_shard(shard: int):
-        latest_backup = get_latest_backup(shard)
-        run_backup(latest_backup, shard)
+    # def run_backup_for_shard(shard: int):
+    #     latest_backup = get_latest_backup(shard)
+    #     run_backup(latest_backup, shard)
 
-    shards: dagster.DynamicOutput = get_shards()
-    shards.map(run_backup_for_shard)
+    # shards: dagster.DynamicOutput = get_shards()
+    # shards.map(run_backup_for_shard)
 
 
 @dagster.job()
@@ -231,7 +318,18 @@ def non_sharded_backup():
     """
 
     latest_backup = get_latest_backup()
-    run_backup(latest_backup)
+    if latest_backup:
+        status = check_latest_backup_status(latest_backup)
+        if status == "FAILED":
+            clean_s3_backup_path(latest_backup)
+        elif status == "IN_PROGRESS":
+            wait_for_backup(latest_backup)
+        elif status == "SUCCESS":
+            backup = run_backup(latest_backup)
+            wait_for_backup(backup)
+    else:
+        backup = run_backup()
+        wait_for_backup(backup)
 
 
 @dagster.schedule(
@@ -240,24 +338,25 @@ def non_sharded_backup():
 )
 def full_sharded_backup_schedule():
     """Launch a full backup for sharded tables"""
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    tables = [
-        "sharded_app_metrics2",
-    ]
+    pass
+    # timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # tables = [
+    #     "sharded_app_metrics2",
+    # ]
 
-    for table in tables:
-        config = BackupConfig(
-            database=settings.CLICKHOUSE_DATABASE,
-            date=timestamp,
-            table=table,
-            incremental=False,
-        )
-        yield dagster.RunRequest(
-            run_key=timestamp,
-            run_config={
-                "ops": {
-                    "get_latest_backup": {"config": config.model_dump()},
-                    "run_backup": {"config": config.model_dump()},
-                }
-            },
-        )
+    # for table in tables:
+    #     config = BackupConfig(
+    #         database=settings.CLICKHOUSE_DATABASE,
+    #         date=timestamp,
+    #         table=table,
+    #         incremental=False,
+    #     )
+    #     yield dagster.RunRequest(
+    #         run_key=timestamp,
+    #         run_config={
+    #             "ops": {
+    #                 "get_latest_backup": {"config": config.model_dump()},
+    #                 "run_backup": {"config": config.model_dump()},
+    #             }
+    #         },
+    #     )
