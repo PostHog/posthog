@@ -437,20 +437,23 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str) -> None:
     await database_sync_to_async(job.save)()
 
 
-def count_delta_table_rows(delta_table: DeltaTable) -> int:
+def count_delta_table_rows(delta_table: DeltaTable) -> int | None:
     """
-    Count the number of rows in a Delta table from its latest operation.
-
-    The history(1) method returns the most recent operation in the Delta table's
-    transaction log. We use this to get the number of rows added in the latest
-    operation rather than scanning the entire table, which is more efficient.
+    Count the number of rows in a Delta table by finding the most recent WRITE operation.
+    The VACUUM operation is appearing in the history as well, so we need to skip over it
+    to find the most recent WRITE operation.
     """
     try:
-        latest_operation = delta_table.history(1)[0]
-        row_count = int(latest_operation["operationMetrics"].get("num_added_rows", 0))
-        return row_count
+        history = delta_table.history(5)
+        for operation in history:
+            if operation["operation"] == "WRITE":
+                return int(operation["operationMetrics"].get("num_added_rows", 0))
+
+        logger.exception("No WRITE operation found in recent Delta table history")
+        return None
     except Exception as e:
         logger.exception("Failed to count rows in Delta table: %s", str(e))
+        return None
 
 
 async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count: int) -> None:
