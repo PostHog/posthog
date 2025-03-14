@@ -63,6 +63,7 @@ class EventsTable(Table):
         "elements_chain": StringDatabaseField(name="elements_chain", nullable=False),
         "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
         "$session_id": StringDatabaseField(name="$session_id", nullable=False),
+        "$session_id_uuid": IntegerDatabaseField(name="$session_id_uuid", nullable=True),
         "$window_id": StringDatabaseField(name="$window_id", nullable=False),
         # Lazy table that adds a join to the persons table
         "pdi": LazyJoin(

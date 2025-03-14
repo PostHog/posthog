@@ -480,6 +480,14 @@ WHERE
         original = super().get_cache_key()
         return f"{original}_{self.team.path_cleaning_filters}"
 
+    @cached_property
+    def events_session_property(self):
+        # we should delete this once SessionsV2JoinMode is always uuid, eventually we will always use $session_id_uuid
+        if self.query.modifiers and self.query.modifiers.sessionsV2JoinMode == "uuid":
+            return parse_expr("events.$session_id_uuid")
+        else:
+            return parse_expr("events.$session_id")
+
 
 def _sample_rate_from_count(count: int) -> SamplingRate:
     # Change the sample rate so that the query will sample about 100_000 to 1_000_000 events, but use defined steps of
