@@ -185,7 +185,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         queries: [
             (s) => [s.tiles, s.pageUrl, s.stripQueryParams],
             (tiles: WebAnalyticsTile[], pageUrl: string | null, stripQueryParams: boolean) => {
-                // If we don't have a pageUrl, return empty queries
+                // If we don't have a pageUrl, return empty queries to rendering problems
                 if (!pageUrl) {
                     return {
                         entryPathsQuery: undefined,
@@ -210,7 +210,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     const query = tile?.tabs.find((tab) => tab.id === tabId)?.query
 
                     if (query && 'source' in query && query.source) {
-                        // Deep clone the query to avoid modifying the original
                         const modifiedQuery = JSON.parse(JSON.stringify(query))
 
                         // Find and update the $current_url property filter
@@ -224,7 +223,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     return query
                 }
 
-                // Return an object with all queries
                 return {
                     // Path queries
                     entryPathsQuery: getQuery(TileId.PATHS, PathTab.INITIAL_PATH),
@@ -329,7 +327,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     return []
                 }
 
-                // Create a helper function to create a query tile
                 const createQueryTile = (
                     tileId: TileId,
                     title: string,
@@ -357,7 +354,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     }
                 }
 
-                // Create the combined metrics tile
                 const combinedMetricsTile: WebAnalyticsTile = {
                     kind: 'query',
                     tileId: TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
@@ -374,10 +370,9 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     },
                 }
 
-                // Create sections with their tiles
                 return [
                     {
-                        title: 'Trends over time',
+                        title: '', // Intentionally empty to avoid showing section title + tile title
                         tiles: [combinedMetricsTile],
                         gridClassName: 'grid-cols-1',
                     },
@@ -420,7 +415,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 queries.referrersQuery
                             ),
                         ].filter(Boolean) as WebAnalyticsTile[],
-                        gridClassName: 'grid-cols-1 md:grid-cols-2',
                     },
                     {
                         title: 'Device Information',
@@ -479,8 +473,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 queries.languagesQuery
                             ),
                         ].filter(Boolean) as WebAnalyticsTile[],
-                        gridClassName:
-                            'grid-cols-1 md:grid-cols-3 md:[&>*:nth-child(4)]:col-span-1 md:[&>*:nth-child(5)]:col-span-1',
                     },
                 ]
             },
@@ -492,22 +484,17 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             actions.loadPages(searchTerm)
         },
         setPageUrl: ({ url }) => {
-            // When URL changes, make sure we update the URL in the browser
-            // This will trigger the actionToUrl handler
             router.actions.replace('/web/page-reports', url ? { pageURL: url } : {}, router.values.hashParams)
         },
         toggleStripQueryParams: () => {
-            // Reload pages when the strip query params option changes
             actions.loadPages(values.pageUrlSearchTerm)
         },
         loadPages: ({ searchTerm }) => {
-            // Call the loader directly when loadPages is triggered
             actions.loadPagesUrls({ searchTerm })
         },
     }),
 
     afterMount: ({ actions }: { actions: pageReportsLogicType['actions'] }) => {
-        // Load pages immediately when component mounts
         actions.loadPages('')
     },
 
@@ -524,6 +511,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     }),
 
     actionToUrl: ({ values }) => ({
+        // So far we don't need to do anything for dateFilters because webAnalyticsLogic handles it.
         setPageUrl: () => {
             const searchParams = { ...router.values.searchParams }
 
@@ -534,8 +522,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             }
 
             searchParams.stripQueryParams = values.stripQueryParams
-
-            // So far we don't need to do anything for date because webAnalyticsLogic does this
 
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },
