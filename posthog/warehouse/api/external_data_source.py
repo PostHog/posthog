@@ -781,9 +781,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        dataset_id = payload.get("dataset_id")
         key_file = payload.get("key_file", {})
         project_id = key_file.get("project_id")
+
+        dataset_id = payload.get("dataset_id")
+        # Very common to include the project_id as a prefix of the dataset_id.
+        # We remove it if it's there.
+        dataset_id = dataset_id.removeprefix(f"{project_id}.")
+
         private_key = key_file.get("private_key")
         private_key_id = key_file.get("private_key_id")
         client_email = key_file.get("client_email")
