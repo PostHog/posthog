@@ -637,16 +637,23 @@ def cleanup_materialized_columns():
 
 
 @contextmanager
-def materialized(table, property) -> Iterator[MaterializedColumn]:
+def materialized(table, property, create_minmax_index: bool = False) -> Iterator[MaterializedColumn]:
     """Materialize a property within the managed block, removing it on exit."""
     try:
-        from ee.clickhouse.materialized_columns.analyze import materialize
+        from ee.clickhouse.materialized_columns.columns import get_minmax_index_name, materialize
     except ModuleNotFoundError as e:
         pytest.xfail(str(e))
 
+    column = None
     try:
-        yield materialize(table, property)
+        column = materialize(table, property, create_minmax_index=create_minmax_index)
+        yield column
     finally:
+        if create_minmax_index and column is not None:
+            data_table = "sharded_events" if table == "events" else table
+            sync_execute(
+                f"ALTER TABLE {data_table} DROP INDEX {get_minmax_index_name(column.name)} SETTINGS mutations_sync = 2"
+            )
         cleanup_materialized_columns()
 
 
