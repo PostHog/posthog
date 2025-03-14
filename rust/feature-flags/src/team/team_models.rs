@@ -4,9 +4,12 @@ use serde::{Deserialize, Serialize};
 // TODO: Add integration tests across repos to ensure this doesn't happen.
 pub const TEAM_TOKEN_CACHE_PREFIX: &str = "posthog:1:team_token:";
 
+pub type TeamId = i32;
+pub type ProjectId = i64;
+
 #[derive(Clone, Debug, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Team {
-    pub id: i32,
+    pub id: TeamId,
     pub name: String,
     pub api_token: String,
     /// Project ID. This field is not present in Redis cache before Dec 2025, but this is not a problem at all,
@@ -14,5 +17,5 @@ pub struct Team {
     /// we use 0 as a fallback value in deserialization here, and handle this in `Team::from_redis`.
     /// Thanks to this default-base approach, we avoid invalidating the whole cache needlessly.
     #[serde(default)]
-    pub project_id: i64,
+    pub project_id: ProjectId,
 }
