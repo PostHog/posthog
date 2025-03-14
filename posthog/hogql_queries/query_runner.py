@@ -363,9 +363,22 @@ def get_query_runner(
         )
 
     if kind == "RevenueExampleEventsQuery":
-        from .web_analytics.revenue_example_events import RevenueExampleEventsQueryRunner
+        from .web_analytics.revenue_example_events_query_runner import RevenueExampleEventsQueryRunner
 
         return RevenueExampleEventsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueExampleDataWarehouseTablesQuery":
+        from .web_analytics.revenue_example_data_warehouse_tables_query_runner import (
+            RevenueExampleDataWarehouseTablesQueryRunner,
+        )
+
+        return RevenueExampleDataWarehouseTablesQueryRunner(
             query=query,
             team=team,
             timings=timings,
