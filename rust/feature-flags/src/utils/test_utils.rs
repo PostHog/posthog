@@ -314,7 +314,6 @@ pub async fn insert_person_for_team_in_pg(
     distinct_id: String,
     properties: Option<Value>,
 ) -> Result<PersonId, Error> {
-    // Changed return type to Result<i32, Error>
     let payload = match properties {
         Some(value) => value,
         None => json!({
