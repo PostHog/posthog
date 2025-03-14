@@ -100,7 +100,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
             const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
 
-            let lazyLoadedTeams: Record<TeamId, HogFunctionType[]> | undefined
+            let lazyLoadedTeams: Record<TeamId, HogFunctionType[] | undefined> | undefined
 
             if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
                 lazyLoadedTeams = await this.hogFunctionManagerLazy.getHogFunctionsForTeams(teamsToLoad, this.hogTypes)
@@ -117,10 +117,10 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                     const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
 
                     if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && lazyLoadedTeams) {
-                        const lazyLoadedTeamHogFunctions = lazyLoadedTeams[globals.project.id]
+                        const lazyLoadedTeamHogFunctions = lazyLoadedTeams?.[globals.project.id]
                         status.info(
                             '🧐',
-                            `Lazy loaded ${lazyLoadedTeamHogFunctions.length} functions in comparison to ${teamHogFunctions.length}`
+                            `Lazy loaded ${lazyLoadedTeamHogFunctions?.length} functions in comparison to ${teamHogFunctions.length}`
                         )
                     }
 
