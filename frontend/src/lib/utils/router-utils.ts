@@ -59,7 +59,7 @@ export function addProjectIdIfMissing(path: string, teamId?: TeamType['id']): st
         : addProjectIdUnlessPresent(path, teamId)
 }
 
-const STAY_ON_SAME_PAGE_PATHS = ['settings']
+const STAY_ON_SAME_PAGE_PATHS = ['settings', 'data-management', 'activity']
 const REDIRECT_TO_PROJECT_ROOT_PATHS = ['products', 'onboarding']
 
 export function getProjectSwitchTargetUrl(
