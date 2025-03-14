@@ -9,15 +9,17 @@ def build_inputs(multiProductEvent=False):
             "description": "Map of TikTok event attributes and their values. Check out this page for more details: https://business-api.tiktok.com/portal/docs?id=1739585702922241#item-link-Parameters",
             "label": "Event parameters",
             "default": {
-                "content_ids": "{arrayMap(product -> product.product_id, event.properties.products)}"
+                "content_ids": "{arrayMap(product -> product.product_id, event.properties.products ?? [])}"
                 if multiProductEvent
                 else "{event.properties.product_id ? [event.properties.product_id] : null}",
-                "contents": "{arrayMap(product -> ({ 'content_id': product.product_id, 'price': product.price, 'content_category': product.category, 'content_name': product.name, 'brand': product.brand, 'quantity': product.quantity }), event.properties.products)}"
+                "contents": "{arrayMap(product -> ({ 'content_id': product.product_id, 'price': product.price, 'content_category': product.category, 'content_name': product.name, 'brand': product.brand, 'quantity': product.quantity }), event.properties.products ?? [])}"
                 if multiProductEvent
                 else "{[{ 'content_id': event.properties.product_id, 'price': event.properties.price, 'content_category': event.properties.category, 'content_name': event.properties.name, 'brand': event.properties.brand, 'quantity': event.properties.quantity }]}",
                 "currency": "{event.properties.currency ?? 'USD'}",
                 "value": "{toFloat(event.properties.value ?? event.properties.revenue ?? event.properties.price)}",
-                "num_items": "{length(event.properties.products ?? [])}",
+                "num_items": "{length(event.properties.products ?? [])}"
+                if multiProductEvent
+                else "{event.properties.quantity}",
                 "search_string": "{event.properties.query}",
                 "description": "",
             },
