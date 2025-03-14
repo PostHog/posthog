@@ -212,6 +212,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
+    revenue_tracking_config = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -265,6 +266,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             representation["default_data_theme"] = (
                 DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
             )
+
         return representation
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
@@ -292,6 +294,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return ProductIntent.objects.filter(team=obj).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
+
+    def get_revenue_tracking_config(self, obj):
+        # tracking_config = obj.revenue_config
+        # tracking_config["events"] = list(map(dict, tracking_config["events"]))
+        # for event in tracking_config["events"]:
+        #     event["revenueCurrencyProperty"] = event["revenueCurrencyProperty"].model_dump()
+
+        # tracking_config["dataWarehouseTables"] = list(map(dict, tracking_config["dataWarehouseTables"]))
+        # for table in tracking_config["dataWarehouseTables"]:
+        #     table["revenueCurrencyColumn"] = table["revenueCurrencyColumn"].model_dump()
+        return obj.revenue_config.model_dump()
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
