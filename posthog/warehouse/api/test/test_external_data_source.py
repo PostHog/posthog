@@ -414,7 +414,7 @@ class TestExternalDataSource(APIBaseTest):
                         "dataset_id": "my_project.my_dataset",
                         "key_file": {
                             "project_id": "my_project",
-                            "private_key": "my private_key",
+                            "private_key": "my_private_key",
                             "private_key_id": "my_private_key_id",
                             "token_uri": "https://google.com",
                             "client_email": "test@posthog.com",
@@ -427,12 +427,15 @@ class TestExternalDataSource(APIBaseTest):
 
         source = response.json()
         source_model = ExternalDataSource.objects.get(id=source["id"])
+        source_model.refresh_from_db()
+        assert source_model.job_inputs["dataset_id"] == "my_project.my_dataset"
+        assert source_model.job_inputs["private_key"] == "my_private_key"
+        assert source_model.job_inputs["private_key_id"] == "my_private_key_id"
 
         response = self.client.patch(
             f"/api/projects/{self.team.pk}/external_data_sources/{str(source_model.pk)}/",
             data={
-                "source_type": "BigQuery",
-                "payload": {
+                "job_inputs": {
                     "dataset_id": "my_dataset",
                     "key_file": {
                         "project_id": "my_project",
@@ -445,9 +448,9 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200
         assert len(ExternalDataSource.objects.all()) == 1
         source_model.refresh_from_db()
-        source_model.job_inputs["dataset_id"] = "my_dataset"
-        source_model.job_inputs["private_key"] = "my private_key"
-        source_model.job_inputs["private_key_id"] = "my private_key_id"
+        assert source_model.job_inputs["dataset_id"] == "my_dataset"
+        assert source_model.job_inputs["private_key"] == "my_private_key"
+        assert source_model.job_inputs["private_key_id"] == "my_private_key_id"
 
     def test_list_external_data_source(self):
         self._create_external_data_source()
