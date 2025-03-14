@@ -30,7 +30,7 @@ export const getMaskingLevelFromConfig = (config: SessionRecordingMaskingConfig)
         return 'total-privacy'
     }
 
-    if (config.maskTextSelector === undefined && !config.maskAllInputs) {
+    if (config.maskTextSelector === undefined && config.maskAllInputs === false) {
         return 'free-love'
     }
 
