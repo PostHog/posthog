@@ -20,10 +20,11 @@ export const errorTrackingQuery = ({
     searchQuery,
     customVolume,
     columns,
+    orderDirection,
     limit = 50,
 }: Pick<
     ErrorTrackingQuery,
-    'orderBy' | 'status' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery'
+    'orderBy' | 'status' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery' | 'orderDirection'
 > & {
     filterGroup: UniversalFiltersGroup
     customVolume?: ErrorTrackingSparklineConfig | null
@@ -42,6 +43,7 @@ export const errorTrackingQuery = ({
             filterTestAccounts: filterTestAccounts,
             searchQuery: searchQuery,
             limit: limit,
+            orderDirection,
         },
         showActions: false,
         showTimings: false,
