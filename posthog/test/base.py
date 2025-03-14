@@ -636,7 +636,7 @@ def cleanup_materialized_columns():
 
 
 @contextmanager
-def materialized(table, property) -> Iterator[MaterializedColumn]:
+def materialized(table, property, create_minmax_index: bool = False) -> Iterator[MaterializedColumn]:
     """Materialize a property within the managed block, removing it on exit."""
     try:
         from ee.clickhouse.materialized_columns.analyze import materialize
@@ -644,7 +644,7 @@ def materialized(table, property) -> Iterator[MaterializedColumn]:
         pytest.xfail(str(e))
 
     try:
-        yield materialize(table, property)
+        yield materialize(table, property, create_minmax_index=create_minmax_index)
     finally:
         cleanup_materialized_columns()
 

@@ -84,7 +84,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
         exit_handlers = contextlib.ExitStack()
         exit_handlers.callback(resume_merges)
 
-        with exit_handlers, materialized("events", f"$test_{time.time()}") as column:
+        with exit_handlers, materialized("events", f"$test_{time.time()}", create_minmax_index=True) as column:
             materialize_column_config = MaterializationConfig(
                 table="sharded_events",
                 columns=[column.name],
