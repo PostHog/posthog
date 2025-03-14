@@ -26,7 +26,7 @@ class Migration(migrations.Migration):
                 ALTER TABLE "posthog_persondistinctid" ALTER COLUMN "id" TYPE bigint USING "id"::bigint;
                 ALTER SEQUENCE IF EXISTS "posthog_persondistinctid_id_seq" AS bigint;
 
-                -- Add foreign keys without validation (to avoid downtime)
+                -- Add constraints safely (with NOT VALID)
                 ALTER TABLE "posthog_cohortpeople" ADD CONSTRAINT "posthog_cohortpeople_person_id_33da7d3f_fk"
                     FOREIGN KEY ("person_id") REFERENCES "posthog_person" ("id") NOT VALID;
 
@@ -64,14 +64,5 @@ class Migration(migrations.Migration):
                     field=models.ForeignKey(to="posthog.person", on_delete=models.CASCADE),
                 ),
             ],
-        ),
-        migrations.RunSQL(
-            sql="""
-                -- Validate constraints separately (safe, no locking)
-                ALTER TABLE "posthog_cohortpeople" VALIDATE CONSTRAINT "posthog_cohortpeople_person_id_33da7d3f_fk";
-                ALTER TABLE "posthog_featureflaghashkeyoverride" VALIDATE CONSTRAINT "posthog_featureflaghashkeyoverride_person_id_7e517f7c_fk";
-                ALTER TABLE "posthog_persondistinctid" VALIDATE CONSTRAINT "posthog_persondistinctid_person_id_5d655bba_fk";
-            """,
-            reverse_sql=migrations.RunSQL.noop,
         ),
     ]
