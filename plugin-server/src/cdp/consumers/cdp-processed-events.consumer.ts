@@ -1,7 +1,7 @@
-import { CyclotronManager } from '@posthog/cyclotron'
+import { CyclotronJobInit, CyclotronManager } from '@posthog/cyclotron'
 import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
-import { Gauge, Histogram } from 'prom-client'
+import { Histogram } from 'prom-client'
 
 import { Hub, RawClickHouseEvent } from '~/src/types'
 
@@ -35,14 +35,17 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
         super(hub)
     }
 
-    public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocation[]> {
-        if (!invocationGlobals.length) {
-            return []
-        }
-
+    private async createCyclotronJobs(jobs: CyclotronJobInit[]) {
         const cyclotronManager = this.cyclotronManager
         if (!cyclotronManager) {
             throw new Error('Cyclotron manager not initialized')
+        }
+        return this.runInstrumented('cyclotronManager.bulkCreateJobs', () => cyclotronManager.bulkCreateJobs(jobs))
+    }
+
+    public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocation[]> {
+        if (!invocationGlobals.length) {
+            return []
         }
 
         const invocationsToBeQueued = await this.runWithHeartbeat(() =>
@@ -67,10 +70,10 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
             if (this.hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
                 // NOTE: It's not super clear the perf tradeoffs of doing this in parallel hence the config option
-                await Promise.all(chunkedCyclotronJobs.map((jobs) => cyclotronManager.bulkCreateJobs(jobs)))
+                await Promise.all(chunkedCyclotronJobs.map((jobs) => this.createCyclotronJobs(jobs)))
             } else {
                 for (const jobs of chunkedCyclotronJobs) {
-                    await cyclotronManager.bulkCreateJobs(jobs)
+                    await this.createCyclotronJobs(jobs)
                 }
             }
         } catch (e) {
@@ -91,66 +94,61 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected async createHogFunctionInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<HogFunctionInvocation[]> {
-        return await runInstrumentedFunction({
-            statsKey: `cdpConsumer.handleEachBatch.queueMatchingFunctions`,
-            func: async () => {
-                // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
-                await this.groupsManager.enrichGroups(invocationGlobals)
-                const possibleInvocations = (
-                    await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
-                        const { invocations, metrics, logs } = this.hogExecutor.findHogFunctionInvocations(globals)
+        return await this.runInstrumented('handleEachBatch.queueMatchingFunctions', async () => {
+            // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
+            await this.groupsManager.enrichGroups(invocationGlobals)
+            const possibleInvocations = (
+                await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
+                    const { invocations, metrics, logs } = this.hogExecutor.findHogFunctionInvocations(globals)
 
-                        this.hogFunctionMonitoringService.produceAppMetrics(metrics)
-                        this.hogFunctionMonitoringService.produceLogs(logs)
+                    this.hogFunctionMonitoringService.produceAppMetrics(metrics)
+                    this.hogFunctionMonitoringService.produceLogs(logs)
 
-                        return invocations
-                    })
-                ).flat()
-
-                const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
-                const validInvocations: HogFunctionInvocation[] = []
-
-                // Iterate over adding them to the list and updating their priority
-                possibleInvocations.forEach((item) => {
-                    const state = states[item.hogFunction.id].state
-                    if (state >= HogWatcherState.disabledForPeriod) {
-                        this.hogFunctionMonitoringService.produceAppMetric({
-                            team_id: item.globals.project.id,
-                            app_source_id: item.hogFunction.id,
-                            metric_kind: 'failure',
-                            metric_name:
-                                state === HogWatcherState.disabledForPeriod
-                                    ? 'disabled_temporarily'
-                                    : 'disabled_permanently',
-                            count: 1,
-                        })
-                        return
-                    }
-
-                    if (state === HogWatcherState.degraded) {
-                        item.priority = 2
-                    }
-
-                    validInvocations.push(item)
+                    return invocations
                 })
+            ).flat()
 
-                // Now we can filter by masking configs
-                const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(
-                    validInvocations
-                )
+            const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
+            const validInvocations: HogFunctionInvocation[] = []
 
-                this.hogFunctionMonitoringService.produceAppMetrics(
-                    masked.map((item) => ({
+            // Iterate over adding them to the list and updating their priority
+            possibleInvocations.forEach((item) => {
+                const state = states[item.hogFunction.id].state
+                if (state >= HogWatcherState.disabledForPeriod) {
+                    this.hogFunctionMonitoringService.produceAppMetric({
                         team_id: item.globals.project.id,
                         app_source_id: item.hogFunction.id,
-                        metric_kind: 'other',
-                        metric_name: 'masked',
+                        metric_kind: 'failure',
+                        metric_name:
+                            state === HogWatcherState.disabledForPeriod
+                                ? 'disabled_temporarily'
+                                : 'disabled_permanently',
                         count: 1,
-                    }))
-                )
+                    })
+                    return
+                }
 
-                return notMaskedInvocations
-            },
+                if (state === HogWatcherState.degraded) {
+                    item.priority = 2
+                }
+
+                validInvocations.push(item)
+            })
+
+            // Now we can filter by masking configs
+            const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(validInvocations)
+
+            this.hogFunctionMonitoringService.produceAppMetrics(
+                masked.map((item) => ({
+                    team_id: item.globals.project.id,
+                    app_source_id: item.hogFunction.id,
+                    metric_kind: 'other',
+                    metric_name: 'masked',
+                    count: 1,
+                }))
+            )
+
+            return notMaskedInvocations
         })
     }
 

@@ -80,6 +80,10 @@ export abstract class CdpConsumerBase {
         }
     }
 
+    protected runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
+        return runInstrumentedFunction<T>({ statsKey: `cdpConsumer.${name}`, func })
+    }
+
     protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
         // Helper function to ensure that looping over lots of hog functions doesn't block up the thread, killing the consumer
         const res = await func()
@@ -133,12 +137,8 @@ export abstract class CdpConsumerBase {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                return await runInstrumentedFunction({
-                    statsKey: `cdpConsumer.handleEachBatch`,
-                    sendTimeoutGuardToSentry: false,
-                    func: async () => {
-                        await options.handleBatch(messages)
-                    },
+                return await this.runInstrumented('handleEachBatch', async () => {
+                    await options.handleBatch(messages)
                 })
             },
             callEachBatchWhenEmpty: false,
