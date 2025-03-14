@@ -9,17 +9,16 @@
         white-space: nowrap;
         border-top: 10px solid transparent;
         border-bottom: 10px solid transparent;
-        border-left: 1px solid var(--border-primary);
 
-        &:first-of-type {
-            border-left: none;
+        &:nth-of-type(-n + 2) {
+            padding-left: 1px solid var(--border-primary);
         }
     }
 
     tr {
         border-left: 0.25rem solid transparent;
 
-        &:not(:nth-of-type(-n + 2)) {
+        &:not(:nth-of-type(-n + 1)) {
             cursor: pointer;
 
             &:hover {
