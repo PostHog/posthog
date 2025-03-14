@@ -20,10 +20,10 @@ pub fn decompress_vm_state(maybe_compressed: Option<Bytes>) -> Option<Bytes> {
 }
 
 // returns an error as on the encode side, this would represent corrupted data
-pub fn compress_vm_state(maybe_uncompressed: Option<Bytes>) -> Result<Option<Bytes>, QueueError> {
-    if let Some(in_buffer) = &maybe_uncompressed {
+pub fn compress_vm_state(uncompressed: Option<Bytes>) -> Result<Option<Bytes>, QueueError> {
+    if let Some(in_buffer) = &uncompressed {
         if in_buffer.is_empty() {
-            return Ok(maybe_uncompressed);
+            return Ok(uncompressed);
         }
 
         let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
@@ -37,7 +37,7 @@ pub fn compress_vm_state(maybe_uncompressed: Option<Bytes>) -> Result<Option<Byt
         }
     }
 
-    Ok(maybe_uncompressed)
+    Ok(uncompressed)
 }
 
 #[cfg(test)]
