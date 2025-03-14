@@ -16,6 +16,10 @@ export class GroupTypeManager {
 
     constructor(private postgres: PostgresRouter, private teamManager: TeamManager) {
         this.loader = new LazyLoader({
+            name: 'GroupTypeManager',
+            refreshAge: 30_000, // 30 seconds
+            refreshNullAge: 30_000, // 30 seconds
+            refreshJitterMs: 0,
             loader: async (projectIds: string[]) => {
                 const response: Record<string, GroupTypeToColumnIndex> = {}
                 const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
@@ -41,8 +45,8 @@ export class GroupTypeManager {
         })
     }
 
-    public async fetchGroupTypes(projectId: ProjectId): Promise<GroupTypeToColumnIndex | null> {
-        return (await this.loader.get(projectId.toString())) ?? null
+    public async fetchGroupTypes(projectId: ProjectId): Promise<GroupTypeToColumnIndex> {
+        return (await this.loader.get(projectId.toString())) ?? {}
     }
 
     public async fetchGroupTypeIndex(
@@ -73,8 +77,8 @@ export class GroupTypeManager {
         return groupTypeIndex
     }
 
-    public async fetchGroupTypesForProjects(projectIds: ProjectId[]): Promise<GroupTypesByProjectId> {
-        const results = await this.loader.getMany(projectIds.map((id) => id.toString()))
+    public async fetchGroupTypesForProjects(projectIds: ProjectId[] | Set<ProjectId>): Promise<GroupTypesByProjectId> {
+        const results = await this.loader.getMany(Array.from(projectIds).map((id) => id.toString()))
 
         return Object.fromEntries(
             Object.entries(results).map(([projectId, groupTypes]) => [projectId, groupTypes ?? {}])

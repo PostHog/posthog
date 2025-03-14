@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 import { status } from './status'
 
 const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
-const REFRESH_JITTER_MS = 1000 * 60 // 1 minutes
+const REFRESH_JITTER_MS = 1000 * 60 // 1 minute
 
 const lazyLoaderCacheHits = new Counter({
     name: 'lazy_loader_cache_hits',
@@ -78,12 +78,14 @@ export class LazyLoader<T> {
 
             if (cached !== undefined) {
                 results[key] = cached
+                // Always update the lastUsed time
                 this.lastUsed[key] = now
 
                 const cacheUntil = this.cacheUntil[key] ?? 0
 
-                if (now - cacheUntil > (cached === null ? refreshNullAge : refreshAge)) {
+                if (now > cacheUntil) {
                     keysToLoad.add(key)
+                    console.log('cache miss', key)
                     lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
                     continue
                 }
@@ -118,8 +120,10 @@ export class LazyLoader<T> {
         }
         for (const key of keysToLoad) {
             this.cache[key] = loaded[key] ?? null
-            this.cacheUntil[key] = now + Math.floor(Math.random() * refreshJitterMs)
+            this.cacheUntil[key] =
+                now + (loaded[key] === null ? refreshNullAge : refreshAge) + Math.floor(Math.random() * refreshJitterMs)
             this.lastUsed[key] = now
+            results[key] = this.cache[key]
         }
 
         return results
@@ -127,6 +131,7 @@ export class LazyLoader<T> {
 
     public async get(key: string): Promise<T | null | undefined> {
         const loaded = await this.ensureLoaded([key])
+
         return loaded[key]
     }
 
