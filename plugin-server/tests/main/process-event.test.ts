@@ -33,7 +33,7 @@ import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 jest.setTimeout(600000) // 600 sec timeout.
 jest.mock('../../src/utils/posthog', () => ({
     ...jest.requireActual('../../src/utils/posthog'),

@@ -10,7 +10,7 @@ import {
 } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { HogWatcherState } from '../services/hog-watcher.service'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -49,8 +49,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
         try {
             await this.cyclotronManager?.bulkCreateJobs(cyclotronJobs)
         } catch (e) {
-            status.error('⚠️', 'Error creating cyclotron jobs', e)
-            status.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
+            logger.error('⚠️', 'Error creating cyclotron jobs', e)
+            logger.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
             throw e
         }
 
@@ -158,7 +158,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                                     )
                                 )
                             } catch (e) {
-                                status.error('Error parsing message', e)
+                                logger.error('Error parsing message', e)
                             }
                         })
                     )

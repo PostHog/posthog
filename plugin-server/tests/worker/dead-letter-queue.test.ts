@@ -9,7 +9,7 @@ import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers
 import { resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 jest.mock('../../src/worker/ingestion/utils', () => {
     const { generateEventDeadLetterQueueMessage } = jest.requireActual('../../src/worker/ingestion/utils')
     return {

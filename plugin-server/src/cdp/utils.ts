@@ -9,7 +9,7 @@ import { gunzip, gzip } from 'zlib'
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
 import { captureException } from '../utils/posthog'
-import { status } from '../utils/status'
+import { logger } from '../utils/logger'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import { MAX_GROUP_TYPES_PER_TEAM } from '../worker/ingestion/group-type-manager'
 import { CdpInternalEvent } from './schema'
@@ -396,7 +396,7 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
         try {
             params.body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
         } catch (e) {
-            status.error('Error parsing blob', e, job.blob)
+            logger.error('Error parsing blob', e, job.blob)
             captureException(e)
         }
     }

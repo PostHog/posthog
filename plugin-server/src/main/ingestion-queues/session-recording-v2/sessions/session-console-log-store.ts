@@ -1,6 +1,6 @@
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
 import { ClickHouseTimestamp, LogLevel } from '../../../../types'
-import { status } from '../../../../utils/status'
+import { logger } from '../../../../utils/logger'
 import { SessionBatchMetrics } from './metrics'
 
 export type ConsoleLogEntry = {
@@ -16,9 +16,9 @@ export type ConsoleLogEntry = {
 
 export class SessionConsoleLogStore {
     constructor(private readonly producer: KafkaProducerWrapper, private readonly topic: string) {
-        status.debug('🔍', 'session_console_log_store_created')
+        logger.debug('🔍', 'session_console_log_store_created')
         if (!this.topic) {
-            status.warn('⚠️', 'session_console_log_store_no_topic_configured')
+            logger.warn('⚠️', 'session_console_log_store_no_topic_configured')
         }
     }
 

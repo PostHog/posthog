@@ -7,7 +7,7 @@ import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
 import { captureException } from '../../../../utils/posthog'
-import { status } from '../../../../utils/status'
+import { logger } from '../../../../utils/logger'
 import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'
 import { createSessionReplayEvent, RRWebEventType } from '../process-event'
@@ -66,7 +66,7 @@ export class ReplayEventsIngester {
             try {
                 await produceRequest
             } catch (error) {
-                status.error('🔁', '[replay-events] main_loop_error', { error })
+                logger.error('🔁', '[replay-events] main_loop_error', { error })
 
                 if (error?.isRetriable) {
                     // We assume that if the error is retriable, then we
@@ -194,7 +194,7 @@ export class ReplayEventsIngester {
                 }),
             ]
         } catch (error) {
-            status.error('⚠️', '[replay-events] processing_error', {
+            logger.error('⚠️', '[replay-events] processing_error', {
                 error: error,
             })
         }

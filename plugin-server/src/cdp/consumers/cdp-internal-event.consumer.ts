@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { KAFKA_CDP_INTERNAL_EVENTS } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { CdpInternalEventSchema } from '../schema'
 import { HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
@@ -46,7 +46,7 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
                                     )
                                 )
                             } catch (e) {
-                                status.error('Error parsing message', e)
+                                logger.error('Error parsing message', e)
                                 counterParseError.labels({ error: e.message }).inc()
                             }
                         })

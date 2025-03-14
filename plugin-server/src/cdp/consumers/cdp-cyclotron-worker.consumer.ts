@@ -2,7 +2,7 @@ import { CyclotronJob, CyclotronWorker } from '@posthog/cyclotron'
 import { Counter, Gauge } from 'prom-client'
 
 import { runInstrumentedFunction } from '../../main/utils'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -67,13 +67,13 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
                 const id = item.invocation.id
                 if (item.error) {
-                    status.debug('⚡️', 'Updating job to failed', id)
+                    logger.debug('⚡️', 'Updating job to failed', id)
                     this.cyclotronWorker?.updateJob(id, 'failed')
                 } else if (item.finished) {
-                    status.debug('⚡️', 'Updating job to completed', id)
+                    logger.debug('⚡️', 'Updating job to completed', id)
                     this.cyclotronWorker?.updateJob(id, 'completed')
                 } else {
-                    status.debug('⚡️', 'Updating job to available', id)
+                    logger.debug('⚡️', 'Updating job to available', id)
 
                     const updates = invocationToCyclotronJobUpdate(item.invocation)
 
@@ -104,7 +104,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             if (!hogFunction) {
                 // Here we need to mark the job as failed
 
-                status.error('⚠️', 'Error finding hog function', {
+                logger.error('⚠️', 'Error finding hog function', {
                     id: job.functionId,
                 })
                 this.cyclotronWorker.updateJob(job.id, 'failed')

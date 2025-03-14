@@ -4,7 +4,7 @@ import { captureTeamEvent } from '../../../src/utils/posthog'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { createTeam, resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 jest.mock('../../../src/utils/posthog', () => ({
     captureTeamEvent: jest.fn(),
 }))

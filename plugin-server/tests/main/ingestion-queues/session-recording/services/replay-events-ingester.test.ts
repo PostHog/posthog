@@ -4,10 +4,10 @@ import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/
 import { ReplayEventsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/replay-events-ingester'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
 import { TimestampFormat } from '../../../../../src/types'
-import { status } from '../../../../../src/utils/status'
+import { logger } from '../../../../../src/utils/logger'
 import { castTimestampOrNow } from '../../../../../src/utils/utils'
 
-jest.mock('../../../../../src/utils/status')
+jest.mock('../../../../../src/utils/logger')
 
 import { getParsedQueuedMessages, mockProducer } from '../../../../helpers/mocks/producer.mock'
 
@@ -54,7 +54,7 @@ describe('replay events ingester', () => {
 
         await ingester.consume(makeIncomingMessage("mickey's fun house", twoMonthsFromNow.toMillis()))
 
-        expect(jest.mocked(status.debug).mock.calls).toEqual([])
+        expect(jest.mocked(logger.debug).mock.calls).toEqual([])
         expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
         const topicMessages = getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
@@ -79,7 +79,7 @@ describe('replay events ingester', () => {
         const ts = new Date().getTime()
         await ingester.consume(makeIncomingMessage("mickey's fun house", ts))
 
-        expect(jest.mocked(status.debug).mock.calls).toEqual([])
+        expect(jest.mocked(logger.debug).mock.calls).toEqual([])
         expect(jest.mocked(mockProducer.queueMessages).mock.calls).toHaveLength(1)
         expect(jest.mocked(mockProducer.queueMessages).mock.calls[0]).toHaveLength(1)
         const topicMessages = getParsedQueuedMessages()
@@ -114,7 +114,7 @@ describe('replay events ingester', () => {
         const ts = new Date().getTime()
         await ingester.consume(makeIncomingMessage(null, ts))
 
-        expect(jest.mocked(status.debug).mock.calls).toEqual([])
+        expect(jest.mocked(logger.debug).mock.calls).toEqual([])
         expect(jest.mocked(mockProducer.queueMessages).mock.calls).toHaveLength(1)
         const topicMessages = getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
@@ -156,7 +156,7 @@ describe('replay events ingester', () => {
             })
         )
 
-        expect(jest.mocked(status.debug).mock.calls).toEqual([])
+        expect(jest.mocked(logger.debug).mock.calls).toEqual([])
         expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
         const topicMessages = getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)

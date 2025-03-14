@@ -51,7 +51,7 @@ import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager
 import { parseRawClickHouseEvent } from '../event'
 import { instrumentQuery } from '../metrics'
 import { captureException } from '../posthog'
-import { status } from '../status'
+import { logger } from '../logger'
 import {
     castTimestampOrNow,
     escapeClickHouseString,
@@ -689,7 +689,7 @@ export class DB {
 
         const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
 
-        status.debug(
+        logger.debug(
             '🧑‍🦰',
             `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
         )
@@ -1060,7 +1060,7 @@ export class DB {
 
         if (parsedEntry.message.length > 50_000) {
             const { message, ...rest } = parsedEntry
-            status.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
+            logger.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
             return Promise.resolve()
         }
 
@@ -1076,7 +1076,7 @@ export class DB {
                     messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
                 })
                 .catch((error) => {
-                    status.warn('⚠️', 'Failed to produce plugin log entry', {
+                    logger.warn('⚠️', 'Failed to produce plugin log entry', {
                         error,
                         entry: parsedEntry,
                     })

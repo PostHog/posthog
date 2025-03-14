@@ -3,7 +3,7 @@ import { promisify } from 'node:util'
 import { Message } from 'node-rdkafka'
 import { gunzip } from 'zlib'
 
-import { status } from '../../../../utils/status'
+import { logger } from '../../../../utils/logger'
 import { KafkaMetrics } from './metrics'
 import { EventSchema, ParsedMessageData, RawEventMessageSchema, SnapshotEvent, SnapshotEventSchema } from './types'
 
@@ -61,7 +61,7 @@ export class KafkaMessageParser {
         const dropMessage = (reason: string, extra?: Record<string, any>) => {
             KafkaMetrics.incrementMessageDropped('session_recordings_blob_ingestion', reason)
 
-            status.warn('⚠️', 'invalid_message', {
+            logger.warn('⚠️', 'invalid_message', {
                 reason,
                 partition: message.partition,
                 offset: message.offset,

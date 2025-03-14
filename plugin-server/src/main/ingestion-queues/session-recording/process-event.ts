@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { ClickHouseTimestamp, RRWebEvent, TimestampFormat } from '../../../types'
 import { captureException } from '../../../utils/posthog'
-import { status } from '../../../utils/status'
+import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { activeMilliseconds } from './snapshot-segmenter'
 
@@ -266,7 +266,7 @@ export const createSessionReplayEvent = (
 
     // but every event where chunk index = 0 must have an eventsSummary
     if (events.length === 0 || timestamps.length === 0) {
-        status.warn('🙈', 'ignoring an empty session recording event', {
+        logger.warn('🙈', 'ignoring an empty session recording event', {
             session_id,
             events,
         })

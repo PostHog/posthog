@@ -16,12 +16,11 @@ import { propertyFilterPlugin } from '../legacy-plugins/_transformations/propert
 import { HogFunctionTemplate } from '../templates/types'
 import { HogTransformerService } from './hog-transformer.service'
 
-jest.mock('../../utils/status', () => ({
+jest.mock('../../utils/logger', () => ({
     status: {
         warn: jest.fn(),
         info: jest.fn(),
         debug: jest.fn(),
-        updatePrompt: jest.fn(),
         error: jest.fn(),
     },
 }))

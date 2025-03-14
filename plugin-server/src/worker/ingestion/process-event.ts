@@ -23,7 +23,7 @@ import { elementsToString, extractElements } from '../../utils/db/elements-chain
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { captureException } from '../../utils/posthog'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
@@ -165,7 +165,7 @@ export class EventsProcessor {
                 )
             } catch (err) {
                 captureException(err, { tags: { team_id: team.id } })
-                status.warn('⚠️', 'Failed to update property definitions for an event', {
+                logger.warn('⚠️', 'Failed to update property definitions for an event', {
                     event,
                     properties,
                     err,
@@ -212,7 +212,7 @@ export class EventsProcessor {
             elementsChain = this.getElementsChain(properties)
         } catch (error) {
             captureException(error, { tags: { team_id: teamId } })
-            status.warn('⚠️', 'Failed to process elements', {
+            logger.warn('⚠️', 'Failed to process elements', {
                 uuid,
                 teamId: teamId,
                 properties,

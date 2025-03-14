@@ -4,7 +4,7 @@ const { join } = require('path')
 
 import fetch from 'node-fetch'
 
-import { status } from './src/utils/status'
+import { logger } from './src/utils/logger'
 
 jest.mock('node-fetch', () => ({
     __esModule: true,
@@ -76,7 +76,7 @@ beforeEach(() => {
 
 // NOTE: in testing we use the pino-pretty transport, which results in a handle
 // that we need to close to allow Jest to exit properly.
-afterAll(() => status.close())
+afterAll(() => logger.close())
 
 beforeAll(() => {
     // We use procese.exit in a few places, which end up terminating tests
