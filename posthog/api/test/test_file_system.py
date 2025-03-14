@@ -1,7 +1,7 @@
 from rest_framework import status
 from posthog.test.base import APIBaseTest
 from posthog.models import FeatureFlag, Dashboard, Experiment, Insight, Notebook
-from posthog.models.file_system import FileSystem, FileSystemType
+from posthog.models.file_system import FileSystem
 
 
 class TestFileSystemAPI(APIBaseTest):
@@ -140,11 +140,11 @@ class TestFileSystemAPI(APIBaseTest):
 
         # check that each type is present
         types = {item["type"] for item in results}
-        self.assertIn(FileSystemType.FEATURE_FLAG, types)
-        self.assertIn(FileSystemType.EXPERIMENT, types)
-        self.assertIn(FileSystemType.DASHBOARD, types)
-        self.assertIn(FileSystemType.INSIGHT, types)
-        self.assertIn(FileSystemType.NOTEBOOK, types)
+        self.assertIn("feature_flag", types)
+        self.assertIn("experiment", types)
+        self.assertIn("dashboard", types)
+        self.assertIn("insight", types)
+        self.assertIn("notebook", types)
 
     def test_unfiled_endpoint_with_type_filtering(self):
         """
@@ -163,7 +163,7 @@ class TestFileSystemAPI(APIBaseTest):
 
         # Verify that no experiment row was created
         self.assertFalse(
-            FileSystem.objects.exclude(type="folder").filter(type=FileSystemType.EXPERIMENT).exists(),
+            FileSystem.objects.exclude(type="folder").filter(type="experiment").exists(),
             "Should not have created an experiment row yet!",
         )
 

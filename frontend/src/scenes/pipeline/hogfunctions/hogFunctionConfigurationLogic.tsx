@@ -192,7 +192,7 @@ export function convertToHogFunctionInvocationGlobals(
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid ?? '')}/${encodeURIComponent(event.timestamp)}`,
         },
         person: {
-            id: person.id ?? '',
+            id: person.uuid ?? '',
             properties: person.properties,
 
             name: asDisplay(person),
@@ -476,7 +476,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         data.type === 'internal_destination' && data.filters?.events?.length === 0
                             ? 'You must choose a filter'
                             : undefined,
-                    ...(values.inputFormErrors as any),
+                    ...values.inputFormErrors,
                 }
             },
             submit: async (data) => {

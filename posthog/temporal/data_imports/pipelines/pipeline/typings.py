@@ -11,3 +11,4 @@ class SourceResponse:
     primary_keys: list[str] | None
     column_hints: dict[str, TDataType | None] | None = None  # Legacy support for DLT sources
     partition_count: Optional[int] = None
+    partition_size: Optional[int] = None

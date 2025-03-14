@@ -629,7 +629,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         name: 'Salesforce',
         fields: [
             {
-                name: 'integration_id',
+                name: 'salesforce_integration_id',
                 label: 'Salesforce account',
                 type: 'oauth',
                 required: true,
@@ -1297,7 +1297,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
             errors: (sourceValues) => {
-                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues)
 
                 if (values.sourceConnectionDetailsManualErrors.prefix && sourceValues.prefix) {
                     actions.setSourceConnectionDetailsManualErrors({

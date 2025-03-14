@@ -4,14 +4,12 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 import structlog
-from celery import shared_task, current_task
+from celery import shared_task
 from dateutil import parser
 from django.db.models import QuerySet
 from django.utils import timezone
-from posthoganalytics.client import Client
-
-from posthog.clickhouse.query_tagging import tag_queries
 from posthog.exceptions_capture import capture_exception
+
 from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition
 from posthog.models.experiment import Experiment
@@ -30,7 +28,7 @@ from posthog.tasks.report_utils import (
     capture_event,
     get_user_team_lookup,
 )
-from posthog.tasks.usage_report import USAGE_REPORT_TASK_KWARGS, get_instance_metadata
+from posthog.tasks.usage_report import USAGE_REPORT_TASK_KWARGS, get_instance_metadata, get_ph_client
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
@@ -272,9 +270,6 @@ def send_all_periodic_digest_reports(
     )
     period_start = parser.parse(begin_date) if begin_date else period_end - timedelta(days=7)
 
-    if current_task and current_task.request:
-        tag_queries(celery_request_id=current_task.request.id)
-
     try:
         org_reports = _get_all_org_digest_reports(period_start, period_end)
         instance_metadata = dataclasses.asdict(get_instance_metadata((period_start, period_end)))
@@ -356,10 +351,9 @@ def send_digest_notifications(
     """
     Sends a single notification for digest reports.
     """
-    pha_client = Client("sTMFPsFhdP1Ssg")
 
     capture_event(
-        pha_client=pha_client,
+        pha_client=get_ph_client(),
         name=event_name,
         organization_id=organization_id,
         team_id=None,
@@ -367,4 +361,4 @@ def send_digest_notifications(
         timestamp=timestamp,
         distinct_id=distinct_id,
     )
-    pha_client.group_identify("organization", organization_id, properties)
+    get_ph_client().group_identify("organization", organization_id, properties)

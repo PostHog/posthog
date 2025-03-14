@@ -1,0 +1,95 @@
+{
+    "//": "This file contains test cases for doHash(salt: Uint8Array, teamId: number, ip: string, rootDomain: string, userAgent: string, n: number, hashExtra: string) so that we can verify that the hash function gives the same result across Rust and TS. If porting this to another language, ensure that these tests still pass.",
+    "test_cases":[
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "",
+            "expected": "jZfBjkLcdjlQTVmIKIhC3Q=="
+        },
+        {
+            "salt": "BBBBBBBBBBBBBBBBBBBBBA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "",
+            "expected": "+enbKKNpXkdkAyA7u+VkRA=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 3000,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "",
+            "expected": "BiC9Zpcr2Ctyc6mvZh4+lg=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "5.6.7.8",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "",
+            "expected": "kmHSjAz71inr4axAIDUN1A=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "other.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "",
+            "expected": "HSTgvTovdKSCZxOWE0fiOA=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Smart Fridge",
+            "n": 0,
+            "hash_extra": "",
+            "expected": "sjSJh5qV4gsbEAc2DG6w7g=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 1,
+            "hash_extra": "",
+            "expected": "igaaEDUIUxmCqAaPyFWP7Q=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "Sphinx of Black Quartz, Judge My Vow. This is a pretty long extra string - it is exactly 100 chars!!",
+            "expected": "lPLnR7N4qR683u8oyGmTGg=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "Sphinx of Black Quartz, Judge My Vow. This is a pretty long extra string - it is exactly 100 chars!!! Actually no, it's longer, to make sure that this is truncated properly",
+            "expected": "lPLnR7N4qR683u8oyGmTGg=="
+        }
+    ]
+}

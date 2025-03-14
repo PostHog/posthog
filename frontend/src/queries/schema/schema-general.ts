@@ -1758,7 +1758,7 @@ export interface ErrorTrackingRelationalIssue {
     name: string | null
     description: string | null
     assignee: ErrorTrackingIssueAssignee | null
-    status: 'archived' | 'active' | 'resolved' | 'pending_release'
+    status: 'archived' | 'active' | 'resolved' | 'pending_release' | 'suppressed'
     /**  @format date-time */
     first_seen: string
 }
@@ -1778,31 +1778,13 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
-export type FileSystemType =
-    | 'aichat'
-    | 'broadcast'
-    | 'dashboard'
-    | 'destination'
-    | 'experiment'
-    | 'feature_flag'
-    | 'feature'
-    | 'folder'
-    | 'insight'
-    | 'notebook'
-    | 'repl'
-    | 'site_app'
-    | 'source'
-    | 'sql'
-    | 'survey'
-    | 'transformation'
-
 export interface FileSystemEntry {
     /** Unique UUID for tree entry */
     id?: string
     /** Object's name and folder */
     path: string
     /** Type of object, used for icon, e.g. feature_flag, insight, etc */
-    type?: FileSystemType
+    type?: string
     /** Object's ID or other unique reference */
     ref?: string
     /** Object's URL */
@@ -1811,6 +1793,12 @@ export interface FileSystemEntry {
     meta?: Record<string, any>
     /** Timestamp when file was added. Used to check persistence */
     created_at?: string
+}
+
+export interface FileSystemImport extends Omit<FileSystemEntry, 'href'> {
+    icon?: any // Setting as "any" to keep Python schema.py in check
+    flag?: string
+    href: (ref?: string) => string
 }
 
 export type InsightQueryNode =
