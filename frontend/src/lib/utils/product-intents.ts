@@ -23,7 +23,7 @@ export enum ProductIntentContext {
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
-    CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = 'create experiment from funnel button',
+    CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = 'create_experiment_from_funnel_button',
 
     // Web Analytics
     WEB_ANALYTICS_INSIGHT = 'web_analytics_insight',
