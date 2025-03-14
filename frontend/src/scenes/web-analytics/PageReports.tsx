@@ -15,13 +15,11 @@ import { LearnMorePopover } from './WebAnalyticsDashboard'
 import { TileId, webAnalyticsLogic } from './webAnalyticsLogic'
 
 export function PageReportsFilters(): JSX.Element {
-    const values = useValues(pageReportsLogic)
-    const actions = useActions(pageReportsLogic)
-    const { dateFilter } = useValues(webAnalyticsLogic)
-    const { setDates } = useActions(webAnalyticsLogic)
+    const { pagesUrls, pageUrl, isLoading, stripQueryParams, dateFilter } = useValues(pageReportsLogic)
+    const { setPageUrl, setPageUrlSearchTerm, toggleStripQueryParams, loadPages, setDates } =
+        useActions(pageReportsLogic)
 
-    // Convert PageURL[] to LemonInputSelectOption[]
-    const options = values.pages.map((option) => ({
+    const options = pagesUrls.map((option) => ({
         key: option.url,
         label: option.url,
         labelComponent: (
@@ -39,23 +37,23 @@ export function PageReportsFilters(): JSX.Element {
                     <LemonInputSelect
                         allowCustomValues={false}
                         placeholder="Click or type to see top pages"
-                        loading={values.isLoading}
+                        loading={isLoading}
                         size="small"
                         mode="single"
-                        value={values.pageUrl ? [values.pageUrl] : null}
-                        onChange={(val: string[]) => actions.setPageUrl(val.length > 0 ? val[0] : null)}
+                        value={pageUrl ? [pageUrl] : null}
+                        onChange={(val: string[]) => setPageUrl(val.length > 0 ? val[0] : null)}
                         options={options}
-                        onInputChange={(val: string) => actions.setPageUrlSearchTerm(val)}
+                        onInputChange={(val: string) => setPageUrlSearchTerm(val)}
                         data-attr="page-url-search"
-                        onFocus={() => actions.loadPages('')}
+                        onFocus={() => loadPages('')}
                         className="max-w-full"
                     />
                 </div>
                 <Tooltip title="Strip query parameters from URLs (e.g. '?utm_source=...'). This will match the base URL regardless of query parameters.">
                     <div className="inline-block">
                         <LemonSwitch
-                            checked={values.stripQueryParams}
-                            onChange={actions.toggleStripQueryParams}
+                            checked={stripQueryParams}
+                            onChange={toggleStripQueryParams}
                             label="Strip query params"
                             size="small"
                             bordered

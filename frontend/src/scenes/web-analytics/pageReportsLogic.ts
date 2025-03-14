@@ -51,13 +51,16 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     path: ['scenes', 'web-analytics', 'pageReportsLogic'],
 
     connect: {
-        values: [webAnalyticsLogic, ['tiles', 'shouldFilterTestAccounts']],
+        values: [webAnalyticsLogic, ['tiles', 'shouldFilterTestAccounts', 'dateFilter']],
+        actions: [webAnalyticsLogic, ['setDates']],
     },
 
     actions: () => ({
         setPageUrl: (url: string | string[] | null) => ({ url }),
         setPageUrlSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        loadPages: (searchTerm: string = '') => ({ searchTerm }),
+        loadPages: (searchTerm: string = '') => {
+            return { searchTerm }
+        },
         toggleStripQueryParams: () => ({}),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({
             tileId,
@@ -111,10 +114,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     }),
 
     loaders: ({ values }) => ({
-        pages: [
+        pagesUrls: [
             [] as PageURL[],
             {
-                loadPages: async ({ searchTerm }: { searchTerm: string }) => {
+                loadPagesUrls: async ({ searchTerm }: { searchTerm: string }) => {
                     try {
                         let query: { kind: NodeKind; query: string }
                         // Simple query using the same pattern as heatmapsLogic
@@ -175,8 +178,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     selectors: {
         hasPageUrl: [(selectors) => [selectors.pageUrl], (pageUrl: string | null) => !!pageUrl],
         isLoading: [
-            (selectors) => [selectors.pagesLoading, selectors.isInitialLoad],
-            (pagesLoading: boolean, isInitialLoad: boolean) => pagesLoading || isInitialLoad,
+            (selectors) => [selectors.pagesUrlsLoading, selectors.isInitialLoad],
+            (pagesUrlsLoading: boolean, isInitialLoad: boolean) => pagesUrlsLoading || isInitialLoad,
         ],
         queries: [
             (s) => [s.tiles, s.pageUrl, s.stripQueryParams],
@@ -297,6 +300,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         toggleStripQueryParams: () => {
             // Reload pages when the strip query params option changes
             actions.loadPages(values.pageUrlSearchTerm)
+        },
+        loadPages: ({ searchTerm }) => {
+            // Call the loader directly when loadPages is triggered
+            actions.loadPagesUrls({ searchTerm })
         },
     }),
 
