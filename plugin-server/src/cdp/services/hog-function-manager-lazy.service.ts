@@ -1,5 +1,3 @@
-import * as schedule from 'node-schedule'
-
 import { Hub, Team } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { LazyLoader } from '../../utils/lazy-loader'
@@ -66,8 +64,6 @@ export class HogFunctionManagerLazyService {
     private lazyLoaderByTeam: LazyLoader<HogFunctionTeamInfo[]>
     private started: boolean
     private pubSub: PubSub
-    private refreshJob?: schedule.Job
-    private refreshIntegrationsJob?: schedule.Job
 
     constructor(private hub: Hub) {
         this.started = false
@@ -112,12 +108,6 @@ export class HogFunctionManagerLazyService {
     }
 
     public async stop(): Promise<void> {
-        if (this.refreshJob) {
-            schedule.cancelJob(this.refreshJob)
-        }
-        if (this.refreshIntegrationsJob) {
-            schedule.cancelJob(this.refreshIntegrationsJob)
-        }
         await this.pubSub.stop()
     }
 
