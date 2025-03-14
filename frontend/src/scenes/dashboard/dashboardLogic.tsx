@@ -1590,11 +1590,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
 
     subscriptions(({ values, actions }) => ({
-        insightTiles: (insightTiles) => {
-            console.debug('subscriptions.insightTiles', insightTiles)
-
-            // itemsLoading -> general loading state
-        },
         variables: (variables) => {
             // try to convert url variables to variables
             const urlVariables = values.urlVariables

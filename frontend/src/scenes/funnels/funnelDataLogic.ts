@@ -420,8 +420,17 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         return null
                     }
 
-                    const t = dashboardColorsLogic.findMounted({ id: props.dashboardId })
-                    // console.debug('a', builtDashboardColorsLogic?.values.resultCustomizations)
+                    const builtDashboardColorsLogic = dashboardColorsLogic.findMounted({ id: props.dashboardId })
+                    const breakdownColors = builtDashboardColorsLogic?.values.breakdownColors
+                    console.debug('a', breakdownColors)
+
+                    const key = getFunnelDatasetKey(dataset)
+                    const breakdownValue = JSON.parse(key)['breakdown_value']
+                    console.debug('b', breakdownValue)
+
+                    if (breakdownColors?.[breakdownValue]) {
+                        return breakdownColors[breakdownValue]
+                    }
 
                     const colorToken = getFunnelResultCustomizationColorToken(
                         resultCustomizations,
@@ -429,7 +438,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         dataset,
                         props?.cachedInsight?.disable_baseline
                     )
-                    // builtDashboardColorsLogic?.actions.setResultColorUsed(getFunnelDatasetKey(dataset), colorToken)
+
                     return colorToken
                 }
             },

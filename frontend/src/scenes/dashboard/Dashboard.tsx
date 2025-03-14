@@ -20,6 +20,7 @@ import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, 
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+import { dashboardColorsLogic } from './dashboardColorsLogic'
 
 interface DashboardProps {
     id?: string
@@ -39,10 +40,13 @@ export const scene: SceneExport = {
 
 export function Dashboard({ id, dashboard, placement, themes }: DashboardProps = {}): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
+    const dashboardProps = { id: parseInt(id as string), placement, dashboard }
 
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: parseInt(id as string), placement, dashboard }}>
-            <DashboardScene />
+        <BindLogic logic={dashboardLogic} props={dashboardProps}>
+            <BindLogic logic={dashboardColorsLogic} props={dashboardProps}>
+                <DashboardScene />
+            </BindLogic>
         </BindLogic>
     )
 }
