@@ -1,7 +1,8 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template_new_broadcast: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="alpha",
+    free=True,
     type="broadcast",
     id="template-new-broadcast",
     name="Hello !",

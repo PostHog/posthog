@@ -1,3 +1,5 @@
+from typing import cast, Literal
+
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
@@ -14,6 +16,8 @@ from posthog.schema import (
     WebStatsTableQueryResponse,
     WebExternalClicksTableQuery,
     WebExternalClicksTableQueryResponse,
+    WebAnalyticsOrderByFields,
+    WebAnalyticsOrderByDirection,
 )
 
 
@@ -64,9 +68,6 @@ FROM (
     GROUP BY events.`$session_id`, url
 )
 GROUP BY "context.columns.url"
-ORDER BY "context.columns.visitors" DESC,
-"context.columns.clicks" DESC,
-"context.columns.url" ASC
 """,
                 timings=self.timings,
                 placeholders={
@@ -78,7 +79,35 @@ ORDER BY "context.columns.visitors" DESC,
                 },
             )
         assert isinstance(query, ast.SelectQuery)
+
+        # Compute query order based on the columns we're selecting
+        columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
+        query.order_by = self._order_by(columns)
+
         return query
+
+    def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
+        column = "context.columns.clicks"
+        direction: Literal["ASC", "DESC"] = "DESC"
+        if self.query.orderBy:
+            field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
+            direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
+
+            if field == WebAnalyticsOrderByFields.VISITORS:
+                column = "context.columns.visitors"
+            elif field == WebAnalyticsOrderByFields.CLICKS:
+                column = "context.columns.clicks"
+
+        return [
+            expr
+            for expr in [
+                # Primary sorting column. We always have a default sort
+                ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction) if column in columns else None,
+                # Always add URL as final sort
+                ast.OrderExpr(expr=ast.Field(chain=["context.columns.url"]), order="ASC"),
+            ]
+            if expr is not None
+        ]
 
     def _all_properties(self) -> ast.Expr:
         properties = self.query.properties + self._test_account_filters

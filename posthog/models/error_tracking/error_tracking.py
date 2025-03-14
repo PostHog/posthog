@@ -4,11 +4,17 @@ from django.contrib.postgres.fields import ArrayField
 from posthog.models.utils import UUIDModel
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.user_group import UserGroup
 from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
 from uuid import UUID
+
+
+class ErrorTrackingIssueManager(models.Manager):
+    def with_first_seen(self):
+        return self.annotate(first_seen=models.Min("fingerprints__first_seen"))
 
 
 class ErrorTrackingIssue(UUIDModel):
@@ -17,12 +23,15 @@ class ErrorTrackingIssue(UUIDModel):
         ACTIVE = "active", "Active"
         RESOLVED = "resolved", "Resolved"
         PENDING_RELEASE = "pending_release", "Pending release"
+        SUPPRESSED = "suppressed", "Suppressed"
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     status = models.TextField(choices=Status.choices, default=Status.ACTIVE, null=False)
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
+
+    objects = ErrorTrackingIssueManager()
 
     def merge(self, issue_ids: list[str]) -> None:
         fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
@@ -50,20 +59,19 @@ class ErrorTrackingIssue(UUIDModel):
 
 
 class ErrorTrackingIssueAssignment(UUIDModel):
-    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
+    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
+    user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["issue", "user"], name="unique_on_user_and_issue")]
 
 
 class ErrorTrackingIssueFingerprintV2(UUIDModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE)
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="fingerprints")
     fingerprint = models.TextField(null=False, blank=False)
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for overrides ClickHouse table
     version = models.BigIntegerField(blank=True, default=0)
+    first_seen = models.DateTimeField(null=True, auto_now_add=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

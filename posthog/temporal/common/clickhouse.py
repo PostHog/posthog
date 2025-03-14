@@ -34,7 +34,9 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             return f"{quote_char}{data}{quote_char}".encode()
 
         case int() | float():
-            return b"%d" % data
+            if isinstance(data, float) and data.is_integer():
+                return f"{int(data)}".encode()
+            return f"{data}".encode()
 
         case dt.datetime():
             timezone_arg = ""
@@ -117,6 +119,13 @@ class ClickHouseError(Exception):
     def __init__(self, query, error_message):
         self.query = query
         super().__init__(error_message)
+
+
+class ClickHouseAllReplicasAreStaleError(ClickHouseError):
+    """Exception raised when all replicas are stale."""
+
+    def __init__(self, query, error_message):
+        super().__init__(query, error_message)
 
 
 class ClickHouseClient:
@@ -219,20 +228,30 @@ class ClickHouseClient:
         """Asynchronously check the HTTP response received from ClickHouse.
 
         Raises:
+            ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
+                "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
+                and fallback_to_stale_replicas_for_distributed_queries=0
             ClickHouseError: If the status code is not 200.
         """
         if response.status != 200:
             error_message = await response.text()
+            if "ALL_REPLICAS_ARE_STALE" in error_message:
+                raise ClickHouseAllReplicasAreStaleError(query, error_message)
             raise ClickHouseError(query, error_message)
 
     def check_response(self, response, query) -> None:
         """Check the HTTP response received from ClickHouse.
 
         Raises:
+            ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
+                "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
+                and fallback_to_stale_replicas_for_distributed_queries=0
             ClickHouseError: If the status code is not 200.
         """
         if response.status_code != 200:
             error_message = response.text
+            if "ALL_REPLICAS_ARE_STALE" in error_message:
+                raise ClickHouseAllReplicasAreStaleError(query, error_message)
             raise ClickHouseError(query, error_message)
 
     @contextlib.asynccontextmanager
@@ -244,6 +263,9 @@ class ClickHouseClient:
         Only read-only queries may be sent as a GET request. For inserts, use apost_query.
 
         The context manager protocol is used to control when to release the response.
+
+        Query parameters will be formatted with string formatting and additionally sent to
+        ClickHouse in the query string.
 
         Arguments:
             query: The query to POST.
@@ -261,7 +283,14 @@ class ClickHouseClient:
         if query_id is not None:
             params["query_id"] = query_id
 
+        # Certain views, like person_batch_exports* still rely on us formatting arguments.
         params["query"] = self.prepare_query(query, query_parameters)
+
+        # TODO: Let clickhouse handle all parameter formatting.
+        if query_parameters is not None:
+            for key, value in query_parameters.items():
+                if key in query:
+                    params[f"param_{key}"] = str(value)
 
         async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
             await self.acheck_response(response, query)
@@ -275,6 +304,9 @@ class ClickHouseClient:
 
         The context manager protocol is used to control when to release the response.
 
+        Query parameters will be formatted with string formatting and additionally sent to
+        ClickHouse in the query string.
+
         Arguments:
             query: The query to POST.
             *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
@@ -291,7 +323,15 @@ class ClickHouseClient:
         if query_id is not None:
             params["query_id"] = query_id
 
+        # Certain views, like person_batch_exports* still rely on us formatting arguments.
         query = self.prepare_query(query, query_parameters)
+
+        # TODO: Let clickhouse handle all parameter formatting.
+        if query_parameters is not None:
+            for key, value in query_parameters.items():
+                if key in query:
+                    params[f"param_{key}"] = str(value)
+
         request_data = self.prepare_request_data(data)
 
         if request_data:
@@ -309,6 +349,9 @@ class ClickHouseClient:
 
         The context manager protocol is used to control when to release the response.
 
+        Query parameters will be formatted with string formatting and additionally sent to
+        ClickHouse in the query string.
+
         Arguments:
             query: The query to POST.
             *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
@@ -329,6 +372,12 @@ class ClickHouseClient:
             params["query"] = query
         else:
             request_data = query.encode("utf-8")
+
+        # TODO: Let clickhouse handle all parameter formatting.
+        if query_parameters is not None:
+            for key, value in query_parameters.items():
+                if key in query:
+                    params[f"param_{key}"] = str(value)
 
         with requests.Session() as s:
             response = s.post(
@@ -464,7 +513,7 @@ async def get_client(
     Usage:
 
         async with get_client() as client:
-            await client.execute("SELECT 1")
+            await client.apost_query("SELECT 1")
 
     Note that this is not a connection pool, so you should not use this for
     queries that are run frequently.

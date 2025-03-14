@@ -1,30 +1,48 @@
-FROM docker.io/lukemathwalker/cargo-chef:latest-rust-1.80.1-bookworm AS chef
-ARG BIN
-WORKDIR /app
+# Taken from: https://depot.dev/docs/container-builds/how-to-guides/optimal-dockerfiles/rust-dockerfile
+FROM rust:1.82 AS base
+RUN cargo install --locked cargo-chef sccache
+ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
 
-FROM chef AS planner
+FROM base AS planner
+WORKDIR /app
 ARG BIN
 
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json --bin $BIN
 
-FROM chef AS builder
+FROM base AS builder
+WORKDIR /app
 ARG BIN
 
 # Ensure working C compile setup (not installed by default in arm64 images)
-RUN apt update && apt install build-essential cmake -y
+RUN apt-get update && apt-get install build-essential libssl-dev cmake -y
 
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    cargo chef cook --release --recipe-path recipe.json --bin $BIN
 
 COPY . .
-RUN cargo build --release --bin $BIN
+RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
+    --mount=type=secret,id=SCCACHE_WEBDAV_TOKEN,required=false \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    if [ -f "/run/secrets/SCCACHE_WEBDAV_ENDPOINT" ] && [ -f "/run/secrets/SCCACHE_WEBDAV_TOKEN" ]; then \
+    SCCACHE_WEBDAV_ENDPOINT=$(cat /run/secrets/SCCACHE_WEBDAV_ENDPOINT) \
+    SCCACHE_WEBDAV_TOKEN=$(cat /run/secrets/SCCACHE_WEBDAV_TOKEN) \
+    cargo build --release --bin $BIN; \
+    else \
+    cargo build --release --bin $BIN; \
+    fi
+
 
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    "ca-certificates" \
+    libssl-dev "ca-certificates" \
     && \
     rm -rf /var/lib/apt/lists/*
 

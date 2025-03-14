@@ -8,7 +8,7 @@ from celery import shared_task
 from celery.canvas import chain
 from django.db.models import Q
 from prometheus_client import Counter, Gauge
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
@@ -38,6 +38,7 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
 )
 
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
+SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
 
 
 def teams_enabled_for_cache_warming() -> list[int]:
@@ -80,8 +81,11 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
     to not let the cache go stale. There isn't any middle ground, like trying to refresh it once a day, since
     that would be like clock that's only right twice a day.
     """
+    # for shared insights, use a lower cut off
+    threshold = datetime.now(UTC) - (
+        LAST_VIEWED_THRESHOLD if not shared_only else SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD
+    )
 
-    threshold = datetime.now(UTC) - LAST_VIEWED_THRESHOLD
     QueryCacheManager.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
     # get all insights currently in the cache for the team
@@ -187,7 +191,7 @@ def schedule_warming_for_teams_task():
     ignore_result=True,
     expires=60 * 60,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    retry_backoff=1,
+    retry_backoff=2,
     retry_backoff_max=3,
     max_retries=3,
 )

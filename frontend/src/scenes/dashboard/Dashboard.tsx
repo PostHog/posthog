@@ -1,5 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -16,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
+import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
@@ -46,8 +48,16 @@ export function Dashboard({ id, dashboard, placement, themes }: DashboardProps =
 }
 
 function DashboardScene(): JSX.Element {
-    const { placement, dashboard, canEditDashboard, tiles, itemsLoading, dashboardMode, dashboardFailedToLoad } =
-        useValues(dashboardLogic)
+    const {
+        placement,
+        dashboard,
+        canEditDashboard,
+        tiles,
+        itemsLoading,
+        dashboardMode,
+        dashboardFailedToLoad,
+        accessDeniedToDashboard,
+    } = useValues(dashboardLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
     useEffect(() => {
@@ -91,9 +101,14 @@ function DashboardScene(): JSX.Element {
         return <NotFound object="dashboard" />
     }
 
+    if (accessDeniedToDashboard) {
+        return <AccessDenied object="dashboard" />
+    }
+
     return (
         <div className="dashboard">
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
+            {canEditDashboard && <AddInsightToDashboardModal />}
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
@@ -114,7 +129,7 @@ function DashboardScene(): JSX.Element {
                             </LemonButton>
                         )}
                         {placement !== DashboardPlacement.Export && (
-                            <div className="flex shrink-0 space-x-4 dashoard-items-actions">
+                            <div className="flex shrink-0 deprecated-space-x-4 dashoard-items-actions">
                                 <div
                                     className={`left-item ${
                                         placement === DashboardPlacement.Public ? 'text-right' : ''

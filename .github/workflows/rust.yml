@@ -62,14 +62,15 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               uses: dtolnay/rust-toolchain@1.82
 
-            - uses: actions/cache@v4
+            - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              with:
-                  path: |
-                      ~/.cargo/registry
-                      ~/.cargo/git
-                      rust/target
-                  key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+              uses: mozilla-actions/sccache-action@v0.0.4
+
+            - name: Configure sccache
+              if: needs.changes.outputs.rust == 'true'
+              run: |
+                  echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+                  sccache --start-server
 
             - name: Run cargo build
               if: needs.changes.outputs.rust == 'true'
@@ -83,7 +84,7 @@ jobs:
                     - feature-flags
                     - others
         needs: changes
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 10
 
         defaults:
@@ -109,27 +110,28 @@ jobs:
               run: |
                   docker compose -f ../docker-compose.dev.yml down
                   docker compose -f ../docker-compose.dev.yml up -d
-                  echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+                  echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Setup dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
               run: |
-                  docker compose up kafka redis db echo_server -d --wait
+                  docker compose up kafka redis db echo_server objectstorage -d --wait
                   docker compose up setup_test_db
-                  echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+                  echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.82
+              uses: dtolnay/rust-toolchain@1.82 # please keep this in sync with rust-version in rust/*/Cargo.toml
 
-            - uses: actions/cache@v4
+            - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              with:
-                  path: |
-                      ~/.cargo/registry
-                      ~/.cargo/git
-                      rust/target
-                  key: ${ runner.os }-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
+              uses: mozilla-actions/sccache-action@v0.0.4
+
+            - name: Configure sccache
+              if: needs.changes.outputs.rust == 'true'
+              run: |
+                  echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+                  sccache --start-server
 
             - name: Set up Python
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
@@ -166,10 +168,9 @@ jobs:
               run: cd ../ && python manage.py setup_test_environment --only-postgres
 
             - name: Download MaxMind Database
-              if: needs.changes.outputs.rust == 'true'
+              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
               run: |
-                  mkdir -p ../share
-                  curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=../share/GeoLite2-City.mmdb
+                  cd ../ && ./bin/download-mmdb
 
             - name: Run cargo test
               if: needs.changes.outputs.rust == 'true'
@@ -203,14 +204,15 @@ jobs:
               with:
                   components: clippy,rustfmt
 
-            - uses: actions/cache@v4
+            - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              with:
-                  path: |
-                      ~/.cargo/registry
-                      ~/.cargo/git
-                      rust/target
-                  key: ${{ runner.os }}-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
+              uses: mozilla-actions/sccache-action@v0.0.4
+
+            - name: Configure sccache
+              if: needs.changes.outputs.rust == 'true'
+              run: |
+                  echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+                  sccache --start-server
 
             - name: Check format
               if: needs.changes.outputs.rust == 'true'

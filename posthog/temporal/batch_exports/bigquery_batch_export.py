@@ -4,6 +4,7 @@ import contextlib
 import dataclasses
 import datetime as dt
 import json
+import typing
 
 import pyarrow as pa
 import structlog
@@ -17,11 +18,10 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportInsertInputs,
     BatchExportModel,
-    BatchExportSchema,
     BigQueryBatchExportInputs,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -40,6 +40,7 @@ from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
+    resolve_batch_exports_model,
     run_consumer,
     wait_for_schema_or_producer,
 )
@@ -47,11 +48,8 @@ from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
     WriterFormat,
 )
-from posthog.temporal.batch_exports.utils import (
-    JsonType,
-    set_status_to_running_task,
-)
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
 
@@ -102,6 +100,7 @@ def get_bigquery_fields_from_record_schema(
         if name == "_inserted_at":
             continue
 
+        repeated = False
         pa_field = record_schema.field(name)
 
         if pa.types.is_string(pa_field.type) or isinstance(pa_field.type, JsonType):
@@ -126,10 +125,14 @@ def get_bigquery_fields_from_record_schema(
         elif pa.types.is_timestamp(pa_field.type):
             bq_type = "TIMESTAMP"
 
-        else:
-            raise TypeError(f"Unsupported type: {pa_field.type}")
+        elif pa.types.is_list(pa_field.type) and pa.types.is_string(pa_field.type.value_type):
+            bq_type = "STRING"
+            repeated = True
 
-        bq_schema.append(bigquery.SchemaField(name, bq_type))
+        else:
+            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
+
+        bq_schema.append(bigquery.SchemaField(name, bq_type, mode="REPEATED" if repeated else "NULLABLE"))
 
     return bq_schema
 
@@ -141,11 +144,10 @@ class BigQueryHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     pass
 
 
-@dataclasses.dataclass
-class BigQueryInsertInputs:
+@dataclasses.dataclass(kw_only=True)
+class BigQueryInsertInputs(BatchExportInsertInputs):
     """Inputs for BigQuery."""
 
-    team_id: int
     project_id: str
     dataset_id: str
     table_id: str
@@ -153,16 +155,7 @@ class BigQueryInsertInputs:
     private_key_id: str
     token_uri: str
     client_email: str
-    data_interval_start: str | None
-    data_interval_end: str
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
     use_json_type: bool = False
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    # TODO: Remove after updating existing batch exports
-    batch_export_schema: BatchExportSchema | None = None
 
 
 class BigQueryQuotaExceededError(Exception):
@@ -261,6 +254,7 @@ class BigQueryClient(bigquery.Client):
         mutable: bool,
         stage_fields_cast_to_json: collections.abc.Sequence[str] | None = None,
         merge_key: collections.abc.Iterable[bigquery.SchemaField] | None = None,
+        update_key: collections.abc.Iterable[str] | None = None,
     ):
         """Merge two tables in BigQuery.
 
@@ -282,11 +276,15 @@ class BigQueryClient(bigquery.Client):
                 final_table, stage_table, stage_fields_cast_to_json=stage_fields_cast_to_json
             )
         else:
-            if merge_key is None:
-                raise ValueError("Merge key must be defined when merging a mutable model")
+            if merge_key is None or update_key is None:
+                raise ValueError("Merge key and update key must be defined when merging a mutable model")
 
-            return await self.amerge_person_tables(
-                final_table, stage_table, merge_key=merge_key, stage_fields_cast_to_json=stage_fields_cast_to_json
+            return await self.amerge_mutable_tables(
+                final_table,
+                stage_table,
+                merge_key=merge_key,
+                update_key=update_key,
+                stage_fields_cast_to_json=stage_fields_cast_to_json,
             )
 
     async def acheck_for_query_permissions_on_table(
@@ -366,13 +364,12 @@ class BigQueryClient(bigquery.Client):
         query_job = self.query(query, job_config=job_config)
         return await asyncio.to_thread(query_job.result)
 
-    async def amerge_person_tables(
+    async def amerge_mutable_tables(
         self,
         final_table: bigquery.Table,
         stage_table: bigquery.Table,
         merge_key: collections.abc.Iterable[bigquery.SchemaField],
-        person_version_key: str = "person_version",
-        person_distinct_id_version_key: str = "person_distinct_id_version",
+        update_key: collections.abc.Iterable[str],
         stage_fields_cast_to_json: collections.abc.Sequence[str] | None = None,
     ):
         """Merge two identical person model tables in BigQuery."""
@@ -389,6 +386,14 @@ class BigQueryClient(bigquery.Client):
             if n > 0:
                 merge_condition += " AND "
             merge_condition += f"final.`{field.name}` = stage.`{field.name}`"
+
+        update_condition = "AND ("
+
+        for index, field_name in enumerate(update_key):
+            if index > 0:
+                update_condition += " OR "
+            update_condition += f"final.`{field_name}` < stage.`{field_name}`"
+        update_condition += ")"
 
         update_clause = ""
         values = ""
@@ -450,7 +455,7 @@ class BigQueryClient(bigquery.Client):
         ) stage
         {merge_condition}
 
-        WHEN MATCHED AND (stage.`{person_version_key}` > final.`{person_version_key}` OR stage.`{person_distinct_id_version_key}` > final.`{person_distinct_id_version_key}`) THEN
+        WHEN MATCHED {update_condition} THEN
             UPDATE SET
                 {update_clause}
         WHEN NOT MATCHED BY TARGET THEN
@@ -510,23 +515,32 @@ class BigQueryClient(bigquery.Client):
 
         return result
 
+    @classmethod
+    def from_service_account_inputs(
+        cls, private_key: str, private_key_id: str, token_uri: str, client_email: str, project_id: str
+    ) -> typing.Self:
+        credentials = service_account.Credentials.from_service_account_info(
+            {
+                "private_key": private_key,
+                "private_key_id": private_key_id,
+                "token_uri": token_uri,
+                "client_email": client_email,
+                "project_id": project_id,
+            },
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+        client = cls(
+            project=project_id,
+            credentials=credentials,
+        )
+        return client
+
 
 @contextlib.contextmanager
 def bigquery_client(inputs: BigQueryInsertInputs):
     """Manage a BigQuery client."""
-    credentials = service_account.Credentials.from_service_account_info(
-        {
-            "private_key": inputs.private_key,
-            "private_key_id": inputs.private_key_id,
-            "token_uri": inputs.token_uri,
-            "client_email": inputs.client_email,
-            "project_id": inputs.project_id,
-        },
-        scopes=["https://www.googleapis.com/auth/cloud-platform"],
-    )
-    client = BigQueryClient(
-        project=inputs.project_id,
-        credentials=credentials,
+    client = BigQueryClient.from_service_account_inputs(
+        inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, inputs.project_id
     )
 
     try:
@@ -631,36 +645,16 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
     async with (
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
-        get_client(team_id=inputs.team_id) as client,
     ):
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
         _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails)
         if details is None:
             details = BigQueryHeartbeatDetails()
 
         done_ranges: list[DateRange] = details.done_ranges
 
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export_schema is None and "batch_export_model" in {
-            field.name for field in dataclasses.fields(inputs)
-        }:
-            model = inputs.batch_export_model
-            if model is not None:
-                model_name = model.name
-                extra_query_parameters = model.schema["values"] if model.schema is not None else None
-                fields = model.schema["fields"] if model.schema is not None else None
-            else:
-                model_name = "events"
-                extra_query_parameters = None
-                fields = None
-        else:
-            model = inputs.batch_export_schema
-            model_name = "custom"
-            extra_query_parameters = model["values"] if model is not None else {}
-            fields = model["fields"] if model is not None else None
-
+        model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
+            inputs.team_id, inputs.is_backfill, inputs.batch_export_model, inputs.batch_export_schema
+        )
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
         )
@@ -668,17 +662,18 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer(clickhouse_client=client)
-        producer_task = producer.start(
+        producer = Producer(record_batch_model)
+        producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
-            is_backfill=inputs.is_backfill,
+            is_backfill=inputs.get_is_backfill(),
+            backfill_details=inputs.backfill_details,
             team_id=inputs.team_id,
             full_range=full_range,
             done_ranges=done_ranges,
             fields=fields,
+            filters=filters,
             destination_default_fields=bigquery_default_fields(),
-            use_latest_schema=True,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
@@ -724,8 +719,29 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         stage_schema = [
             bigquery.SchemaField(field.name, "STRING") if field.name in json_columns else field for field in schema
         ]
+
+        mutable = False
+        merge_key = None
+        update_key = None
+        if isinstance(inputs.batch_export_model, BatchExportModel):
+            if inputs.batch_export_model.name == "persons":
+                mutable = True
+                merge_key = (
+                    bigquery.SchemaField("team_id", "INT64"),
+                    bigquery.SchemaField("distinct_id", "STRING"),
+                )
+
+                update_key = ["person_version", "person_distinct_id_version"]
+            elif inputs.batch_export_model.name == "sessions":
+                mutable = True
+                merge_key = (
+                    bigquery.SchemaField("team_id", "INT64"),
+                    bigquery.SchemaField("session_id", "STRING"),
+                )
+                update_key = ["end_timestamp"]
+
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}"
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
 
         with bigquery_client(inputs) as bq_client:
             async with bq_client.managed_table(
@@ -763,29 +779,30 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         bigquery_table=bigquery_stage_table if can_perform_merge else bigquery_table,
                         table_schema=stage_schema if can_perform_merge else schema,
                     )
-                    await run_consumer(
-                        consumer=consumer,
-                        queue=queue,
-                        producer_task=producer_task,
-                        schema=record_batch_schema,
-                        max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                        json_columns=() if can_perform_merge else json_columns,
-                        writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
-                        multiple_files=True,
-                    )
+                    try:
+                        await run_consumer(
+                            consumer=consumer,
+                            queue=queue,
+                            producer_task=producer_task,
+                            schema=record_batch_schema,
+                            max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                            json_columns=() if can_perform_merge else json_columns,
+                            writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
+                            multiple_files=True,
+                        )
 
-                    if can_perform_merge:
-                        merge_key = (
-                            bigquery.SchemaField("team_id", "INT64"),
-                            bigquery.SchemaField("distinct_id", "STRING"),
-                        )
-                        await bq_client.amerge_tables(
-                            final_table=bigquery_table,
-                            stage_table=bigquery_stage_table,
-                            mutable=True if model_name == "persons" else False,
-                            merge_key=merge_key,
-                            stage_fields_cast_to_json=json_columns,
-                        )
+                    # ensure we always write data to final table, even if we fail halfway through, as if we resume from
+                    # a heartbeat, we can continue without losing data
+                    finally:
+                        if can_perform_merge:
+                            await bq_client.amerge_tables(
+                                final_table=bigquery_table,
+                                stage_table=bigquery_stage_table,
+                                mutable=mutable,
+                                merge_key=merge_key,
+                                update_key=update_key,
+                                stage_fields_cast_to_json=json_columns,
+                            )
 
         return details.records_completed
 
@@ -809,8 +826,10 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BigQueryBatchExportInputs):
         """Workflow implementation to export data to BigQuery."""
+        is_backfill = inputs.get_is_backfill()
+        is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
+        should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -819,7 +838,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            is_backfill=inputs.is_backfill,
+            backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -855,7 +874,8 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             use_json_type=inputs.use_json_type,
             run_id=run_id,
-            is_backfill=inputs.is_backfill,
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,

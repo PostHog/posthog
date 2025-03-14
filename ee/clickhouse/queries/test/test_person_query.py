@@ -1,7 +1,7 @@
 import pytest
 
 from ee.clickhouse.materialized_columns.columns import materialize
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.person_query import PersonQuery
@@ -17,7 +17,6 @@ def person_query(team: Team, filter: Filter, **kwargs):
 def run_query(team: Team, filter: Filter, **kwargs):
     query, params = PersonQuery(filter, team.pk, **kwargs).get_query()
     rows = sync_execute(query, {**params, **filter.hogql_context.values, "team_id": team.pk})
-
     if len(rows) > 0:
         return {"rows": len(rows), "columns": len(rows[0])}
     else:

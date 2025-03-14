@@ -1,4 +1,4 @@
-import { IconCopy, IconOpenSidebar } from '@posthog/icons'
+import { IconCopy } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -9,8 +9,8 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
+import { AccessControlResourceType } from '~/types'
 
 import { notebookLogic } from './notebookLogic'
 
@@ -21,7 +21,6 @@ export type NotebookShareModalProps = {
 export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.Element {
     const { content, isLocalOnly, isShareModalOpen } = useValues(notebookLogic({ shortId }))
     const { closeShareModal } = useActions(notebookLogic({ shortId }))
-    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const notebookUrl = urls.absolute(urls.currentProject(urls.notebook(shortId)))
     const canvasUrl = urls.absolute(urls.canvas()) + `#🦔=${base64Encode(JSON.stringify(content))}`
@@ -44,26 +43,15 @@ export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.El
                 </LemonButton>
             }
         >
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <FlaggedFeature flag="role-based-access-control">
                     <>
-                        <div>
-                            <h3>Access control</h3>
-                            <LemonBanner type="info" className="mb-4">
-                                Permissions have moved! We're rolling out our new access control system. Click below to
-                                open it.
-                            </LemonBanner>
-                            <LemonButton
-                                type="primary"
-                                icon={<IconOpenSidebar />}
-                                onClick={() => {
-                                    openSidePanel(SidePanelTab.AccessControl)
-                                    closeShareModal()
-                                }}
-                            >
-                                Open access control
-                            </LemonButton>
-                        </div>
+                        <AccessControlPopoutCTA
+                            resourceType={AccessControlResourceType.Notebook}
+                            callback={() => {
+                                closeShareModal()
+                            }}
+                        />
                         <LemonDivider />
                     </>
                 </FlaggedFeature>

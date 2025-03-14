@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
-use common_types::ClickHouseEvent;
-use cymbal::{
-    get_props,
-    hack::kafka::{create_kafka_producer, send_iter_to_kafka, KafkaConfig},
+use common_kafka::{
+    config::KafkaConfig,
+    kafka_producer::{create_kafka_producer, send_iter_to_kafka},
 };
+use common_types::ClickHouseEvent;
+use cymbal::get_props;
 use envconfig::Envconfig;
 use health::HealthRegistry;
 
@@ -27,6 +28,8 @@ async fn main() {
         println!("Sending {} exception kafka", exceptions.len());
         send_iter_to_kafka(&producer, "exception_symbolification_events", &exceptions)
             .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }

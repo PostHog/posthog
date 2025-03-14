@@ -4,7 +4,7 @@ from typing import Optional
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
-from hogvm.python.debugger import color_bytecode
+from common.hogvm.python.debugger import color_bytecode
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.hogql.compiler.bytecode import execute_hog
@@ -78,6 +78,7 @@ def process_query_model(
     query_id: Optional[str] = None,
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
+    is_query_service: bool = False,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
@@ -132,6 +133,7 @@ def process_query_model(
             query_runner.apply_dashboard_filters(dashboard_filters)
         if variables_override:
             query_runner.apply_variable_overrides(variables_override)
+        query_runner.is_query_service = is_query_service
         result = query_runner.run(
             execution_mode=execution_mode,
             user=user,

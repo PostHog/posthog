@@ -4,6 +4,7 @@ import logging
 from typing import Any, Optional, Union, cast
 
 import posthoganalytics
+from pydantic import BaseModel
 import structlog
 from django.db import transaction
 from django.db.models import Count, Prefetch, QuerySet
@@ -13,7 +14,7 @@ from django.utils.text import slugify
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import request, serializers, status, viewsets
@@ -27,12 +28,6 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog import schema
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight_serializers import (
-    FunnelSerializer,
-    FunnelStepsResultsSerializer,
-    TrendResultsSerializer,
-    TrendSerializer,
-)
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -85,7 +80,6 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.alert import are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
-from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
@@ -97,7 +91,6 @@ from posthog.queries.funnels import (
     ClickhouseFunnelTrends,
 )
 from posthog.queries.funnels.utils import get_funnel_order_class
-from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
@@ -212,7 +205,12 @@ class DashboardTileBasicSerializer(serializers.ModelSerializer):
         fields = ["id", "dashboard_id", "deleted"]
 
 
-class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class InsightBasicSerializer(
+    TaggedItemSerializerMixin,
+    UserPermissionsSerializerMixin,
+    serializers.ModelSerializer,
+    UserAccessControlSerializerMixin,
+):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
     """
@@ -241,6 +239,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
             "created_at",
             "last_modified_at",
             "favorited",
+            "user_access_level",
         ]
         read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
@@ -268,7 +267,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
+class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
@@ -747,7 +746,6 @@ class InsightViewSet(
     sharing_enabled_actions = ["retrieve", "list"]
     queryset = Insight.objects_including_soft_deleted.all()
 
-    retention_query_class = Retention
     stickiness_query_class = Stickiness
     parser_classes = (QuerySchemaParser,)
 
@@ -793,6 +791,10 @@ class InsightViewSet(
                 queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
             ),
         )
+
+        # Add access level filtering for list actions if not sharing access token
+        if not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            queryset = self._filter_queryset_by_access_level(queryset)
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
@@ -956,31 +958,6 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(serialized_data)
 
-    # ******************************************
-    # Calculated Insight Endpoints
-    # /projects/:id/insights/trend
-    # /projects/:id/insights/funnel
-    # /projects/:id/insights/retention
-    # /projects/:id/insights/path
-    #
-    # Request parameters and caching are handled here and passed onto respective .queries classes
-    # ******************************************
-
-    # ******************************************
-    # /projects/:id/insights/trend
-    #
-    # params:
-    # - from_dashboard: (string) determines trend is being retrieved from dashboard item to update dashboard_item metadata
-    # - shown_as: (string: Volume, Stickiness) specifies the trend aggregation type
-    # - **shared filter types
-    # ******************************************
-    @extend_schema(
-        request=TrendSerializer,
-        methods=["POST"],
-        tags=["trend"],
-        operation_id="Trends",
-        responses=TrendResultsSerializer,
-    )
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
         capture_legacy_api_call(request, self.team)
@@ -1064,32 +1041,14 @@ When set, the specified dashboard's filters and date range override will be appl
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert isinstance(result, schema.CachedTrendsQueryResponse) or isinstance(
-            result, schema.CachedStickinessQueryResponse
+        assert (
+            isinstance(result, schema.CachedTrendsQueryResponse)
+            or isinstance(result, schema.CachedStickinessQueryResponse)
+            or isinstance(result, schema.CachedLifecycleQueryResponse)
         )
 
         return {"result": result.results, "timezone": team.timezone}
 
-    # ******************************************
-    # /projects/:id/insights/funnel
-    # The funnel endpoint is asynchronously processed. When a request is received, the endpoint will
-    # call an async task with an id that can be continually polled for 3 minutes.
-    #
-    # params:
-    # - refresh: (dict) specifies cache to force refresh or poll
-    # - from_dashboard: (dict) determines funnel is being retrieved from dashboard item to update dashboard_item metadata
-    # - **shared filter types
-    # ******************************************
-    @extend_schema(
-        request=FunnelSerializer,
-        responses=OpenApiResponse(
-            response=FunnelStepsResultsSerializer,
-            description="Note, if funnel_viz_type is set the response will be different.",
-        ),
-        methods=["POST"],
-        tags=["funnel"],
-        operation_id="Funnels",
-    )
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         capture_legacy_api_call(request, self.team)
@@ -1097,10 +1056,17 @@ When set, the specified dashboard's filters and date range override will be appl
         timings = HogQLTimings()
         try:
             with timings.measure("calculate"):
-                funnel = self.calculate_funnel(request)
+                query_method = get_query_method(request=request, team=self.team)
+                if query_method == "hogql":
+                    funnel = self.calculate_funnel_hogql(request)
+                else:
+                    funnel = self.calculate_funnel(request)
+
         except ExposedHogQLError as e:
             raise ValidationError(str(e))
 
+        if isinstance(funnel["result"], BaseModel):
+            funnel["result"] = funnel["result"].model_dump()
         funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])
         funnel["timings"] = [val.model_dump() for val in timings.to_list()]
 
@@ -1128,42 +1094,25 @@ When set, the specified dashboard's filters and date range override will be appl
                 "timezone": team.timezone,
             }
 
-    # ******************************************
-    # /projects/:id/insights/retention
-    # params:
-    # - start_entity: (dict) specifies id and type of the entity to focus retention on
-    # - **shared filter types
-    # ******************************************
-    @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
-    def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        capture_legacy_api_call(request, self.team)
-
-        timings = HogQLTimings()
-        try:
-            with timings.measure("calculate"):
-                result = self.calculate_retention(request)
-        except ExposedHogQLError as e:
-            raise ValidationError(str(e))
-
-        result["timings"] = [val.model_dump() for val in timings.to_list()]
-        return Response(result)
-
     @cached_by_filters
-    def calculate_retention(self, request: request.Request) -> dict[str, Any]:
+    def calculate_funnel_hogql(self, request: request.Request) -> dict[str, Any]:
         team = self.team
-        data = {}
-        if not request.GET.get("date_from") and not request.data.get("date_from"):
-            data.update({"date_from": "-11d"})
-        filter = RetentionFilter(data=data, request=request, team=self.team)
-        base_uri = request.build_absolute_uri("/")
-        result = self.retention_query_class(base_uri=base_uri).run(filter, team)
-        return {"result": result, "timezone": team.timezone}
+        filter = Filter(request=request, team=team)
+        filter = filter.shallow_clone(overrides={"insight": "FUNNELS"})
+        query = filter_to_query(filter.to_dict())
+        query_runner = get_query_runner(query, team, limit_context=None)
+
+        # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(result, schema.CachedFunnelsQueryResponse)
+
+        return {"result": result.results, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/:short_id/viewed
     # Creates or updates an InsightViewed object for the user/insight combo
     # ******************************************
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         InsightViewed.objects.update_or_create(
             team=self.team,

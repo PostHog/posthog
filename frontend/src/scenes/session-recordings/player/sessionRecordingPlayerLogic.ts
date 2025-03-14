@@ -1,5 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
+import { playerConfig, Replayer, ReplayPlugin } from '@posthog/rrweb'
+import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -25,8 +26,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
-import { Replayer } from 'rrweb'
-import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import {
@@ -86,6 +85,7 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLo
     matchingEventsMatchType?: MatchingEventsMatchType
     playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
     autoPlay?: boolean
+    noInspector?: boolean
     mode?: SessionRecordingPlayerMode
     playerRef?: RefObject<HTMLDivElement>
     pinned?: boolean
@@ -113,6 +113,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'customRRWebEvents',
                 'fullyLoaded',
                 'wasMarkedViewed',
+                'trackedWindow',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'showMouseTail'],
@@ -188,8 +189,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setDebugSnapshotTypes: (types: EventType[]) => ({ types }),
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
         setPlayNextAnimationInterrupted: (interrupted: boolean) => ({ interrupted }),
+        setMaskWindow: (shouldMaskWindow: boolean) => ({ shouldMaskWindow }),
     }),
     reducers(() => ({
+        maskingWindow: [
+            false,
+            {
+                setMaskWindow: (_, { shouldMaskWindow }) => shouldMaskWindow,
+            },
+        ],
         playNextAnimationInterrupted: [
             false,
             {
@@ -962,6 +970,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.setEndReached()
                 }
                 return
+            }
+
+            if (
+                values.trackedWindow &&
+                values.currentSegment &&
+                values.currentSegment.windowId !== values.trackedWindow
+            ) {
+                actions.setSkippingInactivity(true)
+                actions.setMaskWindow(true)
+            } else {
+                actions.setMaskWindow(false)
             }
 
             // The normal loop. Progress the player position and continue the loop

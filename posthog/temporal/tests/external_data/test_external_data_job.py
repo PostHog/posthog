@@ -6,7 +6,7 @@ import pytest
 from asgiref.sync import sync_to_async
 from django.test import override_settings
 
-from posthog.temporal.data_imports import import_data_activity_sync
+from posthog.temporal.data_imports.settings import import_data_activity_sync
 from posthog.temporal.data_imports.external_data_job import (
     UpdateExternalDataJobStatusInputs,
     create_source_templates,
@@ -15,8 +15,9 @@ from posthog.temporal.data_imports.external_data_job import (
 from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
     ExternalDataWorkflowInputs,
+    Any_Source_Errors,
 )
-from posthog.temporal.data_imports.pipelines.pipeline_sync import DataImportPipelineSync
+from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import check_billing_limits_activity
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
@@ -93,7 +94,7 @@ def minio_client(bucket_name):
 
     yield minio_client
 
-    delete_all_from_s3(minio_client, bucket_name, key_prefix="/")
+    delete_all_from_s3(minio_client, bucket_name, key_prefix="")
 
     minio_client.delete_bucket(Bucket=bucket_name)
 
@@ -172,7 +173,7 @@ def test_create_external_job_activity(activity_environment, team, **kwargs):
     test_1_schema = _create_schema("test-1", new_source, team)
 
     inputs = CreateExternalDataJobModelActivityInputs(
-        team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id
+        team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id, billable=True
     )
 
     run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
@@ -198,7 +199,9 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
         source_id=new_source.pk,
     )
 
-    inputs = CreateExternalDataJobModelActivityInputs(team_id=team.id, source_id=new_source.pk, schema_id=schema.id)
+    inputs = CreateExternalDataJobModelActivityInputs(
+        team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
+    )
 
     run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
 
@@ -372,6 +375,54 @@ def test_update_external_job_activity_with_non_retryable_error(activity_environm
 
 
 @pytest.mark.django_db(transaction=True)
+def test_update_external_job_activity_with_not_source_sepecific_non_retryable_error(
+    activity_environment, team, **kwargs
+):
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Postgres",
+    )
+
+    schema = ExternalDataSchema.objects.create(
+        name="test_123",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=str(new_job.id),
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error=Any_Source_Errors[0],
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+    )
+    with mock.patch("posthog.warehouse.models.external_data_schema.external_data_workflow_exists", return_value=False):
+        activity_environment.run(update_external_data_job_model, inputs)
+
+    new_job.refresh_from_db()
+    schema.refresh_from_db()
+
+    assert new_job.status == ExternalDataJob.Status.COMPLETED
+    assert schema.status == ExternalDataJob.Status.COMPLETED
+    assert schema.should_sync is False
+
+
+@pytest.mark.django_db(transaction=True)
 def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
     def setup_job_1():
         new_source = ExternalDataSource.objects.create(
@@ -513,7 +564,10 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
         ),
         mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
-            return_value={"clickhouse": {"id": "string", "name": "string"}},
+            return_value={
+                "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
+                "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
+            },
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
@@ -523,7 +577,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
         folder_path = job_1.folder_path()
         job_1_customer_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/")
 
-        assert len(job_1_customer_objects["Contents"]) == 2
+        assert len(job_1_customer_objects["Contents"]) == 3
 
     with (
         mock.patch.object(RESTClient, "paginate", mock_charges_paginate),
@@ -536,7 +590,10 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
         ),
         mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
-            return_value={"clickhouse": {"id": "string", "name": "string"}},
+            return_value={
+                "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
+                "customer": {"clickhouse": "string", "hogql": "StringDatabaseField"},
+            },
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
@@ -544,7 +601,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
         activity_environment.run(import_data_activity_sync, job_2_inputs)
 
         job_2_charge_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path()}/charge/")
-        assert len(job_2_charge_objects["Contents"]) == 2
+        assert len(job_2_charge_objects["Contents"]) == 3
 
 
 @pytest.mark.django_db(transaction=True)
@@ -637,7 +694,10 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
         ),
         mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
-            return_value={"clickhouse": {"id": "string", "name": "string"}},
+            return_value={
+                "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
+                "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
+            },
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
@@ -647,7 +707,7 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
         folder_path = job_1.folder_path()
         job_1_customer_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/")
 
-        assert len(job_1_customer_objects["Contents"]) == 2
+        assert len(job_1_customer_objects["Contents"]) == 3
 
         job_1.refresh_from_db()
         assert job_1.rows_synced == 1
@@ -687,15 +747,17 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
 
     with (
         mock.patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}),
-        mock.patch.object(DataImportPipelineSync, "run", mock_func),
+        mock.patch.object(PipelineNonDLT, "run", mock_func),
     ):
-        with override_settings(
-            BUCKET_URL=f"s3://{BUCKET_NAME}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
-            BUCKET_NAME=BUCKET_NAME,
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{BUCKET_NAME}",
+                AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                AIRBYTE_BUCKET_REGION="us-east-1",
+                AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+                BUCKET_NAME=BUCKET_NAME,
+            ),
         ):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
                 async with Worker(
@@ -819,4 +881,4 @@ async def test_run_postgres_job(
 
         folder_path = await sync_to_async(job_1.folder_path)()
         job_1_team_objects = minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/posthog_test/")
-        assert len(job_1_team_objects["Contents"]) == 2
+        assert len(job_1_team_objects["Contents"]) == 3

@@ -13,7 +13,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { ExternalDataSourceType, InsightLogicProps } from '~/types'
 
 import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
@@ -187,7 +187,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                             })),
                         })),
                     })),
-                    emptyLabel: <span className="text-muted">No tables found</span>,
+                    emptyLabel: <span className="text-secondary">No tables found</span>,
                     isLoading: databaseLoading,
                 },
                 {
@@ -216,7 +216,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                             icon: <IconDatabase />,
                         })),
                     })),
-                    emptyLabel: <span className="text-muted">No views found</span>,
+                    emptyLabel: <span className="text-secondary">No views found</span>,
                     isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
                 },
                 ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
@@ -233,7 +233,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                                       icon: <IconDatabase />,
                                   })),
                               })),
-                              emptyLabel: <span className="text-muted">No materialized views found</span>,
+                              emptyLabel: <span className="text-secondary">No materialized views found</span>,
                               isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
                           },
                       ]
@@ -253,7 +253,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                         icon: <IconDatabase />,
                     })),
                 })),
-                emptyLabel: <span className="text-muted">No tables found</span>,
+                emptyLabel: <span className="text-secondary">No tables found</span>,
                 isLoading: databaseLoading,
             },
             {
@@ -270,7 +270,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                     table: table,
                     icon: <IconBrackets />,
                 })),
-                emptyLabel: <span className="text-muted">No views found</span>,
+                emptyLabel: <span className="text-secondary">No views found</span>,
                 isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
             },
             ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
@@ -281,7 +281,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                               table: table,
                               icon: <IconBrackets />,
                           })),
-                          emptyLabel: <span className="text-muted">No materialized views found</span>,
+                          emptyLabel: <span className="text-secondary">No materialized views found</span>,
                           isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
                       },
                   ]
@@ -294,7 +294,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
     return (
         <div
             className={clsx(
-                `bg-bg-light rounded space-y-px border p-2 overflow-y-auto`,
+                `bg-surface-primary rounded deprecated-space-y-px border p-2 overflow-y-auto`,
                 !collapsed ? 'min-w-80 flex-1' : ''
             )}
         >
@@ -309,13 +309,13 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                         icon={<IconDatabase />}
                         className="font-normal"
                     >
-                        <span className="uppercase text-muted-alt tracking-wider">Sources</span>
+                        <span className="uppercase text-secondary tracking-wider">Sources</span>
                     </LemonButton>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>
             ) : (
                 <>
-                    <span className="text-muted-alt tracking-wider font-normal">Sources</span>
+                    <span className="text-secondary tracking-wider font-normal">Sources</span>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>
             )}

@@ -1,16 +1,19 @@
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
+import { range } from 'lib/utils'
 
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue, ErrorTrackingSparklineConfig } from '~/queries/schema/schema-general'
+
+const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
+
+const volumePeriods: ('customVolume' | 'volumeDay' | 'volumeMonth')[] = ['customVolume', 'volumeDay', 'volumeMonth']
+const sumVolumes = (...arrays: number[][]): number[] =>
+    arrays[0].map((_, i) => arrays.reduce((sum, arr) => sum + arr[i], 0))
 
 export const mergeIssues = (
     primaryIssue: ErrorTrackingIssue,
     mergingIssues: ErrorTrackingIssue[]
 ): ErrorTrackingIssue => {
-    const sum = (value: 'occurrences' | 'users' | 'sessions'): number => {
-        return mergingIssues.reduce((sum, g) => sum + g[value], primaryIssue[value])
-    }
-
     const [firstSeen, lastSeen] = mergingIssues.reduce(
         (res, g) => {
             const firstSeen = dayjs(g.first_seen)
@@ -20,25 +23,33 @@ export const mergeIssues = (
         [dayjs(primaryIssue.first_seen), dayjs(primaryIssue.last_seen)]
     )
 
-    const volume = primaryIssue.volume
+    const aggregations = primaryIssue.aggregations
 
-    if (volume) {
-        const dataIndex = 3
-        const data = mergingIssues.reduce(
-            (sum: number[], g) => g.volume[dataIndex].map((num: number, idx: number) => num + sum[idx]),
-            primaryIssue.volume[dataIndex]
-        )
-        volume.splice(dataIndex, 1, data)
+    if (aggregations) {
+        const sum = (value: 'occurrences' | 'users' | 'sessions'): number => {
+            return mergingIssues.reduce((sum, g) => sum + (g.aggregations?.[value] || 0), aggregations[value])
+        }
+
+        volumePeriods.forEach((period) => {
+            const volume = aggregations[period]
+            if (volume) {
+                const mergingVolumes = mergingIssues
+                    .map((issue) => issue.aggregations?.[period])
+                    .filter((v) => !!v) as number[][]
+                aggregations[period] = sumVolumes(...mergingVolumes, volume)
+            }
+        })
+
+        aggregations.users = sum('users')
+        aggregations.sessions = sum('sessions')
+        aggregations.occurrences = sum('occurrences')
     }
 
     return {
         ...primaryIssue,
-        occurrences: sum('occurrences'),
-        sessions: sum('sessions'),
-        users: sum('users'),
+        aggregations,
         first_seen: firstSeen.toISOString(),
         last_seen: lastSeen.toISOString(),
-        volume: volume,
     }
 }
 
@@ -105,6 +116,19 @@ export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean 
     return exceptionList?.length > 0 && exceptionList.some((e) => !!e.stacktrace)
 }
 
+export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
+    return value === THIRD_PARTY_SCRIPT_ERROR
+}
+
 export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
     return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
+}
+
+export const sparklineLabelsDay = sparklineLabels({ value: 24, interval: 'hour' })
+export const sparklineLabelsMonth = sparklineLabels({ value: 31, interval: 'day' })
+
+export function sparklineLabels({ value, interval }: ErrorTrackingSparklineConfig): string[] {
+    const now = dayjs().startOf(interval)
+    const dates = range(value).map((idx) => now.subtract(value - (idx + 1), interval))
+    return dates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
 }

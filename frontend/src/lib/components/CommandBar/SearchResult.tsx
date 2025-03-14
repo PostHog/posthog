@@ -1,7 +1,6 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useLayoutEffect, useRef } from 'react'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -9,6 +8,7 @@ import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { getQueryFromInsightLike } from '~/queries/nodes/InsightViz/utils'
 
 import { tabToName } from './constants'
@@ -24,10 +24,10 @@ type SearchResultProps = {
 export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps): JSX.Element => {
     const { aggregationLabel } = useValues(searchBarLogic)
     const { setActiveResultIndex, openResult } = useActions(searchBarLogic)
+    const { mobileLayout } = useValues(navigation3000Logic)
+    const { hideNavOnMobile } = useActions(navigation3000Logic)
 
     const ref = useRef<HTMLDivElement | null>(null)
-
-    const { isWindowLessThan } = useWindowSize()
 
     useLayoutEffect(() => {
         if (focused) {
@@ -37,7 +37,9 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
             if ((ref.current as any)?.scrollIntoViewIfNeeded) {
                 ;(ref.current as any).scrollIntoViewIfNeeded(false)
             } else {
-                ref.current?.scrollIntoView()
+                ref.current?.scrollIntoView({
+                    block: 'nearest',
+                })
             }
         }
     }, [focused])
@@ -46,19 +48,21 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
         <>
             <div
                 className={clsx(
-                    'w-full px-2 hover:bg-bg-3000 border-l-4 border-b cursor-pointer',
-                    focused ? 'bg-bg-3000 border-l-primary-3000' : 'bg-bg-light'
+                    'w-full px-2 hover:bg-primary border-l-4 border-b cursor-pointer',
+                    focused ? 'bg-surface-secondary border-l-accent-primary' : 'bg-surface-primary'
                 )}
                 onClick={() => {
-                    if (isWindowLessThan('md')) {
-                        openResult(resultIndex)
-                    } else {
-                        setActiveResultIndex(resultIndex)
+                    if (mobileLayout) {
+                        hideNavOnMobile()
                     }
+                    openResult(resultIndex)
+                }}
+                onMouseOver={() => {
+                    setActiveResultIndex(resultIndex)
                 }}
                 ref={ref}
             >
-                <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
+                <div className="px-2 py-3 w-full gap-y-0.5 flex flex-col items-start">
                     <span className="text-muted-3000 text-xs">
                         {result.type !== 'group'
                             ? tabToName[result.type]
@@ -74,7 +78,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
 }
 
 export const SearchResultSkeleton = (): JSX.Element => (
-    <div className="px-5 py-4 w-full space-y-1.5 flex flex-col items-start bg-bg-light border-b">
+    <div className="px-5 py-4 w-full gap-y-1.5 flex flex-col items-start bg-surface-primary border-b">
         <LemonSkeleton className="w-16 opacity-75 h-3" />
         <LemonSkeleton className="w-40 h-3.5" />
     </div>

@@ -7,7 +7,6 @@ from typing import Literal, Optional, TypedDict, Union, cast
 
 from pydantic import BaseModel, Field, RootModel
 
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
@@ -21,6 +20,7 @@ from posthog.schema import (
     CachedEventTaxonomyQueryResponse,
     EventTaxonomyQuery,
 )
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
 class ToolkitTool(TypedDict):
@@ -60,14 +60,13 @@ class SingleArgumentTaxonomyAgentTool(BaseModel):
     arguments: str
 
 
-class TaxonomyAgentTool(
-    RootModel[
-        Union[SingleArgumentTaxonomyAgentTool, RetrieveEntityPropertiesValuesTool, RetrieveEventPropertiesValuesTool]
-    ]
-):
-    root: Union[
-        SingleArgumentTaxonomyAgentTool, RetrieveEntityPropertiesValuesTool, RetrieveEventPropertiesValuesTool
-    ] = Field(..., discriminator="name")
+TaxonomyAgentToolUnion = Union[
+    SingleArgumentTaxonomyAgentTool, RetrieveEntityPropertiesValuesTool, RetrieveEventPropertiesValuesTool
+]
+
+
+class TaxonomyAgentTool(RootModel[TaxonomyAgentToolUnion]):
+    root: TaxonomyAgentToolUnion = Field(..., discriminator="name")
 
 
 class TaxonomyAgentToolkit(ABC):
@@ -172,11 +171,14 @@ class TaxonomyAgentToolkit(ABC):
             search: This tool is used for search
             calculator: This tool is used for math
         """
-        descriptions = []
+        root = ET.Element("tools")
         for tool in self.tools:
-            description = f"{tool['name']}{tool['signature']} - {tool['description']}"
-            descriptions.append(description)
-        return "\n".join(descriptions)
+            tool_tag = ET.SubElement(root, "tool")
+            name_tag = ET.SubElement(tool_tag, "name")
+            name_tag.text = f"{tool['name']}{tool['signature']}"
+            description_tag = ET.SubElement(tool_tag, "description")
+            description_tag.text = tool["description"]
+        return ET.tostring(root, encoding="unicode")
 
     @property
     def _groups(self):
@@ -274,7 +276,7 @@ class TaxonomyAgentToolkit(ABC):
         """
         Retrieve properties for an event.
         """
-        runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name), self._team)
+        runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name, maxPropertyValues=25), self._team)
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
 
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
@@ -336,7 +338,7 @@ class TaxonomyAgentToolkit(ABC):
         except PropertyDefinition.DoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy."
 
-        runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name), self._team)
+        runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name, maxPropertyValues=25), self._team)
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
 
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
@@ -389,12 +391,14 @@ class TaxonomyAgentToolkit(ABC):
             return self._retrieve_session_properties(property_name)
 
         if entity == "person":
-            query = ActorsPropertyTaxonomyQuery(property=property_name)
+            query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=25)
         else:
             group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
             if group_index is None:
                 return f"The entity {entity} does not exist in the taxonomy."
-            query = ActorsPropertyTaxonomyQuery(group_type_index=group_index, property=property_name)
+            query = ActorsPropertyTaxonomyQuery(
+                group_type_index=group_index, property=property_name, maxPropertyValues=25
+            )
 
         try:
             if query.group_type_index is not None:

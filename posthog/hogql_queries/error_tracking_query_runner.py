@@ -1,5 +1,6 @@
 import re
 import structlog
+from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -8,14 +9,24 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     HogQLFilters,
     ErrorTrackingQuery,
+    ErrorTrackingSparklineConfig,
     ErrorTrackingQueryResponse,
     CachedErrorTrackingQueryResponse,
+    Interval,
 )
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.error_tracking import ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
+
+INTERVAL_FUNCTIONS = {
+    "minute": "toStartOfMinute",
+    "hour": "toStartOfHour",
+    "day": "toStartOfDay",
+    "week": "toStartOfWeek",
+    "month": "toStartOfMonth",
+}
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -23,6 +34,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
     response: ErrorTrackingQueryResponse
     cached_response: CachedErrorTrackingQueryResponse
     paginator: HogQLHasMorePaginator
+    sparklineConfigs: dict[str, ErrorTrackingSparklineConfig]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -32,33 +44,58 @@ class ErrorTrackingQueryRunner(QueryRunner):
             offset=self.query.offset,
         )
 
+        self.sparklineConfigs = {
+            "volumeDay": ErrorTrackingSparklineConfig(interval=Interval.HOUR, value=24),
+            "volumeMonth": ErrorTrackingSparklineConfig(interval=Interval.DAY, value=31),
+        }
+
+        if self.query.customVolume:
+            self.sparklineConfigs["customVolume"] = self.query.customVolume
+
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
             select=self.select(),
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=self.from_expr(),
             where=self.where(),
             order_by=self.order_by,
             group_by=[ast.Field(chain=["issue_id"])],
         )
 
+    def from_expr(self):
+        # for the second iteration of this query, we just need to select from the events table
+        return parse_select("SELECT 1 FROM events").select_from  # type: ignore
+
     def select(self):
+        # First, the easy groups - distinct uuid as occurrances, etc
         exprs: list[ast.Expr] = [
+            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
             ast.Alias(
                 alias="occurrences", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])])
             ),
             ast.Alias(
-                alias="sessions", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["$session_id"])])
+                alias="sessions",
+                expr=ast.Call(
+                    name="count",
+                    distinct=True,
+                    # the $session_id property can be blank if not set
+                    # we do not want that case counted so cast it to `null` which is excluded by default
+                    args=[
+                        ast.Call(
+                            name="nullIf",
+                            args=[ast.Field(chain=["$session_id"]), ast.Constant(value="")],
+                        )
+                    ],
+                ),
             ),
             ast.Alias(
                 alias="users", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])])
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
         ]
 
-        if self.query.select:
-            exprs.extend([parse_expr(x) for x in self.query.select])
+        for alias, config in self.sparklineConfigs.items():
+            exprs.append(ast.Alias(alias=alias, expr=self.select_sparkline_array(alias, config)))
 
         if self.query.issueId:
             exprs.append(
@@ -71,6 +108,16 @@ class ErrorTrackingQueryRunner(QueryRunner):
             )
 
         return exprs
+
+    def select_sparkline_array(self, alias: str, config: ErrorTrackingSparklineConfig):
+        toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
+        intervalStr = config.interval.value
+        isHotIndex = f"dateDiff('{intervalStr}', {toStartOfInterval}(timestamp), {toStartOfInterval}(now())) = x"
+        isLiveIndexFn = f"if({isHotIndex}, 1, 0)"
+
+        constructed = f"arrayMap(x -> {isLiveIndexFn}, range({config.value}))"
+        summed = f"reverse(sumForEach({constructed}))"
+        return parse_expr(summed)
 
     def where(self):
         exprs: list[ast.Expr] = [
@@ -183,18 +230,27 @@ class ErrorTrackingQueryRunner(QueryRunner):
         with self.timings.measure("issue_resolution"):
             for result_dict in mapped_results:
                 issue = issues.get(result_dict["id"])
+
                 if issue:
                     results.append(
-                        issue | result_dict | {"assignee": self.query.assignee, "id": str(result_dict["id"])}
-                    )
-                else:
-                    logger.error(
-                        "error tracking issue not found",
-                        issue_id=result_dict["id"],
-                        exc_info=True,
+                        issue
+                        | {
+                            ## First seen timestamp is bounded by date range when querying for the list (comes from clickhouse) but it is global when querying for a single issue
+                            "first_seen": (
+                                issue.get("first_seen") if self.query.issueId else result_dict.get("first_seen")
+                            ),
+                            "last_seen": result_dict.get("last_seen"),
+                            "earliest": result_dict.get("earliest") if self.query.issueId else None,
+                            "aggregations": self.extract_aggregations(result_dict),
+                        }
                     )
 
         return results
+
+    def extract_aggregations(self, result):
+        aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeDay", "volumeMonth")}
+        aggregations["customVolume"] = result.get("customVolume") if "customVolume" in result else None
+        return aggregations
 
     @property
     def order_by(self):
@@ -214,19 +270,50 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else None
 
     def error_tracking_issues(self, ids):
-        queryset = ErrorTrackingIssue.objects.filter(team=self.team, id__in=ids)
+        status = self.query.status
         queryset = (
-            queryset.filter(id=self.query.issueId)
-            if self.query.issueId
-            else queryset.filter(status__in=[ErrorTrackingIssue.Status.ACTIVE])
+            ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team=self.team, id__in=ids)
         )
-        queryset = (
-            queryset.filter(errortrackingissueassignment__user_id=self.query.assignee)
-            if self.query.assignee
-            else queryset
+
+        if self.query.issueId:
+            queryset = queryset.filter(id=self.query.issueId)
+        elif status and not status == "all":
+            queryset = queryset.filter(status=status)
+
+        if self.query.assignee:
+            queryset = (
+                queryset.filter(assignment__user_id=self.query.assignee.id)
+                if self.query.assignee.type == "user"
+                else queryset.filter(assignment__user_group_id=self.query.assignee.id)
+            )
+
+        issues = queryset.values(
+            "id", "status", "name", "description", "first_seen", "assignment__user_id", "assignment__user_group_id"
         )
-        issues = queryset.values("id", "status", "name", "description")
-        return {item["id"]: item for item in issues}
+
+        results = {}
+        for issue in issues:
+            result: dict[str, Any] = {
+                "id": str(issue["id"]),
+                "name": issue["name"],
+                "status": issue["status"],
+                "description": issue["description"],
+                "first_seen": issue["first_seen"],
+                "assignee": None,
+            }
+
+            assignment_user_id = issue.get("assignment__user_id")
+            assignment_user_group_id = issue.get("assignment__user_group_id")
+
+            if assignment_user_id or assignment_user_group_id:
+                result["assignee"] = {
+                    "id": assignment_user_id or str(assignment_user_group_id),
+                    "type": "user" if assignment_user_id else "user_group",
+                }
+
+            results[issue["id"]] = result
+
+        return results
 
 
 def search_tokenizer(query: str) -> list[str]:

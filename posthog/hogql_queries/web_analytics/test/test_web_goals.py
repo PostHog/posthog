@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Optional
 
 
@@ -17,91 +16,102 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    snapshot_clickhouse_queries,
 )
+from freezegun.api import freeze_time
 
 
+@snapshot_clickhouse_queries
 class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    TIMESTAMP = "2024-12-01"
+    QUERY_TIMESTAMP = "2025-01-29"
+    EVENT_TIMESTAMP = "2024-12-01"
 
     def _create_person(self):
-        distinct_id = str(uuid7())
-        session_id = str(uuid7())
-        p = _create_person(
-            uuid=distinct_id,
-            team_id=self.team.pk,
-            distinct_ids=[distinct_id],
-            properties={
-                "name": distinct_id,
-            },
-        )
-        # do a pageview with this person so that they show up in results even if they don't perform a goal
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id=distinct_id,
-            properties={"$session_id": session_id},
-        )
-        return p, session_id
+        with freeze_time(self.EVENT_TIMESTAMP):
+            distinct_id = self._uuid()
+            session_id = self._uuid()
+            p = _create_person(
+                uuid=distinct_id,
+                team_id=self.team.pk,
+                distinct_ids=[distinct_id],
+                properties={
+                    "name": distinct_id,
+                },
+            )
+            # do a pageview with this person so that they show up in results even if they don't perform a goal
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                properties={"$session_id": session_id},
+            )
+            return p, session_id
 
     def _visit_web_analytics(self, person: Person, session_id: Optional[str] = None):
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id=person.uuid,
-            timestamp=self.TIMESTAMP,
-            properties={
-                "$pathname": "/project/2/web",
-                "$current_url": "https://us.posthog.com/project/2/web",
-                "$session_id": session_id or person.uuid,
-            },
-        )
+        with freeze_time(self.EVENT_TIMESTAMP):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=person.uuid,
+                timestamp=self.EVENT_TIMESTAMP,
+                properties={
+                    "$pathname": "/project/2/web",
+                    "$current_url": "https://us.posthog.com/project/2/web",
+                    "$session_id": session_id or person.uuid,
+                },
+            )
 
     def _click_pay(self, person: Person, session_id: Optional[str] = None):
-        _create_event(
-            team=self.team,
-            event="$autocapture",
-            distinct_id=person.uuid,
-            timestamp=self.TIMESTAMP,
-            elements=[Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")],
-            properties={"$session_id": session_id or person.uuid},
-        )
+        with freeze_time(self.EVENT_TIMESTAMP):
+            _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id=person.uuid,
+                timestamp=self.EVENT_TIMESTAMP,
+                elements=[Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")],
+                properties={"$session_id": session_id or person.uuid},
+            )
 
     def _create_actions(self):
-        a0 = Action.objects.create(
-            team=self.team,
-            name="Clicked Pay",
-            steps_json=[
-                {
-                    "event": "$autocapture",
-                    "tag_name": "button",
-                    "text": "Pay $10",
-                }
-            ],
-        )
-        a1 = Action.objects.create(
-            team=self.team,
-            name="Contacted Sales",
-            steps_json=[
-                {
-                    "event": "$autocapture",
-                    "tag_name": "button",
-                    "text": "Contacted Sales",
-                }
-            ],
-            pinned_at=datetime.now(),
-        )
-        a2 = Action.objects.create(
-            team=self.team,
-            name="Visited Web Analytics",
-            steps_json=[
-                {
-                    "event": "$pageview",
-                    "url": "https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*",
-                    "url_matching": "regex",
-                }
-            ],
-        )
-        return a0, a1, a2
+        with freeze_time(self.QUERY_TIMESTAMP):
+            a0 = Action.objects.create(
+                team=self.team,
+                name="Clicked Pay",
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "button",
+                        "text": "Pay $10",
+                    }
+                ],
+                last_calculated_at=self.EVENT_TIMESTAMP,  # oldest
+            )
+            a1 = Action.objects.create(
+                team=self.team,
+                name="Contacted Sales",
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "button",
+                        "text": "Contacted Sales",
+                    }
+                ],
+                pinned_at=self.QUERY_TIMESTAMP,
+                last_calculated_at=self.QUERY_TIMESTAMP,
+            )
+            a2 = Action.objects.create(
+                team=self.team,
+                name="Visited Web Analytics",
+                steps_json=[
+                    {
+                        "event": "$pageview",
+                        "url": "https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*",
+                        "url_matching": "regex",
+                    }
+                ],
+                last_calculated_at=self.QUERY_TIMESTAMP,  # newest
+            )
+            return a0, a1, a2
 
     def _run_web_goals_query(
         self,
@@ -114,17 +124,22 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
         filter_test_accounts: Optional[bool] = False,
     ):
-        modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
-        query = WebGoalsQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
-            properties=properties or [],
-            limit=limit,
-            filterTestAccounts=filter_test_accounts,
-            compareFilter=CompareFilter(compare=compare),
-        )
-        self.team.path_cleaning_filters = path_cleaning_filters or []
-        runner = WebGoalsQueryRunner(team=self.team, query=query, modifiers=modifiers)
-        return runner.calculate()
+        with freeze_time(self.QUERY_TIMESTAMP):
+            modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
+            query = WebGoalsQuery(
+                dateRange=DateRange(date_from=date_from, date_to=date_to),
+                properties=properties or [],
+                limit=limit,
+                filterTestAccounts=filter_test_accounts,
+                compareFilter=CompareFilter(compare=compare),
+            )
+            self.team.path_cleaning_filters = path_cleaning_filters or []
+            runner = WebGoalsQueryRunner(team=self.team, query=query, modifiers=modifiers)
+            return runner.calculate()
+
+    def _uuid(self):
+        with freeze_time(self.EVENT_TIMESTAMP):
+            return str(uuid7())
 
     def test_no_crash_when_no_data_or_actions(self):
         results = self._run_web_goals_query("2024-11-01", None).results
@@ -166,7 +181,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_actions()
         p1, s1 = self._create_person()
         self._visit_web_analytics(p1, s1)
-        s2 = str(uuid7())
+        s2 = self._uuid()
         self._visit_web_analytics(p1, s2)
         results = self._run_web_goals_query("2024-11-01", None).results
         assert results == [

@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.action.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -34,9 +35,12 @@ from posthog.schema import (
     StickinessQuery,
     StickinessQueryResponse,
     CompareFilter,
+    StickinessActorsQuery,
+    StickinessComputationMode,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.test.base import APIBaseTest, _create_event, _create_person, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, _create_event, _create_person, ClickhouseTestMixin, flush_persons_and_events
+from posthog.hogql.query import execute_hogql_query
 
 
 @dataclass
@@ -196,16 +200,16 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-    def _run_query(
+    def _get_query(
         self,
         series: Optional[list[EventsNode | ActionsNode]] = None,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
         interval: Optional[IntervalType] = None,
+        intervalCount: Optional[int] = None,
         properties: Optional[StickinessProperties] = None,
         filters: Optional[StickinessFilter] = None,
         filter_test_accounts: Optional[bool] = False,
-        limit_context: Optional[LimitContext] = None,
         compare_filters: Optional[CompareFilter] = None,
     ):
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
@@ -217,11 +221,16 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=query_series,
             dateRange=DateRange(date_from=query_date_from, date_to=query_date_to),
             interval=query_interval,
+            intervalCount=intervalCount,
             properties=properties,
             stickinessFilter=filters,
             compareFilter=compare_filters,
             filterTestAccounts=filter_test_accounts,
         )
+        return query
+
+    def _run_query(self, limit_context: Optional[LimitContext] = None, **kwargs):
+        query = self._get_query(**kwargs)
         return StickinessQueryRunner(team=self.team, query=query, limit_context=limit_context).calculate()
 
     def test_stickiness_runs(self):
@@ -346,6 +355,99 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             1,
             0,
         ]
+
+    def test_interval_2_day(self):
+        self._create_test_events()
+
+        response = self._run_query(interval=IntervalType.DAY, intervalCount=2)
+
+        result = response.results[0]
+
+        assert result["label"] == "$pageview"
+        assert result["labels"] == [
+            "1 day",
+            "2 days",
+            "3 days",
+            "4 days",
+            "5 days",
+        ]
+        assert result["days"] == [1, 2, 3, 4, 5]
+        assert result["data"] == [
+            0,
+            0,
+            0,
+            0,
+            2,
+        ]
+
+    def test_interval_2_day_filtering(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                # Day 1
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                # Day 2
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-14T12:00:00Z",
+                                # Day 3
+                                "2020-01-15T12:00:00Z",
+                                "2020-01-16T12:00:00Z",
+                                # Day 4
+                                "2020-01-17T12:00:00Z",
+                                "2020-01-18T12:00:00Z",
+                                # Day 5
+                                "2020-01-19T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-15T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Firefox", "prop": 10, "bool_field": False, "$group_0": "org:1"},
+                ),
+            ]
+        )
+
+        response = self._run_query(interval=IntervalType.DAY, intervalCount=2)
+
+        result = response.results[0]
+
+        assert result["label"] == "$pageview"
+        assert result["labels"] == [
+            "1 day",
+            "2 days",
+            "3 days",
+            "4 days",
+            "5 days",
+        ]
+        assert result["days"] == [1, 2, 3, 4, 5]
+        assert result["data"] == [0, 0, 1, 0, 1]
+
+        # Test Actors
+        query = self._get_query(interval=IntervalType.DAY, intervalCount=2)
+        runner = get_query_runner(query=StickinessActorsQuery(source=query, day=1, operator="exact"), team=self.team)
+        actors = runner.calculate()
+        assert 0 == len(actors.results)
+        runner = get_query_runner(query=StickinessActorsQuery(source=query, day=3, operator="gte"), team=self.team)
+        actors = runner.calculate()
+        assert 2 == len(actors.results)
 
     def test_interval_week(self):
         self._create_test_events()
@@ -687,3 +789,461 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         mock_sync_execute.assert_called_once()
         self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+
+    def test_cumulative_stickiness(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+            ]
+        )
+
+        response = self._run_query(
+            date_from="2020-01-11",
+            date_to="2020-01-13",
+            filters=StickinessFilter(**{"computedAs": StickinessComputationMode.CUMULATIVE}),
+        )
+
+        result = response.results[0]
+
+        # Test cumulative data
+        assert result["data"] == [3, 2, 1]  # Day 1: 3 users, Day 2: 2 users for 2+ days, Day 3: 1 user for 3 days
+        assert result["labels"] == ["1 day or more", "2 days or more", "3 days or more"]
+
+    def test_cumulative_stickiness_with_intervals(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-11T13:00:00Z",
+                                "2020-01-11T14:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-11T13:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+            ]
+        )
+
+        response = self._run_query(
+            date_from="2020-01-11T12:00:00Z",
+            date_to="2020-01-11T14:00:00Z",
+            interval="hour",
+            filters=StickinessFilter(**{"computedAs": StickinessComputationMode.CUMULATIVE}),
+        )
+
+        result = response.results[0]
+
+        # Test cumulative data with hourly intervals
+        assert result["data"] == [2, 2, 1]  # Hour 1: 2 users, Hour 2: 2 users for 2+ hours, Hour 3: 1 user for 3 hours
+        assert result["labels"] == ["1 hour or more", "2 hours or more", "3 hours or more"]
+
+    def test_cumulative_stickiness_with_property_filter(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"browser": "Chrome"},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"browser": "Safari"},
+                ),
+            ]
+        )
+
+        response = self._run_query(
+            date_from="2020-01-11",
+            date_to="2020-01-13",
+            properties=[EventPropertyFilter(key="browser", value="Chrome", operator=PropertyOperator.EXACT)],
+            filters=StickinessFilter(**{"computedAs": StickinessComputationMode.CUMULATIVE}),
+        )
+
+        result = response.results[0]
+
+        # Test cumulative data with property filter
+        assert result["data"] == [1, 1, 1]  # Only Chrome user counted
+        assert result["labels"] == ["1 day or more", "2 days or more", "3 days or more"]
+
+    def test_cumulative_stickiness_zero_days(self):
+        # Test edge case with no events
+        response = self._run_query(
+            date_from="2020-01-11",
+            date_to="2020-01-13",
+            filters=StickinessFilter(**{"computedAs": StickinessComputationMode.CUMULATIVE}),
+        )
+
+        result = response.results[0]
+
+        # Test empty cumulative data
+        assert result["data"] == [0, 0, 0]
+        assert result["labels"] == ["1 day or more", "2 days or more", "3 days or more"]
+
+    def test_cumulative_stickiness_with_criteria(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+            ]
+        )
+
+        response = self._run_query(
+            date_from="2020-01-11",
+            date_to="2020-01-13",
+            filters=StickinessFilter(
+                **{
+                    "computedAs": StickinessComputationMode.CUMULATIVE,
+                    "stickinessCriteria": {"operator": "gte", "value": 2},
+                }
+            ),
+        )
+
+        result = response.results[0]
+
+        # Test cumulative data with stickiness criteria
+        # Only users who were active for 2 or more days should be counted
+        assert result["data"] == [2, 1, 0]  # 2 users active 1+ days, 2 users active 2+ days, 1 user for 3 days
+        assert result["labels"] == ["1 day or more", "2 days or more", "3 days or more"]
+
+    def test_actor_query_cumulative(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+            ]
+        )
+        flush_persons_and_events()
+
+        query = self._get_query(
+            date_from="2020-01-11",
+            date_to="2020-01-13",
+            filters=StickinessFilter(**{"computedAs": StickinessComputationMode.CUMULATIVE}),
+        )
+        runner = StickinessQueryRunner(team=self.team, query=query)
+
+        # Test actors who were active for 1 or more days (should be all users)
+        actors_query_1 = runner.to_actors_query(interval_num=1)
+        response_1 = execute_hogql_query(
+            query_type="StickinessActorsQuery",
+            query=actors_query_1,
+            team=self.team,
+        )
+        self.assertEqual(len(response_1.results), 3)  # All 3 users were active for 1+ days
+
+        # Test actors who were active for 2 or more days
+        actors_query_2 = runner.to_actors_query(interval_num=2)
+        response_2 = execute_hogql_query(
+            query_type="StickinessActorsQuery",
+            query=actors_query_2,
+            team=self.team,
+        )
+        self.assertEqual(len(response_2.results), 2)  # p1 and p2 were active for 2+ days
+
+        # Test actors who were active for 3 or more days
+        actors_query_3 = runner.to_actors_query(interval_num=3)
+        response_3 = execute_hogql_query(
+            query_type="StickinessActorsQuery",
+            query=actors_query_3,
+            team=self.team,
+        )
+        self.assertEqual(len(response_3.results), 1)  # Only p1 was active for 3+ days
+
+    def test_actor_query_non_cumulative(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+            ]
+        )
+        flush_persons_and_events()
+
+        query = self._get_query(
+            date_from="2020-01-11",
+            date_to="2020-01-13",
+        )
+        runner = StickinessQueryRunner(team=self.team, query=query)
+
+        # Test actors who were active for exactly 1 day
+        actors_query_1 = runner.to_actors_query(interval_num=1)
+        response_1 = execute_hogql_query(
+            query_type="StickinessActorsQuery",
+            query=actors_query_1,
+            team=self.team,
+        )
+        self.assertEqual(len(response_1.results), 1)  # Only p3 was active for exactly 1 day
+
+        # Test actors who were active for exactly 2 days
+        actors_query_2 = runner.to_actors_query(interval_num=2)
+        response_2 = execute_hogql_query(
+            query_type="StickinessActorsQuery",
+            query=actors_query_2,
+            team=self.team,
+        )
+        self.assertEqual(len(response_2.results), 1)  # Only p2 was active for exactly 2 days
+
+        # Test actors who were active for exactly 3 days
+        actors_query_3 = runner.to_actors_query(interval_num=3)
+        response_3 = execute_hogql_query(
+            query_type="StickinessActorsQuery",
+            query=actors_query_3,
+            team=self.team,
+        )
+        self.assertEqual(len(response_3.results), 1)  # Only p1 was active for exactly 3 days
+
+    def test_actor_query_with_operator(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={},
+                ),
+            ]
+        )
+        flush_persons_and_events()
+
+        query = self._get_query(
+            date_from="2020-01-11",
+            date_to="2020-01-13",
+        )
+        runner = StickinessQueryRunner(team=self.team, query=query)
+
+        # Test actors who were active for >= 2 days
+        actors_query = runner.to_actors_query(interval_num=2, operator="gte")
+        response = execute_hogql_query(
+            query_type="StickinessActorsQuery",
+            query=actors_query,
+            team=self.team,
+        )
+        self.assertEqual(len(response.results), 2)  # p1 and p2 were active for >= 2 days
+
+        # Test actors who were active for <= 2 days
+        actors_query = runner.to_actors_query(interval_num=2, operator="lte")
+        response = execute_hogql_query(
+            query_type="StickinessActorsQuery",
+            query=actors_query,
+            team=self.team,
+        )
+        self.assertEqual(len(response.results), 2)  # p2 and p3 were active for <= 2 days

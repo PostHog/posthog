@@ -15,6 +15,7 @@ from posthog.hogql.ast import (
     StringType,
     TupleType,
     IntegerType,
+    DecimalType,
     UUIDType,
 )
 from posthog.hogql.base import ConstantType, UnknownType
@@ -55,6 +56,7 @@ AnyConstantType = (
     | UUIDType
     | ArrayType
     | TupleType
+    | DecimalType
     | UnknownType
     | IntegerType
     | FloatType
@@ -399,6 +401,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
     "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 2, 2),
+    "DATE": HogQLFunctionMeta("toDate", 1, 1),
     "toDate": HogQLFunctionMeta(
         "toDateOrNull",
         1,
@@ -408,13 +411,16 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
         1,
-        2,
+        2,  # Incorrect for parseDateTime64BestEffortOrNull but it is required because when we overload to toDateTime, we use this to figure out if timestamp is already in a function.
         tz_aware=True,
-        overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime")],
+        overloads=[
+            ((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime"),
+            # ((ast.StringType,), "parseDateTime64"), # missing in version: 24.8.7.41
+        ],
         signatures=[
-            ((StringType(),), DateTimeType(nullable=True)),
-            ((StringType(), IntegerType()), DateTimeType(nullable=True)),
-            ((StringType(), IntegerType(), StringType()), DateTimeType(nullable=True)),
+            ((StringType(),), DateTimeType()),
+            ((StringType(), IntegerType()), DateTimeType()),
+            ((StringType(), IntegerType(), StringType()), DateTimeType()),
         ],
     ),
     "toUUID": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="UUID")]),
@@ -453,6 +459,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toSecond": HogQLFunctionMeta("toSecond", 1, 1),
     "toUnixTimestamp": HogQLFunctionMeta("toUnixTimestamp", 1, 2),
     "toUnixTimestamp64Milli": HogQLFunctionMeta("toUnixTimestamp64Milli", 1, 1),
+    "toStartOfInterval": HogQLFunctionMeta("toStartOfInterval", 2, 2),
     "toStartOfYear": HogQLFunctionMeta("toStartOfYear", 1, 1),
     "toStartOfISOYear": HogQLFunctionMeta("toStartOfISOYear", 1, 1),
     "toStartOfQuarter": HogQLFunctionMeta("toStartOfQuarter", 1, 1),
@@ -520,8 +527,24 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "age": HogQLFunctionMeta("age", 3, 3),
     "dateDiff": HogQLFunctionMeta("dateDiff", 3, 3),
     "dateTrunc": HogQLFunctionMeta("dateTrunc", 2, 2),
-    "dateAdd": HogQLFunctionMeta("dateAdd", 2, 2),
-    "dateSub": HogQLFunctionMeta("dateSub", 3, 3),
+    "dateAdd": HogQLFunctionMeta(
+        "dateAdd",
+        2,
+        3,
+        signatures=[
+            ((DateType(), UnknownType()), DateType()),
+            ((StringType(), UnknownType(), DateType()), DateType()),
+        ],
+    ),
+    "dateSub": HogQLFunctionMeta(
+        "dateSub",
+        2,
+        3,
+        signatures=[
+            ((DateType(), UnknownType()), DateType()),
+            ((StringType(), UnknownType(), DateType()), DateType()),
+        ],
+    ),
     "timeStampAdd": HogQLFunctionMeta("timeStampAdd", 2, 2),
     "timeStampSub": HogQLFunctionMeta("timeStampSub", 2, 2),
     "now": HogQLFunctionMeta(
@@ -977,6 +1000,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "max": HogQLFunctionMeta("max", 1, 1, aggregate=True, case_sensitive=False),
     "maxIf": HogQLFunctionMeta("maxIf", 2, 2, aggregate=True),
     "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True, case_sensitive=False),
+    "sumForEach": HogQLFunctionMeta("sumForEach", 1, 1, aggregate=True),
     "sumIf": HogQLFunctionMeta("sumIf", 2, 2, aggregate=True),
     "avg": HogQLFunctionMeta("avg", 1, 1, aggregate=True, case_sensitive=False),
     "avgIf": HogQLFunctionMeta("avgIf", 2, 2, aggregate=True),
@@ -1151,11 +1175,47 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "recording_button": HogQLFunctionMeta("recording_button", 1, 1),
+    # posthog/models/channel_type/sql.py and posthog/hogql/database/schema/channel_type.py
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
     "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
     "hogql_lookupPaidMediumType": HogQLFunctionMeta("hogql_lookupPaidMediumType", 1, 1),
     "hogql_lookupOrganicSourceType": HogQLFunctionMeta("hogql_lookupOrganicSourceType", 1, 1),
     "hogql_lookupOrganicMediumType": HogQLFunctionMeta("hogql_lookupOrganicMediumType", 1, 1),
+    # posthog/models/exchange_rate/sql.py
+    # convertCurrency(from_currency, to_currency, amount, timestamp?)
+    "convertCurrency": HogQLFunctionMeta(
+        "convertCurrency",
+        3,
+        4,
+        signatures=[
+            (
+                (
+                    StringType(),
+                    StringType(),
+                    DecimalType(),
+                ),
+                DecimalType(),
+            ),
+            (
+                (
+                    StringType(),
+                    StringType(),
+                    DecimalType(),
+                    DateType(),
+                ),
+                DecimalType(),
+            ),
+            (
+                (
+                    StringType(),
+                    StringType(),
+                    DecimalType(),
+                    DateTimeType(),
+                ),
+                DecimalType(),
+            ),
+        ],
+    ),
 }
 
 

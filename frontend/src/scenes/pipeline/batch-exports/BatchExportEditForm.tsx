@@ -1,18 +1,14 @@
 import { IconInfo } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonCalendarSelectInput,
     LemonCheckbox,
     LemonFileInput,
     LemonInput,
-    LemonInputSelect,
     LemonSelect,
+    LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { BatchExportConfigurationForm } from './types'
 
@@ -25,41 +21,15 @@ export function BatchExportGeneralEditFields({
     isPipeline?: boolean
     batchExportConfigForm: BatchExportConfigurationForm
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
-
     return (
         <>
-            <div className="space-y-4 max-w-200">
+            <div className="deprecated-space-y-4">
                 {!isPipeline && (
                     <LemonField name="name" label="Name">
                         <LemonInput placeholder="Name your workflow for future reference" />
                     </LemonField>
                 )}
                 <div className="flex gap-2 items-start flex-wrap">
-                    <LemonField
-                        name="interval"
-                        label="Batch interval"
-                        className="flex-1"
-                        info={
-                            <>
-                                The intervals of data exports. For example, if you select hourly, every hour a run will
-                                be created to export that hours data.
-                            </>
-                        }
-                    >
-                        <LemonSelect
-                            options={[
-                                { value: 'hour', label: 'Hourly' },
-                                { value: 'day', label: 'Daily' },
-                                {
-                                    value: 'every 5 minutes',
-                                    label: 'Every 5 minutes',
-                                    hidden: !highFrequencyBatchExports,
-                                },
-                            ]}
-                        />
-                    </LemonField>
                     {(!isPipeline || batchExportConfigForm.end_at) && ( // Not present in the new UI unless grandfathered in
                         <LemonField
                             name="end_at"
@@ -84,18 +54,6 @@ export function BatchExportGeneralEditFields({
                     )}
                 </div>
 
-                {isPipeline ? (
-                    <LemonBanner type="info">
-                        The export will be created in a paused state, once configured your exporter, you can trigger a
-                        manual export for historic data or start the continous export.
-                    </LemonBanner>
-                ) : (
-                    <LemonBanner type="info">
-                        This batch exporter will schedule regular batch exports at your indicated interval until the end
-                        date. Once you have configured your exporter, you can trigger a manual export for historic data.
-                    </LemonBanner>
-                )}
-
                 {isNew && !isPipeline ? (
                     <LemonField name="paused">
                         <LemonCheckbox
@@ -108,7 +66,7 @@ export function BatchExportGeneralEditFields({
                                             "If selected, the Batch Exporter will be created but will be 'paused' allowing you to resumed it at a later date."
                                         }
                                     >
-                                        <IconInfo className=" text-lg text-muted-alt" />
+                                        <IconInfo className=" text-lg text-secondary" />
                                     </Tooltip>
                                 </span>
                             }
@@ -129,7 +87,7 @@ export function BatchExportsEditFields({
 }): JSX.Element {
     return (
         <>
-            <div className="space-y-4 max-w-200">
+            <div className="deprecated-space-y-4 max-w-200 mt-4">
                 {batchExportConfigForm.destination === 'S3' ? (
                     <>
                         <div className="flex gap-4">
@@ -258,37 +216,47 @@ export function BatchExportsEditFields({
                         >
                             <LemonInput placeholder={isNew ? 'e.g. https://your-minio-host:9000' : 'Leave unchanged'} />
                         </LemonField>
-
-                        <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to exclude from the export (optional)"
-                            />
-                        </LemonField>
-                        <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to include in the export (optional)"
-                            />
-                        </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'Snowflake' ? (
                     <>
+                        <LemonField name="account" label="Account">
+                            <LemonInput placeholder="my-account" />
+                        </LemonField>
+
                         <LemonField name="user" label="User">
                             <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
                         </LemonField>
 
-                        <LemonField name="password" label="Password">
-                            <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
+                        <LemonField name="authentication_type" label="Authentication type" className="flex-1">
+                            <LemonSelect
+                                options={[
+                                    { value: 'password', label: 'Password' },
+                                    { value: 'keypair', label: 'Key pair' },
+                                ]}
+                            />
                         </LemonField>
 
-                        <LemonField name="account" label="Account">
-                            <LemonInput placeholder="my-account" />
-                        </LemonField>
+                        {batchExportConfigForm.authentication_type != 'keypair' && (
+                            <LemonField name="password" label="Password">
+                                <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
+                            </LemonField>
+                        )}
+
+                        {batchExportConfigForm.authentication_type == 'keypair' && (
+                            <>
+                                <LemonField name="private_key" label="Private key">
+                                    <LemonTextArea
+                                        className="ph-ignore-input"
+                                        placeholder={isNew ? 'my-private-key' : 'Leave unchanged'}
+                                        minRows={4}
+                                    />
+                                </LemonField>
+
+                                <LemonField name="private_key_passphrase" label="Private key passphrase">
+                                    <LemonInput placeholder={isNew ? 'my-passphrase' : 'Leave unchanged'} />
+                                </LemonField>
+                            </>
+                        )}
 
                         <LemonField name="database" label="Database">
                             <LemonInput placeholder="my-database" />
@@ -308,23 +276,6 @@ export function BatchExportsEditFields({
 
                         <LemonField name="role" label="Role" showOptional>
                             <LemonInput placeholder="my-role" />
-                        </LemonField>
-
-                        <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to exclude from the export (optional)"
-                            />
-                        </LemonField>
-                        <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to include in the export (optional)"
-                            />
                         </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'Postgres' ? (
@@ -365,7 +316,7 @@ export function BatchExportsEditFields({
                                         <span className="flex items-center gap-2">
                                             Does your Postgres instance have a self-signed SSL certificate?
                                             <Tooltip title="In most cases, Heroku and RDS users should check this.">
-                                                <IconInfo className=" text-lg text-muted-alt" />
+                                                <IconInfo className=" text-lg text-secondary" />
                                             </Tooltip>
                                         </span>
                                     }
@@ -373,23 +324,6 @@ export function BatchExportsEditFields({
                                     onChange={onChange}
                                 />
                             )}
-                        </LemonField>
-
-                        <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to exclude from the export (optional)"
-                            />
-                        </LemonField>
-                        <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to include in the export (optional)"
-                            />
                         </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'Redshift' ? (
@@ -430,23 +364,6 @@ export function BatchExportsEditFields({
                                 ]}
                             />
                         </LemonField>
-
-                        <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to exclude from the export (optional)"
-                            />
-                        </LemonField>
-                        <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to include in the export (optional)"
-                            />
-                        </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'BigQuery' ? (
                     <>
@@ -470,30 +387,13 @@ export function BatchExportsEditFields({
                                         <span className="flex items-center gap-2">
                                             Export 'properties', 'set', and 'set_once' fields as BigQuery JSON type
                                             <Tooltip title="If left unchecked, these fields will be sent as STRING type. This setting cannot be changed after batch export is created.">
-                                                <IconInfo className=" text-lg text-muted-alt" />
+                                                <IconInfo className=" text-lg text-secondary" />
                                             </Tooltip>
                                         </span>
                                     }
                                 />
                             </LemonField>
                         ) : null}
-
-                        <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to exclude from the export (optional)"
-                            />
-                        </LemonField>
-                        <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to include in the export (optional)"
-                            />
-                        </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'HTTP' ? (
                     <>
@@ -507,22 +407,6 @@ export function BatchExportsEditFields({
                         </LemonField>
                         <LemonField name="token" label="Destination project API Key">
                             <LemonInput placeholder="e.g. phc_12345..." />
-                        </LemonField>
-                        <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to exclude from the export (optional)"
-                            />
-                        </LemonField>
-                        <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to include in the export (optional)"
-                            />
                         </LemonField>
                     </>
                 ) : null}

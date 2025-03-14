@@ -107,16 +107,16 @@ function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Elem
 }
 
 export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorProps): JSX.Element {
-    const { _getMetricType, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
+    const { getInsightType, firstPrimaryMetric, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
         experimentLogic({ experimentId })
     )
     const { setExperiment } = useActions(experimentLogic({ experimentId }))
 
-    const metricType = _getMetricType(experiment.metrics[0])
+    const insightType = getInsightType(firstPrimaryMetric)
 
     // :KLUDGE: need these to mount the Query component to load the insight */
     const insightLogicInstance = insightLogic({
-        dashboardItemId: metricType === InsightType.FUNNELS ? MetricInsightId.Funnels : MetricInsightId.Trends,
+        dashboardItemId: insightType === InsightType.FUNNELS ? MetricInsightId.Funnels : MetricInsightId.Trends,
         syncWithUrl: false,
     })
     const { insightProps } = useValues(insightLogicInstance)
@@ -125,16 +125,16 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
         query = {
             kind: NodeKind.InsightVizNode,
             source:
-                metricType === InsightType.FUNNELS
-                    ? (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query
-                    : (experiment.metrics[0] as ExperimentTrendsQuery).count_query,
+                insightType === InsightType.FUNNELS
+                    ? (firstPrimaryMetric as ExperimentFunnelsQuery).funnels_query
+                    : (firstPrimaryMetric as ExperimentTrendsQuery).count_query,
         }
     }
 
     const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
 
     let sliderMaxValue = 0
-    if (metricType === InsightType.FUNNELS) {
+    if (insightType === InsightType.FUNNELS) {
         if (100 - funnelConversionRate < 50) {
             sliderMaxValue = 100 - funnelConversionRate
         } else {
@@ -152,7 +152,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                         <b>Minimum detectable effect</b>
                         <Tooltip
                             title={
-                                <div className="space-y-2">
+                                <div className="deprecated-space-y-2">
                                     <div>
                                         The Minimum detectable effect represents the smallest change that you want to be
                                         able to detect in your experiment.
@@ -171,7 +171,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                             }
                             closeDelayMs={200}
                         >
-                            <IconInfo className="text-muted-alt text-base ml-1" />
+                            <IconInfo className="text-secondary text-base ml-1" />
                         </Tooltip>
                     </div>
                     <div className="flex gap-4">
@@ -217,7 +217,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                         The calculations are based on the events received in the last 14 days. This event count may
                         differ from what was considered in earlier estimates.
                     </LemonBanner>
-                    {_getMetricType(experiment.metrics[0]) === InsightType.TRENDS ? (
+                    {insightType === InsightType.TRENDS ? (
                         <TrendCalculation experimentId={experimentId} />
                     ) : (
                         <FunnelCalculation experimentId={experimentId} />

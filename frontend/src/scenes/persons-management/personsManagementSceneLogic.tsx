@@ -31,7 +31,7 @@ export type PersonsManagementTabs = Record<
 export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>([
     path(['scenes', 'persons-management', 'personsManagementSceneLogic']),
     connect({
-        values: [groupsModel, ['aggregationLabel', 'groupTypes', 'groupsAccessStatus', 'aggregationLabel']],
+        values: [groupsModel, ['aggregationLabel', 'groupTypes', 'groupsAccessStatus']],
     }),
     actions({
         setTabKey: (tabKey: string) => ({ tabKey }),
@@ -137,7 +137,12 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
     }),
     actionToUrl(({ values }) => ({
         setTabKey: ({ tabKey }) => {
-            return values.tabs.find((x) => x.key === tabKey)?.url || values.tabs[0].url
+            const tab = values.tabs.find((x) => x.key === tabKey)
+            if (!tab) {
+                return values.tabs[0].url
+            }
+            // Preserve existing search params when changing tabs
+            return [tab.url, router.values.searchParams, router.values.hashParams, { replace: true }]
         },
     })),
     urlToAction(({ actions }) => {

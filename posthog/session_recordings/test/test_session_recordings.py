@@ -11,10 +11,12 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 from parameterized import parameterized
+import pytest
 from rest_framework import status
 
 from posthog.api.test.test_team import create_team
-from posthog.models import Organization, Person, SessionRecording
+from posthog.clickhouse.client import sync_execute
+from posthog.models import Organization, Person, SessionRecording, User
 from posthog.models.team import Team
 from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
 from posthog.session_recordings.models.session_recording_event import (
@@ -39,9 +41,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def setUp(self):
         super().setUp()
 
-        # Create a new team each time to ensure no clashing between tests
-        # TODO this is pretty slow, we should change assertions so that we don't need it
-        self.team = Team.objects.create(organization=self.organization, name="New Team")
+        sync_execute("TRUNCATE TABLE sharded_events")
+        sync_execute("TRUNCATE TABLE person")
+        sync_execute("TRUNCATE TABLE sharded_session_replay_events")
+        SessionRecordingViewed.objects.all().delete()
+        SessionRecording.objects.all().delete()
+        Person.objects.all().delete()
 
     def produce_replay_summary(
         self,
@@ -244,8 +249,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        self.produce_replay_summary("user", "1", base_time, team_id=another_team.pk)
-        self.produce_replay_summary("user", "2", base_time)
+        self.produce_replay_summary("user", "other_team", base_time, team_id=another_team.pk)
+        self.produce_replay_summary("user", "current_team", base_time)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -260,7 +265,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "console_warn_count": 0,
                 "distinct_id": "user",
                 "end_time": ANY,
-                "id": "2",
+                "id": "current_team",
                 "inactive_seconds": ANY,
                 "keypress_count": 0,
                 "mouse_activity_count": 0,
@@ -281,8 +286,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "start_url": "https://not-provided-by-test.com",
                 "storage": "object_storage",
                 "viewed": False,
+                "viewers": [],
                 "ongoing": True,
-                "activity_score": None,
+                "activity_score": ANY,
             },
         ]
 
@@ -480,6 +486,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 distinct_id="d1",
             )
 
+            other_user = User.objects.create(email="paul@not-first-user.com")
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=other_user,
+                session_id=session_recording_id,
+            )
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
         response_data = response.json()
 
@@ -487,6 +500,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "id": "session_1",
             "distinct_id": "d1",
             "viewed": False,
+            "viewers": [other_user.email],
             "recording_duration": 30,
             "start_time": base_time.replace(tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -511,6 +525,67 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "snapshot_source": "web",
             "ongoing": None,
             "activity_score": None,
+        }
+
+    def test_get_single_session_recording_viewed_stats_someone_else_viewed(self):
+        with freeze_time("2023-01-01T12:00:00.000Z"):
+            session_recording_id = "session_1"
+            base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+            produce_replay_summary(
+                session_id=session_recording_id,
+                team_id=self.team.pk,
+                first_timestamp=base_time.isoformat(),
+                last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+                distinct_id="d1",
+            )
+
+            other_user = User.objects.create(email="paul@not-first-user.com")
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=other_user,
+                session_id=session_recording_id,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}/viewed")
+        response_data = response.json()
+
+        assert response_data == {
+            "viewed": False,
+            "other_viewers": 1,
+        }
+
+    def test_get_single_session_recording_viewed_stats_current_user_viewed(self):
+        with freeze_time("2023-01-01T12:00:00.000Z"):
+            session_recording_id = "session_1"
+            base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+            produce_replay_summary(
+                session_id=session_recording_id,
+                team_id=self.team.pk,
+                first_timestamp=base_time.isoformat(),
+                last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+                distinct_id="d1",
+            )
+
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=self.user,
+                session_id=session_recording_id,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}/viewed")
+        response_data = response.json()
+
+        assert response_data == {
+            "viewed": True,
+            "other_viewers": 0,
+        }
+
+    def test_get_single_session_recording_viewed_stats_can_404(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/12345/viewed")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "viewed": False,
+            "other_viewers": 0,
         }
 
     def test_single_session_recording_doesnt_leak_teams(self):
@@ -1201,6 +1276,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_400_when_invalid_list_query(self) -> None:
         query_params = "&".join(
             [
@@ -1214,21 +1290,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             f"/api/projects/{self.team.id}/session_recordings?{query_params}",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "validation_errors": [
-                {
-                    "type": "list_type",
-                    "loc": ["session_ids"],
-                    "msg": "Input should be a valid list",
-                    "input": "invalid",
-                    "url": "https://errors.pydantic.dev/2.9/v/list_type",
-                },
-                {
-                    "type": "extra_forbidden",
-                    "loc": ["tomato"],
-                    "msg": "Extra inputs are not permitted",
-                    "input": "potato",
-                    "url": "https://errors.pydantic.dev/2.9/v/extra_forbidden",
-                },
-            ],
-        }
+        assert (
+            '{"type": "extra_forbidden", "loc": ["tomato"], "msg": "Extra inputs are not permitted", "input": "potato", "url": "https://errors.pydantic.dev/2.9/v/extra_forbidden"}'
+            in response.json()["detail"]
+        )
+        assert response.json() == self.snapshot

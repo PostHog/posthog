@@ -10,6 +10,8 @@ import typing
 
 import pyarrow as pa
 import snowflake.connector
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
 from snowflake.connector.cursor import ResultMetadata
@@ -20,11 +22,10 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportInsertInputs,
     BatchExportModel,
-    BatchExportSchema,
     SnowflakeBatchExportInputs,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -43,6 +44,7 @@ from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
+    resolve_batch_exports_model,
     run_consumer,
     wait_for_schema_or_producer,
 )
@@ -51,7 +53,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     WriterFormat,
 )
 from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
@@ -67,6 +69,10 @@ NON_RETRYABLE_ERROR_TYPES = [
     "SnowflakeConnectionError",
     # Raised when a table is not found in Snowflake.
     "SnowflakeTableNotFoundError",
+    # Raised when a using key-pair auth and the private key or passphrase is not valid.
+    "InvalidPrivateKeyError",
+    # Raised when a valid authentication method is not provided.
+    "SnowflakeAuthenticationError",
 ]
 
 
@@ -107,6 +113,20 @@ class SnowflakeTableNotFoundError(Exception):
         super().__init__(f"Table '{table_name}' not found in Snowflake")
 
 
+class SnowflakeAuthenticationError(Exception):
+    """Raised when a valid authentication method is not provided."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
+class InvalidPrivateKeyError(Exception):
+    """Raised when a private key is not valid."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
 @dataclasses.dataclass
 class SnowflakeHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     """The Snowflake batch export details included in every heartbeat."""
@@ -114,62 +134,122 @@ class SnowflakeHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     pass
 
 
-@dataclasses.dataclass
-class SnowflakeInsertInputs:
+@dataclasses.dataclass(kw_only=True)
+class SnowflakeInsertInputs(BatchExportInsertInputs):
     """Inputs for Snowflake."""
 
     # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
     # to keep track of where credentials are being stored and increases the
     # attach surface for credential leaks.
 
-    team_id: int
     user: str
-    password: str
     account: str
     database: str
     warehouse: str
     schema: str
     table_name: str
-    data_interval_start: str | None
-    data_interval_end: str
+    authentication_type: str = "password"
+    password: str | None = None
+    private_key: str | None = None
+    private_key_passphrase: str | None = None
     role: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
 
 SnowflakeField = tuple[str, str]
+
+
+def load_private_key(private_key: str, passphrase: str | None) -> bytes:
+    try:
+        p_key = serialization.load_pem_private_key(
+            private_key.encode("utf-8"),
+            password=passphrase.encode() if passphrase is not None else None,
+            backend=default_backend(),
+        )
+    except (ValueError, TypeError) as e:
+        msg = "Invalid private key"
+
+        if passphrase is not None and "Incorrect password?" in str(e):
+            msg = "Could not load private key: incorrect passphrase?"
+        elif "Password was not given but private key is encrypted" in str(e):
+            msg = "Could not load private key: passphrase was not given but private key is encrypted"
+        elif "Password was given but private key is not encrypted" in str(e):
+            if passphrase == "":
+                try:
+                    loaded = load_private_key(private_key, None)
+                except (ValueError, TypeError):
+                    # Proceed with top level handling
+                    pass
+                else:
+                    return loaded
+            msg = "Could not load private key: passphrase was given but private key is not encrypted"
+
+        raise InvalidPrivateKeyError(msg)
+
+    return p_key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
 
 
 class SnowflakeClient:
     """Snowflake connection client used in batch exports."""
 
     def __init__(
-        self, user: str, password: str, account: str, warehouse: str, database: str, schema: str, role: str | None
+        self,
+        user: str,
+        account: str,
+        warehouse: str,
+        database: str,
+        schema: str,
+        role: str | None = None,
+        password: str | None = None,
+        private_key: bytes | None = None,
     ):
+        if password is None and private_key is None:
+            raise SnowflakeAuthenticationError("Either password or private key must be provided")
+
+        self.role = role
         self.user = user
         self.password = password
+        self.private_key = private_key
         self.account = account
         self.warehouse = warehouse
         self.database = database
         self.schema = schema
-        self.role = role
         self._connection: SnowflakeConnection | None = None
 
     @classmethod
     def from_inputs(cls, inputs: SnowflakeInsertInputs) -> typing.Self:
         """Initialize `SnowflakeClient` from `SnowflakeInsertInputs`."""
+
+        # User could have specified both password and private key in their batch export config.
+        # (for example, if they've already created a batch export with password auth and are now switching to keypair auth)
+        # Therefore we decide which one to use based on the authentication_type.
+        password = None
+        private_key = None
+        if inputs.authentication_type == "password":
+            password = inputs.password
+            if password is None:
+                raise SnowflakeAuthenticationError("Password is required for password authentication")
+        elif inputs.authentication_type == "keypair":
+            if inputs.private_key is None:
+                raise SnowflakeAuthenticationError("Private key is required for keypair authentication")
+
+            private_key = load_private_key(inputs.private_key, inputs.private_key_passphrase)
+
+        else:
+            raise SnowflakeAuthenticationError(f"Invalid authentication type: {inputs.authentication_type}")
+
         return cls(
             user=inputs.user,
-            password=inputs.password,
             account=inputs.account,
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
             role=inputs.role,
+            password=password,
+            private_key=private_key,
         )
 
     @property
@@ -195,6 +275,7 @@ class SnowflakeClient:
                 database=self.database,
                 schema=self.schema,
                 role=self.role,
+                private_key=self.private_key,
             )
 
         except OperationalError as err:
@@ -293,7 +374,7 @@ class SnowflakeClient:
             CREATE TABLE IF NOT EXISTS "{table_name}" (
                 {field_ddl}
             )
-            COMMENT = 'PostHog generated events table'
+            COMMENT = 'PostHog generated table'
             """,
         )
 
@@ -450,14 +531,13 @@ class SnowflakeClient:
                     first_error or "NO ERROR MESSAGE",
                 )
 
-    async def amerge_person_tables(
+    async def amerge_mutable_tables(
         self,
         final_table: str,
         stage_table: str,
         merge_key: collections.abc.Iterable[SnowflakeField],
+        update_key: collections.abc.Iterable[str],
         update_when_matched: collections.abc.Iterable[SnowflakeField],
-        person_version_key: str = "person_version",
-        person_distinct_id_version_key: str = "person_distinct_id_version",
     ):
         """Merge two identical person model tables in Snowflake."""
 
@@ -472,6 +552,14 @@ class SnowflakeClient:
             if n > 0:
                 merge_condition += " AND "
             merge_condition += f'final."{field[0]}" = stage."{field[0]}"'
+
+        update_condition = "AND ("
+
+        for index, field_name in enumerate(update_key):
+            if index > 0:
+                update_condition += " OR "
+            update_condition += f'final."{field_name}" < stage."{field_name}"'
+        update_condition += ")"
 
         update_clause = ""
         values = ""
@@ -491,7 +579,7 @@ class SnowflakeClient:
         USING "{stage_table}" AS stage
         {merge_condition}
 
-        WHEN MATCHED AND (stage."{person_version_key}" > final."{person_version_key}" OR stage."{person_distinct_id_version_key}" > final."{person_distinct_id_version_key}") THEN
+        WHEN MATCHED {update_condition} THEN
             UPDATE SET
                 {update_clause}
         WHEN NOT MATCHED THEN
@@ -624,13 +712,16 @@ def get_snowflake_fields_from_record_schema(
             snowflake_type = "FLOAT"
 
         elif pa.types.is_boolean(pa_field.type):
-            snowflake_type = "BOOL"
+            snowflake_type = "BOOLEAN"
 
         elif pa.types.is_timestamp(pa_field.type):
             snowflake_type = "TIMESTAMP"
 
+        elif pa.types.is_list(pa_field.type):
+            snowflake_type = "ARRAY"
+
         else:
-            raise TypeError(f"Unsupported type: {pa_field.type}")
+            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
 
         snowflake_schema.append((name, snowflake_type))
 
@@ -656,35 +747,16 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
     async with (
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
-        get_client(team_id=inputs.team_id) as client,
     ):
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
         _, details = await should_resume_from_activity_heartbeat(activity, SnowflakeHeartbeatDetails)
         if details is None:
             details = SnowflakeHeartbeatDetails()
 
         done_ranges: list[DateRange] = details.done_ranges
 
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export_schema is None and "batch_export_model" in {
-            field.name for field in dataclasses.fields(inputs)
-        }:
-            model = inputs.batch_export_model
-            if model is not None:
-                model_name = model.name
-                extra_query_parameters = model.schema["values"] if model.schema is not None else None
-                fields = model.schema["fields"] if model.schema is not None else None
-            else:
-                model_name = "events"
-                extra_query_parameters = None
-                fields = None
-        else:
-            model = inputs.batch_export_schema
-            model_name = "custom"
-            extra_query_parameters = model["values"] if model is not None else {}
-            fields = model["fields"] if model is not None else None
+        model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
+            inputs.team_id, inputs.is_backfill, inputs.batch_export_model, inputs.batch_export_schema
+        )
 
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
@@ -693,26 +765,26 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer(clickhouse_client=client)
-        producer_task = producer.start(
+        producer = Producer(record_batch_model)
+        producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
-            is_backfill=inputs.is_backfill,
+            is_backfill=inputs.get_is_backfill(),
+            backfill_details=inputs.backfill_details,
             team_id=inputs.team_id,
             full_range=full_range,
             done_ranges=done_ranges,
             fields=fields,
+            filters=filters,
             destination_default_fields=snowflake_default_fields(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
-            use_latest_schema=True,
         )
-        records_completed = 0
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            return records_completed
+            return details.records_completed
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -746,12 +818,30 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 known_variant_columns=known_variant_columns,
             )
 
-        requires_merge = (
-            isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
-        )
+        requires_merge = False
+        merge_key = []
+        update_key = []
+        if isinstance(inputs.batch_export_model, BatchExportModel):
+            if inputs.batch_export_model.name == "persons":
+                requires_merge = True
+                merge_key = [
+                    ("team_id", "INT64"),
+                    ("distinct_id", "STRING"),
+                ]
+                update_key = ["person_version", "person_distinct_id_version"]
+
+            elif inputs.batch_export_model.name == "sessions":
+                requires_merge = True
+                merge_key = [("team_id", "INT64"), ("session_id", "STRING")]
+                update_key = [
+                    "end_timestamp",
+                ]
+
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stagle_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+            if requires_merge
+            else inputs.table_name
         )
 
         async with SnowflakeClient.from_inputs(inputs).connect() as snow_client:
@@ -773,33 +863,34 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     snowflake_table=snow_stage_table if requires_merge else snow_table,
                     snowflake_table_stage_prefix=data_interval_end_str,
                 )
-                records_completed = await run_consumer(
-                    consumer=consumer,
-                    queue=queue,
-                    producer_task=producer_task,
-                    schema=record_batch_schema,
-                    max_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
-                    json_columns=known_variant_columns,
-                    multiple_files=True,
-                )
-
-                await snow_client.copy_loaded_files_to_snowflake_table(
-                    snow_stage_table if requires_merge else snow_table, data_interval_end_str
-                )
-
-                if requires_merge:
-                    merge_key = (
-                        ("team_id", "INT64"),
-                        ("distinct_id", "STRING"),
-                    )
-                    await snow_client.amerge_person_tables(
-                        final_table=snow_table,
-                        stage_table=snow_stage_table,
-                        update_when_matched=table_fields,
-                        merge_key=merge_key,
+                try:
+                    await run_consumer(
+                        consumer=consumer,
+                        queue=queue,
+                        producer_task=producer_task,
+                        schema=record_batch_schema,
+                        max_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
+                        json_columns=known_variant_columns,
+                        multiple_files=True,
                     )
 
-        return records_completed
+                # ensure we always write data to final table, even if we fail halfway through, as if we resume from
+                # a heartbeat, we can continue without losing data
+                finally:
+                    await snow_client.copy_loaded_files_to_snowflake_table(
+                        snow_stage_table if requires_merge else snow_table, data_interval_end_str
+                    )
+
+                    if requires_merge:
+                        await snow_client.amerge_mutable_tables(
+                            final_table=snow_table,
+                            stage_table=snow_stage_table,
+                            update_when_matched=table_fields,
+                            merge_key=merge_key,
+                            update_key=update_key,
+                        )
+
+        return details.records_completed
 
 
 @workflow.defn(name="snowflake-export", failure_exception_types=[workflow.NondeterminismError])
@@ -821,8 +912,10 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: SnowflakeBatchExportInputs):
         """Workflow implementation to export data to Snowflake table."""
+        is_backfill = inputs.get_is_backfill()
+        is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
+        should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -831,7 +924,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            is_backfill=inputs.is_backfill,
+            backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -855,8 +948,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
             user=inputs.user,
-            password=inputs.password,
             account=inputs.account,
+            authentication_type=inputs.authentication_type,
+            password=inputs.password,
+            private_key=inputs.private_key,
+            private_key_passphrase=inputs.private_key_passphrase,
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
@@ -867,7 +963,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             run_id=run_id,
-            is_backfill=inputs.is_backfill,
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
         )

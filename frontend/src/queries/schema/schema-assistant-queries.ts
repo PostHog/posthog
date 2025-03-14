@@ -183,7 +183,7 @@ export interface AssistantTrendsFilter {
     /**
      * If the formula is provided, apply it here.
      */
-    formula?: TrendsFilterLegacy['formula']
+    formulas?: string[]
 
     /**
      * Visualization type. Available values:
@@ -191,7 +191,7 @@ export interface AssistantTrendsFilter {
      * `ActionsBar` - time-series bar chart.
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
-     * `BoldNumber` - total value single large number. You can't use this with breakdown; use when user explicitly asks for a single output number.
+     * `BoldNumber` - total value single large number. You can't use this with breakdown or with multiple series; use when user explicitly asks for a single output number.
      * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
@@ -323,8 +323,8 @@ export interface AssistantFunnelsFilter {
     /**
      * Defines the type of visualization to use. The `steps` option is recommended.
      * `steps` - shows a step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default).
-     * `time_to_convert` - shows a histogram of the time it took to complete the funnel. Use this if the user asks about the average time it takes to complete the funnel.
-     * `trends` - shows a trend of the whole sequence's conversion rate over time. Use this if the user wants to see how the conversion rate changes over time.
+     * `time_to_convert` - shows a histogram of the time it took to complete the funnel.
+     * `trends` - shows trends of the conversion rate of the whole sequence over time.
      * @default steps
      */
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
@@ -430,8 +430,10 @@ export interface AssistantRetentionFilter {
      * @default Day
      */
     period?: RetentionFilterLegacy['period']
-    /** Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
+    /** DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
     showMean?: RetentionFilterLegacy['show_mean']
+    /** Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
+    meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
     /**
      * Whether retention should be rolling (aka unbounded, cumulative).
      * Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.

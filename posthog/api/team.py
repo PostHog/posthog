@@ -8,10 +8,11 @@ from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
+from posthog.cloud_utils import get_api_host
+from posthog.api.wizard import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -26,6 +27,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import calculate_product_activation
@@ -44,6 +46,7 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     get_organization_from_view,
 )
+from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -52,6 +55,7 @@ from posthog.utils import (
     get_ip_address,
     get_week_start_for_country_code,
 )
+from django.core.cache import cache
 
 
 class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
@@ -131,6 +135,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_recording_masking_config",
             "session_recording_url_trigger_config",
             "session_recording_url_blocklist_config",
             "session_recording_event_trigger_config",
@@ -141,8 +146,62 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "surveys_opt_in",
             "heatmaps_opt_in",
             "capture_dead_clicks",
+            "flags_persistence_default",
         ]
         read_only_fields = fields
+
+
+TEAM_CONFIG_FIELDS = (
+    "app_urls",
+    "slack_incoming_webhook",
+    "anonymize_ips",
+    "completed_snippet_onboarding",
+    "test_account_filters",
+    "test_account_filters_default_checked",
+    "path_cleaning_filters",
+    "is_demo",
+    "timezone",
+    "data_attributes",
+    "person_display_name_properties",
+    "correlation_config",
+    "autocapture_opt_out",
+    "autocapture_exceptions_opt_in",
+    "autocapture_web_vitals_opt_in",
+    "autocapture_web_vitals_allowed_metrics",
+    "autocapture_exceptions_errors_to_ignore",
+    "capture_console_log_opt_in",
+    "capture_performance_opt_in",
+    "session_recording_opt_in",
+    "session_recording_sample_rate",
+    "session_recording_minimum_duration_milliseconds",
+    "session_recording_linked_flag",
+    "session_recording_network_payload_capture_config",
+    "session_recording_masking_config",
+    "session_recording_url_trigger_config",
+    "session_recording_url_blocklist_config",
+    "session_recording_event_trigger_config",
+    "session_replay_config",
+    "survey_config",
+    "week_start_day",
+    "primary_dashboard",
+    "live_events_columns",
+    "recording_domains",
+    "cookieless_server_hash_mode",
+    "human_friendly_comparison_periods",
+    "inject_web_apps",
+    "extra_settings",
+    "modifiers",
+    "has_completed_onboarding_for",
+    "surveys_opt_in",
+    "heatmaps_opt_in",
+    "flags_persistence_default",
+    "capture_dead_clicks",
+    "default_data_theme",
+    "revenue_tracking_config",
+    "onboarding_tasks",
+)
+
+TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -152,71 +211,34 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     has_group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
+    access_control_version = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
         fields = (
             "id",
             "uuid",
+            "name",
+            "access_control",
             "organization",
             "project_id",
             "api_token",
-            "app_urls",
-            "name",
-            "slack_incoming_webhook",
             "created_at",
             "updated_at",
-            "anonymize_ips",
-            "completed_snippet_onboarding",
             "ingested_event",
-            "test_account_filters",
-            "test_account_filters_default_checked",
-            "path_cleaning_filters",
-            "is_demo",
-            "timezone",
-            "data_attributes",
-            "person_display_name_properties",
-            "correlation_config",
-            "autocapture_opt_out",
-            "autocapture_exceptions_opt_in",
-            "autocapture_web_vitals_opt_in",
-            "autocapture_web_vitals_allowed_metrics",
-            "autocapture_exceptions_errors_to_ignore",
-            "capture_console_log_opt_in",
-            "capture_performance_opt_in",
-            "session_recording_opt_in",
-            "session_recording_sample_rate",
-            "session_recording_minimum_duration_milliseconds",
-            "session_recording_linked_flag",
-            "session_recording_network_payload_capture_config",
-            "session_recording_url_trigger_config",
-            "session_recording_url_blocklist_config",
-            "session_recording_event_trigger_config",
-            "session_replay_config",
-            "survey_config",
-            "effective_membership_level",
-            "access_control",
-            "week_start_day",
-            "has_group_types",
-            "primary_dashboard",
-            "live_events_columns",
-            "recording_domains",
-            "cookieless_server_hash_mode",
-            "human_friendly_comparison_periods",
-            "person_on_events_querying_enabled",
-            "inject_web_apps",
-            "extra_settings",
-            "modifiers",
             "default_modifiers",
-            "has_completed_onboarding_for",
-            "surveys_opt_in",
-            "heatmaps_opt_in",
+            "person_on_events_querying_enabled",
+            "user_access_level",
+            # Config fields
+            *TEAM_CONFIG_FIELDS,
+            # Computed fields
+            "effective_membership_level",
+            "has_group_types",
             "live_events_token",
             "product_intents",
-            "capture_dead_clicks",
-            "user_access_level",
-            "default_data_theme",
+            "access_control_version",
         )
+
         read_only_fields = (
             "id",
             "uuid",
@@ -232,11 +254,28 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "person_on_events_querying_enabled",
             "live_events_token",
             "user_access_level",
+            "product_intents",
+            "access_control_version",
         )
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
+        if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
+            representation["default_data_theme"] = (
+                DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
+            )
+        return representation
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
+
+    def get_access_control_version(self, team: Team) -> str:
+        # If they have a private project (team/environment) then assume they are using the old access control
+        if bool(team.access_control):
+            return "v1"
+        return "v2"
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()
@@ -285,6 +324,31 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(
                 "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys."
             )
+
+        return value
+
+    @staticmethod
+    def validate_session_recording_masking_config(value) -> dict | None:
+        if value is None:
+            return None
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        allowed_keys = {"maskAllInputs", "maskTextSelector"}
+
+        if not all(key in allowed_keys for key in value.keys()):
+            raise exceptions.ValidationError(
+                f"Must provide a dictionary with only known keys: {', '.join(allowed_keys)}."
+            )
+
+        if "maskAllInputs" in value:
+            if not isinstance(value["maskAllInputs"], bool):
+                raise exceptions.ValidationError("maskAllInputs must be a boolean.")
+
+        if "maskTextSelector" in value:
+            if not isinstance(value["maskTextSelector"], str):
+                raise exceptions.ValidationError("maskTextSelector must be a string.")
 
         return value
 
@@ -483,6 +547,18 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             return TeamBasicSerializer
         return super().get_serializer_class()
 
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        # If the request only contains config fields, require read:team scope
+        # Otherwise, require write:team scope (handled by APIScopePermission)
+        if self.action == "partial_update":
+            request_fields = set(request.data.keys())
+            non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
+            if not non_team_config_fields:
+                return ["team:read"]
+
+        # Fall back to the default behavior
+        return None
+
     # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
     def dangerously_get_permissions(self) -> list:
         """
@@ -608,6 +684,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["PATCH"],
         detail=True,
+        required_scopes=["team:read"],
     )
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         team = self.get_object()
@@ -616,9 +693,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
         should_report_product_intent = False
+        metadata = request.data.get("metadata", {})
 
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
+
+        if not isinstance(metadata, dict):
+            return response.Response({"error": "'metadata' must be a dictionary"}, status=400)
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
 
@@ -641,6 +722,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 user,
                 "user showed product intent",
                 {
+                    **metadata,
                     "product_key": product_type,
                     "$set_once": {"first_onboarding_product_selected": product_type},
                     "$current_url": current_url,
@@ -656,7 +738,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
 
-    @action(methods=["PATCH"], detail=True)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        required_scopes=["team:read"],
+    )
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         team = self.get_object()
         product_type = request.data.get("product_type")
@@ -706,6 +792,34 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="authenticate_wizard",
+        throttle_classes=[SetupWizardAuthenticationRateThrottle],
+    )
+    def authenticate_wizard(self, request, **kwargs):
+        hash = request.data.get("hash")
+
+        if not hash:
+            raise serializers.ValidationError({"hash": ["This field is required."]}, code="required")
+
+        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
+        wizard_data = cache.get(cache_key)
+
+        if wizard_data is None:
+            raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
+
+        wizard_data = {
+            "project_api_key": request.user.team.api_token,
+            "host": get_api_host(),
+            "user_distinct_id": request.user.distinct_id,
+        }
+
+        cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
+
+        return response.Response({"success": True}, status=200)
 
     @cached_property
     def user_permissions(self):

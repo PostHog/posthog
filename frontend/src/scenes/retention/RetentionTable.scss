@@ -1,6 +1,4 @@
 .RetentionTable {
-    --retention-table-color: var(--primary-3000);
-
     width: 100%;
     font-weight: 500;
 
@@ -11,7 +9,7 @@
         white-space: nowrap;
         border-top: 10px solid transparent;
         border-bottom: 10px solid transparent;
-        border-left: 1px solid var(--border);
+        border-left: 1px solid var(--border-primary);
 
         &:first-of-type {
             border-left: none;
@@ -52,9 +50,9 @@
         }
 
         &.RetentionTable__Tab--period {
-            color: var(--muted);
-            background-color: var(--bg-light);
-            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            background-color: var(--bg-surface-primary);
+            border: 1px solid var(--border-primary);
             border-style: dashed;
         }
     }

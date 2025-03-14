@@ -1,4 +1,3 @@
-import { urls } from '@posthog/apps-common'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -17,6 +16,7 @@ import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { TimezoneConfig } from './TimezoneConfig'
 import { WeekStartConfig } from './WeekStartConfig'
@@ -31,7 +31,7 @@ export function TeamDisplayName(): JSX.Element {
     const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
-        <div className="space-y-4 max-w-160">
+        <div className="deprecated-space-y-4 max-w-160">
             <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
             <LemonButton
                 type="primary"
@@ -60,7 +60,7 @@ export function WebSnippet(): JSX.Element {
                 <Link to="https://posthog.com/docs/libraries/js">see PostHog Docs</Link>.
             </p>
             {currentTeamLoading && !currentTeam ? (
-                <div className="space-y-4">
+                <div className="deprecated-space-y-4">
                     <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton repeat={3} />
                 </div>
@@ -78,7 +78,7 @@ export function WebSnippet(): JSX.Element {
                     the SDK is fully functional.
                 </p>
                 {currentTeamLoading && !currentTeam ? (
-                    <div className="space-y-4">
+                    <div className="deprecated-space-y-4">
                         <LemonSkeleton className="w-1/2 h-4" />
                         <LemonSkeleton repeat={3} />
                     </div>
@@ -202,7 +202,7 @@ export function TeamTimezone(): JSX.Element {
                 These settings affect how PostHog displays, buckets, and filters time-series data. You may need to
                 refresh insights for new settings to apply.
             </p>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonLabel id="timezone">Time zone</LemonLabel>
                 <TimezoneConfig />
                 <LemonLabel id="timezone">Week starts on</LemonLabel>
@@ -212,21 +212,29 @@ export function TeamTimezone(): JSX.Element {
     )
 }
 
-export function TeamToolbarURLs(): JSX.Element {
+export function TeamAuthorizedURLs(): JSX.Element {
     return (
         <>
             <p>
-                These are the URLs where the{' '}
+                These are the URLs where you can see{' '}
                 <b>
-                    <Link to={urls.toolbarLaunch()}>Toolbar</Link> will automatically launch
+                    <Link to={urls.webAnalytics()}>Web Analytics</Link>
                 </b>{' '}
-                (if you're logged in).
+                and{' '}
+                <b>
+                    <Link to={urls.experiments()}>Web Experiments</Link>
+                </b>{' '}
+                data from. You can also{' '}
+                <b>
+                    <Link to={urls.toolbarLaunch()}>launch the Toolbar</Link>
+                </b>{' '}
+                on these pages.
             </p>
             <p>
-                <b>Domains and wildcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
-                However, wildcarded top-level domains cannot be used (for security reasons).
+                <b>Wildcards are not allowed</b> (example: <code>https://*.example.com</code>). The URL needs to be
+                something concrete that can be launched.
             </p>
-            <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
+            <AuthorizedUrlList type={AuthorizedUrlListType.WEB_ANALYTICS} allowWildCards={false} />
         </>
     )
 }

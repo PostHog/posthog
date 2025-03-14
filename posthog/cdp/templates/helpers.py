@@ -1,11 +1,22 @@
+import functools
+import json
+from collections.abc import Callable
 from typing import Any, Optional, cast
 from unittest.mock import MagicMock
+
+import STPyV8
+
+from common.hogvm.python.execute import execute_bytecode
+from common.hogvm.python.stl import now
+from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.cdp.validation import compile_hog
-from posthog.test.base import BaseTest
-from hogvm.python.execute import execute_bytecode
+from posthog.models import HogFunction
+from posthog.models.utils import uuid7
+from posthog.test.base import BaseTest, APIBaseTest
 
 
+# TODO this test class only tests part of the template. The hog code is tested, the default mappings are not
 class BaseHogFunctionTemplateTest(BaseTest):
     template: HogFunctionTemplate
     compiled_hog: Any
@@ -89,3 +100,110 @@ class BaseHogFunctionTemplateTest(BaseTest):
             globals,
             functions=final_functions,
         )
+
+
+class BaseSiteDestinationFunctionTest(APIBaseTest):
+    template: HogFunctionTemplate
+    track_fn: str
+    inputs: dict
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [{"name": "data_pipelines", "key": "data_pipelines"}]
+        self.organization.save()
+
+    @functools.lru_cache
+    def _get_transpiled(self, edit_payload: Optional[Callable[[dict], dict]] = None):
+        # TODO do this without calling the API. There's a lot of logic in the endpoint which would need to be extracted
+        payload = {
+            "description": self.template.description,
+            "enabled": True,
+            "filters": self.template.filters,
+            "icon_url": self.template.icon_url,
+            "inputs": self.inputs,
+            "mappings": [
+                {
+                    "filters": m.filters,
+                    "inputs": {i["key"]: {"value": i["default"]} for i in (m.inputs_schema or [])},
+                    "inputs_schema": m.inputs_schema,
+                    "name": m.name,
+                }
+                for m in (self.template.mapping_templates or [])
+            ],
+            "masking": self.template.masking,
+            "name": self.template.name,
+            "template_id": self.template.id,
+            "type": self.template.type,
+        }
+        if edit_payload:
+            payload = edit_payload(payload)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data=payload,
+        )
+        assert response.status_code in (200, 201)
+        function_id = response.json()["id"]
+
+        # load from the DB based on the created ID
+        hog_function = HogFunction.objects.get(id=function_id)
+
+        return get_transpiled_function(hog_function)
+
+    def _process_event(
+        self,
+        event_name: str,
+        event_properties: Optional[dict] = None,
+        person_properties: Optional[dict] = None,
+        edit_payload: Optional[Callable[[dict], dict]] = None,
+    ):
+        event_id = str(uuid7())
+        js_globals = {
+            "event": {"uuid": event_id, "event": event_name, "properties": event_properties or {}, "timestamp": now()},
+            "person": {"properties": person_properties or {}},
+            "groups": {},
+        }
+        # We rely on the fact that most tracking scripts have idempotent init functions.
+        # This means that we can add our own tracking function first, and the regular init code (which typically adds an HTML script element) won't run.
+        # This lets us run the processEvent code in a minimal JS environment, and capture the outputs for given inputs.
+        js = f"""
+            {JS_STDLIB}
+
+            const calls = [];
+            const {self.track_fn} = (...args) => calls.push(args);
+            window.{self.track_fn} = {self.track_fn};
+
+            const globals = {json.dumps(js_globals)};
+            const posthog = {{
+                get_property: (key) => key === '$stored_person_properties' ? globals.person.properties : null,
+                config: {{
+                    debug: true,
+                }}
+            }};
+
+            const initFn = {self._get_transpiled(edit_payload)}().init;
+
+            const processEvent = initFn({{ posthog, callback: console.log }}).processEvent;
+
+            processEvent(globals, posthog);;
+            """
+
+        with STPyV8.JSContext() as ctxt:
+            ctxt.eval(js)
+            calls_json = ctxt.eval(
+                "JSON.stringify(calls)"
+            )  # send a string type over the bridge as complex types can cause crashes
+            calls = json.loads(calls_json)
+            assert isinstance(calls, list)
+            return event_id, calls
+
+
+# STPyV8 doesn't provide a window or document object, so set these up with a minimal implementation
+JS_STDLIB = """
+const document = {};
+const window = {};
+
+// easy but hacky impl, if we need a correct one, see
+// https://github.com/zloirock/core-js/blob/4b7201bb18a66481d8aa7ca28782c151bc99f152/packages/core-js/modules/web.structured-clone.js#L109
+const structuredClone = (obj) => JSON.parse(JSON.stringify(obj));
+window.structuredClone = structuredClone;
+"""

@@ -8,7 +8,7 @@ import {
     metaEvent,
     mutationData,
     removedNodeMutation,
-} from '@rrweb/types'
+} from '@posthog/rrweb-types'
 import { captureMessage } from '@sentry/react'
 import { isObject } from 'lib/utils'
 import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from 'scenes/session-recordings/player/rrweb'
@@ -1299,7 +1299,7 @@ export const makeFullEvent = (
     // we can restart the id sequence on each full snapshot
     globalIdSequence = ids()
 
-    if (!('wireframes' in mobileEvent.data)) {
+    if (!(isObject(mobileEvent.data) && 'wireframes' in mobileEvent.data)) {
         return mobileEvent as unknown as fullSnapshotEvent & {
             timestamp: number
             delay?: number

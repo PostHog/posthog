@@ -1,17 +1,19 @@
 import dataclasses
 import json
-from typing import Any, Optional, cast, Self
+from typing import Any, Optional, Self, cast
 
-from django.db import connection
+from django.db import connection, models
+from django.db.models.functions import Coalesce
+from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
-from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.utils import action
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
@@ -76,6 +78,12 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         required=False,
     )
 
+    exclude_hidden = serializers.BooleanField(
+        help_text="Whether to exclude properties marked as hidden",
+        required=False,
+        default=False,
+    )
+
     def validate(self, attrs):
         type_ = attrs.get("type", "event")
 
@@ -100,7 +108,7 @@ class QueryContext:
     The raw query is used to both query and count these results
     """
 
-    team_id: int
+    project_id: int
     table: str
     property_definition_fields: str
     property_definition_table: str
@@ -231,7 +239,7 @@ class QueryContext:
         return dataclasses.replace(
             self,
             search_query=search_query,
-            params={**self.params, "team_id": self.team_id, **search_kwargs},
+            params={**self.params, "project_id": self.project_id, **search_kwargs},
         )
 
     def with_excluded_properties(self, excluded_properties: Optional[str], type: str) -> Self:
@@ -257,13 +265,26 @@ class QueryContext:
             },
         )
 
+    def with_hidden_filter(self, exclude_hidden: bool, use_enterprise_taxonomy: bool) -> Self:
+        if exclude_hidden and use_enterprise_taxonomy:
+            hidden_filter = " AND (hidden IS NULL OR hidden = false)"
+            return dataclasses.replace(
+                self,
+                excluded_properties_filter=(
+                    self.excluded_properties_filter + hidden_filter
+                    if self.excluded_properties_filter
+                    else hidden_filter
+                ),
+            )
+        return self
+
     def as_sql(self, order_by_verified: bool):
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE {self.property_definition_table}.team_id = %(team_id)s
+            WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
               AND type = %(type)s
               AND coalesce(group_type_index, -1) = %(group_type_index)s
               {self.excluded_properties_filter}
@@ -280,7 +301,7 @@ class QueryContext:
             SELECT count(*) as full_count
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE {self.property_definition_table}.team_id = %(team_id)s
+            WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
               AND type = %(type)s
               AND coalesce(group_type_index, -1) = %(group_type_index)s
              {self.excluded_properties_filter} {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
@@ -295,7 +316,7 @@ class QueryContext:
             {self.event_property_join_type} (
                 SELECT DISTINCT property
                 FROM posthog_eventproperty
-                WHERE team_id = %(team_id)s {self.event_name_join_filter}
+                WHERE coalesce(project_id, team_id) = %(project_id)s {self.event_name_join_filter}
             ) {self.posthog_eventproperty_table_join_alias}
             ON {self.posthog_eventproperty_table_join_alias}.property = name
             """
@@ -372,7 +393,23 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             "is_seen_on_filtered_events",
         )
 
-    def update(self, property_definition: PropertyDefinition, validated_data):
+    def validate(self, data):
+        validated_data = super().validate(data)
+
+        if "hidden" in validated_data and "verified" in validated_data:
+            if validated_data["hidden"] and validated_data["verified"]:
+                raise serializers.ValidationError("A property cannot be both hidden and verified")
+
+        return validated_data
+
+    def update(self, property_definition: PropertyDefinition, validated_data: dict):
+        # If setting hidden=True, ensure verified becomes false
+        if validated_data.get("hidden", False):
+            validated_data["verified"] = False
+        # If setting verified=True, ensure hidden becomes false
+        elif validated_data.get("verified", False):
+            validated_data["hidden"] = False
+
         changed_fields = {
             k: v
             for k, v in validated_data.items()
@@ -498,7 +535,7 @@ class PropertyDefinitionViewSet(
 
         query_context = (
             QueryContext(
-                team_id=self.team_id,
+                project_id=self.project_id,
                 table=(
                     "ee_enterprisepropertydefinition FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
                     if use_enterprise_taxonomy
@@ -525,6 +562,9 @@ class PropertyDefinitionViewSet(
                 query.validated_data.get("excluded_properties"),
                 type=query.validated_data.get("type"),
             )
+            .with_hidden_filter(
+                query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=use_enterprise_taxonomy
+            )
         )
 
         with connection.cursor() as cursor:
@@ -550,6 +590,13 @@ class PropertyDefinitionViewSet(
 
     def safely_get_object(self, queryset):
         id = self.kwargs["id"]
+        non_enterprise_property = get_object_or_404(
+            PropertyDefinition.objects.alias(
+                effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+            ),
+            id=id,
+            effective_project_id=self.project_id,
+        )
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:
                 # noinspection PyUnresolvedReferences
@@ -557,17 +604,22 @@ class PropertyDefinitionViewSet(
             except ImportError:
                 pass
             else:
-                enterprise_property = EnterprisePropertyDefinition.objects.filter(id=id, team_id=self.team_id).first()
+                enterprise_property = (
+                    EnterprisePropertyDefinition.objects.alias(
+                        effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+                    )
+                    .filter(id=id, effective_project_id=self.project_id)  # type: ignore
+                    .first()
+                )
                 if enterprise_property:
                     return enterprise_property
-                non_enterprise_property = PropertyDefinition.objects.get(id=id, team_id=self.team_id)
                 new_enterprise_property = EnterprisePropertyDefinition(
                     propertydefinition_ptr_id=non_enterprise_property.id, description=""
                 )
                 new_enterprise_property.__dict__.update(non_enterprise_property.__dict__)
                 new_enterprise_property.save()
                 return new_enterprise_property
-        return PropertyDefinition.objects.get(id=id, team_id=self.team_id)
+        return non_enterprise_property
 
     @extend_schema(parameters=[PropertyDefinitionQuerySerializer])
     def list(self, request, *args, **kwargs):
@@ -583,8 +635,10 @@ class PropertyDefinitionViewSet(
         serializer = SeenTogetherQuerySerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
 
-        matches = EventProperty.objects.filter(
-            team_id=self.team_id,
+        matches = EventProperty.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=self.project_id,  # type: ignore
             event__in=serializer.validated_data["event_names"],
             property=serializer.validated_data["property_name"],
         )

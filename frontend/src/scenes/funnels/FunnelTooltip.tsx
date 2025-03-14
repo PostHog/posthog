@@ -15,7 +15,7 @@ import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
@@ -58,7 +58,7 @@ export function FunnelTooltip({
                     {formatBreakdownLabel(
                         series.breakdown_value,
                         breakdownFilter,
-                        cohorts,
+                        cohorts.results,
                         formatPropertyValueForDisplay
                     )}
                 </strong>

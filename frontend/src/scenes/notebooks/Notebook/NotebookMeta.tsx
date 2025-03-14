@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -77,7 +77,7 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
 
     return shown ? (
         <Tooltip title={content.tooltip} placement="left">
-            <span className="flex items-center gap-1 text-muted-alt">{content.content}</span>
+            <LemonTag className="uppercase">{content.content}</LemonTag>
         </Tooltip>
     ) : null
 }

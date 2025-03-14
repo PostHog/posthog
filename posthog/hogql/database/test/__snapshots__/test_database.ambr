@@ -388,14 +388,27 @@
                       "$end_current_url",
                       "$end_pathname",
                       "$end_hostname",
+                      "$entry_referring_domain",
                       "$entry_utm_source",
                       "$entry_utm_campaign",
                       "$entry_utm_medium",
                       "$entry_utm_term",
                       "$entry_utm_content",
-                      "$entry_referring_domain",
                       "$entry_gclid",
                       "$entry_gad_source",
+                      "$entry_gclsrc",
+                      "$entry_dclid",
+                      "$entry_gbraid",
+                      "$entry_wbraid",
+                      "$entry_fbclid",
+                      "$entry_msclkid",
+                      "$entry_twclid",
+                      "$entry_li_fat_id",
+                      "$entry_mc_cid",
+                      "$entry_igshid",
+                      "$entry_ttclid",
+                      "$entry__kx",
+                      "$entry_irclid",
                       "$pageview_count",
                       "$autocapture_count",
                       "$screen_count",
@@ -986,14 +999,27 @@
                       "$end_current_url",
                       "$end_pathname",
                       "$end_hostname",
+                      "$entry_referring_domain",
                       "$entry_utm_source",
                       "$entry_utm_campaign",
                       "$entry_utm_medium",
                       "$entry_utm_term",
                       "$entry_utm_content",
-                      "$entry_referring_domain",
                       "$entry_gclid",
                       "$entry_gad_source",
+                      "$entry_gclsrc",
+                      "$entry_dclid",
+                      "$entry_gbraid",
+                      "$entry_wbraid",
+                      "$entry_fbclid",
+                      "$entry_msclkid",
+                      "$entry_twclid",
+                      "$entry_li_fat_id",
+                      "$entry_mc_cid",
+                      "$entry_igshid",
+                      "$entry_ttclid",
+                      "$entry__kx",
+                      "$entry_irclid",
                       "$pageview_count",
                       "$autocapture_count",
                       "$screen_count",
@@ -1417,6 +1443,16 @@
                   "table": null,
                   "type": "string"
               },
+              "$entry_referring_domain": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_referring_domain`",
+                  "id": null,
+                  "name": "$entry_referring_domain",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "$entry_utm_source": {
                   "chain": null,
                   "fields": null,
@@ -1467,16 +1503,6 @@
                   "table": null,
                   "type": "string"
               },
-              "$entry_referring_domain": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$entry_referring_domain`",
-                  "id": null,
-                  "name": "$entry_referring_domain",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "$entry_gclid": {
                   "chain": null,
                   "fields": null,
@@ -1493,6 +1519,136 @@
                   "hogql_value": "`$entry_gad_source`",
                   "id": null,
                   "name": "$entry_gad_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_gclsrc": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_gclsrc`",
+                  "id": null,
+                  "name": "$entry_gclsrc",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_dclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_dclid`",
+                  "id": null,
+                  "name": "$entry_dclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_gbraid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_gbraid`",
+                  "id": null,
+                  "name": "$entry_gbraid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_wbraid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_wbraid`",
+                  "id": null,
+                  "name": "$entry_wbraid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_fbclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_fbclid`",
+                  "id": null,
+                  "name": "$entry_fbclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_msclkid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_msclkid`",
+                  "id": null,
+                  "name": "$entry_msclkid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_twclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_twclid`",
+                  "id": null,
+                  "name": "$entry_twclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_li_fat_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_li_fat_id`",
+                  "id": null,
+                  "name": "$entry_li_fat_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_mc_cid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_mc_cid`",
+                  "id": null,
+                  "name": "$entry_mc_cid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_igshid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_igshid`",
+                  "id": null,
+                  "name": "$entry_igshid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_ttclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_ttclid`",
+                  "id": null,
+                  "name": "$entry_ttclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry__kx": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry__kx`",
+                  "id": null,
+                  "name": "$entry__kx",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_irclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_irclid`",
+                  "id": null,
+                  "name": "$entry_irclid",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -1781,6 +1937,16 @@
                   "table": null,
                   "type": "float"
               },
+              "hogql_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hogql_name",
+                  "id": null,
+                  "name": "hogql_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "created_by": {
                   "chain": null,
                   "fields": null,
@@ -1864,6 +2030,33 @@
           },
           "id": "query_log",
           "name": "query_log",
+          "type": "posthog"
+      },
+      "exchange_rate": {
+          "fields": {
+              "currency": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "currency",
+                  "id": null,
+                  "name": "currency",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "date": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "date",
+                  "id": null,
+                  "name": "date",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "date"
+              }
+          },
+          "id": "exchange_rate",
+          "name": "exchange_rate",
           "type": "posthog"
       }
   }
@@ -2238,14 +2431,27 @@
                       "$end_current_url",
                       "$end_pathname",
                       "$end_hostname",
+                      "$entry_referring_domain",
                       "$entry_utm_source",
                       "$entry_utm_campaign",
                       "$entry_utm_medium",
                       "$entry_utm_term",
                       "$entry_utm_content",
-                      "$entry_referring_domain",
                       "$entry_gclid",
                       "$entry_gad_source",
+                      "$entry_gclsrc",
+                      "$entry_dclid",
+                      "$entry_gbraid",
+                      "$entry_wbraid",
+                      "$entry_fbclid",
+                      "$entry_msclkid",
+                      "$entry_twclid",
+                      "$entry_li_fat_id",
+                      "$entry_mc_cid",
+                      "$entry_igshid",
+                      "$entry_ttclid",
+                      "$entry__kx",
+                      "$entry_irclid",
                       "$pageview_count",
                       "$autocapture_count",
                       "$screen_count",
@@ -2809,14 +3015,27 @@
                       "$end_current_url",
                       "$end_pathname",
                       "$end_hostname",
+                      "$entry_referring_domain",
                       "$entry_utm_source",
                       "$entry_utm_campaign",
                       "$entry_utm_medium",
                       "$entry_utm_term",
                       "$entry_utm_content",
-                      "$entry_referring_domain",
                       "$entry_gclid",
                       "$entry_gad_source",
+                      "$entry_gclsrc",
+                      "$entry_dclid",
+                      "$entry_gbraid",
+                      "$entry_wbraid",
+                      "$entry_fbclid",
+                      "$entry_msclkid",
+                      "$entry_twclid",
+                      "$entry_li_fat_id",
+                      "$entry_mc_cid",
+                      "$entry_igshid",
+                      "$entry_ttclid",
+                      "$entry__kx",
+                      "$entry_irclid",
                       "$pageview_count",
                       "$autocapture_count",
                       "$screen_count",
@@ -3240,6 +3459,16 @@
                   "table": null,
                   "type": "string"
               },
+              "$entry_referring_domain": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_referring_domain`",
+                  "id": null,
+                  "name": "$entry_referring_domain",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "$entry_utm_source": {
                   "chain": null,
                   "fields": null,
@@ -3290,16 +3519,6 @@
                   "table": null,
                   "type": "string"
               },
-              "$entry_referring_domain": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$entry_referring_domain`",
-                  "id": null,
-                  "name": "$entry_referring_domain",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "$entry_gclid": {
                   "chain": null,
                   "fields": null,
@@ -3316,6 +3535,136 @@
                   "hogql_value": "`$entry_gad_source`",
                   "id": null,
                   "name": "$entry_gad_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_gclsrc": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_gclsrc`",
+                  "id": null,
+                  "name": "$entry_gclsrc",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_dclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_dclid`",
+                  "id": null,
+                  "name": "$entry_dclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_gbraid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_gbraid`",
+                  "id": null,
+                  "name": "$entry_gbraid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_wbraid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_wbraid`",
+                  "id": null,
+                  "name": "$entry_wbraid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_fbclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_fbclid`",
+                  "id": null,
+                  "name": "$entry_fbclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_msclkid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_msclkid`",
+                  "id": null,
+                  "name": "$entry_msclkid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_twclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_twclid`",
+                  "id": null,
+                  "name": "$entry_twclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_li_fat_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_li_fat_id`",
+                  "id": null,
+                  "name": "$entry_li_fat_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_mc_cid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_mc_cid`",
+                  "id": null,
+                  "name": "$entry_mc_cid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_igshid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_igshid`",
+                  "id": null,
+                  "name": "$entry_igshid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_ttclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_ttclid`",
+                  "id": null,
+                  "name": "$entry_ttclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry__kx": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry__kx`",
+                  "id": null,
+                  "name": "$entry__kx",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_irclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_irclid`",
+                  "id": null,
+                  "name": "$entry_irclid",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -3604,6 +3953,16 @@
                   "table": null,
                   "type": "float"
               },
+              "hogql_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hogql_name",
+                  "id": null,
+                  "name": "hogql_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "created_by": {
                   "chain": null,
                   "fields": null,
@@ -3687,6 +4046,33 @@
           },
           "id": "query_log",
           "name": "query_log",
+          "type": "posthog"
+      },
+      "exchange_rate": {
+          "fields": {
+              "currency": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "currency",
+                  "id": null,
+                  "name": "currency",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "date": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "date",
+                  "id": null,
+                  "name": "date",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "date"
+              }
+          },
+          "id": "exchange_rate",
+          "name": "exchange_rate",
           "type": "posthog"
       }
   }

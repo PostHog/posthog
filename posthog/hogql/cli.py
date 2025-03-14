@@ -1,7 +1,7 @@
 import sys
 import json
 
-from hogvm.python.execute import execute_bytecode
+from common.hogvm.python.execute import execute_bytecode
 from posthog.hogql.compiler.bytecode import create_bytecode, parse_program
 from posthog.hogql.compiler.javascript import to_js_program
 

@@ -1,12 +1,12 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
-import { captureException } from '@sentry/node'
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
 import { PluginsServerConfig } from '../types'
 import { createRedisClient } from '../utils/db/redis'
 import { timeoutGuard } from '../utils/db/utils'
+import { captureException } from '../utils/posthog'
 import { status } from '../utils/status'
 
 type WithCheckRateLimit<T> = {

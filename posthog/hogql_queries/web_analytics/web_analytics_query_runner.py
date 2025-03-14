@@ -3,6 +3,7 @@ from abc import ABC
 from datetime import timedelta
 from math import ceil
 from typing import Optional, Union
+import posthoganalytics
 
 from django.conf import settings
 from django.core.cache import cache
@@ -11,12 +12,14 @@ from django.utils.timezone import datetime
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr, action_to_expr
+from posthog.hogql.property import property_to_expr, action_to_expr, apply_path_cleaning
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression, revenue_events_where_expr
+
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
@@ -30,15 +33,29 @@ from posthog.schema import (
     SessionPropertyFilter,
     WebGoalsQuery,
     WebExternalClicksTableQuery,
+    WebVitalsPathBreakdownQuery,
+    RevenueTrackingConfig,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
-WebQueryNode = Union[WebOverviewQuery, WebStatsTableQuery, WebGoalsQuery, WebExternalClicksTableQuery]
+WebQueryNode = Union[
+    WebOverviewQuery, WebStatsTableQuery, WebGoalsQuery, WebExternalClicksTableQuery, WebVitalsPathBreakdownQuery
+]
 
 
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
     query: WebQueryNode
     query_type: type[WebQueryNode]
+    do_currency_conversion: bool = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.do_currency_conversion = posthoganalytics.feature_enabled(
+            "web-analytics-revenue-tracking-conversion",
+            str(self.team.organization_id),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+        )
 
     @cached_property
     def query_date_range(self):
@@ -171,22 +188,71 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             return None
 
     @cached_property
-    def event_type_expr(self) -> ast.Expr:
-        pageview_expr = ast.Or(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$screen")
-                ),
-            ]
+    def conversion_revenue_expr(self) -> ast.Expr:
+        config = (
+            RevenueTrackingConfig.model_validate(self.team.revenue_tracking_config)
+            if self.team.revenue_tracking_config
+            else None
         )
 
-        if self.conversion_goal_expr:
-            return ast.Call(name="or", args=[pageview_expr, self.conversion_goal_expr])
+        if not config:
+            return ast.Constant(value=None)
+
+        if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
+            event_name = self.query.conversionGoal.customEventName
+            revenue_property = next(
+                (event_item.revenueProperty for event_item in config.events if event_item.eventName == event_name), None
+            )
+
+            if not revenue_property:
+                return ast.Constant(value=None)
+
+            return ast.Call(
+                name="sumIf",
+                args=[
+                    ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Call(
+                                name="toFloat", args=[ast.Field(chain=["events", "properties", revenue_property])]
+                            ),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=event_name),
+                    ),
+                ],
+            )
         else:
-            return pageview_expr
+            # for now, don't support conversion revenue for actions
+            return ast.Constant(value=None)
+
+    @cached_property
+    def revenue_sum_expression(self) -> ast.Expr:
+        return revenue_sum_expression(self.team.revenue_tracking_config, self.do_currency_conversion)
+
+    @cached_property
+    def event_type_expr(self) -> ast.Expr:
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$screen")
+            ),
+        ]
+
+        if self.conversion_goal_expr:
+            exprs.append(self.conversion_goal_expr)
+        elif self.query.includeRevenue:
+            # Use elif here, we don't need to include revenue events if we already included conversion events, because
+            # if there is a conversion goal set then we only show revenue from conversion events.
+            exprs.append(revenue_events_where_expr(self.team.revenue_tracking_config))
+
+        return ast.Or(exprs=exprs)
 
     def period_aggregate(self, function_name, column_name, start, end, alias=None, params=None):
         expr = ast.Call(
@@ -393,6 +459,12 @@ WHERE
             left=ast.Constant(value=sample_rate.numerator),
             right=ast.Constant(value=sample_rate.denominator) if sample_rate.denominator else None,
         )
+
+    def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
+        if not self.query.doPathCleaning:
+            return path_expr
+
+        return apply_path_cleaning(path_expr, self.team)
 
     def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
         if n is None:

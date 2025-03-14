@@ -1,6 +1,7 @@
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from posthog.kafka_client.topics import (
     KAFKA_PERSON,
@@ -9,19 +10,18 @@ from posthog.kafka_client.topics import (
 )
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
-TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
-DROP_PERSON_TABLE_SQL = f"DROP TABLE IF EXISTS person ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person {ON_CLUSTER_CLAUSE()}"
 
-TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person_distinct_id ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS person_distinct_id2 ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-)
+DROP_PERSON_TABLE_SQL = f"DROP TABLE IF EXISTS person {ON_CLUSTER_CLAUSE()}"
+
+TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person_distinct_id {ON_CLUSTER_CLAUSE()}"
+TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person_distinct_id2 {ON_CLUSTER_CLAUSE()}"
 
 PERSONS_TABLE = "person"
 
 PERSONS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     id UUID,
     created_at DateTime64,
@@ -34,29 +34,37 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
-PERSONS_TABLE_ENGINE = lambda: ReplacingMergeTree(PERSONS_TABLE, ver="version")
-PERSONS_TABLE_SQL = lambda: (
-    PERSONS_TABLE_BASE_SQL
-    + """Order By (team_id, id)
+
+def PERSONS_TABLE_ENGINE():
+    return ReplacingMergeTree(PERSONS_TABLE, ver="version")
+
+
+def PERSONS_TABLE_SQL(on_cluster=True):
+    return (
+        PERSONS_TABLE_BASE_SQL
+        + """Order By (team_id, id)
 {storage_policy}
 """
-).format(
-    table_name=PERSONS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=PERSONS_TABLE_ENGINE(),
-    extra_fields=f"""
+    ).format(
+        table_name=PERSONS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=PERSONS_TABLE_ENGINE(),
+        extra_fields=f"""
     {KAFKA_COLUMNS}
     , {index_by_kafka_timestamp(PERSONS_TABLE)}
     """,
-    storage_policy=STORAGE_POLICY(),
-)
+        storage_policy=STORAGE_POLICY(),
+    )
 
-KAFKA_PERSONS_TABLE_SQL = lambda: PERSONS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(KAFKA_PERSON),
-    extra_fields="",
-)
+
+def KAFKA_PERSONS_TABLE_SQL(on_cluster=True):
+    return PERSONS_TABLE_BASE_SQL.format(
+        table_name="kafka_" + PERSONS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(KAFKA_PERSON),
+        extra_fields="",
+    )
+
 
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
@@ -102,7 +110,7 @@ GET_LATEST_PERSON_ID_SQL = """
 PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     distinct_id VARCHAR,
     person_id UUID,
@@ -113,24 +121,27 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
-PERSONS_DISTINCT_ID_TABLE_SQL = lambda: (
-    PERSONS_DISTINCT_ID_TABLE_BASE_SQL
-    + """Order By (team_id, distinct_id, person_id)
+
+def PERSONS_DISTINCT_ID_TABLE_SQL(on_cluster=True):
+    return (
+        PERSONS_DISTINCT_ID_TABLE_BASE_SQL
+        + """Order By (team_id, distinct_id, person_id)
 {storage_policy}
 """
-).format(
-    table_name=PERSONS_DISTINCT_ID_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=CollapsingMergeTree(PERSONS_DISTINCT_ID_TABLE, ver="_sign"),
-    extra_fields=KAFKA_COLUMNS,
-    storage_policy=STORAGE_POLICY(),
-)
+    ).format(
+        table_name=PERSONS_DISTINCT_ID_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=CollapsingMergeTree(PERSONS_DISTINCT_ID_TABLE, ver="_sign"),
+        extra_fields=KAFKA_COLUMNS,
+        storage_policy=STORAGE_POLICY(),
+    )
+
 
 # :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
 #    Can't make DEFAULT if(_sign==-1, 1, 0) because Cyclic aliases error.
 KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = (
-    lambda: """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+    lambda on_cluster=True: """
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     distinct_id VARCHAR,
     person_id UUID,
@@ -140,7 +151,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """.format(
         table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
-        cluster=CLICKHOUSE_CLUSTER,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
     )
 )
@@ -172,7 +183,7 @@ PERSON_DISTINCT_ID2_TABLE = "person_distinct_id2"
 
 # NOTE: This table base SQL is also used for distinct ID overrides!
 PERSON_DISTINCT_ID2_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     team_id Int64,
     distinct_id VARCHAR,
@@ -183,30 +194,38 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
-PERSON_DISTINCT_ID2_TABLE_ENGINE = lambda: ReplacingMergeTree(PERSON_DISTINCT_ID2_TABLE, ver="version")
-PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
-    PERSON_DISTINCT_ID2_TABLE_BASE_SQL
-    + """
+
+def PERSON_DISTINCT_ID2_TABLE_ENGINE():
+    return ReplacingMergeTree(PERSON_DISTINCT_ID2_TABLE, ver="version")
+
+
+def PERSON_DISTINCT_ID2_TABLE_SQL(on_cluster=True):
+    return (
+        PERSON_DISTINCT_ID2_TABLE_BASE_SQL
+        + """
     ORDER BY (team_id, distinct_id)
     SETTINGS index_granularity = 512
     """
-).format(
-    table_name=PERSON_DISTINCT_ID2_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=PERSON_DISTINCT_ID2_TABLE_ENGINE(),
-    extra_fields=f"""
+    ).format(
+        table_name=PERSON_DISTINCT_ID2_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=PERSON_DISTINCT_ID2_TABLE_ENGINE(),
+        extra_fields=f"""
     {KAFKA_COLUMNS}
     , _partition UInt64
     , {index_by_kafka_timestamp(PERSON_DISTINCT_ID2_TABLE)}
     """,
-)
+    )
 
-KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda: PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSON_DISTINCT_ID2_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID),
-    extra_fields="",
-)
+
+def KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL(on_cluster=True):
+    return PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
+        table_name="kafka_" + PERSON_DISTINCT_ID2_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID),
+        extra_fields="",
+    )
+
 
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
@@ -239,31 +258,36 @@ PERSON_DISTINCT_ID_OVERRIDES_TABLE = "person_distinct_id_overrides"
 
 PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL = PERSON_DISTINCT_ID2_TABLE_BASE_SQL
 
-PERSON_DISTINCT_ID_OVERRIDES_TABLE_ENGINE = lambda: ReplacingMergeTree(
-    PERSON_DISTINCT_ID_OVERRIDES_TABLE, ver="version"
-)
 
-PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda: (
-    PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL
-    + """
+def PERSON_DISTINCT_ID_OVERRIDES_TABLE_ENGINE():
+    return ReplacingMergeTree(PERSON_DISTINCT_ID_OVERRIDES_TABLE, ver="version")
+
+
+def PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(on_cluster=True):
+    return (
+        PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL
+        + """
     ORDER BY (team_id, distinct_id)
     SETTINGS index_granularity = 512
     """
-).format(
-    table_name=PERSON_DISTINCT_ID_OVERRIDES_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=PERSON_DISTINCT_ID_OVERRIDES_TABLE_ENGINE(),
-    extra_fields=f"""
+    ).format(
+        table_name=PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=PERSON_DISTINCT_ID_OVERRIDES_TABLE_ENGINE(),
+        extra_fields=f"""
     {KAFKA_COLUMNS_WITH_PARTITION}
     , {index_by_kafka_timestamp(PERSON_DISTINCT_ID_OVERRIDES_TABLE)}
     """,
-)
+    )
 
-KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda: PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSON_DISTINCT_ID_OVERRIDES_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID, group="clickhouse-person-distinct-id-overrides"),
-    extra_fields="",
+
+KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = (
+    lambda on_cluster=True: PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL.format(
+        table_name="kafka_" + PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID, group="clickhouse-person-distinct-id-overrides"),
+        extra_fields="",
+    )
 )
 
 PERSON_DISTINCT_ID_OVERRIDES_MV_SQL = """
@@ -296,7 +320,7 @@ TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = (
 
 PERSON_STATIC_COHORT_TABLE = "person_static_cohort"
 PERSON_STATIC_COHORT_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     id UUID,
     person_id UUID,
@@ -306,19 +330,25 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
-PERSON_STATIC_COHORT_TABLE_ENGINE = lambda: ReplacingMergeTree(PERSON_STATIC_COHORT_TABLE, ver="_timestamp")
-PERSON_STATIC_COHORT_TABLE_SQL = lambda: (
-    PERSON_STATIC_COHORT_BASE_SQL
-    + """Order By (team_id, cohort_id, person_id, id)
+
+def PERSON_STATIC_COHORT_TABLE_ENGINE():
+    return ReplacingMergeTree(PERSON_STATIC_COHORT_TABLE, ver="_timestamp")
+
+
+def PERSON_STATIC_COHORT_TABLE_SQL(on_cluster=True):
+    return (
+        PERSON_STATIC_COHORT_BASE_SQL
+        + """Order By (team_id, cohort_id, person_id, id)
 {storage_policy}
 """
-).format(
-    table_name=PERSON_STATIC_COHORT_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=PERSON_STATIC_COHORT_TABLE_ENGINE(),
-    storage_policy=STORAGE_POLICY(),
-    extra_fields=KAFKA_COLUMNS,
-)
+    ).format(
+        table_name=PERSON_STATIC_COHORT_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=PERSON_STATIC_COHORT_TABLE_ENGINE(),
+        storage_policy=STORAGE_POLICY(),
+        extra_fields=KAFKA_COLUMNS,
+    )
+
 
 TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL = (
     f"TRUNCATE TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
@@ -477,7 +507,7 @@ ORDER BY actor_value DESC, actor_id DESC /* Also sorting by ID for determinism *
 """
 
 COMMENT_DISTINCT_ID_COLUMN_SQL = (
-    lambda: f"ALTER TABLE person_distinct_id ON CLUSTER '{CLICKHOUSE_CLUSTER}' COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
+    lambda on_cluster=True: f"ALTER TABLE person_distinct_id {ON_CLUSTER_CLAUSE() if on_cluster else ''} COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
 )
 
 

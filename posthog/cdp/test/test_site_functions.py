@@ -229,7 +229,7 @@ function onLoad() {
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
         assert (
-            '(ilike(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true), "%@test.com%")'
+            '(ilike(toString(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true)), "%@test.com%")'
             in result
         )
 
@@ -338,6 +338,33 @@ function onLoad() {
 
         globals = {
             "event": {"event": "$autocapture", "properties": {"id": "banana"}},
+            "groups": {},
+            "person": {"properties": {"name": "Bob"}},
+        }
+        response = self._execute_javascript(
+            result
+            + "().init({ posthog: { get_property: () => ({name: 'Bob'}) }, callback: () => { console.log('Loaded') } }).processEvent("
+            + json.dumps(globals)
+            + ")"
+        )
+        assert "Loaded" == response.strip()
+
+    def test_run_function_skip_disabled_mapping(self):
+        self.hog_function.hog = "export function onEvent({ inputs }) { console.log(inputs.message); }"
+        self.hog_function.inputs = {"message": {"value": "Hello World {event.properties.id}"}}
+        self.hog_function.mappings = [
+            {
+                "inputs": {"greeting": {"value": "Hallo!"}},
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events"}]},
+                "disabled": True,
+            }
+        ]
+
+        result = self.compile_and_run()
+        assert "Hello World" in result
+
+        globals = {
+            "event": {"event": "$pageview", "properties": {"id": "banana"}},
             "groups": {},
             "person": {"properties": {"name": "Bob"}},
         }

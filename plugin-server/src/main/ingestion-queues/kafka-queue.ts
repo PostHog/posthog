@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
@@ -6,8 +5,8 @@ import { Counter } from 'prom-client'
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { Hub } from '../../types'
-import { KafkaConfig } from '../../utils/db/hub'
 import { timeoutGuard } from '../../utils/db/utils'
+import { captureException } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
@@ -185,7 +184,7 @@ export class IngestionConsumer {
         this.consumer = await startBatchConsumer({
             batchingTimeoutMs: this.pluginsServer.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             consumerErrorBackoffMs: this.pluginsServer.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            connectionConfig: createRdConnectionConfigFromEnvVars(this.pluginsServer as KafkaConfig),
+            connectionConfig: createRdConnectionConfigFromEnvVars(this.pluginsServer, 'consumer'),
             topic: this.topic,
             groupId: this.consumerGroupId,
             autoCommit: true,
@@ -236,7 +235,7 @@ export const setupEventHandlers = (consumer: Consumer): void => {
         offsets = {}
         status.error('⚠️', `Kafka consumer group ${groupId} crashed:\n`, error)
         clearInterval(statusInterval)
-        Sentry.captureException(error, {
+        captureException(error, {
             extra: { detected_at: `kafka-queue.ts on consumer crash` },
         })
         killGracefully()
@@ -312,7 +311,7 @@ export const instrumentEachBatchKafkaJS = async (
                 }
             }
             if (logToSentry) {
-                Sentry.captureException(error, {
+                captureException(error, {
                     extra: { detected_at: `kafka-queue.ts instrumentEachBatch` },
                 })
             }

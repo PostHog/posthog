@@ -171,6 +171,7 @@ class TestExternalDataSchema(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_time_of_day="12:00:00",
         )
 
         with mock.patch(
@@ -183,8 +184,8 @@ class TestExternalDataSchema(APIBaseTest):
 
             assert response.status_code == 200
             mock_trigger_external_data_workflow.assert_called_once()
-            source.refresh_from_db()
-            assert source.job_inputs.get("reset_pipeline") == "True"
+            schema.refresh_from_db()
+            assert schema.sync_type_config.get("reset_pipeline") is True
 
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(
@@ -211,10 +212,9 @@ class TestExternalDataSchema(APIBaseTest):
             assert response.status_code == 200
             mock_trigger_external_data_workflow.assert_called_once()
 
-            source.refresh_from_db()
-            assert source.job_inputs.get("reset_pipeline") == "True"
-
             schema.refresh_from_db()
+
+            assert schema.sync_type_config.get("reset_pipeline") is True
             assert schema.sync_type_config.get("incremental_field") == "field"
             assert schema.sync_type_config.get("incremental_field_type") == "integer"
 
@@ -394,3 +394,42 @@ class TestExternalDataSchema(APIBaseTest):
 
             schema.refresh_from_db()
             assert schema.sync_frequency_interval == timedelta(days=7)
+
+    def test_update_schema_sync_time_of_day(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSource.Type.STRIPE, job_inputs={}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(days=1),
+            sync_time_of_day="12:00:00",
+        )
+
+        with (
+            mock.patch(
+                "posthog.warehouse.api.external_data_schema.external_data_workflow_exists"
+            ) as mock_external_data_workflow_exists,
+            mock.patch(
+                "posthog.warehouse.api.external_data_schema.sync_external_data_job_workflow"
+            ) as mock_sync_external_data_job_workflow,
+        ):
+            mock_external_data_workflow_exists.return_value = True
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_time_of_day": "15:30:00"},
+            )
+
+            assert response.status_code == 200
+            mock_sync_external_data_job_workflow.assert_called_once()
+
+            schema.refresh_from_db()
+            assert schema.sync_time_of_day is not None
+            assert schema.sync_time_of_day.hour == 15
+            assert schema.sync_time_of_day.minute == 30
+            assert schema.sync_time_of_day.second == 0

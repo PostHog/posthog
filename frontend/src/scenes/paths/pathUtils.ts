@@ -1,6 +1,6 @@
 import { RGBColor } from 'd3'
 
-import { FunnelPathsFilter, PathsFilter } from '~/queries/schema'
+import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 import { FunnelPathType } from '~/types'
 
 export interface PathTargetLink {

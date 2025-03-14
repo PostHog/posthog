@@ -200,7 +200,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
 
 const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
     return (
-        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="space-y-4">
+        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="deprecated-space-y-4">
             {ySeriesLogicProps.series.column.type.isNumerical && (
                 <LemonField name="style" label="Style" className="gap-1">
                     <LemonSelect
@@ -235,7 +235,7 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
 
     return (
-        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="space-y-4">
+        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="deprecated-space-y-4">
             {(showColorPicker || showLabelInput) && (
                 <div className="flex gap-3">
                     {showColorPicker && (

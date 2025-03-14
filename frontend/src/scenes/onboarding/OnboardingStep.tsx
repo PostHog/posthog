@@ -17,12 +17,14 @@ export const OnboardingStep = ({
     showSkip = false,
     showHelpButton = false,
     onSkip,
-    continueAction,
+    onContinue,
     continueText,
     continueOverride,
+    continueDisabledReason,
     hideHeader,
     breadcrumbHighlightName,
     fullWidth = false,
+    actions,
 }: {
     stepKey: OnboardingStepKey
     title: string
@@ -31,12 +33,14 @@ export const OnboardingStep = ({
     showSkip?: boolean
     showHelpButton?: boolean
     onSkip?: () => void
-    continueAction?: () => void
+    onContinue?: () => void
     continueText?: string
     continueOverride?: JSX.Element
+    continueDisabledReason?: string
     hideHeader?: boolean
     breadcrumbHighlightName?: OnboardingStepKey
     fullWidth?: boolean
+    actions?: JSX.Element
 }): JSX.Element => {
     const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
@@ -51,7 +55,7 @@ export const OnboardingStep = ({
     return (
         <>
             <div className="pb-2">
-                <div className={`text-muted max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
+                <div className={`text-secondary max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
                     <div
                         className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
                         data-attr="onboarding-breadcrumbs"
@@ -80,9 +84,12 @@ export const OnboardingStep = ({
                             )
                         })}
                     </div>
-                    <h1 className={`font-bold m-0 mt-3 px-2 ${fullWidth && 'text-center'}`}>
-                        {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
-                    </h1>
+                    <div className="flex flex-row justify-between items-center gap-2 mt-3">
+                        <h1 className={`font-bold m-0 px-2 ${fullWidth && 'text-center'}`}>
+                            {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
+                        </h1>
+                        {actions && <div className="flex flex-row gap-2">{actions}</div>}
+                    </div>
                 </div>
             </div>
             <div
@@ -132,7 +139,7 @@ export const OnboardingStep = ({
                             status="alt"
                             data-attr="onboarding-continue"
                             onClick={() => {
-                                continueAction && continueAction()
+                                onContinue?.()
                                 !hasNextStep
                                     ? completeOnboarding(
                                           undefined,
@@ -143,6 +150,7 @@ export const OnboardingStep = ({
                                     : goToNextStep()
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
+                            disabledReason={continueDisabledReason}
                         >
                             {continueText ? continueText : !hasNextStep ? 'Finish' : 'Next'}
                         </LemonButton>

@@ -20,6 +20,8 @@ interface TableProps {
     cachedResults: HogQLQueryResponse | undefined
 }
 
+export const DEFAULT_PAGE_SIZE = 500
+
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -98,31 +100,30 @@ export const Table = (props: TableProps): JSX.Element => {
     )
 
     return (
-        <div className="relative w-full flex flex-col gap-4 flex-1 h-full">
-            <LemonTable
-                dataSource={tabularData}
-                columns={tableColumns}
-                loading={responseLoading}
-                emptyState={
-                    responseError ? (
-                        <InsightErrorState
-                            query={props.query}
-                            excludeDetail
-                            title={
-                                queryCancelled
-                                    ? 'The query was cancelled'
-                                    : response && 'error' in response
-                                    ? (response as any).error
-                                    : responseError
-                            }
-                        />
-                    ) : (
-                        <InsightEmptyState heading="There are no matching rows for this query" detail="" />
-                    )
-                }
-                footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
-                rowClassName="DataVizRow"
-            />
-        </div>
+        <LemonTable
+            dataSource={tabularData}
+            columns={tableColumns}
+            loading={responseLoading}
+            pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
+            emptyState={
+                responseError ? (
+                    <InsightErrorState
+                        query={props.query}
+                        excludeDetail
+                        title={
+                            queryCancelled
+                                ? 'The query was cancelled'
+                                : response && 'error' in response
+                                ? (response as any).error
+                                : responseError
+                        }
+                    />
+                ) : (
+                    <InsightEmptyState heading="There are no matching rows for this query" detail="" />
+                )
+            }
+            footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
+            rowClassName="DataVizRow"
+        />
     )
 }

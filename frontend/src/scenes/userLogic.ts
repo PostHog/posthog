@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationBasicType, ProductKey, UserRole, UserTheme, UserType } from '~/types'
 
 import { urls } from './urls'
@@ -27,7 +28,7 @@ export const userLogic = kea<userLogicType>([
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
         updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
-        switchTeam: (teamId: string | number) => ({ teamId }),
+        switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
         deleteUser: true,
     })),
     forms(({ actions }) => ({
@@ -36,13 +37,13 @@ export const userLogic = kea<userLogicType>([
                 first_name: !first_name
                     ? 'You need to have a name.'
                     : first_name.length > 150
-                    ? 'This name is too long. Please keep it under 151 characters.'
-                    : null,
+                        ? 'This name is too long. Please keep it under 151 characters.'
+                        : null,
                 email: !email
                     ? 'You need to have an email.'
                     : email.length > 254
-                    ? 'This email is too long. Please keep it under 255 characters.'
-                    : null,
+                        ? 'This email is too long. Please keep it under 255 characters.'
+                        : null,
             }),
             submit: (user) => {
                 actions.updateUser(user)
@@ -82,10 +83,12 @@ export const userLogic = kea<userLogicType>([
                         .delete('api/users/@me/')
                         .then(() => {
                             actions.logout()
+                            return null
                         })
                         .catch((error) => {
                             console.error(error)
                             actions.deleteUserFailure(error.message)
+                            return null
                         })
                 },
                 setUserScenePersonalisation: async ({ scene, dashboard }) => {
@@ -193,6 +196,9 @@ export const userLogic = kea<userLogicType>([
             }
             await breakpoint(10)
             await api.update('api/users/@me/', { set_current_organization: organizationId })
+
+            sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
+
             window.location.href = destination || '/'
         },
         updateHasSeenProductIntroFor: async ({ productKey, value }, breakpoint) => {
@@ -208,8 +214,10 @@ export const userLogic = kea<userLogicType>([
                     actions.loadUser()
                 })
         },
-        switchTeam: ({ teamId }) => {
-            window.location.href = urls.project(teamId)
+        switchTeam: ({ teamId, destination }) => {
+            sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
+
+            window.location.href = destination || urls.project(teamId)
         },
     })),
     selectors({
@@ -249,10 +257,10 @@ export const userLogic = kea<userLogicType>([
             (user): OrganizationBasicType[] =>
                 user
                     ? user.organizations
-                          ?.filter((organization) => organization.id !== user.organization?.id)
-                          .sort((orgA, orgB) =>
-                              orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
-                          ) || []
+                        ?.filter((organization) => organization.id !== user.organization?.id)
+                        .sort((orgA, orgB) =>
+                            orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
+                        ) || []
                     : [],
         ],
 

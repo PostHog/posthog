@@ -30,6 +30,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
 
     pipeline_version = models.CharField(max_length=400, choices=PipelineVersion.choices, null=True, blank=True)
+    billable = models.BooleanField(default=True, null=True, blank=True)
 
     __repr__ = sane_repr("id")
 
@@ -41,17 +42,9 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     def url_pattern_by_schema(self, schema: str) -> str:
         if TEST:
-            if self.pipeline_version == ExternalDataJob.PipelineVersion.V1:
-                return (
-                    f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}/"
-                )
-            else:
-                return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}__v2/"
+            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}/"
 
-        if self.pipeline_version == ExternalDataJob.PipelineVersion.V1:
-            return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/"
-
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}__v2/"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/"
 
 
 @database_sync_to_async

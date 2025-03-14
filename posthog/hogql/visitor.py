@@ -7,6 +7,10 @@ from posthog.hogql.base import AST, Expr
 from posthog.hogql.errors import BaseHogQLError
 
 
+T = TypeVar("T")
+T_Expr = TypeVar("T_Expr", bound=Expr)
+
+
 def clone_expr(expr: Expr, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> Expr:
     """Clone an expression node."""
     return CloningVisitor(
@@ -16,11 +20,8 @@ def clone_expr(expr: Expr, clear_types=False, clear_locations=False, inline_subq
     ).visit(expr)
 
 
-def clear_locations(expr: Expr) -> Expr:
+def clear_locations(expr: T_Expr) -> T_Expr:
     return CloningVisitor(clear_locations=True).visit(expr)
-
-
-T = TypeVar("T")
 
 
 class Visitor(Generic[T]):
@@ -145,8 +146,7 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr)
         for expr in node.order_by or []:
             self.visit(expr)
-        for expr in node.limit_by or []:
-            self.visit(expr)
+        self.visit(node.limit_by)
         self.visit(node.limit)
         self.visit(node.offset)
         for expr in (node.window_exprs or {}).values():
@@ -283,10 +283,21 @@ class TraversingVisitor(Visitor[None]):
             self.visit(attribute)
 
     def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
-        self.visit(node.value)
+        if isinstance(node.value, list):
+            for value in node.value:
+                self.visit(value)
+        else:
+            self.visit(node.value)
 
     def visit_program(self, node: ast.Program):
         for expr in node.declarations:
+            self.visit(expr)
+
+    def visit_limit_by_expr(self, node: ast.LimitByExpr):
+        self.visit(node.n)
+        if node.offset_value:
+            self.visit(node.offset_value)
+        for expr in node.exprs:
             self.visit(expr)
 
     def visit_statement(self, node: ast.Statement):
@@ -590,7 +601,7 @@ class CloningVisitor(Visitor[Any]):
             having=self.visit(node.having),
             group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
-            limit_by=[self.visit(expr) for expr in node.limit_by] if node.limit_by else None,
+            limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),
             limit_with_ties=node.limit_with_ties,
             offset=self.visit(node.offset),
@@ -654,6 +665,8 @@ class CloningVisitor(Visitor[Any]):
         return ast.HogQLXTag(kind=node.kind, attributes=[self.visit(a) for a in node.attributes])
 
     def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
+        if isinstance(node.value, list):
+            return ast.HogQLXAttribute(name=node.name, value=[self.visit(v) for v in node.value])
         return ast.HogQLXAttribute(name=node.name, value=self.visit(node.value))
 
     def visit_program(self, node: ast.Program):
@@ -766,4 +779,13 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             left=self.visit(node.left),
             right=self.visit(node.right),
+        )
+
+    def visit_limit_by_expr(self, node: ast.LimitByExpr) -> ast.LimitByExpr:
+        return ast.LimitByExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            n=self.visit(node.n),
+            offset_value=self.visit(node.offset_value) if node.offset_value is not None else None,
+            exprs=[self.visit(expr) for expr in node.exprs],
         )

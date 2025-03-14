@@ -397,23 +397,25 @@ class TestResolver(BaseTest):
         self.database.events.fields["poe"].fields["created_at"] = FieldTraverser(
             chain=["..", "pdi", "person", "created_at"]
         )
-        self.database.events.fields["poe"].fields["properties"] = StringJSONDatabaseField(name="person_properties")
+        self.database.events.fields["poe"].fields["properties"] = StringJSONDatabaseField(
+            name="person_properties", nullable=False
+        )
 
         node = self._select("SELECT event, person.id, person.properties, person.created_at FROM events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         # all columns resolve to a type in the end
         assert cast(ast.FieldType, node.select[0].type).resolve_database_field(self.context) == StringDatabaseField(
-            name="event", array=None, nullable=None
+            name="event", array=None, nullable=False
         )
         assert cast(ast.FieldType, node.select[1].type).resolve_database_field(self.context) == StringDatabaseField(
-            name="person_id", array=None, nullable=None
+            name="person_id", array=None, nullable=False
         )
         assert cast(ast.FieldType, node.select[2].type).resolve_database_field(self.context) == StringJSONDatabaseField(
-            name="person_properties"
+            name="person_properties", nullable=False
         )
         assert cast(ast.FieldType, node.select[3].type).resolve_database_field(self.context) == DateTimeDatabaseField(
-            name="created_at", array=None, nullable=None
+            name="created_at", array=None, nullable=False
         )
 
     def test_visit_hogqlx_tag(self):

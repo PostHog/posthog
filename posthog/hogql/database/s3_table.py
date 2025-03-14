@@ -1,14 +1,11 @@
 import re
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.escape_sql import escape_hogql_identifier
-
-if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataJob
 
 
 def build_function_call(
@@ -18,10 +15,7 @@ def build_function_call(
     access_secret: Optional[str] = None,
     structure: Optional[str] = None,
     context: Optional[HogQLContext] = None,
-    pipeline_version: Optional["ExternalDataJob.PipelineVersion"] = None,
 ) -> str:
-    from posthog.warehouse.models import ExternalDataJob
-
     raw_params: dict[str, str] = {}
 
     def add_param(value: str, is_sensitive: bool = True) -> str:
@@ -42,18 +36,10 @@ def build_function_call(
 
     # DeltaS3Wrapper format
     if format == "DeltaS3Wrapper":
-        query_folder = "__query_v2" if pipeline_version == ExternalDataJob.PipelineVersion.V2 else "__query"
-
         if url.endswith("/"):
-            if pipeline_version == ExternalDataJob.PipelineVersion.V2:
-                escaped_url = add_param(f"{url[:-5]}{query_folder}/*.parquet")
-            else:
-                escaped_url = add_param(f"{url[:-1]}{query_folder}/*.parquet")
+            escaped_url = add_param(f"{url[:-1]}__query/**.parquet")
         else:
-            if pipeline_version == ExternalDataJob.PipelineVersion.V2:
-                escaped_url = add_param(f"{url[:-4]}{query_folder}/*.parquet")
-            else:
-                escaped_url = add_param(f"{url}{query_folder}/*.parquet")
+            escaped_url = add_param(f"{url}__query/**.parquet")
 
         if structure:
             escaped_structure = add_param(structure, False)

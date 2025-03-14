@@ -3,7 +3,6 @@ import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-
 import { useActions, useValues } from 'kea'
 import { WavingHog } from 'lib/components/hedgehogs'
 import { useEffect, useState } from 'react'
-import { urls } from 'scenes/urls'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
 
@@ -42,12 +41,12 @@ export const PaymentForm = (): JSX.Element => {
     return (
         <div>
             <PaymentElement />
-            <p className="text-xs text-muted mt-0.5">
+            <p className="text-xs text-secondary mt-0.5">
                 Your card will not be charged but we place a $0.50 hold on it to verify your card that will be released
                 in 7 days.
             </p>
             {error && <div className="error">{error}</div>}
-            <div className="flex justify-end space-x-2 mt-2">
+            <div className="flex justify-end deprecated-space-x-2 mt-2">
                 <LemonButton disabled={isLoading} type="secondary" onClick={hidePaymentEntryModal}>
                     Cancel
                 </LemonButton>
@@ -59,13 +58,7 @@ export const PaymentForm = (): JSX.Element => {
     )
 }
 
-interface PaymentEntryModalProps {
-    redirectPath?: string | null
-}
-
-export const PaymentEntryModal = ({
-    redirectPath = urls.organizationBilling(),
-}: PaymentEntryModalProps): JSX.Element => {
+export const PaymentEntryModal = (): JSX.Element => {
     const { clientSecret, paymentEntryModalOpen } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization } = useActions(paymentEntryLogic)
     const [stripePromise, setStripePromise] = useState<any>(null)
@@ -84,9 +77,9 @@ export const PaymentEntryModal = ({
 
     useEffect(() => {
         if (paymentEntryModalOpen) {
-            initiateAuthorization(redirectPath)
+            initiateAuthorization()
         }
-    }, [paymentEntryModalOpen, initiateAuthorization, redirectPath])
+    }, [paymentEntryModalOpen, initiateAuthorization])
 
     return (
         <LemonModal
@@ -103,8 +96,8 @@ export const PaymentEntryModal = ({
                     </Elements>
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">
-                        <p className="text-muted text-md mt-4">We're contacting the Hedgehogs for approval.</p>
-                        <div className="flex items-center space-x-2">
+                        <p className="text-secondary text-md mt-4">We're contacting the Hedgehogs for approval.</p>
+                        <div className="flex items-center deprecated-space-x-2">
                             <div className="text-4xl">
                                 <Spinner />
                             </div>

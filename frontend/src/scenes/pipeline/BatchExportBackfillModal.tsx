@@ -11,14 +11,15 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { batchExportRunsLogic, BatchExportRunsLogicProps } from './batchExportRunsLogic'
+import { batchExportBackfillModalLogic, BatchExportBackfillModalLogicProps } from './batchExportBackfillModalLogic'
 
-export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX.Element {
+export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicProps): JSX.Element {
     const { timezone } = useValues(teamLogic)
-    const logic = batchExportRunsLogic({ id })
+    const logic = batchExportBackfillModalLogic({ id })
 
     const { batchExportConfig, isBackfillModalOpen, isBackfillFormSubmitting, isEarliestBackfill } = useValues(logic)
-    const { closeBackfillModal, setEarliestBackfill, unsetEarliestBackfill } = useActions(logic)
+    const { closeBackfillModal, setEarliestBackfill, unsetEarliestBackfill, setBackfillFormManualErrors } =
+        useActions(logic)
 
     if (!batchExportConfig) {
         return <NotFound object="batch export" />
@@ -26,7 +27,7 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
 
     return (
         <LemonModal
-            title="Backfill batch export"
+            title="Start backfill"
             onClose={closeBackfillModal}
             isOpen={isBackfillModalOpen}
             width="30rem"
@@ -46,6 +47,7 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                         type="primary"
                         data-attr="batch-export-backfill-submit"
                         loading={isBackfillFormSubmitting}
+                        onClick={() => setBackfillFormManualErrors({})}
                     >
                         Schedule runs
                     </LemonButton>
@@ -58,12 +60,12 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                 until the end date is reached.
             </p>
             <Form
-                logic={batchExportRunsLogic}
-                props={{ id: id } as BatchExportRunsLogicProps}
+                logic={batchExportBackfillModalLogic}
+                props={{ id: id } as BatchExportBackfillModalLogicProps}
                 formKey="backfillForm"
                 id="batch-export-backfill-form"
                 enableFormOnSubmit
-                className="space-y-2"
+                className="deprecated-space-y-2"
             >
                 {
                     // We will assume any dates selected are in the project's timezone and NOT in the user's local time.
@@ -113,7 +115,7 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                     }
                 </LemonField>
 
-                {batchExportConfig?.model == 'persons' ? (
+                {batchExportConfig?.model == 'persons' || batchExportConfig?.model == 'sessions' ? (
                     <LemonField name="earliest_backfill">
                         {({ onChange }) => (
                             <LemonCheckbox
@@ -122,7 +124,7 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                                     <span className="flex items-center gap-2">
                                         Backfill since beginning of time
                                         <Tooltip title="If selected, we will backfill all data since the beginning of time until the end date set below. There is no need to set a start date for the backfill.">
-                                            <IconInfo className=" text-lg text-muted-alt" />
+                                            <IconInfo className=" text-lg text-secondary" />
                                         </Tooltip>
                                     </span>
                                 }

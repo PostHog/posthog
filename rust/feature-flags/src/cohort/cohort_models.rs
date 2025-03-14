@@ -9,7 +9,7 @@ pub struct Cohort {
     pub description: Option<String>,
     pub team_id: i32,
     pub deleted: bool,
-    pub filters: serde_json::Value,
+    pub filters: Option<serde_json::Value>,
     pub query: Option<serde_json::Value>,
     pub version: Option<i32>,
     pub pending_version: Option<i32>,

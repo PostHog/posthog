@@ -13,6 +13,7 @@ import {
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
+    ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
     FunnelMathType,
@@ -28,8 +29,10 @@ import {
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
+    PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
+    RetentionDashboardDisplayType,
     RetentionFilterType,
     SessionPropertyFilter,
     SessionRecordingType,
@@ -47,10 +50,10 @@ export { ChartDisplayCategory }
  * This file acts as the source of truth for:
  *
  * - frontend/src/queries/schema.json
- *   - generated from typescript via "pnpm run schema:build:json"
+ *   - generated from typescript via "pnpm --filter=@posthog/frontend run schema:build:json"
  *
  * - posthog/schema.py
- *   - generated from json the above json via "pnpm run schema:build:python"
+ *   - generated from json the above json via "pnpm -w run schema:build:python"
  * */
 
 export enum NodeKind {
@@ -62,6 +65,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
+    HogQLASTQuery = 'HogQLASTQuery',
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
@@ -70,6 +74,7 @@ export enum NodeKind {
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
+    RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
 
     // Interface nodes
@@ -88,15 +93,24 @@ export enum NodeKind {
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
     FunnelCorrelationQuery = 'FunnelCorrelationQuery',
 
-    // Web analytics queries
+    // Web analytics + Web Vitals queries
     WebOverviewQuery = 'WebOverviewQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
+    WebVitalsQuery = 'WebVitalsQuery',
+    WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
 
     // Experiment queries
-    ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
+    ExperimentMetric = 'ExperimentMetric',
+    ExperimentQuery = 'ExperimentQuery',
+    ExperimentExposureQuery = 'ExperimentExposureQuery',
+    ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
+    ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
+    ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
+    ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
+    ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -106,6 +120,7 @@ export enum NodeKind {
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
+    TracesQuery = 'TracesQuery',
 }
 
 export type AnyDataNode =
@@ -125,11 +140,15 @@ export type AnyDataNode =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
+    | WebVitalsQuery
+    | WebVitalsPathBreakdownQuery
     | SessionAttributionExplorerQuery
+    | RevenueExampleEventsQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | RecordingsQuery
+    | TracesQuery
 
 /**
  * @discriminator kind
@@ -149,14 +168,21 @@ export type QuerySchema =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | SessionAttributionExplorerQuery
+    | RevenueExampleEventsQuery
+    | ErrorTrackingQuery
+    | ExperimentFunnelsQuery
+    | ExperimentTrendsQuery
+    | ExperimentQuery
+    | ExperimentExposureQuery
+
+    // Web Analytics + Web Vitals
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
-    | SessionAttributionExplorerQuery
-    | ErrorTrackingQuery
-    | ExperimentFunnelsQuery
-    | ExperimentTrendsQuery
+    | WebVitalsQuery
+    | WebVitalsPathBreakdownQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -181,6 +207,7 @@ export type QuerySchema =
     | TeamTaxonomyQuery
     | EventTaxonomyQuery
     | ActorsPropertyTaxonomyQuery
+    | TracesQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -279,18 +306,26 @@ export interface HogQLVariable {
     variableId: string
     code_name: string
     value?: any
+    isNull?: boolean
 }
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
     filters?: HogQLFilters
-    /** Variables to be subsituted into the query */
+    /** Variables to be substituted into the query */
     variables?: Record<string, HogQLVariable>
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
+    /** Client provided name of the query */
+    name?: string
+}
+
+export interface HogQLASTQuery extends Omit<HogQLQuery, 'query' | 'kind'> {
+    kind: NodeKind.HogQLASTQuery
+    query: Record<string, any>
 }
 
 export interface HogQueryResponse {
@@ -358,10 +393,18 @@ export interface HogQLNotice {
     fix?: string
 }
 
+export enum QueryIndexUsage {
+    Undecisive = 'undecisive',
+    No = 'no',
+    Partial = 'partial',
+    Yes = 'yes',
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
     isValidView?: boolean
+    isUsingIndices?: QueryIndexUsage
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
@@ -491,6 +534,7 @@ export type MathType =
     | CountPerActorMathType
     | GroupMathType
     | HogQLMathType
+    | ExperimentMetricMathType
 
 export interface EntityNode extends Node {
     name?: string
@@ -557,6 +601,7 @@ export interface EventsQueryPersonColumn {
     }
     distinct_id: string
 }
+
 export interface EventsQuery extends DataNode<EventsQueryResponse> {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */
@@ -626,10 +671,14 @@ export interface DataTableNode
                     | WebStatsTableQuery
                     | WebExternalClicksTableQuery
                     | WebGoalsQuery
+                    | WebVitalsQuery
+                    | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | RevenueExampleEventsQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
+                    | TracesQuery
                 )['response']
             >
         >,
@@ -646,10 +695,14 @@ export interface DataTableNode
         | WebStatsTableQuery
         | WebExternalClicksTableQuery
         | WebGoalsQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | RevenueExampleEventsQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
+        | TracesQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -659,6 +712,8 @@ export interface DataTableNode
 export interface GoalLine {
     label: string
     value: number
+    displayLabel?: boolean
+    borderColor?: string
 }
 
 export interface ChartAxis {
@@ -689,6 +744,7 @@ export interface YAxisSettings {
     /** Whether the Y axis should start at zero */
     startAtZero?: boolean
 }
+
 export interface ChartSettings {
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
@@ -700,6 +756,7 @@ export interface ChartSettings {
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean
     seriesBreakdownColumn?: string | null
+    showLegend?: boolean
 }
 
 export interface ConditionalFormattingRule {
@@ -856,6 +913,8 @@ export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
     formula?: TrendsFilterLegacy['formula']
+    /** List of formulas to apply to the data. Takes precedence over formula if both are set. */
+    formulas?: string[]
     /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
     /** @default false */
@@ -874,6 +933,8 @@ export type TrendsFilter = {
     /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+    /** @default false */
+    showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
     /**
      * Wether result datasets are associated by their values or by their order.
@@ -884,6 +945,8 @@ export type TrendsFilter = {
     resultCustomizations?:
         | Record<string, ResultCustomizationByValue>
         | Record<numerical_key, ResultCustomizationByPosition>
+    /** Goal Lines */
+    goalLines?: GoalLine[]
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
@@ -1043,14 +1106,20 @@ export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
 export type RetentionFilter = {
     retentionType?: RetentionFilterLegacy['retention_type']
     retentionReference?: RetentionFilterLegacy['retention_reference']
-    /** @default 11 */
+    /** @default 8 */
     totalIntervals?: integer
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
     /** @default Day */
     period?: RetentionFilterLegacy['period']
-    showMean?: RetentionFilterLegacy['show_mean']
     cumulative?: RetentionFilterLegacy['cumulative']
+
+    //frontend only
+    showMean?: RetentionFilterLegacy['show_mean']
+    meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
+    /** controls the display of the retention graph */
+    display?: ChartDisplayType
+    dashboardDisplay?: RetentionDashboardDisplayType
 }
 
 export interface RetentionValue {
@@ -1074,7 +1143,14 @@ export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse
     retentionFilter: RetentionFilter
 }
 
-export interface PathsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export type PathsLink = {
+    source: string
+    target: string
+    value: number
+    average_conversion_time: number
+}
+
+export interface PathsQueryResponse extends AnalyticsQueryResponseBase<PathsLink[]> {}
 
 export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
 
@@ -1130,15 +1206,24 @@ export type StickinessOperator =
     | PropertyOperator.LessThanOrEqual
     | PropertyOperator.Exact
 
+export const StickinessComputationModes = {
+    NonCumulative: 'non_cumulative',
+    Cumulative: 'cumulative',
+} as const
+
+export type StickinessComputationMode = (typeof StickinessComputationModes)[keyof typeof StickinessComputationModes]
+
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
+    showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
     stickinessCriteria?: {
         operator: StickinessOperator
         value: integer
     }
+    computedAs?: StickinessComputationMode
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
@@ -1160,6 +1245,10 @@ export interface StickinessQuery
      * @default day
      */
     interval?: IntervalType
+    /**
+     * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+     */
+    intervalCount?: integer
     /** Events and actions to include */
     series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */
@@ -1367,11 +1456,11 @@ export type CachedActorsQueryResponse = CachedQueryResponse<ActorsQueryResponse>
 
 export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.ActorsQuery
-    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
+    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
-    properties?: AnyPersonScopeFilter[]
+    properties?: AnyPersonScopeFilter[] | PropertyGroupFilterValue
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     fixedProperties?: AnyPersonScopeFilter[]
     orderBy?: string[]
@@ -1411,16 +1500,33 @@ export type CustomEventConversionGoal = {
     customEventName: string
 }
 export type WebAnalyticsConversionGoal = ActionConversionGoal | CustomEventConversionGoal
+export type WebAnalyticsOrderByDirection = 'ASC' | 'DESC'
+export enum WebAnalyticsOrderByFields {
+    Visitors = 'Visitors',
+    Views = 'Views',
+    Clicks = 'Clicks',
+    BounceRate = 'BounceRate',
+    AverageScrollPercentage = 'AverageScrollPercentage',
+    ScrollGt80Percentage = 'ScrollGt80Percentage',
+    TotalConversions = 'TotalConversions',
+    UniqueConversions = 'UniqueConversions',
+    ConversionRate = 'ConversionRate',
+    ConvertingUsers = 'ConvertingUsers',
+}
+export type WebAnalyticsOrderBy = [WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
     conversionGoal?: WebAnalyticsConversionGoal | null
     compareFilter?: CompareFilter
+    doPathCleaning?: boolean
     sampling?: {
         enabled?: boolean
         forceSamplingRate?: SamplingRate
     }
     filterTestAccounts?: boolean
+    includeRevenue?: boolean
+    orderBy?: WebAnalyticsOrderBy
     /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
 }
@@ -1429,7 +1535,7 @@ export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQuery
     kind: NodeKind.WebOverviewQuery
 }
 
-export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage'
+export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
 export interface WebOverviewItem {
     key: string
     value?: number
@@ -1481,7 +1587,6 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
-    doPathCleaning?: boolean
     limit?: integer
 }
 export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
@@ -1527,6 +1632,48 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase<unknow
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
+export type WebVitalsMetric = 'INP' | 'LCP' | 'CLS' | 'FCP'
+export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
+export type WebVitalsMetricBand = 'good' | 'needs_improvements' | 'poor'
+
+export interface WebVitalsQuery<T = InsightQueryNode> extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
+    kind: NodeKind.WebVitalsQuery
+    source: T
+}
+
+export interface WebVitalsItemAction {
+    custom_name: WebVitalsMetric
+    math: WebVitalsPercentile
+}
+export interface WebVitalsItem {
+    data: number[]
+    days: string[]
+    action: WebVitalsItemAction
+}
+
+export type WebVitalsQueryResponse = AnalyticsQueryResponseBase<WebVitalsItem[]>
+export type CachedWebVitalsQueryResponse = CachedQueryResponse<WebVitalsQueryResponse>
+
+export interface WebVitalsPathBreakdownQuery extends WebAnalyticsQueryBase<WebVitalsPathBreakdownQueryResponse> {
+    kind: NodeKind.WebVitalsPathBreakdownQuery
+    percentile: WebVitalsPercentile
+    metric: WebVitalsMetric
+
+    // Threshold for this specific metric, these are stored in the frontend only
+    // so let's send them back to the backend to be used in the query
+    // This tuple represents a [good, poor] threshold, where values below good are good and values above poor are poor
+    // Values in between the two values are the threshold for needs_improvements
+    thresholds: [number, number]
+}
+
+export type WebVitalsPathBreakdownResultItem = { path: string; value: number }
+export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitalsPathBreakdownResultItem[]>
+
+// NOTE: The response is an array of results because pydantic requires it, but this will always have a single entry
+// hence the tuple type rather than a single object.
+export type WebVitalsPathBreakdownQueryResponse = AnalyticsQueryResponseBase<[WebVitalsPathBreakdownResult]>
+export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
+
 export enum SessionAttributionGroupBy {
     ChannelType = 'ChannelType',
     Medium = 'Medium',
@@ -1556,36 +1703,71 @@ export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryR
 }
 export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<SessionAttributionExplorerQueryResponse>
 
-export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
-    kind: NodeKind.ErrorTrackingQuery
-    issueId?: string
-    select?: HogQLExpression[]
-    orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
-    dateRange: DateRange
-    assignee?: integer | null
-    filterGroup?: PropertyGroupFilter
-    filterTestAccounts?: boolean
-    searchQuery?: string
+export interface RevenueExampleEventsQuery extends DataNode<RevenueExampleEventsQueryResponse> {
+    kind: NodeKind.RevenueExampleEventsQuery
+    revenueTrackingConfig: RevenueTrackingConfig
     limit?: integer
     offset?: integer
 }
 
-export interface ErrorTrackingIssue {
-    id: string
-    name: string | null
-    description: string | null
+export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    types?: unknown[]
+    columns?: unknown[]
+}
+export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<RevenueExampleEventsQueryResponse>
+
+export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
+    kind: NodeKind.ErrorTrackingQuery
+    issueId?: ErrorTrackingIssue['id']
+    orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    dateRange: DateRange
+    status?: ErrorTrackingIssue['status'] | 'all'
+    assignee?: ErrorTrackingIssueAssignee | null
+    filterGroup?: PropertyGroupFilter
+    filterTestAccounts?: boolean
+    searchQuery?: string
+    customVolume?: ErrorTrackingSparklineConfig | null
+    limit?: integer
+    offset?: integer
+}
+
+export interface ErrorTrackingIssueAssignee {
+    type: 'user_group' | 'user'
+    id: integer | string
+}
+
+export type ErrorTrackingSparklineConfig = {
+    value: integer
+    interval: 'minute' | 'hour' | 'day' | 'week' | 'month'
+}
+
+export interface ErrorTrackingIssueAggregations {
     occurrences: number
     sessions: number
     users: number
+    volumeDay: number[]
+    volumeMonth: number[]
+    customVolume: number[] | null
+}
+
+export interface ErrorTrackingRelationalIssue {
+    id: string
+    name: string | null
+    description: string | null
+    assignee: ErrorTrackingIssueAssignee | null
+    status: 'archived' | 'active' | 'resolved' | 'pending_release' | 'suppressed'
     /**  @format date-time */
     first_seen: string
+}
+
+export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
-    last_seen: string
+    last_seen?: string
     earliest?: string
-    // Sparkline data handled by the DataTable
-    volume?: any
-    assignee: number | null
-    status: 'archived' | 'active' | 'resolved' | 'pending_release'
+    aggregations?: ErrorTrackingIssueAggregations
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
@@ -1595,6 +1777,41 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
     columns?: string[]
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
+
+export type FileSystemType =
+    | 'aichat'
+    | 'broadcast'
+    | 'dashboard'
+    | 'destination'
+    | 'experiment'
+    | 'feature_flag'
+    | 'feature'
+    | 'folder'
+    | 'insight'
+    | 'notebook'
+    | 'repl'
+    | 'site_app'
+    | 'source'
+    | 'sql'
+    | 'survey'
+    | 'transformation'
+
+export interface FileSystemEntry {
+    /** Unique UUID for tree entry */
+    id?: string
+    /** Object's name and folder */
+    path: string
+    /** Type of object, used for icon, e.g. feature_flag, insight, etc */
+    type?: FileSystemType
+    /** Object's ID or other unique reference */
+    ref?: string
+    /** Object's URL */
+    href?: string
+    /** Metadata */
+    meta?: Record<string, any>
+    /** Timestamp when file was added. Used to check persistence */
+    created_at?: string
+}
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -1673,6 +1890,107 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     exposure_query?: TrendsQuery
 }
 
+export interface ExperimentExposureCriteria {
+    filterTestAccounts?: boolean
+    exposure_config?: ExperimentEventExposureConfig
+}
+
+export interface ExperimentEventExposureConfig {
+    kind: NodeKind.ExperimentEventExposureConfig
+    event: string
+    properties: AnyPropertyFilter[]
+}
+
+export enum ExperimentMetricType {
+    FUNNEL = 'funnel',
+    MEAN = 'mean',
+}
+
+export interface ExperimentMetric {
+    kind: NodeKind.ExperimentMetric
+    name?: string
+    metric_type: ExperimentMetricType
+    inverse?: boolean
+    metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
+    time_window_hours?: number
+}
+
+export interface ExperimentEventMetricConfig {
+    kind: NodeKind.ExperimentEventMetricConfig
+    event: string
+    name?: string
+    math?: ExperimentMetricMathType
+    math_hogql?: string
+    math_property?: string
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+}
+
+export interface ExperimentActionMetricConfig {
+    kind: NodeKind.ExperimentActionMetricConfig
+    action: number
+    name?: string
+    math?: ExperimentMetricMathType
+    math_hogql?: string
+    math_property?: string
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+}
+
+export interface ExperimentDataWarehouseMetricConfig {
+    kind: NodeKind.ExperimentDataWarehouseMetricConfig
+    name?: string
+    table_name: string
+    timestamp_field: string
+    events_join_key: string
+    data_warehouse_join_key: string
+    math?: ExperimentMetricMathType
+    math_hogql?: string
+    math_property?: string
+}
+
+export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
+    kind: NodeKind.ExperimentQuery
+    metric: ExperimentMetric
+    experiment_id?: integer
+    name?: string
+}
+
+export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
+    kind: NodeKind.ExperimentExposureQuery
+    experiment_id?: integer
+}
+
+export interface ExperimentQueryResponse {
+    kind: NodeKind.ExperimentQuery
+    insight: Record<string, any>[]
+    metric: ExperimentMetric
+    variants: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
+    probability: Record<string, number>
+    significant: boolean
+    significance_code: ExperimentSignificanceCode
+    stats_version?: integer
+    p_value: number
+    credible_intervals: Record<string, [number, number]>
+}
+
+export interface ExperimentExposureTimeSeries {
+    variant: string
+    days: string[]
+    exposure_counts: number[]
+}
+
+export interface ExperimentExposureQueryResponse {
+    kind: NodeKind.ExperimentExposureQuery
+    timeseries: ExperimentExposureTimeSeries[]
+    total_exposures: Record<string, number>
+    date_range: DateRange
+}
+
+export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
+
+export type CachedExperimentExposureQueryResponse = CachedQueryResponse<ExperimentExposureQueryResponse>
+
 /**
  * @discriminator kind
  */
@@ -1711,6 +2029,10 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     series?: integer
     breakdown?: string | BreakdownValueInt | string[]
     compare?: 'current' | 'previous'
+}
+
+export interface StickinessActorsQuery extends InsightActorsQuery {
+    operator?: StickinessOperator
 }
 
 export interface FunnelsActorsQuery extends InsightActorsQueryBase {
@@ -1837,7 +2159,7 @@ export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<Insigh
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
-    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery
+    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery
 }
 
 export interface DatabaseSchemaSchema {
@@ -1979,6 +2301,7 @@ export interface DashboardFilter {
     date_from?: string | null
     date_to?: string | null
     properties?: AnyPropertyFilter[] | null
+    breakdown_filter?: BreakdownFilter | null
 }
 
 export interface InsightsThresholdBounds {
@@ -2070,6 +2393,7 @@ export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse>
     kind: NodeKind.EventTaxonomyQuery
     event: string
     properties?: string[]
+    maxPropertyValues?: integer
 }
 
 export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse>
@@ -2087,6 +2411,7 @@ export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxo
     kind: NodeKind.ActorsPropertyTaxonomyQuery
     property: string
     group_type_index?: integer
+    maxPropertyValues?: integer
 }
 
 export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
@@ -2147,4 +2472,223 @@ export enum DefaultChannelTypes {
     Referral = 'Referral',
     Affiliate = 'Affiliate',
     Unknown = 'Unknown',
+}
+
+export interface LLMTraceEvent {
+    id: string
+    event: string
+    properties: Record<string, any>
+    createdAt: string
+}
+
+// Snake-case here for the DataTable component.
+export interface LLMTracePerson {
+    uuid: string
+    created_at: string
+    properties: Record<string, any>
+    distinct_id: string
+}
+
+export interface LLMTrace {
+    id: string
+    createdAt: string
+    person: LLMTracePerson
+    totalLatency?: number
+    inputTokens?: number
+    outputTokens?: number
+    inputCost?: number
+    outputCost?: number
+    totalCost?: number
+    inputState?: any
+    outputState?: any
+    traceName?: string
+    events: LLMTraceEvent[]
+}
+
+export interface TracesQueryResponse extends AnalyticsQueryResponseBase<LLMTrace[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+
+export interface TracesQuery extends DataNode<TracesQueryResponse> {
+    kind: NodeKind.TracesQuery
+    traceId?: string
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
+    filterTestAccounts?: boolean
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+}
+
+export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
+
+export interface RevenueTrackingEventItem {
+    eventName: string
+    revenueProperty: string
+    revenueCurrencyProperty: string | undefined
+}
+
+// NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
+// to provide proper type safety for the baseCurrency field
+export enum CurrencyCode {
+    AED = 'AED',
+    AFN = 'AFN',
+    ALL = 'ALL',
+    AMD = 'AMD',
+    ANG = 'ANG',
+    AOA = 'AOA',
+    ARS = 'ARS',
+    AUD = 'AUD',
+    AWG = 'AWG',
+    AZN = 'AZN',
+    BAM = 'BAM',
+    BBD = 'BBD',
+    BDT = 'BDT',
+    BGN = 'BGN',
+    BHD = 'BHD',
+    BIF = 'BIF',
+    BMD = 'BMD',
+    BND = 'BND',
+    BOB = 'BOB',
+    BRL = 'BRL',
+    BSD = 'BSD',
+    BTC = 'BTC',
+    BTN = 'BTN',
+    BWP = 'BWP',
+    BYN = 'BYN',
+    BZD = 'BZD',
+    CAD = 'CAD',
+    CDF = 'CDF',
+    CHF = 'CHF',
+    CLP = 'CLP',
+    CNY = 'CNY',
+    COP = 'COP',
+    CRC = 'CRC',
+    CVE = 'CVE',
+    CZK = 'CZK',
+    DJF = 'DJF',
+    DKK = 'DKK',
+    DOP = 'DOP',
+    DZD = 'DZD',
+    EGP = 'EGP',
+    ERN = 'ERN',
+    ETB = 'ETB',
+    EUR = 'EUR',
+    FJD = 'FJD',
+    GBP = 'GBP',
+    GEL = 'GEL',
+    GHS = 'GHS',
+    GIP = 'GIP',
+    GMD = 'GMD',
+    GNF = 'GNF',
+    GTQ = 'GTQ',
+    GYD = 'GYD',
+    HKD = 'HKD',
+    HNL = 'HNL',
+    HRK = 'HRK',
+    HTG = 'HTG',
+    HUF = 'HUF',
+    IDR = 'IDR',
+    ILS = 'ILS',
+    INR = 'INR',
+    IQD = 'IQD',
+    IRR = 'IRR',
+    ISK = 'ISK',
+    JMD = 'JMD',
+    JOD = 'JOD',
+    JPY = 'JPY',
+    KES = 'KES',
+    KGS = 'KGS',
+    KHR = 'KHR',
+    KMF = 'KMF',
+    KRW = 'KRW',
+    KWD = 'KWD',
+    KYD = 'KYD',
+    KZT = 'KZT',
+    LAK = 'LAK',
+    LBP = 'LBP',
+    LKR = 'LKR',
+    LRD = 'LRD',
+    LTL = 'LTL',
+    LVL = 'LVL',
+    LSL = 'LSL',
+    LYD = 'LYD',
+    MAD = 'MAD',
+    MDL = 'MDL',
+    MGA = 'MGA',
+    MKD = 'MKD',
+    MMK = 'MMK',
+    MNT = 'MNT',
+    MOP = 'MOP',
+    MRU = 'MRU',
+    MTL = 'MTL',
+    MUR = 'MUR',
+    MVR = 'MVR',
+    MWK = 'MWK',
+    MXN = 'MXN',
+    MYR = 'MYR',
+    MZN = 'MZN',
+    NAD = 'NAD',
+    NGN = 'NGN',
+    NIO = 'NIO',
+    NOK = 'NOK',
+    NPR = 'NPR',
+    NZD = 'NZD',
+    OMR = 'OMR',
+    PAB = 'PAB',
+    PEN = 'PEN',
+    PGK = 'PGK',
+    PHP = 'PHP',
+    PKR = 'PKR',
+    PLN = 'PLN',
+    PYG = 'PYG',
+    QAR = 'QAR',
+    RON = 'RON',
+    RSD = 'RSD',
+    RUB = 'RUB',
+    RWF = 'RWF',
+    SAR = 'SAR',
+    SBD = 'SBD',
+    SCR = 'SCR',
+    SDG = 'SDG',
+    SEK = 'SEK',
+    SGD = 'SGD',
+    SRD = 'SRD',
+    SSP = 'SSP',
+    STN = 'STN',
+    SYP = 'SYP',
+    SZL = 'SZL',
+    THB = 'THB',
+    TJS = 'TJS',
+    TMT = 'TMT',
+    TND = 'TND',
+    TOP = 'TOP',
+    TRY = 'TRY',
+    TTD = 'TTD',
+    TWD = 'TWD',
+    TZS = 'TZS',
+    UAH = 'UAH',
+    UGX = 'UGX',
+    USD = 'USD',
+    UYU = 'UYU',
+    UZS = 'UZS',
+    VES = 'VES',
+    VND = 'VND',
+    VUV = 'VUV',
+    WST = 'WST',
+    XAF = 'XAF',
+    XCD = 'XCD',
+    XOF = 'XOF',
+    XPF = 'XPF',
+    YER = 'YER',
+    ZAR = 'ZAR',
+    ZMW = 'ZMW',
+}
+
+export interface RevenueTrackingConfig {
+    baseCurrency?: CurrencyCode
+    events: RevenueTrackingEventItem[]
 }

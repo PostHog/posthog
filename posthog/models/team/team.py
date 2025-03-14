@@ -33,6 +33,7 @@ from posthog.models.utils import (
     UUIDClassicModel,
     generate_random_token_project,
     sane_repr,
+    validate_rate_limit,
 )
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
@@ -194,11 +195,11 @@ class CookielessServerHashMode(models.IntegerChoices):
 
 
 class Team(UUIDClassicModel):
-    """Team means "environment" (historically it meant "project", but now we have the Project model for that)."""
+    """Team means "environment" (historically it meant "project", but now we have the parent Project model for that)."""
 
     class Meta:
-        verbose_name = "team (soon to be environment)"
-        verbose_name_plural = "teams (soon to be environments)"
+        verbose_name = "environment (aka team)"
+        verbose_name_plural = "environments (aka teams)"
         constraints = [
             models.CheckConstraint(
                 name="project_id_is_not_null",
@@ -236,6 +237,7 @@ class Team(UUIDClassicModel):
     anonymize_ips = models.BooleanField(default=False)
     completed_snippet_onboarding = models.BooleanField(default=False)
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
+    onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
     autocapture_opt_out = models.BooleanField(null=True, blank=True)
     autocapture_web_vitals_opt_in = models.BooleanField(null=True, blank=True)
@@ -259,6 +261,7 @@ class Team(UUIDClassicModel):
     )
     session_recording_linked_flag = models.JSONField(null=True, blank=True)
     session_recording_network_payload_capture_config = models.JSONField(null=True, blank=True)
+    session_recording_masking_config = models.JSONField(null=True, blank=True)
     session_recording_url_trigger_config = ArrayField(
         models.JSONField(null=True, blank=True), default=list, blank=True, null=True
     )
@@ -275,6 +278,7 @@ class Team(UUIDClassicModel):
     capture_dead_clicks = models.BooleanField(null=True, blank=True, default=False)
     surveys_opt_in = models.BooleanField(null=True, blank=True)
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
+    flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
@@ -296,6 +300,7 @@ class Team(UUIDClassicModel):
     cookieless_server_hash_mode = models.SmallIntegerField(
         default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
     )
+    revenue_tracking_config = models.JSONField(null=True, blank=True)
 
     primary_dashboard = models.ForeignKey(
         "posthog.Dashboard",
@@ -343,6 +348,14 @@ class Team(UUIDClassicModel):
     event_properties_numerical = models.JSONField(default=list, blank=True)
     external_data_workspace_id = models.CharField(max_length=400, null=True, blank=True)
     external_data_workspace_last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    api_query_rate_limit = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        help_text="Custom rate limit for HogQL API queries in #requests/{sec,min,hour,day}",
+        validators=[validate_rate_limit],
+    )
 
     objects: TeamManager = TeamManager()
 
@@ -431,7 +444,7 @@ class Team(UUIDClassicModel):
 
     @cached_property
     def persons_seen_so_far(self) -> int:
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
         from posthog.queries.person_query import PersonQuery
 
         filter = Filter(data={"full": "true"})
@@ -448,7 +461,7 @@ class Team(UUIDClassicModel):
 
     @lru_cache(maxsize=5)
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
 
         return sync_execute(
             f"""

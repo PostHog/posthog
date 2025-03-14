@@ -2,7 +2,8 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="free",
+    status="stable",
+    free=True,
     type="destination",
     id="template-microsoft-teams",
     name="Microsoft Teams",
@@ -96,6 +97,30 @@ if (res.status >= 400) {
             input_schema_overrides={
                 "text": {
                     "default": "**{person.name}** {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
+                }
+            },
+        ),
+        HogFunctionSubTemplate(
+            name="Post to Microsoft Teams on issue created",
+            description="",
+            id=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].id,
+            type=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].type,
+            filters=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].filters,
+            input_schema_overrides={
+                "text": {
+                    "default": "**🔴 {event.properties.name} created:** {event.properties.description}",
+                }
+            },
+        ),
+        HogFunctionSubTemplate(
+            name="Post to Microsoft Teams on issue reopened",
+            description="",
+            id=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].id,
+            type=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].type,
+            filters=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].filters,
+            input_schema_overrides={
+                "text": {
+                    "default": "**🔄 {event.properties.name} reopened:** {event.properties.description}",
                 }
             },
         ),

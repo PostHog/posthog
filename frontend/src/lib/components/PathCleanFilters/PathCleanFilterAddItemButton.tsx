@@ -1,11 +1,10 @@
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
 
-import { PathRegexPopover } from './PathRegexPopover'
+import { PathRegexModal } from './PathRegexModal'
 
 type PathCleanFilterAddItemButtonProps = {
     onAdd: (filter: PathCleaningFilter) => void
@@ -14,22 +13,18 @@ type PathCleanFilterAddItemButtonProps = {
 export function PathCleanFilterAddItemButton({ onAdd }: PathCleanFilterAddItemButtonProps): JSX.Element {
     const [visible, setVisible] = useState(false)
     return (
-        <Popover
-            visible={visible}
-            onClickOutside={() => setVisible(false)}
-            overlay={
-                <PathRegexPopover
-                    onSave={(filter: PathCleaningFilter) => {
-                        onAdd(filter)
-                        setVisible(false)
-                    }}
-                    onCancel={() => setVisible(false)}
-                    isNew
-                />
-            }
-        >
+        <>
+            <PathRegexModal
+                isOpen={visible}
+                onClose={() => setVisible(false)}
+                onSave={(filter: PathCleaningFilter) => {
+                    onAdd(filter)
+                    setVisible(false)
+                }}
+            />
+
             <LemonButton
-                onClick={() => setVisible(!visible)}
+                onClick={() => setVisible(true)}
                 type="secondary"
                 size="small"
                 icon={<IconPlus />}
@@ -37,6 +32,6 @@ export function PathCleanFilterAddItemButton({ onAdd }: PathCleanFilterAddItemBu
             >
                 Add rule
             </LemonButton>
-        </Popover>
+        </>
     )
 }

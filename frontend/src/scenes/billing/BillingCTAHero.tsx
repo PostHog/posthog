@@ -8,6 +8,7 @@ import useResizeObserver from 'use-resize-observer'
 
 import { BillingProductV2Type } from '~/types'
 
+import { getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { paymentEntryLogic } from './paymentEntryLogic'
@@ -24,7 +25,10 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
     const { toggleIsPlanComparisonModalOpen, setBillingProductLoading } = useActions(billingProductLogic({ product }))
 
     return (
-        <div className="flex relative justify-between items-center rounded-lg bg-mark" ref={billingHeroRef}>
+        <div
+            className="flex relative justify-between items-center rounded-lg bg-accent-primary-highlight"
+            ref={billingHeroRef}
+        >
             <div className="p-4">
                 <h1 className="mb-0">Get the whole hog.</h1>
                 <h1 className="text-danger">Only pay for what you use.</h1>
@@ -36,7 +40,7 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                     </p>
                     <p className="italic">P.S. You still keep the monthly free allotment for every product!</p>
                 </div>
-                <div className="flex justify-start space-x-2">
+                <div className="flex justify-start deprecated-space-x-2">
                     {featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
                         <BillingUpgradeCTA
                             className="mt-4 inline-block"
@@ -45,14 +49,17 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                             data-attr="billing-page-core-upgrade-cta"
                             disableClientSideRouting
                             loading={!!billingProductLoading}
-                            onClick={showPaymentEntryModal}
+                            onClick={() => showPaymentEntryModal()}
                         >
                             Upgrade now
                         </BillingUpgradeCTA>
                     ) : (
                         <BillingUpgradeCTA
                             className="mt-4 inline-block"
-                            to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
+                            to={getUpgradeProductLink({
+                                product,
+                                redirectPath,
+                            })}
                             type="primary"
                             status="alt"
                             data-attr="billing-page-core-upgrade-cta"

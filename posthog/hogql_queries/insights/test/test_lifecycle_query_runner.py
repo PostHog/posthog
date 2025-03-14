@@ -5,6 +5,8 @@ from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQuery
 from posthog.models.team import WeekStartDay
 from posthog.models.utils import UUIDT
 from posthog.schema import (
+    BreakdownFilter,
+    DashboardFilter,
     DateRange,
     IntervalType,
     LifecycleQuery,
@@ -1892,6 +1894,25 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).calculate()
         assert response.results[0]["data"] == [2, 0, 0, 0]  # new
         assert response.results[2]["data"] == [0, 0, 0, 0]  # resurrecting
+
+    def test_dashboard_breakdown_filter_does_not_update_breakdown_filter(self):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+        )
+
+        assert not hasattr(query_runner.query, "breakdownFilter")
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(
+                breakdown_filter=BreakdownFilter(
+                    breakdown="$feature/my-fabulous-feature", breakdown_type="event", breakdown_limit=10
+                )
+            )
+        )
+
+        assert not hasattr(query_runner.query, "breakdownFilter")
 
 
 def assertLifecycleResults(results, expected):

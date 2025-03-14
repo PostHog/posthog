@@ -1,7 +1,7 @@
 import json
 from inline_snapshot import snapshot
 
-from hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.cdp.filters import hog_function_filters_to_expr
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.models.action.action import Action
@@ -101,6 +101,9 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 "properties",
                 1,
                 2,
+                2,
+                "toString",
+                1,
                 18,
                 3,
                 2,
@@ -160,6 +163,9 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 "person",
                 1,
                 3,
+                2,
+                "toString",
+                1,
                 18,
                 32,
                 "ben",
@@ -193,6 +199,9 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 "person",
                 1,
                 3,
+                2,
+                "toString",
+                1,
                 20,
                 32,
                 "%@posthog.com%",
@@ -204,6 +213,9 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 "person",
                 1,
                 3,
+                2,
+                "toString",
+                1,
                 18,
                 32,
                 "ben",
@@ -231,6 +243,9 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 "properties",
                 1,
                 2,
+                2,
+                "toString",
+                1,
                 18,
                 3,
                 5,
@@ -244,6 +259,9 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 "person",
                 1,
                 3,
+                2,
+                "toString",
+                1,
                 20,
                 32,
                 "%@posthog.com%",
@@ -255,6 +273,9 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 "person",
                 1,
                 3,
+                2,
+                "toString",
+                1,
                 18,
                 32,
                 "ben",

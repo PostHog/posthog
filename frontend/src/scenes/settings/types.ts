@@ -22,12 +22,13 @@ export type SettingSectionId =
     | 'environment-web-analytics'
     | 'environment-replay'
     | 'environment-surveys'
+    | 'environment-feature-flags'
     | 'environment-error-tracking'
-    | 'environment-toolbar'
     | 'environment-integrations'
     | 'environment-access-control'
     | 'environment-role-based-access-control'
     | 'environment-danger-zone'
+    | 'environment-max'
     | 'project-details'
     | 'project-autocapture' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-product-analytics' // TODO: This section is for backward compat – remove when Environments are rolled out
@@ -38,8 +39,10 @@ export type SettingSectionId =
     | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-role-based-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-danger-zone'
+    | 'organization-ai-consent'
     | 'organization-details'
     | 'organization-members'
+    | 'organization-billing'
     | 'organization-authentication'
     | 'organization-roles'
     | 'organization-proxy'
@@ -53,10 +56,11 @@ export type SettingId =
     | 'replay-triggers'
     | 'display-name'
     | 'snippet'
+    | 'authorized-urls'
+    | 'web-analytics-authorized-urls'
     | 'bookmarklet'
     | 'variables'
     | 'autocapture'
-    | 'exception-autocapture'
     | 'autocapture-data-attributes'
     | 'date-and-time'
     | 'internal-user-filtering'
@@ -70,11 +74,15 @@ export type SettingId =
     | 'persons-on-events'
     | 'replay'
     | 'replay-network'
+    | 'replay-masking'
     | 'replay-authorized-domains'
     | 'replay-ingestion'
     | 'surveys-interface'
+    | 'feature-flags-interface'
+    | 'error-tracking-exception-autocapture'
     | 'error-tracking-user-groups'
-    | 'authorized-toolbar-urls'
+    | 'error-tracking-symbol-sets'
+    | 'error-tracking-alerting'
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-other'
@@ -83,16 +91,17 @@ export type SettingId =
     | 'environment-role-based-access-control'
     | 'environment-delete'
     | 'project-delete'
+    | 'project-move'
     | 'organization-logo'
     | 'organization-display-name'
     | 'invites'
     | 'members'
     | 'email-members'
     | 'authentication-domains'
+    | 'organization-ai-consent'
     | 'organization-roles'
     | 'organization-delete'
     | 'organization-proxy'
-    | 'product-description'
     | 'details'
     | 'change-password'
     | '2fa'
@@ -106,6 +115,7 @@ export type SettingId =
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
     | 'bounce-rate-duration'
+    | 'revenue-base-currency'
     | 'session-table-version'
     | 'web-vitals-autocapture'
     | 'dead-clicks-autocapture'
@@ -113,12 +123,14 @@ export type SettingId =
     | 'cookieless-server-hash-mode'
     | 'user-groups'
     | 'user-delete'
+    | 'web-revenue-events'
+    | 'core-memory'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
 export type Setting = {
     id: SettingId
-    title: string
+    title: JSX.Element | string
     description?: JSX.Element | string
     component: JSX.Element
     /**
@@ -137,7 +149,9 @@ export type Setting = {
 
 export interface SettingSection extends Pick<Setting, 'flag'> {
     id: SettingSectionId
-    title: string
+    to?: string
+    title: JSX.Element | string
+    hideSelfHost?: boolean
     level: SettingLevelId
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel

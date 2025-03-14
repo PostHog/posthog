@@ -1,21 +1,33 @@
 from unittest.mock import patch
 
-from django.test import override_settings
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
-from ee.hogai.retention.nodes import RetentionGeneratorNode, RetentionSchemaGeneratorOutput
+from ee.hogai.retention.nodes import RetentionGeneratorNode, RetentionPlannerNode, RetentionSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
+    AssistantRetentionFilter,
     AssistantRetentionQuery,
     HumanMessage,
-    AssistantRetentionFilter,
     VisualizationMessage,
 )
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest
 
 
-@override_settings(IN_UNIT_TESTING=True)
-class TestRetentionGeneratorNode(ClickhouseTestMixin, APIBaseTest):
+class TestRetentionPlannerNode(BaseTest):
+    def test_retention_planner_prompt_has_tools(self):
+        node = RetentionPlannerNode(self.team)
+        with patch.object(RetentionPlannerNode, "_model") as model_mock:
+
+            def assert_prompt(prompt):
+                self.assertIn("retrieve_event_properties", str(prompt))
+                return AIMessage(content="Thought.\nAction: abc")
+
+            model_mock.return_value = RunnableLambda(assert_prompt)
+            node.run(AssistantState(messages=[HumanMessage(content="Text")]), {})
+
+
+class TestRetentionGeneratorNode(BaseTest):
     maxDiff = None
 
     def setUp(self):
@@ -37,13 +49,18 @@ class TestRetentionGeneratorNode(ClickhouseTestMixin, APIBaseTest):
                 AssistantState(
                     messages=[HumanMessage(content="Text")],
                     plan="Plan",
+                    root_tool_insight_plan="question",
                 ),
                 {},
             )
             self.assertEqual(
                 new_state,
                 PartialAssistantState(
-                    messages=[VisualizationMessage(answer=self.schema, plan="Plan", id=new_state.messages[0].id)],
+                    messages=[
+                        VisualizationMessage(
+                            query="question", answer=self.schema, plan="Plan", id=new_state.messages[0].id
+                        )
+                    ],
                     intermediate_steps=[],
                     plan="",
                 ),
