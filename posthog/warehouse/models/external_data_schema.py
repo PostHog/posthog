@@ -174,7 +174,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         self.sync_type_config.pop("partitioning_keys", None)
         self.save()
 
-    def update_incremental_field_last_value(self, last_value: Any) -> None:
+    def update_incremental_field_last_value(self, last_value: Any, save: bool = True) -> None:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
 
         last_value_py = last_value.item() if isinstance(last_value, numpy.generic) else last_value
@@ -205,7 +205,9 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             last_value_json = str(last_value_py)
 
         self.sync_type_config["incremental_field_last_value"] = last_value_json
-        self.save()
+
+        if save:
+            self.save()
 
     def soft_delete(self):
         self.deleted = True
