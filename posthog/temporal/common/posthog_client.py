@@ -16,7 +16,7 @@ from temporalio.worker import (
 logger = structlog.get_logger()
 
 
-def _add_inputs_to_properties(properties: dict[str, Any], input: ExecuteActivityInput | ExecuteWorkflowInput):
+async def _add_inputs_to_properties(properties: dict[str, Any], input: ExecuteActivityInput | ExecuteWorkflowInput):
     if len(input.args) == 1 and is_dataclass(input.args[0]) and hasattr(input.args[0], "properties_to_log"):
         try:
             inputs = {
@@ -24,7 +24,7 @@ def _add_inputs_to_properties(properties: dict[str, Any], input: ExecuteActivity
             }
             properties.update(inputs)
         except Exception as e:
-            logger.awarning("Failed to get safe properties for %s", input.args[0], exc_info=e)
+            await logger.awarning("Failed to get safe properties for %s", input.args[0], exc_info=e)
 
 
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
@@ -45,12 +45,12 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                 "temporal.workflow.run_id": activity_info.workflow_run_id,
                 "temporal.workflow.type": activity_info.workflow_type,
             }
-            _add_inputs_to_properties(properties, input)
+            await _add_inputs_to_properties(properties, input)
             if api_key:
                 try:
                     capture_exception(e, properties=properties)
-                except Exception as e:
-                    logger.awarning("Failed to capture exception", exc_info=e)
+                except Exception as capture_error:
+                    await logger.awarning("Failed to capture exception", exc_info=capture_error)
             raise
 
 
@@ -69,13 +69,13 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 "temporal.workflow.type": workflow_info.workflow_type,
                 "temporal.workflow.id": workflow_info.workflow_id,
             }
-            _add_inputs_to_properties(properties, input)
+            await _add_inputs_to_properties(properties, input)
             if api_key and not workflow.unsafe.is_replaying():
                 with workflow.unsafe.sandbox_unrestricted():
                     try:
                         capture_exception(e, properties=properties)
-                    except Exception as e:
-                        logger.awarning("Failed to capture exception", exc_info=e)
+                    except Exception as capture_error:
+                        await logger.awarning("Failed to capture exception", exc_info=capture_error)
             raise
 
 

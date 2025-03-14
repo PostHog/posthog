@@ -23,7 +23,7 @@ def _set_common_workflow_tags(info: Union[workflow.Info, activity.Info]):
     set_tag("temporal.workflow.id", info.workflow_id)
 
 
-def _set_tags_from_inputs(input: ExecuteActivityInput | ExecuteWorkflowInput):
+async def _set_tags_from_inputs(input: ExecuteActivityInput | ExecuteWorkflowInput):
     if len(input.args) == 1 and is_dataclass(input.args[0]) and hasattr(input.args[0], "properties_to_log"):
         try:
             inputs = {
@@ -32,7 +32,7 @@ def _set_tags_from_inputs(input: ExecuteActivityInput | ExecuteWorkflowInput):
             for k, v in inputs.items():
                 set_tag(k, str(v))
         except Exception as e:
-            logger.awarning("Failed to get safe properties for %s", input.args[0], exc_info=e)
+            await logger.awarning("Failed to get safe properties for %s", input.args[0], exc_info=e)
 
 
 class _SentryActivityInboundInterceptor(ActivityInboundInterceptor):
@@ -52,7 +52,7 @@ class _SentryActivityInboundInterceptor(ActivityInboundInterceptor):
             try:
                 return await super().execute_activity(input)
             except Exception:
-                _set_tags_from_inputs(input)
+                await _set_tags_from_inputs(input)
                 set_context("temporal.activity.info", activity.info().__dict__)
                 capture_exception()
 
@@ -73,7 +73,7 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
             try:
                 return await super().execute_workflow(input)
             except Exception:
-                _set_tags_from_inputs(input)
+                await _set_tags_from_inputs(input)
                 set_context("temporal.workflow.info", workflow.info().__dict__)
 
                 if not workflow.unsafe.is_replaying():
