@@ -163,7 +163,6 @@ export const commonConfig = {
     loader: {
         '.ttf': 'file',
         '.png': 'file',
-        '.gif': 'file',
         '.svg': 'file',
         '.woff': 'file',
         '.woff2': 'file',
