@@ -322,6 +322,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             title: 'Masking',
             description: 'Choose the level of masking for your recordings.',
             value: getMaskingLevelFromConfig(currentTeam?.session_recording_masking_config ?? {}),
+            teamProperty: 'session_recording_masking_config',
             onChange: (value: string | number | null) => {
                 return {
                     session_recording_masking_config: getMaskingConfigFromLevel(value as SessionRecordingMaskingLevel),
@@ -429,7 +430,7 @@ export function Onboarding(): JSX.Element | null {
     if (!product || !productKey) {
         return <></>
     }
-    const OnboardingView = onboardingViews[productKey]
+    const OnboardingView = onboardingViews[productKey as keyof typeof onboardingViews]
 
     return <OnboardingView />
 }

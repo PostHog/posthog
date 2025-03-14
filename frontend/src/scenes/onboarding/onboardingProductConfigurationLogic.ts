@@ -9,7 +9,7 @@ import type { onboardingProductConfigurationLogicType } from './onboardingProduc
 export interface ProductConfigOptionBase {
     title: string
     description: string
-    teamProperty?: keyof TeamType
+    teamProperty: keyof TeamType
     visible: boolean
 }
 
@@ -53,15 +53,13 @@ export const onboardingProductConfigurationLogic = kea<onboardingProductConfigur
             const updateConfig: Record<string, any> = {}
 
             values.configOptions.forEach((configOption) => {
-                if (configOption.teamProperty) {
-                    const value = configOption.inverseToggle ? !configOption.value : configOption.value
-
-                    updateConfig[configOption.teamProperty] = value
-                }
-
                 if (configOption.onChange) {
                     const changes = configOption.onChange(configOption.value)
                     Object.assign(updateConfig, changes)
+                } else {
+                    const value = configOption.inverseToggle ? !configOption.value : configOption.value
+
+                    updateConfig[configOption.teamProperty] = value
                 }
             })
 

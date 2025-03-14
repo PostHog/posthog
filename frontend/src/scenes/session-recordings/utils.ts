@@ -26,7 +26,7 @@ export const filtersFromUniversalFilterGroups = (filters: RecordingUniversalFilt
 }
 
 export const getMaskingLevelFromConfig = (config: SessionRecordingMaskingConfig): SessionRecordingMaskingLevel => {
-    if (config.maskTextSelector === '*' && config.maskAllInputs) {
+    if (config.maskTextSelector === '*' && config.maskAllInputs && config.blockSelector === 'img') {
         return 'total-privacy'
     }
 

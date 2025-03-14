@@ -70,10 +70,6 @@ export const OnboardingProductConfiguration = ({
                             return { ...o, value: newValue }
                         }
 
-                        if (o.onChange) {
-                            return { ...o, ...o.onChange(newValue) }
-                        }
-
                         return o
                     })
 
