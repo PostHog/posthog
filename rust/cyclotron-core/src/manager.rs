@@ -19,6 +19,7 @@ pub struct Shard {
     pub last_healthy: RwLock<DateTime<Utc>>,
     pub check_interval: Duration,
     pub depth_limit: u64,
+    pub should_compress_vm_state: bool,
 }
 
 pub struct QueueManager {
@@ -37,9 +38,11 @@ impl QueueManager {
                 .shard_depth_check_interval_seconds
                 .unwrap_or(DEFAULT_SHARD_HEALTH_CHECK_INTERVAL) as i64,
         );
+        let should_compress_vm_state = config.should_compress_vm_state.is_some_and(|flag| flag);
+
         for shard in config.shards {
             let pool = shard.connect().await.unwrap();
-            let shard = Shard::new(pool, depth_limit, check_interval);
+            let shard = Shard::new(pool, depth_limit, check_interval, should_compress_vm_state);
             shards.push(shard);
         }
         Ok(Self {
@@ -49,12 +52,13 @@ impl QueueManager {
     }
 
     #[doc(hidden)] // Mostly for testing, but safe to expose
-    pub fn from_pool(pool: PgPool) -> Self {
+    pub fn from_pool(pool: PgPool, should_compress_vm_state: bool) -> Self {
         Self {
             shards: RwLock::new(vec![Shard::new(
                 pool,
                 DEFAULT_QUEUE_DEPTH_LIMIT,
                 Duration::seconds(DEFAULT_SHARD_HEALTH_CHECK_INTERVAL as i64),
+                should_compress_vm_state,
             )]),
             next_shard: AtomicUsize::new(0),
         }
@@ -107,19 +111,25 @@ impl QueueManager {
 }
 
 impl Shard {
-    pub fn new(pool: PgPool, depth_limit: u64, check_interval: Duration) -> Self {
+    pub fn new(
+        pool: PgPool,
+        depth_limit: u64,
+        check_interval: Duration,
+        should_compress_vm_state: bool,
+    ) -> Self {
         Self {
             pool,
             last_healthy: RwLock::new(Utc::now() - check_interval),
             check_interval,
             depth_limit,
+            should_compress_vm_state,
         }
     }
 
     // Inserts a job, failing if the shard is at capacity
     pub async fn create_job(&self, init: JobInit) -> Result<Uuid, QueueError> {
         self.insert_guard().await?;
-        create_job(&self.pool, init).await
+        create_job(&self.pool, init, self.should_compress_vm_state).await
     }
 
     // Inserts a vec of jobs, failing if the shard is at capacity. Note "capacity" here just
@@ -127,7 +137,7 @@ impl Shard {
     // 1000, we still insert all 1000.
     pub async fn bulk_create_jobs(&self, inits: &[JobInit]) -> Result<Vec<Uuid>, QueueError> {
         self.insert_guard().await?;
-        bulk_create_jobs(&self.pool, inits).await
+        bulk_create_jobs(&self.pool, inits, self.should_compress_vm_state).await
     }
 
     // Inserts a job, blocking until there's capacity (or until the timeout is reached)
@@ -146,7 +156,7 @@ impl Shard {
             }
         }
 
-        create_job(&self.pool, init).await
+        create_job(&self.pool, init, self.should_compress_vm_state).await
     }
 
     // As above, with the same caveats about what "capacity" means
@@ -165,7 +175,7 @@ impl Shard {
             }
         }
 
-        bulk_create_jobs(&self.pool, inits).await
+        bulk_create_jobs(&self.pool, inits, self.should_compress_vm_state).await
     }
 
     pub async fn insert_guard(&self) -> Result<(), QueueError> {

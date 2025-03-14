@@ -7,13 +7,19 @@ use crate::{
     types::{JobInit, JobState},
 };
 
-pub async fn create_job<'c, E>(executor: E, mut data: JobInit) -> Result<Uuid, QueueError>
+pub async fn create_job<'c, E>(
+    executor: E,
+    mut data: JobInit,
+    should_compress_vm_state: bool,
+) -> Result<Uuid, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
     let id = Uuid::now_v7();
 
-    data.vm_state = compress_vm_state(data.vm_state)?;
+    if should_compress_vm_state {
+        data.vm_state = compress_vm_state(data.vm_state)?;
+    }
 
     sqlx::query!(
         r#"
@@ -58,7 +64,11 @@ VALUES
     Ok(id)
 }
 
-pub async fn bulk_create_jobs<'c, E>(executor: E, jobs: &[JobInit]) -> Result<Vec<Uuid>, QueueError>
+pub async fn bulk_create_jobs<'c, E>(
+    executor: E,
+    jobs: &[JobInit],
+    should_compress_vm_state: bool,
+) -> Result<Vec<Uuid>, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
@@ -83,7 +93,12 @@ where
     let mut blob = Vec::with_capacity(jobs.len());
 
     for d in jobs {
-        let vm_state = compress_vm_state(d.vm_state.clone())?;
+        let vm_state = d.vm_state.clone();
+        if should_compress_vm_state {
+            vm_states.push(compress_vm_state(vm_state)?);
+        } else {
+            vm_states.push(vm_state);
+        }
 
         ids.push(Uuid::now_v7());
         team_ids.push(d.team_id);
@@ -98,7 +113,6 @@ where
         states.push(JobState::Available);
         scheduleds.push(d.scheduled);
         priorities.push(d.priority);
-        vm_states.push(vm_state);
         metadatas.push(d.metadata.clone());
         parameters.push(d.parameters.clone());
         blob.push(d.blob.clone());
