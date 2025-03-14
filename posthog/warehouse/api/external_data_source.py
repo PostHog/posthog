@@ -442,6 +442,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             is_incremental = sync_type == "incremental"
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
+            sync_time_of_day = schema.get("sync_time_of_day")
 
             if is_incremental and incremental_field is None:
                 new_source_model.delete()
@@ -463,6 +464,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 source=new_source_model,
                 should_sync=schema.get("should_sync"),
                 sync_type=sync_type,
+                sync_time_of_day=sync_time_of_day,
                 sync_type_config=(
                     {
                         "incremental_field": incremental_field,
@@ -582,7 +584,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         payload = request.data["payload"]
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
-        integration_id = payload.get("integration_id")
+        salesforce_integration_id = payload.get("salesforce_integration_id")
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -593,7 +595,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status="Running",
             source_type=source_type,
             job_inputs={
-                "salesforce_integration_id": integration_id,
+                "salesforce_integration_id": salesforce_integration_id,
             },
             prefix=prefix,
         )

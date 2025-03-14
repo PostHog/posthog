@@ -39,12 +39,12 @@ export const getMaskingLevelFromConfig = (config: SessionRecordingMaskingConfig)
 
 export const getMaskingConfigFromLevel = (level: SessionRecordingMaskingLevel): SessionRecordingMaskingConfig => {
     if (level === 'total-privacy') {
-        return { maskTextSelector: '*', maskAllInputs: true }
+        return { maskTextSelector: '*', maskAllInputs: true, blockSelector: 'img' }
     }
 
     if (level === 'free-love') {
-        return { maskTextSelector: undefined, maskAllInputs: false }
+        return { maskTextSelector: undefined, maskAllInputs: false, blockSelector: undefined }
     }
 
-    return { maskTextSelector: undefined, maskAllInputs: true }
+    return { maskTextSelector: undefined, maskAllInputs: true, blockSelector: undefined }
 }

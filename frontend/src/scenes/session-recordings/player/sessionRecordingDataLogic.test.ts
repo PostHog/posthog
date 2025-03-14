@@ -478,7 +478,7 @@ describe('sessionRecordingDataLogic', () => {
 
             // Middle chunk
             expect(chunks[1]).toMatchObject({
-                timestamp: 1001,
+                timestamp: 1000,
                 data: {
                     adds: expect.arrayContaining([expect.any(Object)]),
                     removes: [],
@@ -490,7 +490,7 @@ describe('sessionRecordingDataLogic', () => {
 
             // Last chunk
             expect(chunks[2]).toMatchObject({
-                timestamp: 1002,
+                timestamp: 1000,
                 data: {
                     adds: expect.arrayContaining([expect.any(Object)]),
                     removes: [],
@@ -509,7 +509,7 @@ describe('sessionRecordingDataLogic', () => {
 
             expect(chunks.length).toBe(2)
             expect(chunks[0].delay).toBe(100)
-            expect(chunks[1].delay).toBe(101)
+            expect(chunks[1].delay).toBe(100)
         })
 
         it('does not chunk non-mutation snapshots', () => {

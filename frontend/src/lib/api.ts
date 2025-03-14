@@ -18,7 +18,6 @@ import {
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
     FileSystemEntry,
-    FileSystemType,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
@@ -35,7 +34,10 @@ import {
     AppMetricsV2Response,
     BatchExportBackfill,
     BatchExportConfiguration,
+    BatchExportConfigurationTest,
+    BatchExportConfigurationTestStep,
     BatchExportRun,
+    BatchExportService,
     CohortType,
     CommentType,
     CoreMemory,
@@ -374,7 +376,7 @@ class ApiRequest {
     public fileSystem(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('file_system')
     }
-    public fileSystemUnfiled(type?: FileSystemType, projectId?: ProjectType['id']): ApiRequest {
+    public fileSystemUnfiled(type?: string, projectId?: ProjectType['id']): ApiRequest {
         const path = this.fileSystem(projectId).addPathComponent('unfiled')
         if (type) {
             path.withQueryString({ type })
@@ -753,12 +755,20 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('error_tracking')
     }
 
+    public errorTrackingIssues(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('issue')
+    }
+
     public errorTrackingIssue(id: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('issue').addPathComponent(id)
+        return this.errorTrackingIssues(teamId).addPathComponent(id)
     }
 
     public errorTrackingIssueMerge(into: ErrorTrackingIssue['id']): ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('merge')
+    }
+
+    public errorTrackingIssueBulk(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssues(teamId).addPathComponent('bulk')
     }
 
     public errorTrackingAssignIssue(into: ErrorTrackingIssue['id']): ApiRequest {
@@ -1221,7 +1231,7 @@ const api = {
         ): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystem().withQueryString({ parent, depth, limit, offset }).get()
         },
-        async unfiled(type?: FileSystemType): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+        async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
         },
         async create(data: FileSystemEntry): Promise<FileSystemEntry> {
@@ -1302,7 +1312,7 @@ const api = {
 
         listRequest(
             filters: Partial<{
-                scope?: ActivityScope
+                scope?: ActivityScope | string
                 scopes?: ActivityScope[] | string
                 user?: UserBasicType['id']
                 page?: number
@@ -2091,6 +2101,21 @@ const api = {
             return await new ApiRequest().errorTrackingAssignIssue(id).update({ data: { assignee } })
         },
 
+        async bulkResolve(ids: ErrorTrackingIssue['id'][]): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'resolve', ids } })
+        },
+
+        async bulkSuppress(ids: ErrorTrackingIssue['id'][]): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'suppress', ids } })
+        },
+
+        async bulkAssign(
+            ids: ErrorTrackingIssue['id'][],
+            assignee: ErrorTrackingIssue['assignee']
+        ): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'assign', ids, assignee } })
+        },
+
         async mergeInto(
             primaryIssueId: ErrorTrackingIssue['id'],
             mergingIssueIds: ErrorTrackingIssue['id'][]
@@ -2278,6 +2303,12 @@ const api = {
         async aiRegex(regex: string): Promise<{ result: string; data: any }> {
             return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex } })
         },
+
+        async getSimilarRecordings(
+            session_recording_id: SessionRecordingType['id']
+        ): Promise<{ count: number; results: string[] }> {
+            return await new ApiRequest().recording(session_recording_id).withAction('analyze/similar').get()
+        },
     },
 
     notebooks: {
@@ -2410,6 +2441,25 @@ const api = {
             params: LogEntryRequestParams = {}
         ): Promise<PaginatedResponse<LogEntry>> {
             return await new ApiRequest().batchExport(id).withAction('logs').withQueryString(params).get()
+        },
+        async test(destination: BatchExportService['type']): Promise<BatchExportConfigurationTest> {
+            return await new ApiRequest().batchExports().withAction('test').withQueryString({ destination }).get()
+        },
+        async runTestStep(
+            id: BatchExportConfiguration['id'],
+            step: number,
+            data: Record<string, any>
+        ): Promise<BatchExportConfigurationTestStep> {
+            return await new ApiRequest()
+                .batchExport(id)
+                .withAction('run_test_step')
+                .create({ data: { ...{ step: step }, ...data } })
+        },
+        async runTestStepNew(step: number, data: Record<string, any>): Promise<BatchExportConfigurationTestStep> {
+            return await new ApiRequest()
+                .batchExports()
+                .withAction('run_test_step_new')
+                .create({ data: { ...{ step: step }, ...data } })
         },
     },
 

@@ -4,6 +4,7 @@ import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBud
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
 import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
+import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { CreateEnvironmentModal } from 'scenes/project/CreateEnvironmentModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
@@ -70,6 +71,7 @@ export function GlobalModals(): JSX.Element {
             <PreviewingCustomCssModal />
             <TwoFactorSetupModal />
             <HedgehogBuddyWithLogic />
+            <PaymentEntryModal />
         </>
     )
 }
