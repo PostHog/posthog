@@ -6,6 +6,8 @@ import { ClampedText } from 'lib/lemon-ui/ClampedText'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 
+import { SparklinePanel } from './Sparkline'
+
 export const Metadata = (): JSX.Element => {
     const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
 
@@ -32,7 +34,7 @@ export const Metadata = (): JSX.Element => {
     )
 
     return (
-        <div className="deprecated-space-y-1">
+        <div className="space-y-3">
             {issue && issue.description ? <ClampedText text={issue.description} lines={2} /> : <LemonSkeleton />}
             <div className="flex flex-1 justify-between">
                 <div className="flex items-end deprecated-space-x-6">
@@ -71,6 +73,7 @@ export const Metadata = (): JSX.Element => {
                     </div>
                 </div>
             </div>
+            <SparklinePanel />
         </div>
     )
 }
