@@ -14,8 +14,8 @@ import {
     PluginsServerConfig,
     TimestampFormat,
 } from '../types'
-import { captureException } from './posthog'
 import { logger } from './logger'
+import { captureException } from './posthog'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
 const GRACEFUL_EXIT_PERIOD_SECONDS = 5

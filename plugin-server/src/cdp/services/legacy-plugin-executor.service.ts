@@ -6,7 +6,6 @@ import { Hub } from '~/src/types'
 
 import { PostgresUse } from '../../utils/db/postgres'
 import { Response, trackedFetch } from '../../utils/fetch'
-import { logger } from '../../utils/logger'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
 import { firstTimeEventTrackerPlugin } from '../legacy-plugins/_transformations/first-time-event-tracker/template'

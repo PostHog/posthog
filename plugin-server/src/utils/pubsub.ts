@@ -2,8 +2,8 @@ import { Redis } from 'ioredis'
 
 import { PluginsServerConfig } from '../types'
 import { createRedis } from './db/redis'
-import { captureException } from './posthog'
 import { logger } from './logger'
+import { captureException } from './posthog'
 
 export type PubSubTask = ((message: string) => void) | ((message: string) => Promise<void>)
 

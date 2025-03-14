@@ -1,8 +1,8 @@
 import { ConsumerGlobalConfig, GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
 import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
-import { retryIfRetriable } from '../utils/retries'
 import { logger } from '../utils/logger'
+import { retryIfRetriable } from '../utils/retries'
 import { createAdminClient, ensureTopicExists } from './admin'
 import {
     consumeMessages,

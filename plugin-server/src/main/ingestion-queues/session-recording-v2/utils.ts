@@ -1,7 +1,7 @@
 import { KafkaConsumer, PartitionMetadata } from 'node-rdkafka'
 
-import { captureException } from '../../../utils/posthog'
 import { logger } from '../../../utils/logger'
+import { captureException } from '../../../utils/posthog'
 
 export const getPartitionsForTopic = (
     kafkaConsumer: KafkaConsumer | undefined,

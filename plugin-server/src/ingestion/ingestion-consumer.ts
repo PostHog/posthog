@@ -17,9 +17,9 @@ import {
 import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService, PluginsServerConfig } from '../types'
 import { normalizeEvent } from '../utils/event'
+import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
-import { logger } from '../utils/logger'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 

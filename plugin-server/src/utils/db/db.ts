@@ -49,9 +49,9 @@ import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestio
 import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
+import { logger } from '../logger'
 import { instrumentQuery } from '../metrics'
 import { captureException } from '../posthog'
-import { logger } from '../logger'
 import {
     castTimestampOrNow,
     escapeClickHouseString,

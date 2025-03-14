@@ -2,9 +2,9 @@ import * as schedule from 'node-schedule'
 
 import { Hub, Team } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
+import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { PubSub } from '../../utils/pubsub'
-import { logger } from '../../utils/logger'
 import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../types'
 
 const HOG_FUNCTION_FIELDS = [

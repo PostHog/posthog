@@ -6,8 +6,8 @@ import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { TeamId, TimestampFormat } from '../../types'
 import { cleanErrorStackTrace } from '../../utils/db/error'
-import { captureException } from '../../utils/posthog'
 import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 
 export interface AppMetricIdentifier {

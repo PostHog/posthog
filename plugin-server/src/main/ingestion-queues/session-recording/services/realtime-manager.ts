@@ -5,8 +5,8 @@ import { EventEmitter } from 'node:events'
 import { PluginsServerConfig, RedisPool } from '../../../../types'
 import { createRedis } from '../../../../utils/db/redis'
 import { timeoutGuard } from '../../../../utils/db/utils'
-import { captureException } from '../../../../utils/posthog'
 import { logger } from '../../../../utils/logger'
+import { captureException } from '../../../../utils/posthog'
 
 const Keys = {
     snapshots(prefix: string, teamId: number, suffix: string): string {

@@ -9,9 +9,9 @@ import { InternalPerson, Person, PropertyUpdateOperation, Team } from '../../typ
 import { DB } from '../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
+import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { promiseRetry } from '../../utils/retries'
-import { logger } from '../../utils/logger'
 import { uuidFromDistinctId } from './person-uuid'
 import { captureIngestionWarning } from './utils'
 

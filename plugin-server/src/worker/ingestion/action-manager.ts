@@ -2,8 +2,8 @@ import * as schedule from 'node-schedule'
 
 import { Action, Hook, PluginsServerConfig, RawAction, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { PubSub } from '../../utils/pubsub'
 import { logger } from '../../utils/logger'
+import { PubSub } from '../../utils/pubsub'
 
 export type ActionMap = Record<Action['id'], Action>
 type ActionCache = Record<Team['id'], ActionMap>

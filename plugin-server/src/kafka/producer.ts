@@ -12,8 +12,8 @@ import { Counter, Summary } from 'prom-client'
 
 import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
-import { getSpan } from '../utils/sentry'
 import { logger } from '../utils/logger'
+import { getSpan } from '../utils/sentry'
 import { createRdConnectionConfigFromEnvVars, getProducerConfigFromEnv } from './config'
 
 // TODO: Rewrite this description

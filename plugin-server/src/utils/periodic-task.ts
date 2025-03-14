@@ -1,5 +1,5 @@
-import { instrument } from './metrics'
 import { logger } from './logger'
+import { instrument } from './metrics'
 import { sleep } from './utils'
 
 export class PeriodicTask {
