@@ -1,9 +1,8 @@
+use crate::client::database::CustomDatabaseError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use common_redis::CustomRedisError;
 use thiserror::Error;
-
-use crate::client::database::CustomDatabaseError;
-use crate::client::redis::CustomRedisError;
 
 #[derive(Error, Debug)]
 pub enum ClientFacingError {
@@ -191,7 +190,7 @@ impl From<CustomRedisError> for FlagError {
                 tracing::error!("failed to fetch data from redis: {}", e);
                 FlagError::RedisDataParsingError
             }
-            CustomRedisError::Timeout(_) => FlagError::TimeoutError,
+            CustomRedisError::Timeout => FlagError::TimeoutError,
             CustomRedisError::Other(e) => {
                 tracing::error!("Unknown redis error: {}", e);
                 FlagError::RedisUnavailable

@@ -14,6 +14,7 @@ use axum::{extract::State, http::HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use flate2::read::GzDecoder;
+use limiters::redis::ServiceName;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_urlencoded;
@@ -63,7 +64,6 @@ pub struct FlagsQueryParams {
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
 }
-
 pub struct RequestContext {
     /// Shared state holding services (DB, Redis, GeoIP, etc.)
     pub state: State<router::State>,
@@ -101,6 +101,25 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
     let (distinct_id, verified_token, request) =
         parse_and_authenticate_request(&context, &flag_service).await?;
+
+    // Once we've verified the token, check if the token is billing limited (this will save us from hitting the DB if we have a quota-limited token)
+    let billing_limited = context
+        .state
+        .billing_limiter
+        .is_limited(verified_token.as_str())
+        .await;
+    if billing_limited {
+        // return an empty FlagsResponse with a quotaLimited field called "feature_flags"
+        // TODO docs
+        return Ok(FlagsResponse {
+            feature_flags: HashMap::new(),
+            feature_flag_payloads: HashMap::new(),
+            errors_while_computing_flags: false,
+            quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
+        });
+    }
+
+    // again, now we can start doing heavier queries, since at this point most stuff has been from redis
 
     let team = flag_service
         .get_team_from_cache_or_pg(&verified_token)
