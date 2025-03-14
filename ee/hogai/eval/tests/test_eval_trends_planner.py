@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import datetime
 
 import pytest
 from deepeval import assert_test
@@ -191,9 +192,9 @@ def test_needle_in_a_haystack(metric, call_node):
 def time_and_granularity_metric():
     return GEval(
         name="Time Period and Time Interval Correctness",
-        criteria="You will be given expected and actual generated plans to provide a taxonomy to answer a user's question with a trends insight. Compare the plans to determine whether the taxonomy of the actual plan matches the expected plan. Do not apply general knowledge about trends insights.",
+        criteria=f"You will be given expected and actual generated plans to provide a taxonomy to answer a user's question with a trends insight. Compare the plans to determine whether the taxonomy of the actual plan matches the expected plan. Do not apply general knowledge about trends insights. Today is {datetime.now().strftime('%Y-%m-%d')}",
         evaluation_steps=[
-            "If the expected plan includes a time period or time interval, the actual plan must include the similar time period or time interval.",
+            "If the expected plan includes a time period or time interval, the actual plan must include the similar time period or time interval. Example: if today is 2025-03-14, then the time period `yesterday` can be written as `2025-03-13`, `yesterday`, `2025-03-13 - 2025-03-13`, `previous day`.",
             "Plans must not include property filters either for time or time intervals. For example, a property filter such as `timestamp` is not allowed.",
             "Penalize for any violation of the above criteria.",
         ],
@@ -207,18 +208,19 @@ def time_and_granularity_metric():
 
 
 @pytest.mark.parametrize(
-    "time_period",
+    "time_period, time_interval",
     [
-        "before 2024-01-01",
-        "after 2024-01-01",
-        "between 2024-01-01 and 2024-01-02",
-        "last two days",
+        ("yesterday", "hour"),
+        ("last 1 week", "day"),
+        ("last month", "week"),
+        ("the last 80 days", "week"),
+        ("the last 6 months", "month"),
+        ("from 2020 to 2025", "month"),
+        ("2023 by a week", "week"),
     ],
 )
-def test_trends_planner_includes_time_period(time_and_granularity_metric, call_node, time_period):
-    """The taxonomy planner must not include time properties but include the time period."""
-
-    query = f"what is the pageview trend for event time {time_period}"
+def test_trends_planner_handles_time_intervals(time_and_granularity_metric, call_node, time_period, time_interval):
+    query = f"$pageview trends for {time_period}"
     plan = call_node(query)
 
     test_case = LLMTestCase(
@@ -229,26 +231,15 @@ def test_trends_planner_includes_time_period(time_and_granularity_metric, call_n
             - math operation: total count
 
         Time period: {time_period}
+        Time interval: {time_interval}
         """,
         actual_output=plan,
     )
     assert_test(test_case, [time_and_granularity_metric])
 
 
-@pytest.mark.parametrize(
-    "time_period,granularity",
-    [
-        ("yesterday", "hour"),
-        ("last 1 week", "day"),
-        ("previous month", "week"),
-        ("last 6 months", "month"),
-        ("from 2020 to 2025", "month"),
-    ],
-)
-def test_trends_planner_handles_granularity(time_and_granularity_metric, call_node, time_period, granularity):
-    """The taxonomy planner includes time granularity."""
-
-    query = f"what is the pageview trend for {time_period} by {granularity}"
+def test_trends_planner_uses_default_time_period_and_interval(time_and_granularity_metric, call_node):
+    query = "$pageview trends"
     plan = call_node(query)
 
     test_case = LLMTestCase(
@@ -258,8 +249,8 @@ def test_trends_planner_handles_granularity(time_and_granularity_metric, call_no
         - $pageview
             - math operation: total count
 
-        Time period: {time_period}
-        Granularity: {granularity}
+        Time period: last 30 days
+        Time interval: day
         """,
         actual_output=plan,
     )
