@@ -37,6 +37,9 @@ describe('LazyLoader', () => {
 
             const result = await lazyLoader.get('key1')
             expect(result).toBeNull()
+            const result2 = await lazyLoader.get('key1')
+            expect(result2).toBeNull()
+            expect(loader).toHaveBeenCalledTimes(1)
         })
 
         it('handles undefined values', async () => {
@@ -44,6 +47,9 @@ describe('LazyLoader', () => {
 
             const result = await lazyLoader.get('key1')
             expect(result).toBeNull()
+            const result2 = await lazyLoader.get('key1')
+            expect(result2).toBeNull()
+            expect(loader).toHaveBeenCalledTimes(1)
         })
     })
 
