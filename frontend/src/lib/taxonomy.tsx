@@ -189,6 +189,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description:
                 'A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs)',
         },
+        $ai_embedding: {
+            label: 'AI Embedding',
+            description: 'A call to an embedding model',
+        },
         $ai_metric: {
             label: 'AI Metric',
             description: 'An evaluation metric for a trace of generative AI models (LLMs)',
@@ -1468,6 +1472,21 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $ai_output_tokens: {
             label: 'AI Output Tokens (LLM)',
             description: 'The number of tokens in the output from the LLM API',
+            examples: [23],
+        },
+        $ai_cache_read_input_tokens: {
+            label: 'AI Cache Read Input Tokens (LLM)',
+            description: 'The number of tokens read from the cache for the input prompt',
+            examples: [23],
+        },
+        $ai_cache_creation_input_tokens: {
+            label: 'AI Cache Creation Input Tokens (LLM)',
+            description: 'The number of tokens created in the cache for the input prompt (anthropic only)',
+            examples: [23],
+        },
+        $ai_reasoning_tokens: {
+            label: 'AI Reasoning Tokens (LLM)',
+            description: 'The number of tokens in the reasoning output from the LLM API',
             examples: [23],
         },
         $ai_input_cost_usd: {
