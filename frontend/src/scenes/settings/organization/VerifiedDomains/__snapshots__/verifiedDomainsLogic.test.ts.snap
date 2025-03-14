@@ -114,7 +114,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
               "revenueProperty": "value",
             },
           ],
-          "externalDataSchemas": [],
+          "dataWarehouseTables": [],
         },
         "session_recording_linked_flag": null,
         "session_recording_masking_config": {

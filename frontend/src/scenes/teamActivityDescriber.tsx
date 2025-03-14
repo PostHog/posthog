@@ -15,8 +15,8 @@ import { urls } from 'scenes/urls'
 
 import {
     CurrencyCode,
+    RevenueTrackingDataWarehouseTable,
     RevenueTrackingEventItem,
-    RevenueTrackingExternalDataSchema,
 } from '~/queries/schema/schema-general'
 import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
 
@@ -437,24 +437,24 @@ const teamActionsMapping: Record<
         const removedEvents = beforeEventNames?.filter((event) => !afterEventNames?.includes(event))
         const modifiedEvents = afterEventNames?.filter((event) => beforeEventNames?.includes(event))
 
-        const beforeExternalDataSchemas: RevenueTrackingExternalDataSchema[] =
-            typeof change.before === 'object' && change.before && 'externalDataSchemas' in change.before
-                ? change.before.externalDataSchemas
+        const beforedataWarehouseTables: RevenueTrackingDataWarehouseTable[] =
+            typeof change.before === 'object' && change.before && 'dataWarehouseTables' in change.before
+                ? change.before.dataWarehouseTables
                 : []
-        const afterExternalDataSchemas: RevenueTrackingExternalDataSchema[] =
-            typeof change.after === 'object' && change.after && 'externalDataSchemas' in change.after
-                ? change.after.externalDataSchemas
+        const afterdataWarehouseTables: RevenueTrackingDataWarehouseTable[] =
+            typeof change.after === 'object' && change.after && 'dataWarehouseTables' in change.after
+                ? change.after.dataWarehouseTables
                 : []
 
-        const beforeExternalDataSchemaNames = beforeExternalDataSchemas?.map((schema) => schema?.tableName)
-        const afterExternalDataSchemaNames = afterExternalDataSchemas?.map((schema) => schema?.tableName)
-        const addedExternalDataSchemas = afterExternalDataSchemaNames?.filter(
+        const beforeExternalDataSchemaNames = beforedataWarehouseTables?.map((schema) => schema?.tableName)
+        const afterExternalDataSchemaNames = afterdataWarehouseTables?.map((schema) => schema?.tableName)
+        const addeddataWarehouseTables = afterExternalDataSchemaNames?.filter(
             (schema) => !beforeExternalDataSchemaNames?.includes(schema)
         )
-        const removedExternalDataSchemas = beforeExternalDataSchemaNames?.filter(
+        const removeddataWarehouseTables = beforeExternalDataSchemaNames?.filter(
             (schema) => !afterExternalDataSchemaNames?.includes(schema)
         )
-        const modifiedExternalDataSchemas = afterExternalDataSchemaNames?.filter((schema) =>
+        const modifieddataWarehouseTables = afterExternalDataSchemaNames?.filter((schema) =>
             beforeExternalDataSchemaNames?.includes(schema)
         )
 
@@ -483,32 +483,32 @@ const teamActionsMapping: Record<
                       true
                   )} (${modifiedEvents.join(', ')})`
                 : null,
-            addedExternalDataSchemas?.length
-                ? `added ${addedExternalDataSchemas.length} ${pluralize(
-                      addedExternalDataSchemas.length,
-                      'external data schema',
-                      'external data schemas',
+            addeddataWarehouseTables?.length
+                ? `added ${addeddataWarehouseTables.length} ${pluralize(
+                      addeddataWarehouseTables.length,
+                      'data warehouse table',
+                      'data warehouse tables',
                       true
-                  )} (${addedExternalDataSchemas.join(', ')})`
+                  )} (${addeddataWarehouseTables.join(', ')})`
                 : null,
-            removedExternalDataSchemas?.length
-                ? `removed ${removedExternalDataSchemas.length} ${pluralize(
-                      removedExternalDataSchemas.length,
-                      'external data schema',
-                      'external data schemas',
+            removeddataWarehouseTables?.length
+                ? `removed ${removeddataWarehouseTables.length} ${pluralize(
+                      removeddataWarehouseTables.length,
+                      'data warehouse table',
+                      'data warehouse tables',
                       true
-                  )} (${removedExternalDataSchemas.join(', ')})`
+                  )} (${removeddataWarehouseTables.join(', ')})`
                 : null,
-            modifiedExternalDataSchemas?.length
-                ? `modified ${modifiedExternalDataSchemas.length} ${pluralize(
-                      modifiedExternalDataSchemas.length,
-                      'external data schema',
-                      'external data schemas',
+            modifieddataWarehouseTables?.length
+                ? `modified ${modifieddataWarehouseTables.length} ${pluralize(
+                      modifieddataWarehouseTables.length,
+                      'data warehouse table',
+                      'data warehouse tables',
                       true
-                  )} (${modifiedExternalDataSchemas.join(', ')})`
+                  )} (${modifieddataWarehouseTables.join(', ')})`
                 : null,
             beforeCurrency && afterCurrency && beforeCurrency !== afterCurrency
-                ? `changed the base currency from ${beforeCurrency} to ${afterCurrency}`
+                ? `changed base currency from ${beforeCurrency} to ${afterCurrency}`
                 : null,
         ].filter(isNotNil)
 

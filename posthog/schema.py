@@ -1305,7 +1305,7 @@ class NodeKind(StrEnum):
     RECORDINGS_QUERY = "RecordingsQuery"
     SESSION_ATTRIBUTION_EXPLORER_QUERY = "SessionAttributionExplorerQuery"
     REVENUE_EXAMPLE_EVENTS_QUERY = "RevenueExampleEventsQuery"
-    REVENUE_EXAMPLE_EXTERNAL_TABLES_QUERY = "RevenueExampleExternalTablesQuery"
+    REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY = "RevenueExampleDataWarehouseTablesQuery"
     ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
@@ -1590,6 +1590,16 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     static: Optional[CurrencyCode] = None
 
 
+class RevenueTrackingDataWarehouseTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    revenueColumn: str
+    revenueCurrencyColumn: Optional[str] = None
+    tableName: str
+    timestampColumn: str
+
+
 class RevenueTrackingEventItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1599,16 +1609,6 @@ class RevenueTrackingEventItem(BaseModel):
         default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
     )
     revenueProperty: str
-
-
-class RevenueTrackingExternalDataSchema(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    revenueColumn: str
-    revenueCurrencyColumn: Optional[str] = None
-    tableName: str
-    timestampColumn: str
 
 
 class SamplingRate(BaseModel):
@@ -2824,7 +2824,7 @@ class RetentionValue(BaseModel):
     count: int
 
 
-class RevenueExampleEventsQueryResponse(BaseModel):
+class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2850,7 +2850,7 @@ class RevenueExampleEventsQueryResponse(BaseModel):
     types: Optional[list] = None
 
 
-class RevenueExampleExternalTablesQueryResponse(BaseModel):
+class RevenueExampleEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2881,8 +2881,8 @@ class RevenueTrackingConfig(BaseModel):
         extra="forbid",
     )
     baseCurrency: Optional[CurrencyCode] = CurrencyCode.USD
+    dataWarehouseTables: Optional[list[RevenueTrackingDataWarehouseTable]] = []
     events: Optional[list[RevenueTrackingEventItem]] = []
-    externalDataSchemas: Optional[list[RevenueTrackingExternalDataSchema]] = []
 
 
 class SavedInsightNode(BaseModel):
@@ -3957,7 +3957,7 @@ class CachedPathsQueryResponse(BaseModel):
     )
 
 
-class CachedRevenueExampleEventsQueryResponse(BaseModel):
+class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3992,7 +3992,7 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
     types: Optional[list] = None
 
 
-class CachedRevenueExampleExternalTablesQueryResponse(BaseModel):
+class CachedRevenueExampleEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6258,6 +6258,20 @@ class RetentionResult(BaseModel):
     values: list[RetentionValue]
 
 
+class RevenueExampleDataWarehouseTablesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["RevenueExampleDataWarehouseTablesQuery"] = "RevenueExampleDataWarehouseTablesQuery"
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    response: Optional[RevenueExampleDataWarehouseTablesQueryResponse] = None
+    revenueTrackingConfig: RevenueTrackingConfig
+
+
 class RevenueExampleEventsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6269,20 +6283,6 @@ class RevenueExampleEventsQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[RevenueExampleEventsQueryResponse] = None
-    revenueTrackingConfig: RevenueTrackingConfig
-
-
-class RevenueExampleExternalTablesQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["RevenueExampleExternalTablesQuery"] = "RevenueExampleExternalTablesQuery"
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = None
-    response: Optional[RevenueExampleExternalTablesQueryResponse] = None
     revenueTrackingConfig: RevenueTrackingConfig
 
 
@@ -8523,7 +8523,7 @@ class DataTableNode(BaseModel):
         WebVitalsPathBreakdownQuery,
         SessionAttributionExplorerQuery,
         RevenueExampleEventsQuery,
-        RevenueExampleExternalTablesQuery,
+        RevenueExampleDataWarehouseTablesQuery,
         ErrorTrackingQuery,
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
@@ -8567,7 +8567,7 @@ class HogQLAutocomplete(BaseModel):
             WebVitalsPathBreakdownQuery,
             SessionAttributionExplorerQuery,
             RevenueExampleEventsQuery,
-            RevenueExampleExternalTablesQuery,
+            RevenueExampleDataWarehouseTablesQuery,
             ErrorTrackingQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
@@ -8616,7 +8616,7 @@ class HogQLMetadata(BaseModel):
             WebVitalsPathBreakdownQuery,
             SessionAttributionExplorerQuery,
             RevenueExampleEventsQuery,
-            RevenueExampleExternalTablesQuery,
+            RevenueExampleDataWarehouseTablesQuery,
             ErrorTrackingQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
@@ -8657,7 +8657,7 @@ class QueryRequest(BaseModel):
         HogQLAutocomplete,
         SessionAttributionExplorerQuery,
         RevenueExampleEventsQuery,
-        RevenueExampleExternalTablesQuery,
+        RevenueExampleDataWarehouseTablesQuery,
         ErrorTrackingQuery,
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
@@ -8731,7 +8731,7 @@ class QuerySchemaRoot(
             HogQLAutocomplete,
             SessionAttributionExplorerQuery,
             RevenueExampleEventsQuery,
-            RevenueExampleExternalTablesQuery,
+            RevenueExampleDataWarehouseTablesQuery,
             ErrorTrackingQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
@@ -8779,7 +8779,7 @@ class QuerySchemaRoot(
         HogQLAutocomplete,
         SessionAttributionExplorerQuery,
         RevenueExampleEventsQuery,
-        RevenueExampleExternalTablesQuery,
+        RevenueExampleDataWarehouseTablesQuery,
         ErrorTrackingQuery,
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,

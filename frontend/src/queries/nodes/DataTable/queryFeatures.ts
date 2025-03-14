@@ -4,8 +4,8 @@ import {
     isEventsQuery,
     isHogQLQuery,
     isPersonsNode,
+    isRevenueExampleDataWarehouseTablesQuery,
     isRevenueExampleEventsQuery,
-    isRevenueExampleExternalTablesQuery,
     isSessionAttributionExplorerQuery,
     isTracesQuery,
     isWebExternalClicksQuery,
@@ -49,7 +49,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.testAccountFilters)
     }
 
-    if (isRevenueExampleExternalTablesQuery(query)) {
+    if (isRevenueExampleDataWarehouseTablesQuery(query)) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)

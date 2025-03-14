@@ -381,7 +381,7 @@
                     "$ref": "#/definitions/RevenueExampleEventsQuery"
                 },
                 {
-                    "$ref": "#/definitions/RevenueExampleExternalTablesQuery"
+                    "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQuery"
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingQuery"
@@ -3317,7 +3317,7 @@
             ],
             "type": "object"
         },
-        "CachedRevenueExampleEventsQueryResponse": {
+        "CachedRevenueExampleDataWarehouseTablesQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
@@ -3397,7 +3397,7 @@
             ],
             "type": "object"
         },
-        "CachedRevenueExampleExternalTablesQueryResponse": {
+        "CachedRevenueExampleEventsQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
@@ -5929,7 +5929,7 @@
                             "$ref": "#/definitions/RevenueExampleEventsQuery"
                         },
                         {
-                            "$ref": "#/definitions/RevenueExampleExternalTablesQuery"
+                            "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQuery"
                         },
                         {
                             "$ref": "#/definitions/ErrorTrackingQuery"
@@ -10449,7 +10449,7 @@
                 "RecordingsQuery",
                 "SessionAttributionExplorerQuery",
                 "RevenueExampleEventsQuery",
-                "RevenueExampleExternalTablesQuery",
+                "RevenueExampleDataWarehouseTablesQuery",
                 "ErrorTrackingQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
@@ -13455,7 +13455,7 @@
                     "$ref": "#/definitions/RevenueExampleEventsQuery"
                 },
                 {
-                    "$ref": "#/definitions/RevenueExampleExternalTablesQuery"
+                    "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQuery"
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingQuery"
@@ -14179,6 +14179,81 @@
             },
             "type": "object"
         },
+        "RevenueExampleDataWarehouseTablesQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "RevenueExampleDataWarehouseTablesQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "response": {
+                    "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQueryResponse"
+                },
+                "revenueTrackingConfig": {
+                    "$ref": "#/definitions/RevenueTrackingConfig"
+                }
+            },
+            "required": ["kind", "revenueTrackingConfig"],
+            "type": "object"
+        },
+        "RevenueExampleDataWarehouseTablesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {},
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "RevenueExampleEventsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -14254,81 +14329,6 @@
             "required": ["results"],
             "type": "object"
         },
-        "RevenueExampleExternalTablesQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "kind": {
-                    "const": "RevenueExampleExternalTablesQuery",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "response": {
-                    "$ref": "#/definitions/RevenueExampleExternalTablesQueryResponse"
-                },
-                "revenueTrackingConfig": {
-                    "$ref": "#/definitions/RevenueTrackingConfig"
-                }
-            },
-            "required": ["kind", "revenueTrackingConfig"],
-            "type": "object"
-        },
-        "RevenueExampleExternalTablesQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hasMore": {
-                    "type": "boolean"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "results": {},
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {},
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
-            "type": "object"
-        },
         "RevenueTrackingConfig": {
             "additionalProperties": false,
             "properties": {
@@ -14336,22 +14336,41 @@
                     "$ref": "#/definitions/CurrencyCode",
                     "default": "USD"
                 },
+                "dataWarehouseTables": {
+                    "default": [],
+                    "items": {
+                        "$ref": "#/definitions/RevenueTrackingDataWarehouseTable"
+                    },
+                    "type": "array"
+                },
                 "events": {
                     "default": [],
                     "items": {
                         "$ref": "#/definitions/RevenueTrackingEventItem"
                     },
                     "type": "array"
-                },
-                "externalDataSchemas": {
-                    "default": [],
-                    "items": {
-                        "$ref": "#/definitions/RevenueTrackingExternalDataSchema"
-                    },
-                    "type": "array"
                 }
             },
-            "required": ["baseCurrency", "events", "externalDataSchemas"],
+            "required": ["baseCurrency", "events", "dataWarehouseTables"],
+            "type": "object"
+        },
+        "RevenueTrackingDataWarehouseTable": {
+            "additionalProperties": false,
+            "properties": {
+                "revenueColumn": {
+                    "type": "string"
+                },
+                "revenueCurrencyColumn": {
+                    "type": "string"
+                },
+                "tableName": {
+                    "type": "string"
+                },
+                "timestampColumn": {
+                    "type": "string"
+                }
+            },
+            "required": ["tableName", "timestampColumn", "revenueColumn"],
             "type": "object"
         },
         "RevenueTrackingEventItem": {
@@ -14371,25 +14390,6 @@
                 }
             },
             "required": ["eventName", "revenueProperty", "revenueCurrencyProperty"],
-            "type": "object"
-        },
-        "RevenueTrackingExternalDataSchema": {
-            "additionalProperties": false,
-            "properties": {
-                "revenueColumn": {
-                    "type": "string"
-                },
-                "revenueCurrencyColumn": {
-                    "type": "string"
-                },
-                "tableName": {
-                    "type": "string"
-                },
-                "timestampColumn": {
-                    "type": "string"
-                }
-            },
-            "required": ["tableName", "timestampColumn", "revenueColumn"],
             "type": "object"
         },
         "RootAssistantMessage": {

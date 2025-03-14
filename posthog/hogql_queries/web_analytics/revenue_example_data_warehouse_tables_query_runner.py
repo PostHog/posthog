@@ -5,16 +5,16 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
-    RevenueExampleExternalTablesQuery,
-    RevenueExampleExternalTablesQueryResponse,
-    CachedRevenueExampleExternalTablesQueryResponse,
+    RevenueExampleDataWarehouseTablesQuery,
+    RevenueExampleDataWarehouseTablesQueryResponse,
+    CachedRevenueExampleDataWarehouseTablesQueryResponse,
 )
 
 
-class RevenueExampleExternalTablesQueryRunner(QueryRunner):
-    query: RevenueExampleExternalTablesQuery
-    response: RevenueExampleExternalTablesQueryResponse
-    cached_response: CachedRevenueExampleExternalTablesQueryResponse
+class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
+    query: RevenueExampleDataWarehouseTablesQuery
+    response: RevenueExampleDataWarehouseTablesQueryResponse
+    cached_response: CachedRevenueExampleDataWarehouseTablesQueryResponse
     paginator: HogQLHasMorePaginator
 
     def __init__(self, *args, **kwargs):
@@ -29,8 +29,8 @@ class RevenueExampleExternalTablesQueryRunner(QueryRunner):
         # TODO: Once https://github.com/PostHog/posthog/pull/29680 is merged
         # we can convert between currencies
         queries = []
-        if tracking_config.externalDataSchemas:
-            for table in tracking_config.externalDataSchemas:
+        if tracking_config.dataWarehouseTables:
+            for table in tracking_config.dataWarehouseTables:
                 queries.append(
                     ast.SelectQuery(
                         select=[
@@ -59,7 +59,7 @@ class RevenueExampleExternalTablesQueryRunner(QueryRunner):
             modifiers=self.modifiers,
         )
 
-        return RevenueExampleExternalTablesQueryResponse(
+        return RevenueExampleDataWarehouseTablesQueryResponse(
             columns=["table_name", "revenue"],
             results=response.results,
             timings=response.timings,

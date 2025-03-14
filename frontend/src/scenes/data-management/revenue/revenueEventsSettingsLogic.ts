@@ -10,11 +10,11 @@ import {
     DataTableNode,
     NodeKind,
     RevenueCurrencyPropertyConfig,
+    RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
-    RevenueExampleExternalTablesQuery,
     RevenueTrackingConfig,
+    RevenueTrackingDataWarehouseTable,
     RevenueTrackingEventItem,
-    RevenueTrackingExternalDataSchema,
 } from '~/queries/schema/schema-general'
 import { Region } from '~/types'
 
@@ -22,7 +22,7 @@ import type { revenueEventsSettingsLogicType } from './revenueEventsSettingsLogi
 
 const createEmptyConfig = (region: Region | null | undefined): RevenueTrackingConfig => ({
     events: [],
-    externalDataSchemas: [],
+    dataWarehouseTables: [],
 
     // Region won't be always set because we might mount this before we mount preflightLogic
     // so we default to USD if we can't determine the region
@@ -49,13 +49,13 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             revenueCurrencyProperty,
         }),
 
-        addExternalDataSchema: (externalDataSchema: RevenueTrackingExternalDataSchema) => externalDataSchema,
-        deleteExternalDataSchema: (externalDataSchemaName: string) => ({ externalDataSchemaName }),
-        updateExternalDataSchemaColumn: (
-            externalDataSchemaName: string,
-            key: keyof RevenueTrackingExternalDataSchema,
+        addDataWarehouseTable: (dataWarehouseTable: RevenueTrackingDataWarehouseTable) => dataWarehouseTable,
+        deleteDataWarehouseTable: (dataWarehouseTableName: string) => ({ dataWarehouseTableName }),
+        updateDataWarehouseTableColumn: (
+            dataWarehouseTableName: string,
+            key: keyof RevenueTrackingDataWarehouseTable,
             newValue: string
-        ) => ({ externalDataSchemaName, key, newValue }),
+        ) => ({ dataWarehouseTableName, key, newValue }),
 
         resetConfig: true,
     }),
@@ -133,41 +133,41 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         }),
                     }
                 },
-                addExternalDataSchema: (state, newExternalDataSchema) => {
+                addDataWarehouseTable: (state, newDataWarehouseTable) => {
                     if (!state) {
                         return state
                     }
 
                     // Guarantee we've only got a single external data schema per table
-                    if (state.externalDataSchemas.some((item) => item.tableName === newExternalDataSchema.tableName)) {
+                    if (state.dataWarehouseTables.some((item) => item.tableName === newDataWarehouseTable.tableName)) {
                         return state
                     }
 
                     return {
                         ...state,
-                        externalDataSchemas: [...state.externalDataSchemas, newExternalDataSchema],
+                        dataWarehouseTables: [...state.dataWarehouseTables, newDataWarehouseTable],
                     }
                 },
-                deleteExternalDataSchema: (state, { externalDataSchemaName }) => {
+                deleteDataWarehouseTable: (state, { dataWarehouseTableName }) => {
                     if (!state) {
                         return state
                     }
                     return {
                         ...state,
-                        externalDataSchemas: state.externalDataSchemas.filter(
-                            (item) => item.tableName !== externalDataSchemaName
+                        dataWarehouseTables: state.dataWarehouseTables.filter(
+                            (item) => item.tableName !== dataWarehouseTableName
                         ),
                     }
                 },
-                updateExternalDataSchemaColumn: (state, { externalDataSchemaName, key, newValue }) => {
+                updateDataWarehouseTableColumn: (state, { dataWarehouseTableName, key, newValue }) => {
                     if (!state) {
                         return state
                     }
 
                     return {
                         ...state,
-                        externalDataSchemas: state.externalDataSchemas.map((item) => {
-                            if (item.tableName === externalDataSchemaName) {
+                        dataWarehouseTables: state.dataWarehouseTables.map((item) => {
+                            if (item.tableName === dataWarehouseTableName) {
                                 return { ...item, [key]: newValue }
                             }
 
@@ -192,9 +192,9 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             (s) => [s.revenueTrackingConfig],
             (revenueTrackingConfig: RevenueTrackingConfig | null) => revenueTrackingConfig?.events || [],
         ],
-        externalDataSchemas: [
+        dataWarehouseTables: [
             (s) => [s.revenueTrackingConfig],
-            (revenueTrackingConfig: RevenueTrackingConfig | null) => revenueTrackingConfig?.externalDataSchemas || [],
+            (revenueTrackingConfig: RevenueTrackingConfig | null) => revenueTrackingConfig?.dataWarehouseTables || [],
         ],
         baseCurrency: [
             (s) => [s.revenueTrackingConfig],
@@ -243,15 +243,15 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             },
         ],
 
-        exampleExternalDataSchemasQuery: [
+        exampleDataWarehouseTablesQuery: [
             (s) => [s.savedRevenueTrackingConfig],
             (revenueTrackingConfig: RevenueTrackingConfig | null) => {
                 if (!revenueTrackingConfig) {
                     return null
                 }
 
-                const source: RevenueExampleExternalTablesQuery = {
-                    kind: NodeKind.RevenueExampleExternalTablesQuery,
+                const source: RevenueExampleDataWarehouseTablesQuery = {
+                    kind: NodeKind.RevenueExampleDataWarehouseTablesQuery,
                     revenueTrackingConfig: revenueTrackingConfig,
                 }
 

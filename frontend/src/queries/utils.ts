@@ -37,8 +37,8 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
-    RevenueExampleExternalTablesQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
     StickinessQuery,
@@ -179,10 +179,10 @@ export function isRevenueExampleEventsQuery(node?: Record<string, any> | null): 
     return node?.kind === NodeKind.RevenueExampleEventsQuery
 }
 
-export function isRevenueExampleExternalTablesQuery(
+export function isRevenueExampleDataWarehouseTablesQuery(
     node?: Record<string, any> | null
-): node is RevenueExampleExternalTablesQuery {
-    return node?.kind === NodeKind.RevenueExampleExternalTablesQuery
+): node is RevenueExampleDataWarehouseTablesQuery {
+    return node?.kind === NodeKind.RevenueExampleDataWarehouseTablesQuery
 }
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {

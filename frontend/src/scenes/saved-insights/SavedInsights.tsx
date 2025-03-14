@@ -301,9 +301,9 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTableChart,
         inMenu: true,
     },
-    [NodeKind.RevenueExampleExternalTablesQuery]: {
-        name: 'Revenue External Tables',
-        description: 'Revenue External Tables Query.',
+    [NodeKind.RevenueExampleDataWarehouseTablesQuery]: {
+        name: 'Revenue Example Data Warehouse Tables',
+        description: 'Revenue Example Data Warehouse Tables Query.',
         icon: IconTableChart,
         inMenu: true,
     },

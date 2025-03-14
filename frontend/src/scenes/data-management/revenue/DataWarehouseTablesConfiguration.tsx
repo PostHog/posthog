@@ -7,7 +7,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useCallback } from 'react'
 
-import { RevenueTrackingExternalDataSchema } from '~/queries/schema/schema-general'
+import { RevenueTrackingDataWarehouseTable } from '~/queries/schema/schema-general'
 
 import { databaseTableListLogic } from '../database/databaseTableListLogic'
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
@@ -41,44 +41,44 @@ const DATA_WAREHOUSE_POPOVER_FIELDS: {
     },
 ] satisfies DataWarehousePopoverField[]
 
-export function ExternalTableConfiguration({
+export function DataWarehouseTablesConfiguration({
     buttonRef,
 }: {
     buttonRef: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
-    const { externalDataSchemas, saveDisabledReason } = useValues(revenueEventsSettingsLogic)
-    const { addExternalDataSchema, deleteExternalDataSchema, updateExternalDataSchemaColumn, save } =
+    const { dataWarehouseTables, saveDisabledReason } = useValues(revenueEventsSettingsLogic)
+    const { addDataWarehouseTable, deleteDataWarehouseTable, updateDataWarehouseTableColumn, save } =
         useActions(revenueEventsSettingsLogic)
 
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
 
     const renderPropertyColumn = useCallback(
-        (key: keyof RevenueTrackingExternalDataSchema) =>
+        (key: keyof RevenueTrackingDataWarehouseTable) =>
             // eslint-disable-next-line react/display-name
-            (_: string | undefined, item: RevenueTrackingExternalDataSchema) => {
+            (_: string | undefined, item: RevenueTrackingDataWarehouseTable) => {
                 return (
                     <TaxonomicPopover
                         size="small"
                         className="my-1"
                         allowClear={key === 'revenueCurrencyColumn'}
                         groupType={TaxonomicFilterGroupType.DataWarehouseProperties}
-                        onChange={(newValue) => updateExternalDataSchemaColumn(item.tableName, key, newValue)}
+                        onChange={(newValue) => updateDataWarehouseTableColumn(item.tableName, key, newValue)}
                         value={item[key]}
                         schemaColumns={Object.values(dataWarehouseTablesMap?.[item.tableName]?.fields ?? {})}
                         placeholder="Choose column"
                     />
                 )
             },
-        [dataWarehouseTablesMap, updateExternalDataSchemaColumn]
+        [dataWarehouseTablesMap, updateDataWarehouseTableColumn]
     )
 
     return (
         <div>
-            <h3 className="mb-2">External table configuration</h3>
+            <h3 className="mb-2">Data warehouse tables configuration</h3>
 
-            <LemonTable<RevenueTrackingExternalDataSchema>
+            <LemonTable<RevenueTrackingDataWarehouseTable>
                 columns={[
-                    { key: 'tableName', title: 'External table name', dataIndex: 'tableName' },
+                    { key: 'tableName', title: 'Data warehouse table name', dataIndex: 'tableName' },
                     {
                         key: 'revenueColumn',
                         title: 'Revenue column',
@@ -123,7 +123,7 @@ export function ExternalTableConfiguration({
                                             DataWarehousePopoverFieldKey,
                                             string
                                         >
-                                        addExternalDataSchema({
+                                        addDataWarehouseTable({
                                             tableName: tableName as string,
                                             revenueColumn: typedProperties.revenueField,
                                             revenueCurrencyColumn: typedProperties.currencyField,
@@ -147,7 +147,7 @@ export function ExternalTableConfiguration({
                                 className="float-right"
                                 size="small"
                                 type="secondary"
-                                onClick={() => deleteExternalDataSchema(item.tableName)}
+                                onClick={() => deleteDataWarehouseTable(item.tableName)}
                                 icon={<IconTrash />}
                             >
                                 Delete
@@ -155,7 +155,7 @@ export function ExternalTableConfiguration({
                         ),
                     },
                 ]}
-                dataSource={externalDataSchemas}
+                dataSource={dataWarehouseTables}
                 rowKey={(item) => `${item.tableName}-${item.revenueColumn}`}
             />
         </div>

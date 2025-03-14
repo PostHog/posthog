@@ -6,29 +6,30 @@ from freezegun import freeze_time
 from unittest.mock import patch
 
 from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.web_analytics.revenue_example_external_tables import RevenueExampleExternalTablesQueryRunner
+from posthog.hogql_queries.web_analytics.revenue_example_data_warehouse_tables_query_runner import (
+    RevenueExampleDataWarehouseTablesQueryRunner,
+)
 from posthog.schema import (
-    RevenueExampleExternalTablesQuery,
+    RevenueExampleDataWarehouseTablesQuery,
     RevenueTrackingConfig,
-    RevenueExampleExternalTablesQueryResponse,
-    RevenueTrackingExternalDataSchema,
+    RevenueExampleDataWarehouseTablesQueryResponse,
+    RevenueTrackingDataWarehouseTable,
 )
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
 )
 from posthog.warehouse.models import (
     DataWarehouseTable,
     DataWarehouseCredential,
 )
 
-EMPTY_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(events=[], externalDataSchemas=[])
+EMPTY_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(events=[], dataWarehouseTables=[])
 
 SINGLE_TABLE_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
     events=[],
-    externalDataSchemas=[
-        RevenueTrackingExternalDataSchema(
+    dataWarehouseTables=[
+        RevenueTrackingDataWarehouseTable(
             tableName="database_with_revenue_column",
             revenueColumn="revenue",
             timestampColumn="timestamp",
@@ -38,13 +39,13 @@ SINGLE_TABLE_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
 
 MULTIPLE_TABLES_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
     events=[],
-    externalDataSchemas=[
-        RevenueTrackingExternalDataSchema(
+    dataWarehouseTables=[
+        RevenueTrackingDataWarehouseTable(
             tableName="database_with_revenue_column_a",
             revenueColumn="revenue_a",
             timestampColumn="timestamp",
         ),
-        RevenueTrackingExternalDataSchema(
+        RevenueTrackingDataWarehouseTable(
             tableName="database_with_revenue_column_b",
             revenueColumn="revenue_b",
             timestampColumn="timestamp",
@@ -60,9 +61,8 @@ MULTIPLE_TABLES_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
 # clickhouse_driver.errors.PartiallyConsumedQueryError: Simultaneous queries on single connection detected
 #
 # Let's skip it for now until we figure out how to fix it
-@snapshot_clickhouse_queries
 @pytest.mark.skipif("CI" in os.environ, reason="Test skipped in CI environment")
-class TestRevenueExampleExternalTablesQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-01-29"
 
     def setUp(self):
@@ -134,12 +134,14 @@ class TestRevenueExampleExternalTablesQueryRunner(ClickhouseTestMixin, APIBaseTe
         limit_context: Optional[LimitContext] = None,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueExampleExternalTablesQuery(
+            query = RevenueExampleDataWarehouseTablesQuery(
                 revenueTrackingConfig=revenue_tracking_config,
             )
-            runner = RevenueExampleExternalTablesQueryRunner(team=self.team, query=query, limit_context=limit_context)
+            runner = RevenueExampleDataWarehouseTablesQueryRunner(
+                team=self.team, query=query, limit_context=limit_context
+            )
             response = runner.calculate()
-            RevenueExampleExternalTablesQueryResponse.model_validate(response)
+            RevenueExampleDataWarehouseTablesQueryResponse.model_validate(response)
             return response
 
     def tearDown(self):
@@ -201,7 +203,7 @@ class TestRevenueExampleExternalTablesQueryRunner(ClickhouseTestMixin, APIBaseTe
         assert len(results) == 6
 
         # Results are returned in the order defined by the SQL UNION ALL query
-        # The first table from externalDataSchemas should come first
+        # The first table from dataWarehouseTables should come first
         assert results[0] == ("database_with_revenue_column_a", 42)
         assert results[1] == ("database_with_revenue_column_a", 43)
         assert results[2] == ("database_with_revenue_column_a", 44)

@@ -271,8 +271,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         representation["revenue_tracking_config"]["events"] = list(
             map(dict, representation["revenue_tracking_config"]["events"])
         )
-        representation["revenue_tracking_config"]["externalDataSchemas"] = list(
-            map(dict, representation["revenue_tracking_config"]["externalDataSchemas"])
+        representation["revenue_tracking_config"]["dataWarehouseTables"] = list(
+            map(dict, representation["revenue_tracking_config"]["dataWarehouseTables"])
         )
 
         return representation

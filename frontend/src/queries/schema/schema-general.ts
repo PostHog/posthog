@@ -75,7 +75,7 @@ export enum NodeKind {
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
-    RevenueExampleExternalTablesQuery = 'RevenueExampleExternalTablesQuery',
+    RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
 
     // Interface nodes
@@ -145,7 +145,7 @@ export type AnyDataNode =
     | WebVitalsPathBreakdownQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
-    | RevenueExampleExternalTablesQuery
+    | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -172,7 +172,7 @@ export type QuerySchema =
     | HogQLAutocomplete
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
-    | RevenueExampleExternalTablesQuery
+    | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -680,7 +680,7 @@ export interface DataTableNode
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | RevenueExampleEventsQuery
-                    | RevenueExampleExternalTablesQuery
+                    | RevenueExampleDataWarehouseTablesQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
@@ -705,7 +705,7 @@ export interface DataTableNode
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
-        | RevenueExampleExternalTablesQuery
+        | RevenueExampleDataWarehouseTablesQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -1726,22 +1726,23 @@ export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryRespons
 }
 export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<RevenueExampleEventsQueryResponse>
 
-export interface RevenueExampleExternalTablesQuery extends DataNode<RevenueExampleExternalTablesQueryResponse> {
-    kind: NodeKind.RevenueExampleExternalTablesQuery
+export interface RevenueExampleDataWarehouseTablesQuery
+    extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
+    kind: NodeKind.RevenueExampleDataWarehouseTablesQuery
     revenueTrackingConfig: RevenueTrackingConfig
     limit?: integer
     offset?: integer
 }
 
-export interface RevenueExampleExternalTablesQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueExampleDataWarehouseTablesQueryResponse extends AnalyticsQueryResponseBase<unknown> {
     hasMore?: boolean
     limit?: integer
     offset?: integer
     types?: unknown[]
     columns?: unknown[]
 }
-export type CachedRevenueExampleExternalTablesQueryResponse =
-    CachedQueryResponse<RevenueExampleExternalTablesQueryResponse>
+export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
+    CachedQueryResponse<RevenueExampleDataWarehouseTablesQueryResponse>
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
@@ -2710,7 +2711,7 @@ export interface RevenueTrackingEventItem {
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
 }
 
-export interface RevenueTrackingExternalDataSchema {
+export interface RevenueTrackingDataWarehouseTable {
     tableName: string
     timestampColumn: string
     revenueColumn: string
@@ -2731,5 +2732,5 @@ export interface RevenueTrackingConfig {
     /**
      * @default []
      */
-    externalDataSchemas: RevenueTrackingExternalDataSchema[]
+    dataWarehouseTables: RevenueTrackingDataWarehouseTable[]
 }

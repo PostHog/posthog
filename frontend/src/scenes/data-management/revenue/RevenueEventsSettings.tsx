@@ -8,29 +8,28 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useRef, useState } from 'react'
 
 import { BaseCurrency } from './BaseCurrency'
+import { DataWarehouseTablesConfiguration } from './DataWarehouseTablesConfiguration'
 import { EventConfiguration } from './EventConfiguration'
-import { ExternalTableConfiguration } from './ExternalTableConfiguration'
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
+import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
 import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
-import { RevenueExampleExternalTablesData } from './RevenueExampleExternalTablesData'
 
-type Tab = 'events' | 'external-tables'
+type Tab = 'events' | 'data-warehouse'
 
 export function RevenueEventsSettings(): JSX.Element {
     const [activeTab, setActiveTab] = useState<Tab>('events')
 
-    const { events, externalDataSchemas } = useValues(revenueEventsSettingsLogic)
+    const { events, dataWarehouseTables } = useValues(revenueEventsSettingsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
     const eventsButtonRef = useRef<HTMLButtonElement>(null)
-    const externalDataSchemasButtonRef = useRef<HTMLButtonElement>(null)
+    const dataWarehouseTablesButtonRef = useRef<HTMLButtonElement>(null)
 
     let introductionDescription =
         'Revenue events are used to track revenue in Web analytics. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event.'
     if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS]) {
-        introductionDescription +=
-            " You can also import revenue data from external tables if you're using our Data Warehouse."
+        introductionDescription += ' You can also import revenue data from your PostHog data warehouse tables.'
     }
 
     return (
@@ -39,7 +38,7 @@ export function RevenueEventsSettings(): JSX.Element {
                 productName="Revenue tracking"
                 thingName="revenue event"
                 description={introductionDescription}
-                isEmpty={events.length === 0 && externalDataSchemas.length === 0}
+                isEmpty={events.length === 0 && dataWarehouseTables.length === 0}
                 actionElementOverride={
                     <>
                         <div className="flex flex-col gap-2">
@@ -60,12 +59,12 @@ export function RevenueEventsSettings(): JSX.Element {
                                     type="primary"
                                     icon={<IconPlus />}
                                     onClick={() => {
-                                        externalDataSchemasButtonRef.current?.scrollIntoView({ behavior: 'smooth' })
-                                        externalDataSchemasButtonRef.current?.click()
+                                        dataWarehouseTablesButtonRef.current?.scrollIntoView({ behavior: 'smooth' })
+                                        dataWarehouseTablesButtonRef.current?.click()
                                     }}
-                                    data-attr="import-revenue-external-data-schema"
+                                    data-attr="import-revenue-data-warehouse-tables"
                                 >
-                                    Import revenue data from external tables
+                                    Import revenue data from data warehouse
                                 </LemonButton>
                             )}
                         </div>
@@ -78,7 +77,7 @@ export function RevenueEventsSettings(): JSX.Element {
             <EventConfiguration buttonRef={eventsButtonRef} />
 
             {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS] && (
-                <ExternalTableConfiguration buttonRef={externalDataSchemasButtonRef} />
+                <DataWarehouseTablesConfiguration buttonRef={dataWarehouseTablesButtonRef} />
             )}
 
             {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS] ? (
@@ -92,9 +91,9 @@ export function RevenueEventsSettings(): JSX.Element {
                             content: <RevenueExampleEventsTable />,
                         },
                         {
-                            key: 'external-tables',
-                            label: 'External tables',
-                            content: <RevenueExampleExternalTablesData />,
+                            key: 'data-warehouse',
+                            label: 'Data Warehouse tables',
+                            content: <RevenueExampleDataWarehouseTablesData />,
                         },
                     ]}
                 />
