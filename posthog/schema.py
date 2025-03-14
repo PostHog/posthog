@@ -838,6 +838,11 @@ class OrderBy(StrEnum):
     SESSIONS = "sessions"
 
 
+class OrderDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
 class Status1(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
@@ -7327,6 +7332,7 @@ class ErrorTrackingQuery(BaseModel):
     )
     offset: Optional[int] = None
     orderBy: Optional[OrderBy] = None
+    orderDirection: Optional[OrderDirection] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
     status: Optional[Status1] = None
