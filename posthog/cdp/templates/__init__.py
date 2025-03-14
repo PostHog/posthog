@@ -12,7 +12,7 @@ from .intercom.template_intercom import (
 from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMigrator
 from .clearbit.template_clearbit import template as clearbit
 from .june.template_june import template as june
-from .tiktok.template_tiktok_ads import template as tiktok
+from .tiktok_ads.template_tiktok_ads import template as tiktok
 from .make.template_make import template as make
 from .posthog.template_posthog import template as posthog, TemplatePostHogMigrator
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis

@@ -1,6 +1,6 @@
 from inline_snapshot import snapshot
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.tiktok.template_tiktok_ads import (
+from posthog.cdp.templates.tiktok_ads.template_tiktok_ads import (
     template as template_tiktok_ads,
 )
 
