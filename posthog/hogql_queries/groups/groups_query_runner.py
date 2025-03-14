@@ -1,4 +1,5 @@
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_order_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import GroupsQuery, GroupsQueryResponse, CachedGroupsQueryResponse
@@ -57,6 +58,22 @@ class GroupsQueryRunner(QueryRunner):
 
         where = ast.And(exprs=list(conditions)) if conditions else None
 
+        order_by: list[ast.OrderExpr] = []
+        order_by_exprs = self.query.orderBy if self.query.orderBy else ["created_at DESC"]
+        for col in order_by_exprs:
+            # group_name isn't actually a field
+            if col.startswith("group_name"):
+                order_by.append(
+                    ast.OrderExpr(
+                        expr=ast.Call(
+                            name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]
+                        ),
+                        order="DESC" if "DESC" in col else "ASC",
+                    )
+                )
+            else:
+                order_by.append(parse_order_expr(col, timings=self.timings))
+
         return ast.SelectQuery(
             select=[
                 ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]),
@@ -64,7 +81,7 @@ class GroupsQueryRunner(QueryRunner):
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
             where=where,
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")],
+            order_by=order_by,
         )
 
     def calculate(self) -> GroupsQueryResponse:
