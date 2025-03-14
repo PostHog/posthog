@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from datetime import datetime
 
 import pytest
 from deepeval import assert_test
@@ -9,6 +8,7 @@ from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 
 from ee.hogai.assistant import AssistantGraph
+from ee.hogai.eval.metrics import time_and_interval_correctness
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.schema import HumanMessage
 
@@ -188,39 +188,20 @@ def test_needle_in_a_haystack(metric, call_node):
     assert_test(test_case, [metric])
 
 
-@pytest.fixture(scope="module")
-def time_and_granularity_metric():
-    return GEval(
-        name="Time Period and Time Interval Correctness",
-        criteria=f"You will be given expected and actual generated plans to provide a taxonomy to answer a user's question with a trends insight. Compare the plans to determine whether the taxonomy of the actual plan matches the expected plan. Do not apply general knowledge about trends insights. Today is {datetime.now().strftime('%Y-%m-%d')}",
-        evaluation_steps=[
-            "If the expected plan includes a time period or time interval, the actual plan must include the similar time period or time interval. Example: if today is 2025-03-14, then the time period `yesterday` can be written as `2025-03-13`, `yesterday`, `2025-03-13 - 2025-03-13`, `previous day`.",
-            "Plans must not include property filters either for time or time intervals. For example, a property filter such as `timestamp` is not allowed.",
-            "Penalize for any violation of the above criteria.",
-        ],
-        evaluation_params=[
-            LLMTestCaseParams.INPUT,
-            LLMTestCaseParams.EXPECTED_OUTPUT,
-            LLMTestCaseParams.ACTUAL_OUTPUT,
-        ],
-        threshold=0.7,
-    )
-
-
 @pytest.mark.parametrize(
     "time_period, time_interval",
     [
-        ("yesterday", "hour"),
-        ("last 1 week", "day"),
-        ("last month", "week"),
-        ("the last 80 days", "week"),
-        ("the last 6 months", "month"),
+        ("for yesterday", "hour"),
+        ("for the last 1 week", "day"),
+        ("for the last 1 month", "week"),
+        ("for the last 80 days", "week"),
+        ("for the last 6 months", "month"),
         ("from 2020 to 2025", "month"),
-        ("2023 by a week", "week"),
+        ("for 2023 by a week", "week"),
     ],
 )
-def test_trends_planner_handles_time_intervals(time_and_granularity_metric, call_node, time_period, time_interval):
-    query = f"$pageview trends for {time_period}"
+def test_trends_planner_handles_time_intervals(call_node, time_period, time_interval):
+    query = f"$pageview trends {time_period}"
     plan = call_node(query)
 
     test_case = LLMTestCase(
@@ -235,10 +216,10 @@ def test_trends_planner_handles_time_intervals(time_and_granularity_metric, call
         """,
         actual_output=plan,
     )
-    assert_test(test_case, [time_and_granularity_metric])
+    assert_test(test_case, [time_and_interval_correctness("trends")])
 
 
-def test_trends_planner_uses_default_time_period_and_interval(time_and_granularity_metric, call_node):
+def test_trends_planner_uses_default_time_period_and_interval(call_node):
     query = "$pageview trends"
     plan = call_node(query)
 
@@ -254,4 +235,4 @@ def test_trends_planner_uses_default_time_period_and_interval(time_and_granulari
         """,
         actual_output=plan,
     )
-    assert_test(test_case, [time_and_granularity_metric])
+    assert_test(test_case, [time_and_interval_correctness("trends")])
