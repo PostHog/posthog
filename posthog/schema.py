@@ -7330,6 +7330,7 @@ class ErrorTrackingQuery(BaseModel):
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
     status: Optional[Status1] = None
+    orderDirection: Optional[WebAnalyticsOrderByDirection] = None
 
 
 class EventsQuery(BaseModel):

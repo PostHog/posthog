@@ -9,8 +9,8 @@ import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 export const ErrorTrackingListOptions = (): JSX.Element => {
     const { assignee } = useValues(errorTrackingLogic)
     const { setAssignee } = useActions(errorTrackingLogic)
-    const { orderBy, status } = useValues(errorTrackingSceneLogic)
-    const { setOrderBy, setStatus } = useActions(errorTrackingSceneLogic)
+    const { orderBy, status, orderDirection } = useValues(errorTrackingSceneLogic)
+    const { setOrderBy, setStatus, setOrderDirection } = useActions(errorTrackingSceneLogic)
     const { results } = useValues(errorTrackingDataNodeLogic)
 
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
@@ -140,6 +140,22 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                                     {
                                         value: 'sessions',
                                         label: 'Sessions',
+                                    },
+                                ]}
+                                size="small"
+                            />
+                            <LemonSelect
+                                onSelect={setOrderDirection}
+                                onChange={setOrderDirection}
+                                value={orderDirection}
+                                options={[
+                                    {
+                                        value: 'DESC',
+                                        label: 'Descending',
+                                    },
+                                    {
+                                        value: 'ASC',
+                                        label: 'Ascending',
                                     },
                                 ]}
                                 size="small"
