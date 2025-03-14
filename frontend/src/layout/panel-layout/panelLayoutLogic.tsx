@@ -5,6 +5,7 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
 export type PanelLayoutNavItem = 'project' | 'activity' | 'persons'
+export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>({
     path: ['layout', 'panel-layout', 'panelLayoutLogic'],
@@ -21,7 +22,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
         clearActiveLayoutNavBarItem: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         clearSearch: true,
-        setPanelTreeRef: (ref: React.RefObject<LemonTreeRef>) => ({ ref }),
+        setPanelTreeRef: (ref: PanelLayoutTreeRef) => ({ ref }),
     },
     reducers: {
         isLayoutNavbarVisibleForDesktop: [
@@ -67,10 +68,10 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
             },
         ],
         panelTreeRef: [
-            null,
+            null as PanelLayoutTreeRef,
             {
-                setPanelTreeRef: (_: unknown, { ref }: { ref: React.RefObject<LemonTreeRef> }) => ref as any,
+                setPanelTreeRef: (_, { ref }) => ref,
             },
-        ] as any,
+        ],
     },
 })
