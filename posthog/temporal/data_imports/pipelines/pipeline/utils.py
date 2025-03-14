@@ -319,6 +319,7 @@ def append_partition_key_to_table(
         partition_mode is None
         and "created_at" in table.column_names
         and pa.types.is_timestamp(table.field("created_at").type)
+        and table.column("created_at").null_count != table.num_rows
     ):
         mode = "datetime"
         normalized_partition_keys = ["created_at"]
