@@ -95,7 +95,7 @@ pub type RequestPropertyOverrides = (
 /// 2) Fetches the team and feature flags,  
 /// 3) Prepares property overrides,  
 /// 4) Evaluates the requested flags,  
-/// 5) Returns a [`FlagsResponse`] or an error.
+/// 5) Returns a [`ServiceResponse`] or an error.
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
 
@@ -112,8 +112,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         // return an empty FlagsResponse with a quotaLimited field called "feature_flags"
         // TODO docs
         return Ok(FlagsResponse {
-            feature_flags: HashMap::new(),
-            feature_flag_payloads: HashMap::new(),
+            flags: HashMap::new(),
             errors_while_computing_flags: false,
             quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
         });
@@ -377,8 +376,9 @@ pub fn process_group_property_overrides(
     }
 }
 
-/// Decompresses GZIP data into raw bytes.  
-/// Security note: ensure you have proper limits for data size to prevent zip bombs.
+// TODO: Make sure this protects against zip bombs, etc.  `/capture` does this
+// and it's a good idea to do that here as well, probably worth extracting that method into
+// /common given that it's used in multiple places
 fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
     let mut decoder = GzDecoder::new(&compressed[..]);
     let mut decompressed = Vec::new();
@@ -448,7 +448,9 @@ fn decode_form_data(
 #[cfg(test)]
 mod tests {
     use crate::{
-        api::types::FlagValue,
+        api::types::{
+            FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagValue, LegacyFlagsResponse,
+        },
         config::Config,
         flags::flag_models::{FeatureFlag, FlagFilters, FlagGroupType},
         properties::property_models::{OperatorType, PropertyFilter},
@@ -584,6 +586,7 @@ mod tests {
                 super_groups: None,
             },
             ensure_experience_continuity: false,
+            version: Some(1),
         };
 
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
@@ -608,8 +611,96 @@ mod tests {
         let result = evaluate_feature_flags(evaluation_context).await;
 
         assert!(!result.errors_while_computing_flags);
-        assert!(result.feature_flags.contains_key("test_flag"));
-        assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
+        assert!(result.flags.contains_key("test_flag"));
+        assert!(result.flags["test_flag"].enabled);
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
+        assert!(legacy_response.feature_flags.contains_key("test_flag"));
+        assert_eq!(
+            legacy_response.feature_flags["test_flag"],
+            FlagValue::Boolean(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_feature_flags_with_errors() {
+        // Set up test dependencies
+        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+
+        // Create a feature flag with conditions that will cause an error
+        let flags = vec![FeatureFlag {
+            name: Some("Error Flag".to_string()),
+            id: 1,
+            key: "error-flag".to_string(),
+            active: true,
+            deleted: false,
+            team_id: 1,
+            filters: FlagFilters {
+                groups: vec![FlagGroupType {
+                    // Reference a non-existent cohort
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(999999999), // Very large cohort ID that doesn't exist
+                        operator: None,
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0), // Set to 100% to ensure it's always on
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            },
+            ensure_experience_continuity: false,
+            version: Some(1),
+        }];
+
+        let feature_flag_list = FeatureFlagList { flags };
+
+        // Set up evaluation context
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: 1,
+            project_id: 1,
+            distinct_id: "user123".to_string(),
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: Some(HashMap::new()),
+            group_property_overrides: None,
+            groups: None,
+            hash_key_override: None,
+        };
+
+        let result = evaluate_feature_flags(evaluation_context).await;
+        let error_flag = result.flags.get("error-flag");
+        assert!(error_flag.is_some());
+        assert_eq!(
+            error_flag.unwrap(),
+            &FlagDetails {
+                key: "error-flag".to_string(),
+                enabled: false,
+                variant: "".to_string(),
+                reason: FlagEvaluationReason {
+                    code: "unknown".to_string(),
+                    condition_index: None,
+                    description: None,
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 1,
+                    version: 1,
+                    description: Some("Error Flag".to_string()),
+                    payload: None,
+                },
+            }
+        );
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(legacy_response.errors_while_computing_flags);
     }
 
     #[test]
@@ -755,6 +846,7 @@ mod tests {
                     super_groups: None,
                 },
                 ensure_experience_continuity: false,
+                version: Some(1),
             },
             FeatureFlag {
                 name: Some("Flag 2".to_string()),
@@ -775,6 +867,7 @@ mod tests {
                     super_groups: None,
                 },
                 ensure_experience_continuity: false,
+                version: Some(1),
             },
         ];
 
@@ -797,8 +890,128 @@ mod tests {
         let result = evaluate_feature_flags(evaluation_context).await;
 
         assert!(!result.errors_while_computing_flags);
-        assert_eq!(result.feature_flags["flag_1"], FlagValue::Boolean(true));
-        assert_eq!(result.feature_flags["flag_2"], FlagValue::Boolean(false));
+        assert!(result.flags["flag_1"].enabled);
+        assert!(!result.flags["flag_2"].enabled);
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
+        assert_eq!(
+            legacy_response.feature_flags["flag_1"],
+            FlagValue::Boolean(true)
+        );
+        assert_eq!(
+            legacy_response.feature_flags["flag_2"],
+            FlagValue::Boolean(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_feature_flags_details() {
+        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let flags = vec![
+            FeatureFlag {
+                name: Some("Flag 1".to_string()),
+                id: 1,
+                key: "flag_1".to_string(),
+                active: true,
+                deleted: false,
+                team_id: 1,
+                filters: FlagFilters {
+                    groups: vec![FlagGroupType {
+                        properties: Some(vec![]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    }],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                },
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+            FeatureFlag {
+                name: Some("Flag 2".to_string()),
+                id: 2,
+                key: "flag_2".to_string(),
+                active: true,
+                deleted: false,
+                team_id: 1,
+                filters: FlagFilters {
+                    groups: vec![FlagGroupType {
+                        properties: Some(vec![]),
+                        rollout_percentage: Some(0.0),
+                        variant: None,
+                    }],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                },
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+        ];
+
+        let feature_flag_list = FeatureFlagList { flags };
+
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: 1,
+            project_id: 1,
+            distinct_id: "user123".to_string(),
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: None,
+            group_property_overrides: None,
+            groups: None,
+            hash_key_override: None,
+        };
+
+        let result = evaluate_feature_flags(evaluation_context).await;
+
+        assert!(!result.errors_while_computing_flags);
+
+        assert_eq!(
+            result.flags["flag_1"],
+            FlagDetails {
+                key: "flag_1".to_string(),
+                enabled: true,
+                variant: "".to_string(),
+                reason: FlagEvaluationReason {
+                    code: "condition_match".to_string(),
+                    condition_index: Some(0),
+                    description: None,
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 1,
+                    version: 1,
+                    description: Some("Flag 1".to_string()),
+                    payload: None,
+                },
+            }
+        );
+        assert_eq!(
+            result.flags["flag_2"],
+            FlagDetails {
+                key: "flag_2".to_string(),
+                enabled: false,
+                variant: "".to_string(),
+                reason: FlagEvaluationReason {
+                    code: "out_of_rollout_bound".to_string(),
+                    condition_index: Some(0),
+                    description: None,
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 2,
+                    version: 1,
+                    description: Some("Flag 2".to_string()),
+                    payload: None,
+                },
+            }
+        );
     }
 
     #[test]
@@ -872,6 +1085,7 @@ mod tests {
                 super_groups: None,
             },
             ensure_experience_continuity: false,
+            version: Some(1),
         };
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
@@ -903,15 +1117,20 @@ mod tests {
         println!("result: {:?}", result);
 
         assert!(
-            !result.errors_while_computing_flags,
+            result.flags.contains_key("test_flag"),
+            "test_flag not found in result flags"
+        );
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(
+            !legacy_response.errors_while_computing_flags,
             "Error while computing flags"
         );
         assert!(
-            result.feature_flags.contains_key("test_flag"),
-            "test_flag not found in result"
+            legacy_response.feature_flags.contains_key("test_flag"),
+            "test_flag not found in result feature_flags"
         );
 
-        let flag_value = result
+        let flag_value = legacy_response
             .feature_flags
             .get("test_flag")
             .expect("test_flag not found");
@@ -948,6 +1167,7 @@ mod tests {
                 super_groups: None,
             },
             ensure_experience_continuity: false,
+            version: Some(1),
         };
 
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
@@ -968,8 +1188,12 @@ mod tests {
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
-        assert!(!result.errors_while_computing_flags);
-        assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
+        assert_eq!(
+            legacy_response.feature_flags["test_flag"],
+            FlagValue::Boolean(true)
+        );
     }
 
     #[test]

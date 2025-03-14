@@ -54,4 +54,5 @@ workspace = true
 [dev-dependencies]
 assert-json-diff = { workspace = true }
 reqwest = { workspace = true }
-futures = "0.3.30" 
+futures = "0.3.30"
+rstest = "0.25.0"
