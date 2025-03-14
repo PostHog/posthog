@@ -787,7 +787,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         dataset_id = payload.get("dataset_id")
         # Very common to include the project_id as a prefix of the dataset_id.
         # We remove it if it's there.
-        dataset_id = dataset_id.removeprefix(f"{project_id}.")
+        if dataset_id:
+            dataset_id = dataset_id.removeprefix(f"{project_id}.")
 
         private_key = key_file.get("private_key")
         private_key_id = key_file.get("private_key_id")
