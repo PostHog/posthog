@@ -47,6 +47,8 @@ export function IntegrationChoice({
             ? 'Google Cloud Storage'
             : kind == 'google-ads'
             ? 'Google Ads'
+            : kind == 'linkedin-ads'
+            ? 'LinkedIn Ads'
             : capitalizeFirstLetter(kind)
 
     function uploadKey(kind: string): void {
@@ -61,11 +63,6 @@ export function IntegrationChoice({
             newGoogleCloudKey(kind, file, (integration) => onChange?.(integration.id))
         }
         input.click()
-    }
-
-    const prettyKind = (kind: string): string => {
-        const words = kind.split('-')
-        return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
     }
 
     const button = (
@@ -102,8 +99,8 @@ export function IntegrationChoice({
                                   disableClientSideRouting: true,
                                   onClick: beforeRedirect,
                                   label: integrationsOfKind?.length
-                                      ? `Connect to a different integration for ${prettyKind(kind)}`
-                                      : `Connect to ${prettyKind(kind)}`,
+                                      ? `Connect to a different integration for ${kindName}`
+                                      : `Connect to ${kindName}`,
                               },
                           ],
                       },
