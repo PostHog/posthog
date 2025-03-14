@@ -2715,7 +2715,11 @@ export interface RevenueTrackingDataWarehouseTable {
     tableName: string
     timestampColumn: string
     revenueColumn: string
-    revenueCurrencyColumn: string | undefined
+
+    /**
+     * @default {"static": "USD"}
+     */
+    revenueCurrencyColumn: RevenueCurrencyPropertyConfig
 }
 
 export interface RevenueTrackingConfig {

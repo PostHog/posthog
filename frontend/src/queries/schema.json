@@ -14361,7 +14361,10 @@
                     "type": "string"
                 },
                 "revenueCurrencyColumn": {
-                    "type": "string"
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig",
+                    "default": {
+                        "static": "USD"
+                    }
                 },
                 "tableName": {
                     "type": "string"
@@ -14370,7 +14373,7 @@
                     "type": "string"
                 }
             },
-            "required": ["tableName", "timestampColumn", "revenueColumn"],
+            "required": ["tableName", "timestampColumn", "revenueColumn", "revenueCurrencyColumn"],
             "type": "object"
         },
         "RevenueTrackingEventItem": {

@@ -26,8 +26,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
     def to_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
         tracking_config = self.query.revenueTrackingConfig
 
-        # TODO: Once https://github.com/PostHog/posthog/pull/29680 is merged
-        # we can convert between currencies
+        # TODO: Convert between currencies
         queries = []
         if tracking_config.dataWarehouseTables:
             for table in tracking_config.dataWarehouseTables:

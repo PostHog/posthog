@@ -1595,7 +1595,9 @@ class RevenueTrackingDataWarehouseTable(BaseModel):
         extra="forbid",
     )
     revenueColumn: str
-    revenueCurrencyColumn: Optional[str] = None
+    revenueCurrencyColumn: Optional[RevenueCurrencyPropertyConfig] = Field(
+        default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
+    )
     tableName: str
     timestampColumn: str
 

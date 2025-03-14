@@ -10,6 +10,7 @@ import { useCallback } from 'react'
 import { RevenueTrackingDataWarehouseTable } from '~/queries/schema/schema-general'
 
 import { databaseTableListLogic } from '../database/databaseTableListLogic'
+import { CurrencyDropdown } from './CurrencyDropdown'
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 
 type DataWarehousePopoverFieldKey = 'revenueField' | 'currencyField' | 'timestampField'
@@ -22,6 +23,12 @@ const DATA_WAREHOUSE_POPOVER_FIELDS: {
     optional?: boolean
 }[] = [
     {
+        key: 'timestampField' as const,
+        label: 'Timestamp Field',
+        description:
+            "The timestamp of the revenue entry. We'll use this to order the revenue entries and properly filter them on Web Analytics.",
+    },
+    {
         key: 'revenueField' as const,
         label: 'Revenue Field',
         description: 'The revenue amount of the entry.',
@@ -30,14 +37,8 @@ const DATA_WAREHOUSE_POPOVER_FIELDS: {
         key: 'currencyField' as const,
         label: 'Revenue Currency Field',
         description:
-            "The currency code for this revenue entry. E.g. USD, EUR, GBP, etc. If not set, the project's base currency will be used.",
+            "The currency code for this revenue entry. E.g. USD, EUR, GBP, etc. If not set, you'll be able to choose a static currency for all entries in this table.",
         optional: true,
-    },
-    {
-        key: 'timestampField' as const,
-        label: 'Timestamp Field',
-        description:
-            "The timestamp of the revenue entry. We'll use this to order the revenue entries and properly filter them on Web Analytics.",
     },
 ] satisfies DataWarehousePopoverField[]
 
@@ -46,21 +47,27 @@ export function DataWarehouseTablesConfiguration({
 }: {
     buttonRef: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
-    const { dataWarehouseTables, saveDisabledReason } = useValues(revenueEventsSettingsLogic)
-    const { addDataWarehouseTable, deleteDataWarehouseTable, updateDataWarehouseTableColumn, save } =
-        useActions(revenueEventsSettingsLogic)
+    const { baseCurrency, dataWarehouseTables, saveDisabledReason } = useValues(revenueEventsSettingsLogic)
+    const {
+        addDataWarehouseTable,
+        deleteDataWarehouseTable,
+        updateDataWarehouseTableColumn,
+        updateDataWarehouseTableRevenueCurrencyColumn,
+        save,
+    } = useActions(revenueEventsSettingsLogic)
 
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
 
+    // Restricting to timestampColumn and revenueColumn because currency column
+    // is slightly more complicated than that
     const renderPropertyColumn = useCallback(
-        (key: keyof RevenueTrackingDataWarehouseTable) =>
+        (key: keyof RevenueTrackingDataWarehouseTable & ('timestampColumn' | 'revenueColumn')) =>
             // eslint-disable-next-line react/display-name
-            (_: string | undefined, item: RevenueTrackingDataWarehouseTable) => {
+            (_: any, item: RevenueTrackingDataWarehouseTable) => {
                 return (
                     <TaxonomicPopover
                         size="small"
                         className="my-1"
-                        allowClear={key === 'revenueCurrencyColumn'}
                         groupType={TaxonomicFilterGroupType.DataWarehouseProperties}
                         onChange={(newValue) => updateDataWarehouseTableColumn(item.tableName, key, newValue)}
                         value={item[key]}
@@ -75,10 +82,15 @@ export function DataWarehouseTablesConfiguration({
     return (
         <div>
             <h3 className="mb-2">Data warehouse tables configuration</h3>
-
             <LemonTable<RevenueTrackingDataWarehouseTable>
                 columns={[
                     { key: 'tableName', title: 'Data warehouse table name', dataIndex: 'tableName' },
+                    {
+                        key: 'timestampColumn',
+                        title: 'Revenue timestamp column',
+                        dataIndex: 'timestampColumn',
+                        render: renderPropertyColumn('timestampColumn'),
+                    },
                     {
                         key: 'revenueColumn',
                         title: 'Revenue column',
@@ -90,20 +102,49 @@ export function DataWarehouseTablesConfiguration({
                         title: (
                             <span>
                                 Revenue currency column
-                                <Tooltip title="The currency of the revenue entry. If not set, the account's default currency will be used.">
+                                <Tooltip title="The currency of this revenue entry in your table. You can choose between a column on your table OR a hardcoded currency.">
                                     <IconInfo className="ml-1" />
                                 </Tooltip>
                             </span>
                         ),
                         dataIndex: 'revenueCurrencyColumn',
-                        render: renderPropertyColumn('revenueCurrencyColumn'),
+                        render: (_, item: RevenueTrackingDataWarehouseTable) => {
+                            return (
+                                <div className="flex flex-col w-full gap-3 my-1">
+                                    <div className="flex flex-row gap-1">
+                                        <span className="font-bold">Dynamic column: </span>
+                                        <TaxonomicPopover
+                                            size="small"
+                                            groupType={TaxonomicFilterGroupType.DataWarehouseProperties}
+                                            onChange={(newValue) =>
+                                                updateDataWarehouseTableRevenueCurrencyColumn(item.tableName, {
+                                                    property: newValue!,
+                                                })
+                                            }
+                                            value={item.revenueCurrencyColumn.property ?? null}
+                                            schemaColumns={Object.values(
+                                                dataWarehouseTablesMap?.[item.tableName]?.fields ?? {}
+                                            )}
+                                            placeholder="Choose column"
+                                        />
+                                    </div>
+                                    <div className="flex flex-row gap-1">
+                                        or <span className="font-bold">Static currency: </span>
+                                        <CurrencyDropdown
+                                            size="small"
+                                            onChange={(currency) =>
+                                                updateDataWarehouseTableRevenueCurrencyColumn(item.tableName, {
+                                                    static: currency!,
+                                                })
+                                            }
+                                            value={item.revenueCurrencyColumn.static ?? null}
+                                        />
+                                    </div>
+                                </div>
+                            )
+                        },
                     },
-                    {
-                        key: 'timestampColumn',
-                        title: 'Revenue timestamp column',
-                        dataIndex: 'timestampColumn',
-                        render: renderPropertyColumn('timestampColumn'),
-                    },
+
                     {
                         key: 'delete',
                         fullWidth: true,
@@ -126,7 +167,9 @@ export function DataWarehouseTablesConfiguration({
                                         addDataWarehouseTable({
                                             tableName: tableName as string,
                                             revenueColumn: typedProperties.revenueField,
-                                            revenueCurrencyColumn: typedProperties.currencyField,
+                                            revenueCurrencyColumn: typedProperties.currencyField
+                                                ? { property: typedProperties.currencyField }
+                                                : { static: baseCurrency },
                                             timestampColumn: typedProperties.timestampField,
                                         })
                                     }}

@@ -114,7 +114,16 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
               "revenueProperty": "value",
             },
           ],
-          "dataWarehouseTables": [],
+          "dataWarehouseTables": [
+            {
+              "revenueColumn": "revenue",
+              "revenueCurrencyColumn": {
+                "static": "SCR",
+              },
+              "tableName": "mock_table",
+              "timestampColumn": "timestamp",
+            },
+          ],
         },
         "session_recording_linked_flag": null,
         "session_recording_masking_config": {

@@ -53,9 +53,13 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         deleteDataWarehouseTable: (dataWarehouseTableName: string) => ({ dataWarehouseTableName }),
         updateDataWarehouseTableColumn: (
             dataWarehouseTableName: string,
-            key: keyof RevenueTrackingDataWarehouseTable,
+            key: keyof RevenueTrackingDataWarehouseTable & ('timestampColumn' | 'revenueColumn'),
             newValue: string
         ) => ({ dataWarehouseTableName, key, newValue }),
+        updateDataWarehouseTableRevenueCurrencyColumn: (
+            dataWarehouseTableName: string,
+            revenueCurrencyColumn: RevenueCurrencyPropertyConfig
+        ) => ({ dataWarehouseTableName, revenueCurrencyColumn }),
 
         resetConfig: true,
     }),
@@ -169,6 +173,25 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         dataWarehouseTables: state.dataWarehouseTables.map((item) => {
                             if (item.tableName === dataWarehouseTableName) {
                                 return { ...item, [key]: newValue }
+                            }
+
+                            return item
+                        }),
+                    }
+                },
+                updateDataWarehouseTableRevenueCurrencyColumn: (
+                    state,
+                    { dataWarehouseTableName, revenueCurrencyColumn }
+                ) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        dataWarehouseTables: state.dataWarehouseTables.map((item) => {
+                            if (item.tableName === dataWarehouseTableName) {
+                                return { ...item, revenueCurrencyColumn }
                             }
 
                             return item
