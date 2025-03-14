@@ -13,6 +13,7 @@ import {
     PropertyDefinitionType,
     RawClickHouseEvent,
     Team,
+    TeamId,
     TimestampFormat,
 } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
@@ -190,6 +191,11 @@ describe('PropertyDefsConsumer', () => {
         )
     }
 
+    const listSortedPropertyDefinitions = async (teamId: TeamId) => {
+        // Helper to sort the responses to be deterministic
+        return sortPropertyDefinitions(await propertyDefsDB.listPropertyDefinitions(teamId))
+    }
+
     describe('property updates', () => {
         it('should write simple property defs to the DB', async () => {
             await ingester.handleKafkaBatch(
@@ -217,11 +223,7 @@ describe('PropertyDefsConsumer', () => {
                 })
             ).toMatchSnapshot()
 
-            expect(
-                forSnapshot(sortPropertyDefinitions(await propertyDefsDB.listPropertyDefinitions(team.id)), {
-                    id: '<REPLACED_NUMBER>',
-                })
-            ).toMatchSnapshot()
+            expect(forSnapshot(await listSortedPropertyDefinitions(team.id))).toMatchSnapshot()
         })
 
         it('should only write the first seen property defs to the DB', async () => {
@@ -256,11 +258,7 @@ describe('PropertyDefsConsumer', () => {
             expect(propertyDefsDB.writeEventProperties).toHaveBeenCalledTimes(1)
 
             // Snapshot shows a String type as it was the first seen value
-            expect(
-                forSnapshot(sortPropertyDefinitions(await propertyDefsDB.listPropertyDefinitions(team.id)), {
-                    id: '<REPLACED_NUMBER>',
-                })
-            ).toMatchSnapshot()
+            expect(forSnapshot(await listSortedPropertyDefinitions(team.id))).toMatchSnapshot()
         })
 
         it('should batch multiple writes', async () => {
@@ -291,11 +289,7 @@ describe('PropertyDefsConsumer', () => {
             expect(propertyDefsDB.writeEventProperties).toHaveBeenCalledTimes(1)
 
             // Snapshot shows a String type as it was the first seen value
-            expect(
-                forSnapshot(sortPropertyDefinitions(await propertyDefsDB.listPropertyDefinitions(team.id)), {
-                    id: '<REPLACED_NUMBER>',
-                })
-            ).toMatchSnapshot()
+            expect(forSnapshot(await listSortedPropertyDefinitions(team.id))).toMatchSnapshot()
         })
 
         it('should handle existing property defs', async () => {
@@ -311,7 +305,7 @@ describe('PropertyDefsConsumer', () => {
                     }),
                 ])
             )
-            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
+            expect(forSnapshot(await listSortedPropertyDefinitions(team.id))).toMatchSnapshot()
 
             advanceTime(1000)
 
@@ -337,7 +331,7 @@ describe('PropertyDefsConsumer', () => {
             )
 
             // Contains both properties but only one updated
-            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
+            expect(forSnapshot(await listSortedPropertyDefinitions(team.id))).toMatchSnapshot()
         })
     })
 
@@ -366,11 +360,7 @@ describe('PropertyDefsConsumer', () => {
             expect(propertyDefsDB.writeEventProperties).toHaveBeenCalledTimes(1)
 
             expect(forSnapshot(await propertyDefsDB.listEventDefinitions(team.id))).toMatchSnapshot()
-            expect(
-                forSnapshot(sortPropertyDefinitions(await propertyDefsDB.listPropertyDefinitions(team.id)), {
-                    id: '<REPLACED_NUMBER>',
-                })
-            ).toMatchSnapshot()
+            expect(forSnapshot(await listSortedPropertyDefinitions(team.id))).toMatchSnapshot()
         })
     })
 })
