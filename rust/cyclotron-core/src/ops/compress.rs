@@ -4,10 +4,7 @@ use std::io::{Read, Write};
 use crate::{error::QueueError, types::Bytes};
 
 // this doesn't return an error as we expect errors during the transition
-// to compressed vm_state. Returns input buffer and assumes not compressed on fail.
-//
-// TODO: transition should be quick in this case, but we could add metrics
-// to know when we've transitioned to all compressed buffers?
+// to compressed vm_state. Returns input buffer and assumes not compressed on fail
 pub fn decompress_vm_state(maybe_compressed: Option<Bytes>) -> Option<Bytes> {
     match &maybe_compressed {
         Some(in_buffer) => {
