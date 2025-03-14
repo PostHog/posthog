@@ -31,7 +31,8 @@ pub fn compress_vm_state(maybe_uncompressed: Option<Bytes>) -> Result<Option<Byt
 
         let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
         encoder.write_all(&in_buffer[..])?;
-        encoder.finish()?;
+        let out = encoder.finish()?;
+        return Ok(Some(out));
     }
 
     Ok(maybe_uncompressed)
@@ -77,8 +78,8 @@ mod test {
 
         // corrupt the payload and attempt to decompress it
         let mut buf = compressed.unwrap().unwrap();
-        buf[3] = 0;
-        buf[7] = 0;
+        buf[0] = 0;
+        buf[1] = 0;
 
         // decompression should fail silently, returning the input buffer
         let result = decompress_vm_state(Some(buf.clone()));
