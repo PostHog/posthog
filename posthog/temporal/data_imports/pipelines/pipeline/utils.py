@@ -6,7 +6,7 @@ import json
 import math
 import uuid
 from collections.abc import Iterator, Sequence
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import deltalake as deltalake
 import numpy as np
@@ -22,7 +22,7 @@ from dlt.sources import DltResource
 
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionMode, SourceResponse
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 
 DLT_TO_PA_TYPE_MAP = {
@@ -298,44 +298,63 @@ def append_partition_key_to_table(
     table: pa.Table,
     partition_count: int,
     partition_size: int,
-    primary_keys: list[str],
-    partition_mode: Literal["md5"] | Literal["numerical"] | None,
+    partition_keys: list[str],
+    partition_mode: PartitionMode | None,
     logger: FilteringBoundLogger,
-) -> tuple[pa.Table, Literal["md5"] | Literal["numerical"]]:
-    normalized_primary_keys = [normalize_column_name(key) for key in primary_keys]
+) -> tuple[pa.Table, PartitionMode, list[str]]:
+    normalized_partition_keys = [normalize_column_name(key) for key in partition_keys]
 
     partition_array: list[str] = []
 
-    mode: Literal["md5"] | Literal["numerical"] = partition_mode or "md5"
+    mode: PartitionMode = partition_mode or "md5"
 
     # If there is only one primary key and it's a numerical ID, then bucket by the ID itself instead of hashing it
     if (
         partition_mode is None
-        and len(normalized_primary_keys) == 1
-        and pa.types.is_integer(table.field(normalized_primary_keys[0]).type)
+        and len(normalized_partition_keys) == 1
+        and pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
     ):
         mode = "numerical"
+    elif (
+        partition_mode is None
+        and "created_at" in table.column_names
+        and pa.types.is_timestamp(table.field("created_at").type)
+    ):
+        mode = "datetime"
+        normalized_partition_keys = ["created_at"]
 
     for batch in table.to_batches():
         for row in batch.to_pylist():
             if mode == "md5":
-                primary_key_values = [str(row[key]) for key in normalized_primary_keys]
+                primary_key_values = [str(row[key]) for key in normalized_partition_keys]
                 delimited_primary_key_value = "|".join(primary_key_values)
 
                 hash_value = int(hashlib.md5(delimited_primary_key_value.encode()).hexdigest(), 16)
                 partition = hash_value % partition_count
 
                 partition_array.append(str(partition))
-            else:
-                key = normalized_primary_keys[0]
+            elif mode == "numerical":
+                key = normalized_partition_keys[0]
                 partition = row[key] // partition_size
 
                 partition_array.append(str(partition))
+            elif mode == "datetime":
+                key = normalized_partition_keys[0]
+                date = row[key]
+                if isinstance(date, int):
+                    date = datetime.datetime.fromtimestamp(date)
+                    partition_array.append(date.strftime("%Y-%m"))
+                elif isinstance(date, datetime.datetime):
+                    partition_array.append(date.strftime("%Y-%m"))
+                else:
+                    partition_array.append("1970-01")
+            else:
+                raise ValueError(f"Partition mode '{mode}' not supported")
 
     new_column = pa.array(partition_array, type=pa.string())
-    logger.debug(f"Partition key added")
+    logger.debug(f"Partition key added with mode={mode}")
 
-    return table.append_column(PARTITION_KEY, new_column), mode
+    return table.append_column(PARTITION_KEY, new_column), mode, normalized_partition_keys
 
 
 def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table, logger: FilteringBoundLogger) -> None:
