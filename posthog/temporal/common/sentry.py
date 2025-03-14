@@ -30,7 +30,7 @@ def _set_tags_from_inputs(input: ExecuteActivityInput | ExecuteWorkflowInput):
                 k: getattr(input.args[0], k) for k in input.args[0].properties_to_log() if hasattr(input.args[0], k)
             }
             for k, v in inputs.items():
-                set_tag(k, v)
+                set_tag(k, str(v))
         except Exception as e:
             logger.awarning("Failed to get safe properties for %s", input.args[0], exc_info=e)
 
