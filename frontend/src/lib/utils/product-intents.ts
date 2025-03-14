@@ -17,11 +17,32 @@ export enum ProductIntentContext {
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',
 
-    // Cross Sells
+    /*
+    Cross Sells
+    */
+
+    // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
+    CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = 'create experiment from funnel button',
+
+    // Web Analytics
     WEB_ANALYTICS_INSIGHT = 'web_analytics_insight',
     WEB_VITALS_INSIGHT = 'web_vitals_insight',
-    CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = 'create experiment from funnel button',
+    WEB_ANALYTICS_RECORDINGS = 'web_analytics_recordings',
+    WEB_ANALYTICS_ERROR_TRACKING = 'web_analytics_error_tracking',
+
+    // Actions
+    ACTION_VIEW_RECORDINGS = 'action_view_recordings',
+
+    // Persons
+    PERSON_VIEW_RECORDINGS = 'person_view_recordings',
+
+    // Feature Flags
+    FEATURE_FLAG_CREATE_INSIGHT = 'feature_flag_create_insight',
+    FEATURE_FLAG_VIEW_RECORDINGS = 'feature_flag_view_recordings',
+
+    // Early Access Features
+    EARLY_ACCESS_FEATURE_VIEW_RECORDINGS = 'early_access_feature_view_recordings',
 }
 
 export type ProductIntentMetadata = Record<string, unknown>
