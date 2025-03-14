@@ -7,7 +7,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 
 ADD_COLUMNS_SHARDED_EVENTS = f"""
 ALTER TABLE {{table}} ON CLUSTER {{cluster}}
-ADD COLUMN IF NOT EXISTS $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(accurateCastOrNull({trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")}, 'UUID'))
+ADD COLUMN IF NOT EXISTS $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)'))
 """
 
 ADD_COLUMNS_EVENTS = """
