@@ -40,6 +40,11 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             return []
         }
 
+        const cyclotronManager = this.cyclotronManager
+        if (!cyclotronManager) {
+            throw new Error('Cyclotron manager not initialized')
+        }
+
         const invocationsToBeQueued = await this.runWithHeartbeat(() =>
             this.createHogFunctionInvocations(invocationGlobals)
         )
@@ -62,10 +67,10 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
             if (this.hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
                 // NOTE: It's not super clear the perf tradeoffs of doing this in parallel hence the config option
-                await Promise.all(chunkedCyclotronJobs.map((jobs) => this.cyclotronManager?.bulkCreateJobs(jobs)))
+                await Promise.all(chunkedCyclotronJobs.map((jobs) => cyclotronManager.bulkCreateJobs(jobs)))
             } else {
                 for (const jobs of chunkedCyclotronJobs) {
-                    await this.cyclotronManager?.bulkCreateJobs(jobs)
+                    await cyclotronManager.bulkCreateJobs(jobs)
                 }
             }
         } catch (e) {
