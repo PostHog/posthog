@@ -14,6 +14,7 @@ import {
 } from '~/types'
 
 import type { pageReportsLogicType } from './pageReportsLogicType'
+import { WebSection } from './tiles/WebAnalyticsTile'
 import {
     DeviceTab,
     GeographyTab,
@@ -303,6 +304,186 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     hidePersonsModal: true,
                     embedded: true,
                 }),
+        ],
+        sections: [
+            (s) => [
+                s.queries,
+                s.pageUrl,
+                s.createInsightProps,
+                s.combinedMetricsQuery,
+                s.dateFilter,
+                () => webAnalyticsLogic.values.compareFilter,
+            ],
+            (
+                queries: Record<string, QuerySchema | undefined>,
+                pageUrl: string | null,
+                createInsightProps: (tileId: TileId, tabId?: string) => InsightLogicProps,
+                combinedMetricsQuery: (
+                    dateFilter: typeof webAnalyticsLogic.values.dateFilter,
+                    compareFilter: CompareFilter
+                ) => InsightVizNode<TrendsQuery>,
+                dateFilter: typeof webAnalyticsLogic.values.dateFilter,
+                compareFilter: CompareFilter
+            ): WebSection[] => {
+                if (!pageUrl) {
+                    return []
+                }
+
+                // Create a helper function to create a query tile
+                const createQueryTile = (
+                    tileId: TileId,
+                    title: string,
+                    description: string,
+                    query: QuerySchema | undefined
+                ): WebAnalyticsTile | null => {
+                    if (!query) {
+                        return null
+                    }
+
+                    return {
+                        kind: 'query',
+                        tileId,
+                        title,
+                        query,
+                        showIntervalSelect: false,
+                        insightProps: createInsightProps(tileId),
+                        layout: {
+                            className: '',
+                        },
+                        docs: {
+                            title,
+                            description,
+                        },
+                    }
+                }
+
+                // Create the combined metrics tile
+                const combinedMetricsTile: WebAnalyticsTile = {
+                    kind: 'query',
+                    tileId: TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
+                    title: 'Trends over time',
+                    query: combinedMetricsQuery(dateFilter, compareFilter),
+                    showIntervalSelect: true,
+                    insightProps: createInsightProps(TileId.PAGE_REPORTS_COMBINED_METRICS_CHART, 'combined'),
+                    layout: {
+                        className: 'w-full min-h-[350px]',
+                    },
+                    docs: {
+                        title: 'Trends over time',
+                        description: 'Key metrics for this page over time',
+                    },
+                }
+
+                // Create sections with their tiles
+                return [
+                    {
+                        title: 'Trends over time',
+                        tiles: [combinedMetricsTile],
+                        gridClassName: 'grid-cols-1',
+                    },
+                    {
+                        title: 'Page Paths Analysis',
+                        tiles: [
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_ENTRY_PATHS,
+                                'Entry Paths',
+                                'How users arrive at this page',
+                                queries.entryPathsQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_EXIT_PATHS,
+                                'Exit Paths',
+                                'Where users go after viewing this page',
+                                queries.exitPathsQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_OUTBOUND_CLICKS,
+                                'Outbound Clicks',
+                                'External links users click on this page',
+                                queries.outboundClicksQuery
+                            ),
+                        ].filter(Boolean) as WebAnalyticsTile[],
+                    },
+                    {
+                        title: 'Traffic Sources',
+                        tiles: [
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_CHANNELS,
+                                'Channels',
+                                'Marketing channels bringing users to this page',
+                                queries.channelsQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_REFERRERS,
+                                'Referrers',
+                                'Websites referring traffic to this page',
+                                queries.referrersQuery
+                            ),
+                        ].filter(Boolean) as WebAnalyticsTile[],
+                        gridClassName: 'grid-cols-1 md:grid-cols-2',
+                    },
+                    {
+                        title: 'Device Information',
+                        tiles: [
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_DEVICE_TYPES,
+                                'Device Types',
+                                'Types of devices used to access this page',
+                                queries.deviceTypeQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_BROWSERS,
+                                'Browsers',
+                                'Browsers used to access this page',
+                                queries.browserQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_OPERATING_SYSTEMS,
+                                'Operating Systems',
+                                'Operating systems used to access this page',
+                                queries.osQuery
+                            ),
+                        ].filter(Boolean) as WebAnalyticsTile[],
+                    },
+                    {
+                        title: 'Geography',
+                        tiles: [
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_COUNTRIES,
+                                'Countries',
+                                'Countries where users access this page from',
+                                queries.countriesQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_REGIONS,
+                                'Regions',
+                                'Regions where users access this page from',
+                                queries.regionsQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_CITIES,
+                                'Cities',
+                                'Cities where users access this page from',
+                                queries.citiesQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_TIMEZONES,
+                                'Timezones',
+                                'Timezones where users access this page from',
+                                queries.timezonesQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_LANGUAGES,
+                                'Languages',
+                                'Languages of users accessing this page',
+                                queries.languagesQuery
+                            ),
+                        ].filter(Boolean) as WebAnalyticsTile[],
+                        gridClassName:
+                            'grid-cols-1 md:grid-cols-3 md:[&>*:nth-child(4)]:col-span-1 md:[&>*:nth-child(5)]:col-span-1',
+                    },
+                ]
+            },
         ],
     },
 

@@ -9,6 +9,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { percentage, tryDecodeURIComponent, UnexpectedNeverError } from 'lib/utils'
 import {
@@ -45,6 +46,8 @@ import { InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
+import { LearnMorePopover } from '../WebAnalyticsDashboard'
+import { WebAnalyticsTile } from '../webAnalyticsLogic'
 
 const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -662,17 +665,97 @@ export const WebVitalsPathBreakdownTile = ({
     )
 }
 
+export interface WebSection {
+    title: string
+    tiles: WebAnalyticsTile[]
+    gridClassName?: string
+}
+
 export const WebQuery = ({
     query,
     showIntervalSelect,
     control,
     insightProps,
     tileId,
+    sections,
 }: QueryWithInsightProps<QuerySchema> & {
     showIntervalSelect?: boolean
     control?: JSX.Element
     tileId: TileId
+    sections?: WebSection[]
 }): JSX.Element => {
+    // If sections are provided, render them
+    if (sections && sections.length > 0) {
+        return (
+            <>
+                {sections.map((section) => (
+                    <div key={section.title} className="mb-4">
+                        <div className="flex items-center justify-between mb-2">
+                            <h2 className="text-xl font-semibold">{section.title}</h2>
+                        </div>
+                        <div className={`grid ${section.gridClassName || 'grid-cols-1 md:grid-cols-3'} gap-2`}>
+                            {section.tiles.map((tile) => {
+                                if (tile.kind === 'query') {
+                                    return (
+                                        <div key={tile.tileId} className={tile.layout.className}>
+                                            <div className="flex justify-between items-center mb-1">
+                                                <div className="flex items-center">
+                                                    <h3 className="text-base font-semibold m-0">{tile.title}</h3>
+                                                    {tile.docs && (
+                                                        <LearnMorePopover
+                                                            title={tile.docs.title}
+                                                            description={tile.docs.description}
+                                                        />
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <WebQuery
+                                                query={tile.query}
+                                                showIntervalSelect={tile.showIntervalSelect}
+                                                tileId={tile.tileId}
+                                                insightProps={tile.insightProps}
+                                            />
+                                        </div>
+                                    )
+                                } else if (tile.kind === 'tabs') {
+                                    // For tabs tiles, we only show the active tab
+                                    const activeTab = tile.tabs.find((tab) => tab.id === tile.activeTabId)
+                                    if (!activeTab) {
+                                        return null
+                                    }
+
+                                    return (
+                                        <div key={tile.tileId} className={tile.layout.className}>
+                                            <div className="flex justify-between items-center mb-1">
+                                                <div className="flex items-center">
+                                                    <h3 className="text-base font-semibold m-0">{activeTab.title}</h3>
+                                                    {activeTab.docs && (
+                                                        <LearnMorePopover
+                                                            title={activeTab.docs.title}
+                                                            description={activeTab.docs.description}
+                                                        />
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <WebQuery
+                                                query={activeTab.query}
+                                                showIntervalSelect={activeTab.showIntervalSelect}
+                                                tileId={tile.tileId}
+                                                insightProps={activeTab.insightProps}
+                                            />
+                                        </div>
+                                    )
+                                }
+                                return null
+                            })}
+                        </div>
+                        <LemonDivider className="my-4" />
+                    </div>
+                ))}
+            </>
+        )
+    }
+
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
         return (
             <WebStatsTableTile

@@ -6,6 +6,7 @@ import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheck
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -18,7 +19,7 @@ import React, { useState } from 'react'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
-import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
+import { WebQuery, WebSection } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import {
     ProductTab,
@@ -169,6 +170,36 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
             openModal={openModal}
             getNewInsightUrl={getNewInsightUrl}
         />
+    )
+}
+
+export const SectionsTileItem = ({ sections }: { sections: WebSection[] }): JSX.Element => {
+    return (
+        <>
+            {sections.map((section) => (
+                <div key={section.title} className="col-span-full">
+                    <div className="flex items-center justify-between mb-2">
+                        <h2 className="text-xl font-semibold">{section.title}</h2>
+                    </div>
+                    <div
+                        className={`grid ${section.gridClassName || 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4`}
+                    >
+                        {section.tiles.map((tile) => {
+                            if (tile.kind === 'query') {
+                                return (
+                                    <div key={tile.tileId}>
+                                        <QueryTileItem tile={tile} />
+                                    </div>
+                                )
+                            }
+
+                            return null
+                        })}
+                    </div>
+                    <LemonDivider className="my-4" />
+                </div>
+            ))}
+        </>
     )
 }
 
