@@ -1,4 +1,5 @@
 import { CyclotronManager } from '@posthog/cyclotron'
+import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
 
 import { Hub, RawClickHouseEvent } from '~/src/types'
@@ -47,7 +48,17 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             }
         })
         try {
-            await this.cyclotronManager?.bulkCreateJobs(cyclotronJobs)
+            // Cyclotron batches inserts into one big INSERT which can lead to contention writing WAL information hence we chunk into batches
+
+            const chunkedCyclotronJobs = chunk(cyclotronJobs, this.hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
+            if (this.hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
+                // NOTE: It's not super clear if we could do this in parallel
+                await Promise.all(chunkedCyclotronJobs.map((jobs) => this.cyclotronManager?.bulkCreateJobs(jobs)))
+            } else {
+                for (const jobs of chunkedCyclotronJobs) {
+                    await this.cyclotronManager?.bulkCreateJobs(jobs)
+                }
+            }
         } catch (e) {
             status.error('⚠️', 'Error creating cyclotron jobs', e)
             status.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
