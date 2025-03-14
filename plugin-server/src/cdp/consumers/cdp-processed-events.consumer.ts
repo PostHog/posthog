@@ -61,7 +61,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             histogramCyclotronInsertBatchSize.observe(chunkedCyclotronJobs.length)
 
             if (this.hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
-                // NOTE: It's not super clear if we could do this in parallel
+                // NOTE: It's not super clear the perf tradeoffs of doing this in parallel hence the config option
                 await Promise.all(chunkedCyclotronJobs.map((jobs) => this.cyclotronManager?.bulkCreateJobs(jobs)))
             } else {
                 for (const jobs of chunkedCyclotronJobs) {
