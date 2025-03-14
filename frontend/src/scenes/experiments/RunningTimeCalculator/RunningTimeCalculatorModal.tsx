@@ -87,10 +87,11 @@ const FunnelMetricDataPanel = (): JSX.Element => {
                                 className="w-[80px] mt-2"
                                 min={0}
                                 step={0.01}
+                                max={100}
                                 type="number"
                                 value={manualConversionRate || undefined}
                                 onChange={(newValue) => {
-                                    if (newValue !== null && newValue !== undefined) {
+                                    if (newValue !== null && newValue !== undefined && newValue >= 0) {
                                         setManualConversionRate(newValue)
                                     }
                                 }}

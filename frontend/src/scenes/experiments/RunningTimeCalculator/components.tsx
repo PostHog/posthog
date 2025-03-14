@@ -12,7 +12,7 @@ export const UniqueUsersPanel = ({ uniqueUsers }: { uniqueUsers: number }): JSX.
     return (
         <div>
             <div className="card-secondary">Unique users</div>
-            <div className="font-semibold">~{humanFriendlyNumber(uniqueUsers || 0, 0)} persons</div>
+            <div className="font-semibold">~{humanFriendlyNumber(uniqueUsers, 0)} persons</div>
             <div className="text-xs text-muted">Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days</div>
         </div>
     )
@@ -26,7 +26,7 @@ export const AverageEventsPerUserPanel = ({ averageEventsPerUser }: { averageEve
     return (
         <div>
             <div className="card-secondary">Avg. events per user</div>
-            <div className="font-semibold">~{humanFriendlyNumber(averageEventsPerUser || 0, 0)}</div>
+            <div className="font-semibold">~{humanFriendlyNumber(averageEventsPerUser, 0)}</div>
         </div>
     )
 }

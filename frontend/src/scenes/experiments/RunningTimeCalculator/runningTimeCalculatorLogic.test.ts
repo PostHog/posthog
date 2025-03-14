@@ -5,7 +5,7 @@ import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-
 import { initKeaTests } from '~/test/init'
 import { ExperimentMetricMathType, FeatureFlagBasicType } from '~/types'
 
-import { runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
+import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 
 describe('runningTimeCalculatorLogic', () => {
     let logic: ReturnType<typeof runningTimeCalculatorLogic.build>
@@ -152,6 +152,7 @@ describe('runningTimeCalculatorLogic', () => {
 
         it('calculates recommended sample size and running time correctly for FUNNEL', async () => {
             logic.actions.setMinimumDetectableEffect(50)
+            logic.actions.setConversionRateInputType(ConversionRateInputType.AUTOMATIC)
             logic.actions.setMetricResult({
                 uniqueUsers: 1000,
                 automaticConversionRateDecimal: 0.1,
