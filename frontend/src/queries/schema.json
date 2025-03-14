@@ -7086,6 +7086,10 @@
                     },
                     "type": "array"
                 },
+                "source": {
+                    "$ref": "#/definitions/InsightActorsQuery",
+                    "description": "source for querying events for insights"
+                },
                 "where": {
                     "description": "HogQL filters to apply on returned data",
                     "items": {

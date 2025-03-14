@@ -604,6 +604,8 @@ export interface EventsQueryPersonColumn {
 
 export interface EventsQuery extends DataNode<EventsQueryResponse> {
     kind: NodeKind.EventsQuery
+    /** source for querying events for insights */
+    source?: InsightActorsQuery
     /** Return a limited set of data. Required. */
     select: HogQLExpression[]
     /** HogQL filters to apply on returned data */
