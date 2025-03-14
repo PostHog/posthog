@@ -163,7 +163,7 @@ export class HogFunctionManagerLazyService {
     public async getHogFunctions(
         ids: HogFunctionType['id'][]
     ): Promise<Record<HogFunctionType['id'], HogFunctionType | null>> {
-        return (await this.lazyLoader.getMany(ids)) ?? null
+        return await this.lazyLoader.getMany(ids)
     }
 
     // public teamHasHogDestinations(teamId: Team['id']): boolean {
