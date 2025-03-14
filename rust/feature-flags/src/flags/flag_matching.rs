@@ -1814,15 +1814,16 @@ async fn get_feature_flag_hash_key_overrides(
             WHERE team_id = $1 AND distinct_id = ANY($2)
         "#;
 
-    let person_and_distinct_ids: Vec<(i32, String)> = sqlx::query_as(person_and_distinct_id_query)
-        .bind(team_id)
-        .bind(&distinct_id_and_hash_key_override)
-        .fetch_all(&mut *conn)
-        .await?;
+    let person_and_distinct_ids: Vec<(PersonId, String)> =
+        sqlx::query_as(person_and_distinct_id_query)
+            .bind(team_id)
+            .bind(&distinct_id_and_hash_key_override)
+            .fetch_all(&mut *conn)
+            .await?;
 
-    let person_id_to_distinct_id: HashMap<i32, String> =
+    let person_id_to_distinct_id: HashMap<PersonId, String> =
         person_and_distinct_ids.into_iter().collect();
-    let person_ids: Vec<i32> = person_id_to_distinct_id.keys().cloned().collect();
+    let person_ids: Vec<PersonId> = person_id_to_distinct_id.keys().cloned().collect();
 
     // Get hash key overrides
     let hash_key_override_query = r#"
@@ -1831,7 +1832,7 @@ async fn get_feature_flag_hash_key_overrides(
             WHERE team_id = $1 AND person_id = ANY($2)
         "#;
 
-    let overrides: Vec<(String, String, i32)> = sqlx::query_as(hash_key_override_query)
+    let overrides: Vec<(String, String, PersonId)> = sqlx::query_as(hash_key_override_query)
         .bind(team_id)
         .bind(&person_ids)
         .fetch_all(&mut *conn)
@@ -4709,7 +4710,7 @@ mod tests {
 
         // Insert person
         insert_person_for_team_in_pg(
-            reader.clone(),
+            writer.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "user3@example.com"})),

@@ -1,6 +1,6 @@
 use crate::{
     client::database::{get_pool, Client, CustomDatabaseError},
-    cohort::cohort_models::Cohort,
+    cohort::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::{
         flag_matching::PersonId,
@@ -408,9 +408,9 @@ pub async fn get_person_id_by_distinct_id(
     client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
     distinct_id: &str,
-) -> Result<i32, Error> {
+) -> Result<PersonId, Error> {
     let mut conn = client.get_connection().await?;
-    let row: (i32,) = sqlx::query_as(
+    let row: (PersonId,) = sqlx::query_as(
         r#"SELECT id FROM posthog_person
            WHERE team_id = $1 AND id = (
                SELECT person_id FROM posthog_persondistinctid
@@ -430,8 +430,8 @@ pub async fn get_person_id_by_distinct_id(
 
 pub async fn add_person_to_cohort(
     client: Arc<dyn Client + Send + Sync>,
-    person_id: i32,
-    cohort_id: i32,
+    person_id: PersonId,
+    cohort_id: CohortId,
 ) -> Result<(), Error> {
     let mut conn = client.get_connection().await?;
     let res = sqlx::query(
