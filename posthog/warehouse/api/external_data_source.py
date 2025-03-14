@@ -274,6 +274,13 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
+        """Update source ensuring we merge with existing job inputs to allow partial updates."""
+        existing_job_inputs = instance.job_inputs
+
+        if existing_job_inputs:
+            new_job_inputs = validated_data.get("job_inputs", {})
+            validated_data["job_inputs"] = {**existing_job_inputs, **new_job_inputs}
+
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
         return updated_source
