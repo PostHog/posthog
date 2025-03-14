@@ -17,9 +17,8 @@ ADD COLUMN IF NOT EXISTS $session_id_uuid Nullable(UInt128)
 
 
 def add_columns_to_required_tables(_):
-    with get_client_from_pool() as client:
-        client.execute(ADD_COLUMNS_SHARDED_EVENTS.format(table="sharded_events", cluster=CLICKHOUSE_CLUSTER))
-        client.execute(ADD_COLUMNS_EVENTS.format(table="events", cluster=CLICKHOUSE_CLUSTER))
+run_sql_with_exceptions(ADD_COLUMNS_SHARDED_EVENTS.format(table="sharded_events"))
+run_sql_with_exceptions(ADD_COLUMNS_EVENTS.format(table="events"), node_role=NodeRole.ALL)
 
 
 operations = [
