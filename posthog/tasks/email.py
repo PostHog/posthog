@@ -117,6 +117,9 @@ def send_invite(invite_id: str) -> None:
         template_context={
             "invite": invite,
             "expiry_date": (timezone.now() + timezone.timedelta(days=3)).strftime("%b %d %Y"),
+            "inviter_first_name": invite.created_by.first_name,
+            "organization_name": invite.organization.name,
+            "url": f"{settings.SITE_URL}/signup/{invite_id}",
         },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
     )
@@ -134,7 +137,12 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         campaign_key=campaign_key,
         subject=f"{invitee.first_name} joined you on PostHog",
         template_name="member_join",
-        template_context={"invitee": invitee, "organization": organization},
+        template_context={
+            "invitee": invitee,
+            "organization": organization,
+            "invitee_first_name": invitee.first_name,
+            "organization_name": organization.name,
+        },
     )
     # Don't send this email to the new member themselves
     members_to_email = organization.members.exclude(email=invitee.email)
