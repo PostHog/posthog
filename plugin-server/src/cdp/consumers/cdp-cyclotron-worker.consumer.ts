@@ -1,7 +1,6 @@
 import { CyclotronJob, CyclotronWorker } from '@posthog/cyclotron'
 import { Counter, Gauge } from 'prom-client'
 
-import { runInstrumentedFunction } from '../../main/utils'
 import { status } from '../../utils/status'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
@@ -38,10 +37,10 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             return []
         }
 
-        const invocationResults = await runInstrumentedFunction({
-            statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
-            func: async () => await this.processInvocations(invocations),
-        })
+        const invocationResults = await this.runInstrumented(
+            'handleEachBatch.executeInvocations',
+            async () => await this.processInvocations(invocations)
+        )
 
         await this.hogWatcher.observeResults(invocationResults)
         await this.hogFunctionMonitoringService.processInvocationResults(invocationResults)

@@ -192,13 +192,16 @@ class PipelineNonDLT:
             and not table_using_old_partitioning_system
         ):
             partition_count = self._schema.partition_count or self._resource.partition_count
+            partition_size = self._schema.partition_size or self._resource.partition_size
             partition_keys = self._schema.partitioning_keys or self._resource.primary_keys
-            if partition_count and partition_keys:
+            if partition_count and partition_keys and partition_size:
                 # This needs to happen before _evolve_pyarrow_schema
-                pa_table = append_partition_key_to_table(
+                pa_table, partition_mode = append_partition_key_to_table(
                     table=pa_table,
                     partition_count=partition_count,
+                    partition_size=partition_size,
                     primary_keys=partition_keys,
+                    partition_mode=self._schema.partition_mode,
                     logger=self._logger,
                 )
 
@@ -206,9 +209,13 @@ class PipelineNonDLT:
                     self._logger.debug(
                         f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}"
                     )
-                    self._schema.set_partitioning_enabled(partition_keys, partition_count)
+                    self._schema.set_partitioning_enabled(
+                        partition_keys, partition_count, partition_size, partition_mode
+                    )
             else:
-                self._logger.debug("Skipping partitioning due to missing partition_count or partition_keys")
+                self._logger.debug(
+                    "Skipping partitioning due to missing partition_count or partition_keys or partition_size"
+                )
         elif table_using_old_partitioning_system:
             # Will be removed once all tables have been converted over
             self._logger.debug("Table is using old partitioning system. Filling partition key with 2025-03")

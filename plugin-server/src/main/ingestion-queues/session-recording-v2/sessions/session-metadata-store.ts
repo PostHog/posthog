@@ -37,6 +37,7 @@ export class SessionMetadataStore {
             message_count: metadata.messageCount || 0,
             snapshot_source: metadata.snapshotSource,
             snapshot_library: metadata.snapshotLibrary,
+            event_count: metadata.eventCount || 0,
         }))
 
         await this.producer.queueMessages({
@@ -46,6 +47,8 @@ export class SessionMetadataStore {
                 value: JSON.stringify(event),
             })),
         })
+
+        await this.producer.flush()
 
         status.info('🔍', 'session_metadata_store_blocks_stored', { count: events.length })
     }
