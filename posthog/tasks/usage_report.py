@@ -1,6 +1,7 @@
 import dataclasses
 import os
 import json
+import base64
 import gzip
 from collections import Counter
 from collections.abc import Sequence
@@ -1227,12 +1228,16 @@ def _queue_report(producer, organization_id: str, full_report_dict: dict[str, An
     json_data = json.dumps(
         {"organization_id": organization_id, "usage_report": full_report_dict}, separators=(",", ":")
     )
-
     compressed_bytes = gzip.compress(json_data.encode("utf-8"))
+    compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
 
-    response = producer.send_message(
-        message_body=compressed_bytes, content_encoding="gzip", content_type="application/json"
-    )
+    message_attributes = {
+        "content_encoding": {"DataType": "String", "StringValue": "gzip"},
+        "content_type": {"DataType": "String", "StringValue": "application/json"},
+    }
+
+    response = producer.send_message(message_body=compressed_b64, message_attributes=message_attributes)
+
     if not response:
         logger.error(f"Failed to send usage report for organization {organization_id}")
 
