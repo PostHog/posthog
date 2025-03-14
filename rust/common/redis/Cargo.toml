@@ -7,7 +7,6 @@ edition = "2021"
 workspace = true
 
 [dependencies]
-anyhow = { workspace = true }
 async-trait = { workspace = true }
 redis = { version = "0.23.3", features = [
     "tokio-comp",

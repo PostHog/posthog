@@ -1418,7 +1418,6 @@ dependencies = [
 name = "common-redis"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "redis",
  "serde-pickle",
