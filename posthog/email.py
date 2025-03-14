@@ -130,15 +130,7 @@ def _send_via_http(
                     continue
 
                 # Convert any Decimal values to float for JSON serialization
-                # Also convert any Django models to strings for JSON serialization
-                properties = {
-                    k: float(v)
-                    if isinstance(v, Decimal)
-                    else str(v)
-                    if hasattr(v, "_meta") and hasattr(v, "pk")  # Check if it's a Django model
-                    else v
-                    for k, v in properties.items()
-                }
+                properties = {k: float(v) if isinstance(v, Decimal) else v for k, v in properties.items()}
 
                 payload = {
                     "transactional_message_id": get_customer_io_template_id(template_name),
@@ -291,7 +283,14 @@ class EmailMessage:
         self.subject = subject or ""
         self.reply_to = reply_to
         self.template_name = template_name
-        self.properties = template_context
+
+        # Convert any Django models to strings for JSON serialization
+        self.properties = {
+            k: str(v)
+            if hasattr(v, "_meta") and hasattr(v, "pk")  # Check if it's a Django model
+            else v
+            for k, v in template_context.items()
+        }
 
         template = get_template(f"email/{template_name}.html")
         self.html_body = inline_css(template.render(template_context))

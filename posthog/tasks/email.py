@@ -117,7 +117,7 @@ def send_invite(invite_id: str) -> None:
         template_context={
             "invite": invite,
             "expiry_date": (timezone.now() + timezone.timedelta(days=3)).strftime("%b %d %Y"),
-            "inviter_first_name": invite.created_by.first_name,
+            "inviter_first_name": invite.created_by.first_name if invite.created_by else "someone",
             "organization_name": invite.organization.name,
             "url": f"{settings.SITE_URL}/signup/{invite_id}",
         },
