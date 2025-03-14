@@ -6,9 +6,22 @@
  * - "Refresh" the value after a certain age
  * - "Drop" the value after a much longer age
  */
-export class LazyLoader<T> {
-    private loaded = false
-    private value: T | undefined
 
-    constructor(private readonly loader: () => Promise<T>) {}
+const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
+const DROP_AGE = 1000 * 60 * 60 * 24 // 24 hours
+
+export class LazyLoader<T> {
+    private cache: Record<string, T>
+    private lastUsed: Record<string, number>
+
+    constructor(
+        private readonly options: {
+            loader: () => Promise<T>
+            refreshAge?: number
+            dropAge?: number
+        }
+    ) {
+        this.cache = {}
+        this.lastUsed = {}
+    }
 }
