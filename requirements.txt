@@ -528,7 +528,7 @@ oauthlib==3.1.0
     # via
     #   requests-oauthlib
     #   social-auth-core
-openai==1.56.2
+openai==1.66.3
     # via
     #   -r requirements.in
     #   langchain-openai
