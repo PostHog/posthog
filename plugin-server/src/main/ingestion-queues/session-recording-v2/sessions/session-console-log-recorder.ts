@@ -115,11 +115,11 @@ export class SessionConsoleLogRecorder {
                     const payload: unknown[] = Array.isArray(maybePayload) ? maybePayload : []
                     const message = payloadToSafeString(payload)
 
-                    if (level === 'info') {
+                    if (level === ConsoleLogLevel.Log) {
                         this.consoleLogCount++
-                    } else if (level === 'warn') {
+                    } else if (level === ConsoleLogLevel.Warn) {
                         this.consoleWarnCount++
-                    } else if (level === 'error') {
+                    } else if (level === ConsoleLogLevel.Error) {
                         this.consoleErrorCount++
                     }
 
