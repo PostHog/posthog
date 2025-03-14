@@ -42,13 +42,18 @@ def call_node(team, runnable_config: RunnableConfig) -> Callable[[str], str]:
     graph: CompiledStateGraph = (
         AssistantGraph(team)
         .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
-        .add_trends_planner(AssistantNodeName.END)
+        .add_trends_planner(AssistantNodeName.END, AssistantNodeName.END)
         .compile()
     )
 
     def callable(query: str) -> str:
         state = graph.invoke(
-            AssistantState(messages=[HumanMessage(content=query)]),
+            AssistantState(
+                messages=[HumanMessage(content=query)],
+                root_tool_insight_plan=query,
+                root_tool_call_id="eval_test",
+                root_tool_insight_type="trends",
+            ),
             runnable_config,
         )
         return AssistantState.model_validate(state).plan or ""
@@ -182,18 +187,80 @@ def test_needle_in_a_haystack(metric, call_node):
     assert_test(test_case, [metric])
 
 
-def test_trends_does_not_include_time_properties(metric, call_node):
-    query = "what is the pageview trend for event time before 2024-01-01?"
+@pytest.fixture(scope="module")
+def time_and_granularity_metric():
+    return GEval(
+        name="Time Period and Time Interval Correctness",
+        criteria="You will be given expected and actual generated plans to provide a taxonomy to answer a user's question with a trends insight. Compare the plans to determine whether the taxonomy of the actual plan matches the expected plan. Do not apply general knowledge about trends insights.",
+        evaluation_steps=[
+            "If the expected plan includes a time period or time interval, the actual plan must include the similar time period or time interval.",
+            "Plans must not include property filters either for time or time intervals. For example, a property filter such as `timestamp` is not allowed.",
+            "Penalize for any violation of the above criteria.",
+        ],
+        evaluation_params=[
+            LLMTestCaseParams.INPUT,
+            LLMTestCaseParams.EXPECTED_OUTPUT,
+            LLMTestCaseParams.ACTUAL_OUTPUT,
+        ],
+        threshold=0.7,
+    )
+
+
+@pytest.mark.parametrize(
+    "time_period",
+    [
+        "before 2024-01-01",
+        "after 2024-01-01",
+        "between 2024-01-01 and 2024-01-02",
+        "last two days",
+    ],
+)
+def test_trends_planner_includes_time_period(time_and_granularity_metric, call_node, time_period):
+    """The taxonomy planner must not include time properties but include the time period."""
+
+    query = f"what is the pageview trend for event time {time_period}"
+    plan = call_node(query)
+
     test_case = LLMTestCase(
         input=query,
-        expected_output="""
+        expected_output=f"""
         Events:
         - $pageview
             - math operation: total count
 
-        Time period: before 2024-01-01
-        Granularity: day
+        Time period: {time_period}
         """,
-        actual_output=call_node(query),
+        actual_output=plan,
     )
-    assert_test(test_case, [metric])
+    assert_test(test_case, [time_and_granularity_metric])
+
+
+@pytest.mark.parametrize(
+    "time_period,granularity",
+    [
+        ("yesterday", "hour"),
+        ("last 1 week", "day"),
+        ("previous month", "week"),
+        ("last 6 months", "month"),
+        ("from 2020 to 2025", "month"),
+    ],
+)
+def test_trends_planner_handles_granularity(time_and_granularity_metric, call_node, time_period, granularity):
+    """The taxonomy planner includes time granularity."""
+
+    query = f"what is the pageview trend for {time_period} by {granularity}"
+    plan = call_node(query)
+
+    test_case = LLMTestCase(
+        input=query,
+        expected_output=f"""
+        Events:
+        - $pageview
+            - math operation: total count
+
+        Time period: {time_period}
+        Granularity: {granularity}
+        """,
+        actual_output=plan,
+    )
+    assert_test(test_case, [time_and_granularity_metric])
