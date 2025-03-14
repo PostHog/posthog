@@ -802,37 +802,35 @@ def get_teams_with_recording_bytes_in_period(
     return result
 
 
-@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def capture_report(
     *,
+    pha_client: PostHogClient,
     capture_event_name: str,
-    org_id: Optional[str] = None,
+    organization_id: Optional[str] = None,
     team_id: Optional[int] = None,
     full_report_dict: dict[str, Any],
     at_date: Optional[datetime] = None,
-    send_for_all_members: bool = False,
 ) -> None:
-    if not org_id and not team_id:
-        raise ValueError("Either org_id or team_id must be provided")
-    pha_client = get_ph_client(sync_mode=True)
+    if not organization_id and not team_id:
+        raise ValueError("Either organization_id or team_id must be provided")
     try:
         capture_event(
             pha_client=pha_client,
             name=capture_event_name,
-            organization_id=org_id,
+            organization_id=organization_id,
             team_id=team_id,
             properties=full_report_dict,
             timestamp=at_date,
         )
-        logger.info(f"UsageReport sent to PostHog for organization {org_id}")
+        logger.info(f"UsageReport sent to PostHog for organization {organization_id}")
     except Exception as err:
         logger.exception(
-            f"UsageReport sent to PostHog for organization {org_id} failed: {str(err)}",
+            f"UsageReport sent to PostHog for organization {organization_id} failed: {str(err)}",
         )
         capture_event(
             pha_client=pha_client,
             name=f"{capture_event_name} failure",
-            organization_id=org_id,
+            organization_id=organization_id,
             team_id=team_id,
             properties={"error": str(err)},
         )
@@ -1261,15 +1259,12 @@ def send_all_org_usage_reports(
         capture_message(f"Usage reports are disabled for {at}")
         return
 
-    capture_event_name = capture_event_name or "organization usage report"
-
     at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
     period_start, period_end = period
 
     instance_metadata = get_instance_metadata(period)
 
-    # Get an SQS producer if EE is available
     producer = None
     try:
         if settings.EE_AVAILABLE:
@@ -1280,10 +1275,22 @@ def send_all_org_usage_reports(
         pass
 
     try:
-        org_reports = _get_all_org_reports(period_start, period_end)
+        pha_client = get_ph_client(sync_mode=True)
 
-        logger.info("Sending usage reports to PostHog and Billing...")  # noqa T201
+        org_reports = _get_all_org_reports(period_start, period_end)
+        total_orgs = len(org_reports)
+        total_orgs_sent = 0
+
         time_now = datetime.now()
+        logger.info("Sending usage reports to PostHog and Billing...")  # noqa T201
+        capture_event(
+            pha_client=pha_client,
+            name="organization usage reports starting",
+            properties={
+                "total_orgs": total_orgs,
+                "total_orgs_sent": total_orgs_sent,
+            },
+        )
 
         for org_report in org_reports.values():
             organization_id = org_report.organization_id
@@ -1298,25 +1305,37 @@ def send_all_org_usage_reports(
                 continue
 
             # First capture the events to PostHog
-            # if not skip_capture_event:
-            #     at_date_str = at_date.isoformat() if at_date else None
-            #     capture_report.delay(
-            #         capture_event_name=capture_event_name,
-            #         org_id=org_id,
-            #         full_report_dict=full_report_dict,
-            #         at_date=at_date_str,
-            #     )
+            if not skip_capture_event:
+                at_date_str = at_date.isoformat() if at_date else None
+                capture_report(
+                    pha_client=pha_client,
+                    capture_event_name=capture_event_name or "organization usage report",
+                    organization_id=organization_id,
+                    full_report_dict=full_report_dict,
+                    at_date=at_date_str,
+                )
 
-            # Then capture the events to Billing (only if producer is available)
+            # Then send the reports to billing through SQS (only if the producer is available)
             if has_non_zero_usage(full_report) and producer:
                 try:
                     _queue_report(producer, organization_id, full_report_dict)
+                    total_orgs_sent += 1
                 except Exception as err:
                     logger.exception(f"Failed to send usage report for organization {organization_id}", error=err)
                     capture_exception(err)
 
         time_since = datetime.now() - time_now
         logger.info(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
+        capture_event(
+            pha_client=pha_client,
+            name="organization usage reports complete",
+            properties={
+                "total_orgs": total_orgs,
+                "total_orgs_sent": total_orgs_sent,
+                "total_time": time_since.total_seconds(),
+            },
+        )
+
     except Exception as err:
         capture_exception(err)
         raise
