@@ -26,6 +26,7 @@ from dlt.common.libs.deltalake import get_delta_tables
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.models import Team
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.base import PostHogWorkflow
@@ -382,12 +383,21 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
     """A dlt source representing a HogQL table given by a HogQL query."""
 
     async def get_hogql_rows():
+        # TODO: set as default when data-modeling flag is released
+        modifiers = create_default_modifiers_for_team(team)
+        modifiers.useMaterializedViews = True
+
         settings = HogQLGlobalSettings(
             max_execution_time=60 * 20, max_memory_usage=180 * 1000 * 1000 * 1000
         )  # 20 mins, 180gb, 2x execution_time, 4x max_memory_usage as the /query endpoint async workers
 
         response = await asyncio.to_thread(
-            execute_hogql_query, query, team, settings=settings, limit_context=LimitContext.SAVED_QUERY
+            execute_hogql_query,
+            query,
+            team,
+            modifiers=modifiers,
+            settings=settings,
+            limit_context=LimitContext.SAVED_QUERY,
         )
 
         if not response.columns:
