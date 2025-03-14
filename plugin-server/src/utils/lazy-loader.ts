@@ -1,7 +1,21 @@
+import { Counter } from 'prom-client'
+
 import { status } from './status'
 
 const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
 const REFRESH_JITTER_MS = 1000 * 60 // 1 minutes
+
+const lazyLoaderCacheHits = new Counter({
+    name: 'lazy_loader_cache_hits',
+    help: 'The number of times we have hit the cache',
+    labelNames: ['name', 'hit'],
+})
+
+const lazyLoaderFullCacheHits = new Counter({
+    name: 'lazy_loader_full_cache_hits',
+    help: 'The number of times we have hit the cache for all keys',
+    labelNames: ['name', 'hit'],
+})
 
 /**
  * We have a common pattern across consumers where we want to:
@@ -13,6 +27,7 @@ const REFRESH_JITTER_MS = 1000 * 60 // 1 minutes
  */
 
 export type LazyLoaderOptions<T> = {
+    name: string
     /** Function to load the values */
     loader: (key: string[]) => Promise<Record<string, T | undefined>>
     /** How long to cache the value */
@@ -69,11 +84,24 @@ export class LazyLoader<T> {
 
                 if (now - cacheUntil > (cached === null ? refreshNullAge : refreshAge)) {
                     keysToLoad.add(key)
+                    lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+                    continue
                 }
             } else {
                 keysToLoad.add(key)
+                lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+                continue
             }
+
+            lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
         }
+
+        if (keysToLoad.size === 0) {
+            lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+            return results
+        }
+
+        lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
 
         let loaded: Record<string, T | undefined>
         try {
@@ -82,7 +110,10 @@ export class LazyLoader<T> {
             if (throwOnLoadError) {
                 throw error
             }
-            status.error('🍿', `[LazyLoader] Error loading values but silently ignoring: ${error}`)
+            status.error(
+                '🍿',
+                `[LazyLoader](${this.options.name}) Error loading values but silently ignoring: ${error}`
+            )
             loaded = {}
         }
         for (const key of keysToLoad) {
@@ -103,7 +134,9 @@ export class LazyLoader<T> {
         return await this.ensureLoaded(keys)
     }
 
-    public markForRefresh(key: string): void {
-        delete this.cacheUntil[key]
+    public markForRefresh(key: string | string[]): void {
+        for (const k of Array.isArray(key) ? key : [key]) {
+            delete this.cacheUntil[k]
+        }
     }
 }
