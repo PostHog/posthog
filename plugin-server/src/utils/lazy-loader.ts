@@ -74,6 +74,10 @@ export class LazyLoader<T> {
         return loaded[key]
     }
 
+    public async getMany(keys: string[]): Promise<Record<string, T | null>> {
+        return await this.ensureLoaded(keys)
+    }
+
     public markForRefresh(key: string): void {
         delete this.lastRefreshed[key]
     }
