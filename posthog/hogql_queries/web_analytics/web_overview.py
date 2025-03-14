@@ -33,6 +33,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
+
         assert response.results
 
         row = response.results[0]
