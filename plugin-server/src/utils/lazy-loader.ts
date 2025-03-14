@@ -55,11 +55,11 @@ export class LazyLoader<T> {
     /**
      * Ensure that a range of values are preloaded and cached.
      *
-     * If already cached, the lastUsed value is updated to now.
+     * If already cached, the lastUsed value is updated to now
      * If not cached, the value is loaded as part of the batch and added to the cache.
      * If the value is older than the refreshAge, it is loaded from the database.
      */
-    public async ensureLoaded(keys: string[]): Promise<Record<string, T | null>> {
+    public async load(keys: string[]): Promise<Record<string, T | null>> {
         const results: Record<string, T | null> = {}
 
         const now = Date.now()
@@ -129,13 +129,13 @@ export class LazyLoader<T> {
     }
 
     public async get(key: string): Promise<T | null | undefined> {
-        const loaded = await this.ensureLoaded([key])
+        const loaded = await this.load([key])
 
         return loaded[key]
     }
 
     public async getMany(keys: string[]): Promise<Record<string, T | null>> {
-        return await this.ensureLoaded(keys)
+        return await this.load(keys)
     }
 
     public markForRefresh(key: string | string[]): void {
