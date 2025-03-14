@@ -8,7 +8,6 @@ import planEnterprise from 'public/plan_enterprise.svg'
 import planFree from 'public/plan_free.svg'
 import planStartup from 'public/plan_startup.svg'
 import planYc from 'public/plan_yc.svg'
-import useResizeObserver from 'use-resize-observer'
 
 import { BillingPlan, BillingProductV2Type } from '~/types'
 
@@ -27,8 +26,77 @@ const PLAN_BADGES: Record<BillingPlan, string> = {
     [BillingPlan.YC]: planYc,
 }
 
+interface CopyVariation {
+    title: string | null
+    subtitle: string | null
+    description: JSX.Element
+}
+
+const COPY_VARIATIONS: Record<BillingPlan, CopyVariation> = {
+    [BillingPlan.Free]: {
+        title: 'Get the whole hog.',
+        subtitle: 'Only pay for what you use.',
+        description: (
+            <>
+                <p>PostHog comes with all product features on every plan.</p>
+                <p>Add your credit card to remove usage limits and unlock all platform features.</p>
+                <p>Set billing limits as low as $0 to control your spend.</p>
+                <p className="italic">P.S. You still keep the monthly free allotment for every product!</p>
+            </>
+        ),
+    },
+    [BillingPlan.Cheap]: {
+        title: 'Good call!',
+        subtitle: "You're on the ridiculously cheap plan.",
+        description: (
+            <>
+                <p>PostHog comes with all product features on every plan.</p>
+                <p>If you're growing like crazy, you might want to check out the enterprise plan.</p>
+            </>
+        ),
+    },
+    [BillingPlan.Teams]: {
+        title: 'Good call!',
+        subtitle: "You're on the team plan.",
+        description: (
+            <>
+                <p>PostHog comes with all product features on every plan.</p>
+                <p>If you're growing like crazy, you might want to check out the enterprise plan.</p>
+            </>
+        ),
+    },
+    [BillingPlan.Enterprise]: {
+        title: 'Good call!',
+        subtitle: "You're on the enterprise plan.",
+        description: <p>It doesn't get any better than this!</p>,
+    },
+    [BillingPlan.Startups]: {
+        title: 'Lucky you!',
+        subtitle: "You're on the startup plan.",
+        description: (
+            <>
+                <p>PostHog comes with all product features on every plan.</p>
+                <p>
+                    If you're growing like crazy, you might want to check out what the enterprise plan could give you.
+                </p>
+            </>
+        ),
+    },
+    [BillingPlan.YC]: {
+        title: 'Lucky you!',
+        subtitle: "You're on the special YC plan.",
+        description: (
+            <>
+                <p>PostHog comes with all product features on every plan.</p>
+                <p>
+                    If you're growing like crazy, you might want to check out what the enterprise plan could give you.
+                </p>
+            </>
+        ),
+    },
+}
+
 export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { width, ref: billingHeroRef } = useResizeObserver()
     const { featureFlags } = useValues(featureFlagLogic)
     const { showPaymentEntryModal } = useActions(paymentEntryLogic)
     const { redirectPath, billingPlan } = useValues(billingLogic)
@@ -36,23 +104,14 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
     const { toggleIsPlanComparisonModalOpen, setBillingProductLoading } = useActions(billingProductLogic({ product }))
 
     const showUpgradeOptions = billingPlan !== BillingPlan.Enterprise
+    const copyVariation = COPY_VARIATIONS[billingPlan]
 
     return (
-        <div
-            className="flex relative justify-between items-center rounded-lg bg-accent-primary-highlight"
-            ref={billingHeroRef}
-        >
+        <div className="flex relative justify-between items-center rounded-lg bg-accent-primary-highlight">
             <div className="p-4">
-                <h1 className="mb-0">Get the whole hog.</h1>
-                <h1 className="text-danger">Only pay for what you use.</h1>
-                <div className="mt-2 mb-0 max-w-xl">
-                    <p>PostHog comes with all product features on every plan.</p>
-                    <p>
-                        Add your credit card to remove usage limits and unlock all platform features. Set billing limits
-                        as low as $0 to control your spend.
-                    </p>
-                    <p className="italic">P.S. You still keep the monthly free allotment for every product!</p>
-                </div>
+                {copyVariation.title && <h1 className="mb-0">{copyVariation.title}</h1>}
+                {copyVariation.subtitle && <h1 className="text-danger">{copyVariation.subtitle}</h1>}
+                <div className="mt-2 mb-0 max-w-xl">{copyVariation.description}</div>
                 {showUpgradeOptions && (
                     <div className="flex justify-start deprecated-space-x-2">
                         {featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
@@ -94,11 +153,13 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                     </div>
                 )}
             </div>
-            {width && width > 500 && (
-                <div className="shrink-0 relative w-50 pt-4 overflow-hidden">
-                    <img src={PLAN_BADGES[billingPlan]} alt={`${billingPlan} plan badge`} className="w-50 h-50 -my-5" />
-                </div>
-            )}
+            <div className="absolute md:relative top-4 right-4 md:grow-1 md:flex md:items-center md:justify-center md:max-w-100">
+                <img
+                    src={PLAN_BADGES[billingPlan]}
+                    alt={`${billingPlan} plan badge`}
+                    className="w-32 md:w-50 object-contain"
+                />
+            </div>
             {showUpgradeOptions && (
                 <PlanComparisonModal
                     product={product}
