@@ -85,9 +85,19 @@ const SimpleTile = ({
 }): JSX.Element => {
     const { createInsightProps } = useValues(pageReportsLogic)
 
-    // Keeps TS happy because we're finding the queries over the webAnalyticsLogic.
+    // If query is undefined, show a placeholder
     if (!query) {
-        return <div>There was a problem loading this tile.</div>
+        return (
+            <div className="border rounded p-4 bg-bg-light">
+                <div className="flex justify-between items-center mb-1">
+                    <div className="flex items-center">
+                        <h3 className="text-base font-semibold m-0">{title}</h3>
+                        <LearnMorePopover title={title} description={description} />
+                    </div>
+                </div>
+                <div className="text-muted text-center py-8">Select url to view data</div>
+            </div>
+        )
     }
 
     return (
@@ -112,7 +122,11 @@ const SimpleTile = ({
 
 export const PageReports = (): JSX.Element => {
     const { dateFilter, compareFilter } = useValues(webAnalyticsLogic)
-    const values = useValues(pageReportsLogic)
+    const { hasPageUrl, queries, createInsightProps, combinedMetricsQuery, pageUrl } = useValues(pageReportsLogic)
+
+    // Always prepare the combinedMetricsQuery even if we don't use it
+    // This ensures the same hooks are called regardless of hasPageUrl
+    const combinedMetrics = combinedMetricsQuery(dateFilter, compareFilter)
 
     const Section = ({ title, children }: { title: string; children: React.ReactNode }): JSX.Element => {
         return (
@@ -126,9 +140,10 @@ export const PageReports = (): JSX.Element => {
         )
     }
 
-    return (
-        <div className="space-y-2 mt-2">
-            {!values.hasPageUrl ? (
+    // If we don't have a page URL, show the introduction
+    if (!hasPageUrl) {
+        return (
+            <div className="space-y-2 mt-2">
                 <ProductIntroduction
                     productName="PAGE REPORTS"
                     thingName="page report"
@@ -136,137 +151,137 @@ export const PageReports = (): JSX.Element => {
                     isEmpty={true}
                     customHog={() => <XRayHog2 alt="X-ray hedgehog" className="w-60" />}
                 />
-            ) : (
-                <>
-                    {/* Trends Section */}
-                    <Section title="Trends over time">
-                        <div className="w-full min-h-[350px]">
-                            <WebQuery
-                                query={values.combinedMetricsQuery(dateFilter, compareFilter)}
-                                showIntervalSelect={true}
-                                tileId={TileId.PAGE_REPORTS_COMBINED_METRICS_CHART}
-                                insightProps={values.createInsightProps(
-                                    TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
-                                    'combined'
-                                )}
-                                key={`combined-metrics-${values.pageUrl}`}
-                            />
-                        </div>
-                    </Section>
+            </div>
+        )
+    }
 
-                    {/* Page Paths Analysis Section */}
-                    <Section title="Page Paths Analysis">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                            <SimpleTile
-                                title="Entry Paths"
-                                description="How users arrive at this page"
-                                query={values.queries.entryPathsQuery}
-                                tileId={TileId.PAGE_REPORTS_ENTRY_PATHS}
-                            />
+    // Otherwise, show the full report
+    return (
+        <div className="space-y-2 mt-2">
+            {/* Trends Section */}
+            <Section title="Trends over time">
+                <div className="w-full min-h-[350px]">
+                    <WebQuery
+                        query={combinedMetrics}
+                        showIntervalSelect={true}
+                        tileId={TileId.PAGE_REPORTS_COMBINED_METRICS_CHART}
+                        insightProps={createInsightProps(TileId.PAGE_REPORTS_COMBINED_METRICS_CHART, 'combined')}
+                        key={`combined-metrics-${pageUrl}`}
+                    />
+                </div>
+            </Section>
 
-                            <SimpleTile
-                                title="Exit Paths"
-                                description="Where users go after viewing this page"
-                                query={values.queries.exitPathsQuery}
-                                tileId={TileId.PAGE_REPORTS_EXIT_PATHS}
-                            />
+            {/* Page Paths Analysis Section */}
+            <Section title="Page Paths Analysis">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <SimpleTile
+                        title="Entry Paths"
+                        description="How users arrive at this page"
+                        query={queries.entryPathsQuery}
+                        tileId={TileId.PAGE_REPORTS_ENTRY_PATHS}
+                    />
 
-                            <SimpleTile
-                                title="Outbound Clicks"
-                                description="External links users click on this page"
-                                query={values.queries.outboundClicksQuery}
-                                tileId={TileId.PAGE_REPORTS_OUTBOUND_CLICKS}
-                            />
-                        </div>
-                    </Section>
+                    <SimpleTile
+                        title="Exit Paths"
+                        description="Where users go after viewing this page"
+                        query={queries.exitPathsQuery}
+                        tileId={TileId.PAGE_REPORTS_EXIT_PATHS}
+                    />
 
-                    {/* Traffic Sources Section */}
-                    <Section title="Traffic Sources">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                            <SimpleTile
-                                title="Channels"
-                                description="Marketing channels bringing users to this page"
-                                query={values.queries.channelsQuery}
-                                tileId={TileId.PAGE_REPORTS_CHANNELS}
-                            />
+                    <SimpleTile
+                        title="Outbound Clicks"
+                        description="External links users click on this page"
+                        query={queries.outboundClicksQuery}
+                        tileId={TileId.PAGE_REPORTS_OUTBOUND_CLICKS}
+                    />
+                </div>
+            </Section>
 
-                            <SimpleTile
-                                title="Referrers"
-                                description="Websites referring traffic to this page"
-                                query={values.queries.referrersQuery}
-                                tileId={TileId.PAGE_REPORTS_REFERRERS}
-                            />
-                        </div>
-                    </Section>
+            {/* Traffic Sources Section */}
+            <Section title="Traffic Sources">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <SimpleTile
+                        title="Channels"
+                        description="Marketing channels bringing users to this page"
+                        query={queries.channelsQuery}
+                        tileId={TileId.PAGE_REPORTS_CHANNELS}
+                    />
 
-                    {/* Device Information Section */}
-                    <Section title="Device Information">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                            <SimpleTile
-                                title="Device Types"
-                                description="Types of devices used to access this page"
-                                query={values.queries.deviceTypeQuery}
-                                tileId={TileId.PAGE_REPORTS_DEVICE_TYPES}
-                            />
+                    <SimpleTile
+                        title="Referrers"
+                        description="Websites referring traffic to this page"
+                        query={queries.referrersQuery}
+                        tileId={TileId.PAGE_REPORTS_REFERRERS}
+                    />
+                </div>
+            </Section>
 
-                            <SimpleTile
-                                title="Browsers"
-                                description="Browsers used to access this page"
-                                query={values.queries.browserQuery}
-                                tileId={TileId.PAGE_REPORTS_BROWSERS}
-                            />
+            {/* Device Information Section */}
+            <Section title="Device Information">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <SimpleTile
+                        title="Device Types"
+                        description="Types of devices used to access this page"
+                        query={queries.deviceTypeQuery}
+                        tileId={TileId.PAGE_REPORTS_DEVICE_TYPES}
+                    />
 
-                            <SimpleTile
-                                title="Operating Systems"
-                                description="Operating systems used to access this page"
-                                query={values.queries.osQuery}
-                                tileId={TileId.PAGE_REPORTS_OPERATING_SYSTEMS}
-                            />
-                        </div>
-                    </Section>
+                    <SimpleTile
+                        title="Browsers"
+                        description="Browsers used to access this page"
+                        query={queries.browserQuery}
+                        tileId={TileId.PAGE_REPORTS_BROWSERS}
+                    />
 
-                    {/* Geography Section */}
-                    <Section title="Geography">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                            <SimpleTile
-                                title="Countries"
-                                description="Countries where users access this page from"
-                                query={values.queries.countriesQuery}
-                                tileId={TileId.PAGE_REPORTS_COUNTRIES}
-                            />
+                    <SimpleTile
+                        title="Operating Systems"
+                        description="Operating systems used to access this page"
+                        query={queries.osQuery}
+                        tileId={TileId.PAGE_REPORTS_OPERATING_SYSTEMS}
+                    />
+                </div>
+            </Section>
 
-                            <SimpleTile
-                                title="Regions"
-                                description="Regions where users access this page from"
-                                query={values.queries.regionsQuery}
-                                tileId={TileId.PAGE_REPORTS_REGIONS}
-                            />
+            {/* Geography Section */}
+            <Section title="Geography">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <SimpleTile
+                        title="Countries"
+                        description="Countries where users access this page from"
+                        query={queries.countriesQuery}
+                        tileId={TileId.PAGE_REPORTS_COUNTRIES}
+                    />
 
-                            <SimpleTile
-                                title="Cities"
-                                description="Cities where users access this page from"
-                                query={values.queries.citiesQuery}
-                                tileId={TileId.PAGE_REPORTS_CITIES}
-                            />
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
-                            <SimpleTile
-                                title="Timezones"
-                                description="Timezones where users access this page from"
-                                query={values.queries.timezonesQuery}
-                                tileId={TileId.PAGE_REPORTS_TIMEZONES}
-                            />
+                    <SimpleTile
+                        title="Regions"
+                        description="Regions where users access this page from"
+                        query={queries.regionsQuery}
+                        tileId={TileId.PAGE_REPORTS_REGIONS}
+                    />
 
-                            <SimpleTile
-                                title="Languages"
-                                description="Languages of users accessing this page"
-                                query={values.queries.languagesQuery}
-                                tileId={TileId.PAGE_REPORTS_LANGUAGES}
-                            />
-                        </div>
-                    </Section>
-                </>
-            )}
+                    <SimpleTile
+                        title="Cities"
+                        description="Cities where users access this page from"
+                        query={queries.citiesQuery}
+                        tileId={TileId.PAGE_REPORTS_CITIES}
+                    />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                    <SimpleTile
+                        title="Timezones"
+                        description="Timezones where users access this page from"
+                        query={queries.timezonesQuery}
+                        tileId={TileId.PAGE_REPORTS_TIMEZONES}
+                    />
+
+                    <SimpleTile
+                        title="Languages"
+                        description="Languages of users accessing this page"
+                        query={queries.languagesQuery}
+                        tileId={TileId.PAGE_REPORTS_LANGUAGES}
+                    />
+                </div>
+            </Section>
         </div>
     )
 }

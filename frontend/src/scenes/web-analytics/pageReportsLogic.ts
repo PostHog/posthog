@@ -184,13 +184,31 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         queries: [
             (s) => [s.tiles, s.pageUrl, s.stripQueryParams],
             (tiles: WebAnalyticsTile[], pageUrl: string | null, stripQueryParams: boolean) => {
-                // Helper function to get query from a tile by tab ID so we
-                // can use what we already have in the web analytics logic
+                // If we don't have a pageUrl, return empty queries
+                if (!pageUrl) {
+                    return {
+                        entryPathsQuery: undefined,
+                        exitPathsQuery: undefined,
+                        outboundClicksQuery: undefined,
+                        channelsQuery: undefined,
+                        referrersQuery: undefined,
+                        deviceTypeQuery: undefined,
+                        browserQuery: undefined,
+                        osQuery: undefined,
+                        countriesQuery: undefined,
+                        regionsQuery: undefined,
+                        citiesQuery: undefined,
+                        timezonesQuery: undefined,
+                        languagesQuery: undefined,
+                    }
+                }
+
+                // Helper function to get query from a tile by tab ID
                 const getQuery = (tileId: TileId, tabId: string): QuerySchema | undefined => {
                     const tile = tiles?.find((t) => t.tileId === tileId) as TabsTile | undefined
                     const query = tile?.tabs.find((tab) => tab.id === tabId)?.query
 
-                    if (query && pageUrl && 'source' in query && query.source) {
+                    if (query && 'source' in query && query.source) {
                         // Deep clone the query to avoid modifying the original
                         const modifiedQuery = JSON.parse(JSON.stringify(query))
 
