@@ -10,7 +10,7 @@ from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
@@ -189,18 +189,23 @@ class EventsQueryRunner(QueryRunner):
 
             with self.timings.measure("select"):
                 if self.query.source is not None:
-                    subselect = parse_select(
-                        "select uuid from {source}", {"source": self.source_runner.to_events_query()}
-                    )
-                    filter = ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["uuid"]),
-                        right=subselect,
-                    )
-                    if where is None:
-                        where = cast(ast.Expr, filter)
-                    else:
-                        where = ast.And(exprs=[where, filter])
+                    # Kludge: If the events_query has logic in select that the where clauses depends on, this will potentially error.
+                    # If we implement that for other runners, make this smarter.
+                    events_query = self.source_runner.to_events_query()
+                    events_query.select = select
+                    if where is not None:
+                        if events_query.where is None:
+                            events_query.where = where
+                        else:
+                            events_query.where = ast.And(exprs=[events_query.where, where])
+                    if having is not None:
+                        if events_query.having is None:
+                            events_query.having = having
+                        else:
+                            events_query.having = ast.And(exprs=[events_query.having, having])
+                    events_query.group_by = group_by if has_any_aggregation else None
+                    events_query.order_by = order_by
+                    return events_query
 
                 stmt = ast.SelectQuery(
                     select=select,
