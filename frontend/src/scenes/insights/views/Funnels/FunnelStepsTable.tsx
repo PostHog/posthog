@@ -1,5 +1,5 @@
 import { IconFlag } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonColorButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -20,7 +20,6 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
 import { resultCustomizationsModalLogic } from '../../../../queries/nodes/InsightViz/resultCustomizationsModalLogic'
-import { CustomizationIcon } from '../InsightsTable/columns/ColorCustomizationColumn'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 
 export function FunnelStepsTable(): JSX.Element | null {
@@ -98,9 +97,12 @@ export function FunnelStepsTable(): JSX.Element | null {
                                     formatPropertyValueForDisplay
                                 )}
                                 {showCustomizationIcon && (
-                                    <LemonButton onClick={() => openModal(breakdown)}>
-                                        <CustomizationIcon color={color} />
-                                    </LemonButton>
+                                    <LemonColorButton
+                                        onClick={() => openModal(breakdown)}
+                                        color={color}
+                                        type="tertiary"
+                                        size="small"
+                                    />
                                 )}
                             </div>
                         )
