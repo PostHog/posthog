@@ -3,11 +3,13 @@ from django.utils import timezone
 
 from django.db import models
 
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.utils import UUIDModel
 from posthog.utils import generate_short_id
 
 
-class Notebook(UUIDModel):
+class Notebook(FileSystemSyncMixin, UUIDModel):
+    file_system_config_key = "notebook"
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     title = models.CharField(max_length=256, blank=True, null=True)

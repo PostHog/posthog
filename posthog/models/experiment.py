@@ -1,8 +1,12 @@
 from django.db import models
 from django.utils import timezone
 
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 
-class Experiment(models.Model):
+
+class Experiment(FileSystemSyncMixin, models.Model):
+    file_system_config_key = "experiment"
+
     class ExperimentType(models.TextChoices):
         WEB = "web", "web"
         PRODUCT = "product", "product"
