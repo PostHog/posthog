@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
-
+use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use redis::{AsyncCommands, RedisError};
 use thiserror::Error;
@@ -150,7 +150,28 @@ pub struct MockRedisClient {
     set_ret: HashMap<String, Result<(), CustomRedisError>>,
     del_ret: HashMap<String, Result<(), CustomRedisError>>,
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
+    calls: Arc<Mutex<Vec<MockRedisCall>>>,
 }
+
+#[derive(Clone)]
+pub enum MockRedisValue {
+    None, 
+    Error(CustomRedisError),
+    String(String),
+    VecString(Vec<String>),
+    I32(i32),
+    I64(i64),
+    MinMax(String, String)
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct MockRedisCall {
+    op: String,
+    key: String,
+    value: MockRedisValue
+}
+
 
 impl MockRedisClient {
     pub fn new() -> Self {
@@ -164,6 +185,7 @@ impl MockRedisClient {
 
     pub fn hincrby_ret(&mut self, key: &str, ret: Result<(), CustomRedisError>) -> Self {
         self.hincrby_ret.insert(key.to_owned(), ret);
+
         self.clone()
     }
 
@@ -186,6 +208,11 @@ impl MockRedisClient {
         self.hget_ret.insert(key.to_owned(), ret);
         self.clone()
     }
+
+    pub fn get_calls(&self) -> Vec<MockRedisCall> {
+        let locked_calls = self.calls.lock().unwrap();
+        locked_calls.clone()
+    }
 }
 
 #[async_trait]
@@ -193,9 +220,17 @@ impl Client for MockRedisClient {
     async fn zrangebyscore(
         &self,
         key: String,
-        _min: String,
-        _max: String,
+        min: String,
+        max: String,
     ) -> Result<Vec<String>, CustomRedisError> {
+        // Record the call
+        let mut calls = self.calls.lock().unwrap();
+        calls.push(MockRedisCall {
+            op: "zrangebyscore".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::MinMax(min, max),
+        });
+        
         match self.zrangebyscore_ret.get(&key) {
             Some(val) => Ok(val.clone()),
             None => Err(CustomRedisError::NotFound),
@@ -205,9 +240,20 @@ impl Client for MockRedisClient {
     async fn hincrby(
         &self,
         key: String,
-        _field: String,
-        _count: Option<i32>,
+        field: String,
+        count: Option<i32>,
     ) -> Result<(), CustomRedisError> {
+        // Record the call
+        let mut calls = self.calls.lock().unwrap();
+        calls.push(MockRedisCall {
+            op: "hincrby".to_string(),
+            key: format!("{}:{}", key, field),
+            value: match count {
+                None => MockRedisValue::None,
+                Some(v) => MockRedisValue::I32(v),
+            }
+        });
+        
         match self.hincrby_ret.get(&key) {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
@@ -215,13 +261,29 @@ impl Client for MockRedisClient {
     }
 
     async fn get(&self, key: String) -> Result<String, CustomRedisError> {
+        // Record the call
+        let mut calls = self.calls.lock().unwrap();
+        calls.push(MockRedisCall {
+            op: "get".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::None,
+        });
+        
         match self.get_ret.get(&key) {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
         }
     }
 
-    async fn set(&self, key: String, _value: String) -> Result<(), CustomRedisError> {
+    async fn set(&self, key: String, value: String) -> Result<(), CustomRedisError> {
+        // Record the call
+        let mut calls = self.calls.lock().unwrap();
+        calls.push(MockRedisCall {
+            op: "set".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::String(value.clone()),
+        });
+        
         match self.set_ret.get(&key) {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
@@ -229,13 +291,29 @@ impl Client for MockRedisClient {
     }
 
     async fn del(&self, key: String) -> Result<(), CustomRedisError> {
+        // Record the call
+        let mut calls = self.calls.lock().unwrap();
+        calls.push(MockRedisCall {
+            op: "del".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::None,
+        });
+        
         match self.del_ret.get(&key) {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
         }
     }
 
-    async fn hget(&self, key: String, _field: String) -> Result<String, CustomRedisError> {
+    async fn hget(&self, key: String, field: String) -> Result<String, CustomRedisError> {
+        // Record the call
+        let mut calls = self.calls.lock().unwrap();
+        calls.push(MockRedisCall {
+            op: "hget".to_string(),
+            key: format!("{}:{}", key, field),
+            value: MockRedisValue::None,
+        });
+        
         match self.hget_ret.get(&key) {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
