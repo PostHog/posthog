@@ -17,6 +17,8 @@ from posthog.cdp.templates.hog_function_template import (
 )
 from posthog.plugins.plugin_server_api import get_hog_function_templates
 from rest_framework_dataclasses.serializers import DataclassSerializer
+from django.db.models import Count
+from posthog.models import HogFunction
 
 
 logger = structlog.get_logger(__name__)
@@ -106,6 +108,21 @@ class HogFunctionTemplates:
             *nodejs_templates,
         ]
         sub_templates = derive_sub_templates(templates=templates)
+
+        template_usage = (
+            HogFunction.objects.filter(type="destination")
+            .values("template_id")
+            .annotate(count=Count("template_id"))
+            .order_by("-count")[:500]
+        )
+
+        popularity_dict = {item["template_id"]: item["count"] for item in template_usage}
+
+        for template in templates:
+            if template.id not in popularity_dict:
+                popularity_dict[template.id] = 0
+
+        templates.sort(key=lambda template: (-popularity_dict[template.id], template.name.lower()))
 
         # If we failed to get the templates, we cache for 30 seconds to avoid hammering the node service
         # If we got the templates, we cache for 5 minutes as these change infrequently
