@@ -202,7 +202,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
         # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
         query = re.sub(
             r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d.\d+', 6, '(.+?')\)",
-            r"toDateTime64('explicit_redacted_timestamp', 6, '\2')",
+            r"toDateTime64('explicit_redacted_timestamp', 6, '\1')",
             query,
         )
     # replace cohort generated conditions
