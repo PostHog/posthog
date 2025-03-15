@@ -67,6 +67,7 @@ class SurveySerializer(serializers.ModelSerializer):
         required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
     )
     schedule = serializers.CharField(required=False, allow_null=True)
+    enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
 
     def get_feature_flag_keys(self, survey: Survey) -> list:
         return [
@@ -114,6 +115,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "response_sampling_interval",
             "response_sampling_limit",
             "response_sampling_daily_limits",
+            "enable_partial_responses",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -141,6 +143,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
     )
     schedule = serializers.CharField(required=False, allow_null=True)
+    enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
 
     class Meta:
         model = Survey
@@ -176,6 +179,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_interval",
             "response_sampling_limit",
             "response_sampling_daily_limits",
+            "enable_partial_responses",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -865,6 +869,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
     targeting_flag_key = serializers.CharField(source="targeting_flag.key", read_only=True)
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions")
+    enable_partial_responses = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Survey
@@ -888,6 +893,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "current_iteration",
             "current_iteration_start_date",
             "schedule",
+            "enable_partial_responses",
         ]
         read_only_fields = fields
 

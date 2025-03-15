@@ -2832,6 +2832,11 @@ export enum SurveySchedule {
     Always = 'always',
 }
 
+export enum SurveyPartialResponses {
+    Yes = 'true',
+    No = 'false',
+}
+
 export interface Survey {
     /** UUID */
     id: string
@@ -2882,6 +2887,7 @@ export interface Survey {
     response_sampling_interval?: number | null
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
+    enable_partial_responses?: boolean | null
 }
 
 export enum SurveyMatchType {
