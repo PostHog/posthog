@@ -15,6 +15,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useEffect, useState } from 'react'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
@@ -25,6 +26,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType } from '~/types'
 
 import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL, SURVEY_EVENT_NAME } from './constants'
+import { DuplicateToProjectModal, DuplicateToProjectTrigger } from './DuplicateToProjectModal'
 import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import {
@@ -42,6 +44,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, duplicateSurvey } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+
+    const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
     const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
@@ -81,6 +86,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 >
                                                     Duplicate
                                                 </LemonButton>
+                                                {hasMultipleProjects && <DuplicateToProjectTrigger />}
                                                 <LemonDivider />
                                             </>
                                             {survey.end_date && !survey.archived && (
@@ -313,6 +319,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             },
                         ]}
                     />
+                    {hasMultipleProjects && <DuplicateToProjectModal />}
                 </>
             )}
         </div>
