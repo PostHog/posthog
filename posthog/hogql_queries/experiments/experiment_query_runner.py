@@ -176,18 +176,16 @@ class ExperimentQueryRunner(QueryRunner):
                 # We then just emit 1 so we can easily sum it up
                 return parse_expr("1")
 
+    def _get_metric_property_filters(self) -> list[ast.Expr]:
+        if isinstance(self.metric.metric_config, ExperimentEventMetricConfig) and self.metric.metric_config.properties:
+            return [property_to_expr(property, self.team) for property in self.metric.metric_config.properties]
+        return []
+
     def _get_experiment_query(self) -> ast.SelectQuery:
         is_funnel_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
-
         test_accounts_filter = self._get_test_accounts_filter()
-
         metric_value = self._get_metric_value()
-
-        # Property filters
-        metric_property_filters: list[ast.Expr] = []
-        if isinstance(self.metric.metric_config, ExperimentEventMetricConfig) and self.metric.metric_config.properties:
-            for property in self.metric.metric_config.properties:
-                metric_property_filters.append(property_to_expr(property, self.team))
+        metric_property_filters = self._get_metric_property_filters()
 
         event_name = "$feature_flag_called"
         exposure_config = (
