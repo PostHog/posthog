@@ -24,12 +24,13 @@ import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealth
 import {
     ProductTab,
     QueryTile,
+    SectionTile,
     TabsTile,
     TileId,
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     webAnalyticsLogic,
-    WebSectionTile,
+    WebAnalyticsTile,
 } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 
@@ -40,8 +41,11 @@ import { ProductKey } from '~/types'
 
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 
-const Tiles = (): JSX.Element => {
-    const { tiles } = useValues(webAnalyticsLogic)
+export const Tiles = (props: { tiles?: WebAnalyticsTile[] }): JSX.Element => {
+    const { tiles: tilesFromProps } = props
+    const { tiles: tilesFromLogic } = useValues(webAnalyticsLogic)
+
+    const tiles = tilesFromProps ?? tilesFromLogic
 
     return (
         <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
@@ -54,6 +58,8 @@ const Tiles = (): JSX.Element => {
                     return <WebAnalyticsRecordingsTile key={i} tile={tile} />
                 } else if (tile.kind === 'error_tracking') {
                     return <WebAnalyticsErrorTrackingTile key={i} tile={tile} />
+                } else if (tile.kind === 'section') {
+                    return <SectionTileItem key={i} tile={tile} />
                 }
                 return null
             })}
@@ -110,10 +116,10 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
         >
             {title && (
-                <h2 className="flex-1 m-0 flex flex-row ml-1">
-                    {title}
+                <>
+                    <h2 className="flex-1 m-0 flex flex-row ml-1">{title}</h2>
                     {docs && <LearnMorePopover url={docs.url} title={docs.title} description={docs.description} />}
-                </h2>
+                </>
             )}
 
             <WebQuery
@@ -174,34 +180,39 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
     )
 }
 
-export const SectionTileItem = ({ section }: { section: WebSectionTile }): JSX.Element => {
+export const SectionTileItem = ({ tile }: { tile: SectionTile }): JSX.Element => {
     return (
-        <div className="col-span-full mb-4">
-            <h2 className="text-lg font-semibold mb-2">{section.title}</h2>
-            <div className={`grid ${section.gridClassName || 'grid-cols-1 md:grid-cols-3'} gap-4`}>
-                {section.tiles.map((tile) => {
-                    if (tile.kind === 'query') {
-                        return <QueryTileItem key={tile.tileId} tile={tile} />
-                    } else if (tile.kind === 'tabs') {
-                        return <TabsTileItem key={tile.tileId} tile={tile} />
+        <div className="col-span-full">
+            {tile.title && <h2 className="text-lg font-semibold mb-2">{tile.title}</h2>}
+            <div className={tile.layout.className ? `grid ${tile.layout.className}` : ''}>
+                {tile.tiles.map((subTile, i) => {
+                    if (subTile.kind === 'query') {
+                        return (
+                            <div key={`${subTile.tileId}-${i}`} className="col-span-1">
+                                <QueryTileItem tile={subTile} />
+                            </div>
+                        )
+                    } else if (subTile.kind === 'section') {
+                        return (
+                            <div key={`${subTile.tileId}-${i}`} className="col-span-full">
+                                <div className={`grid ${subTile.layout.className}`}>
+                                    {subTile.tiles.map(
+                                        (nestedTile, j) =>
+                                            nestedTile.kind === 'query' && (
+                                                <div key={`${nestedTile.tileId}-${j}`} className="col-span-1">
+                                                    <QueryTileItem tile={nestedTile} />
+                                                </div>
+                                            )
+                                    )}
+                                </div>
+                            </div>
+                        )
                     }
                     return null
                 })}
             </div>
+            <LemonDivider className="my-3" />
         </div>
-    )
-}
-
-export const SectionsList = ({ sections }: { sections: WebSectionTile[] }): JSX.Element => {
-    return (
-        <>
-            {sections.map((section, index) => (
-                <React.Fragment key={section.title}>
-                    <SectionTileItem section={section} />
-                    {index < sections.length - 1 && <LemonDivider className="my-3" />}
-                </React.Fragment>
-            ))}
-        </>
     )
 }
 

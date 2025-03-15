@@ -5,10 +5,9 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import React from 'react'
 
 import { pageReportsLogic } from './pageReportsLogic'
-import { SectionsList } from './WebAnalyticsDashboard'
+import { Tiles } from './WebAnalyticsDashboard'
 
 export function PageReportsFilters(): JSX.Element {
     const { pagesUrls, pageUrl, isLoading, stripQueryParams, dateFilter } = useValues(pageReportsLogic)
@@ -69,7 +68,7 @@ export function PageReportsFilters(): JSX.Element {
 }
 
 export function PageReports(): JSX.Element {
-    const { hasPageUrl, sections } = useValues(pageReportsLogic)
+    const { hasPageUrl, tiles } = useValues(pageReportsLogic)
 
     if (!hasPageUrl) {
         return (
@@ -87,7 +86,7 @@ export function PageReports(): JSX.Element {
 
     return (
         <div className="space-y-2 mt-2">
-            <SectionsList sections={sections} />
+            <Tiles tiles={tiles} />
         </div>
     )
 }

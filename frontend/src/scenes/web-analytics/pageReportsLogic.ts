@@ -18,6 +18,7 @@ import {
     DeviceTab,
     GeographyTab,
     PathTab,
+    SectionTile,
     SourceTab,
     TabsTile,
     TileId,
@@ -25,7 +26,7 @@ import {
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     webAnalyticsLogic,
     WebAnalyticsTile,
-    WebSectionTile,
+    WebTileLayout,
 } from './webAnalyticsLogic'
 
 export interface PageURL {
@@ -52,7 +53,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     path: ['scenes', 'web-analytics', 'pageReportsLogic'],
 
     connect: {
-        values: [webAnalyticsLogic, ['tiles', 'shouldFilterTestAccounts', 'dateFilter']],
+        values: [webAnalyticsLogic, ['tiles as webAnalyticsTiles', 'shouldFilterTestAccounts', 'dateFilter']],
         actions: [webAnalyticsLogic, ['setDates']],
     },
 
@@ -183,8 +184,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             (pagesUrlsLoading: boolean, isInitialLoad: boolean) => pagesUrlsLoading || isInitialLoad,
         ],
         queries: [
-            (s) => [s.tiles, s.pageUrl, s.stripQueryParams],
-            (tiles: WebAnalyticsTile[], pageUrl: string | null, stripQueryParams: boolean) => {
+            (s) => [s.webAnalyticsTiles, s.pageUrl, s.stripQueryParams],
+            (webAnalyticsTiles: WebAnalyticsTile[], pageUrl: string | null, stripQueryParams: boolean) => {
                 // If we don't have a pageUrl, return empty queries to rendering problems
                 if (!pageUrl) {
                     return {
@@ -206,7 +207,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
 
                 // Helper function to get query from a tile by tab ID
                 const getQuery = (tileId: TileId, tabId: string): QuerySchema | undefined => {
-                    const tile = tiles?.find((t) => t.tileId === tileId) as TabsTile | undefined
+                    const tile = webAnalyticsTiles?.find((t) => t.tileId === tileId) as TabsTile | undefined
                     const query = tile?.tabs.find((tab) => tab.id === tabId)?.query
 
                     if (query && 'source' in query && query.source) {
@@ -303,7 +304,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     embedded: true,
                 }),
         ],
-        sections: [
+        tiles: [
             (s) => [
                 s.queries,
                 s.pageUrl,
@@ -322,7 +323,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 ) => InsightVizNode<TrendsQuery>,
                 dateFilter: typeof webAnalyticsLogic.values.dateFilter,
                 compareFilter: CompareFilter
-            ): WebSectionTile[] => {
+            ): SectionTile[] => {
                 if (!pageUrl) {
                     return []
                 }
@@ -331,7 +332,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     tileId: TileId,
                     title: string,
                     description: string,
-                    query: QuerySchema | undefined
+                    query: QuerySchema | undefined,
+                    layout?: WebTileLayout
                 ): WebAnalyticsTile | null => {
                     if (!query) {
                         return null
@@ -344,7 +346,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         query,
                         showIntervalSelect: false,
                         insightProps: createInsightProps(tileId),
-                        layout: {
+                        layout: layout ?? {
                             className: '',
                         },
                         docs: {
@@ -354,30 +356,42 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     }
                 }
 
-                const combinedMetricsTile: WebAnalyticsTile = {
-                    kind: 'query',
-                    tileId: TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
-                    title: 'Trends over time',
-                    query: combinedMetricsQuery(dateFilter, compareFilter),
-                    showIntervalSelect: true,
-                    insightProps: createInsightProps(TileId.PAGE_REPORTS_COMBINED_METRICS_CHART, 'combined'),
-                    layout: {
-                        className: 'w-full min-h-[350px]',
-                    },
-                    docs: {
-                        title: 'Trends over time',
-                        description: 'Key metrics for this page over time',
-                    },
-                }
-
                 return [
                     {
+                        kind: 'section',
+                        tileId: TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
                         title: '', // Intentionally empty to avoid showing section title + tile title
-                        tiles: [combinedMetricsTile],
-                        gridClassName: 'grid-cols-1',
+                        tiles: [
+                            {
+                                kind: 'query',
+                                tileId: TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
+                                title: 'Trends over time',
+                                query: combinedMetricsQuery(dateFilter, compareFilter),
+                                showIntervalSelect: true,
+                                insightProps: createInsightProps(
+                                    TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
+                                    'combined'
+                                ),
+                                layout: {
+                                    className: 'w-full min-h-[350px]',
+                                },
+                                docs: {
+                                    title: 'Trends over time',
+                                    description: 'Key metrics for this page over time',
+                                },
+                            },
+                        ],
+                        layout: {
+                            className: 'w-full',
+                        },
                     },
                     {
+                        kind: 'section',
+                        tileId: TileId.PAGE_REPORTS_PATHS_SECTION,
                         title: 'Page Paths Analysis',
+                        layout: {
+                            className: 'grid-cols-1 md:grid-cols-3 gap-2',
+                        },
                         tiles: [
                             createQueryTile(
                                 TileId.PAGE_REPORTS_ENTRY_PATHS,
@@ -400,7 +414,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },
                     {
+                        kind: 'section',
+                        tileId: TileId.PAGE_REPORTS_TRAFFIC_SECTION,
                         title: 'Traffic Sources',
+                        layout: {
+                            className: 'grid-cols-1 md:grid-cols-2 gap-2',
+                        },
                         tiles: [
                             createQueryTile(
                                 TileId.PAGE_REPORTS_CHANNELS,
@@ -417,7 +436,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },
                     {
+                        kind: 'section',
+                        tileId: TileId.PAGE_REPORTS_DEVICE_INFORMATION_SECTION,
                         title: 'Device Information',
+                        layout: {
+                            className: 'grid-cols-1 md:grid-cols-3 gap-2',
+                        },
                         tiles: [
                             createQueryTile(
                                 TileId.PAGE_REPORTS_DEVICE_TYPES,
@@ -440,39 +464,64 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },
                     {
+                        kind: 'section',
+                        tileId: TileId.PAGE_REPORTS_GEOGRAPHY_SECTION,
                         title: 'Geography',
+                        layout: {
+                            className: '',
+                        },
                         tiles: [
-                            createQueryTile(
-                                TileId.PAGE_REPORTS_COUNTRIES,
-                                'Countries',
-                                'Countries where users access this page from',
-                                queries.countriesQuery
-                            ),
-                            createQueryTile(
-                                TileId.PAGE_REPORTS_REGIONS,
-                                'Regions',
-                                'Regions where users access this page from',
-                                queries.regionsQuery
-                            ),
-                            createQueryTile(
-                                TileId.PAGE_REPORTS_CITIES,
-                                'Cities',
-                                'Cities where users access this page from',
-                                queries.citiesQuery
-                            ),
-                            createQueryTile(
-                                TileId.PAGE_REPORTS_TIMEZONES,
-                                'Timezones',
-                                'Timezones where users access this page from',
-                                queries.timezonesQuery
-                            ),
-                            createQueryTile(
-                                TileId.PAGE_REPORTS_LANGUAGES,
-                                'Languages',
-                                'Languages of users accessing this page',
-                                queries.languagesQuery
-                            ),
-                        ].filter(Boolean) as WebAnalyticsTile[],
+                            {
+                                kind: 'section',
+                                tileId: TileId.PAGE_REPORTS_GEOGRAPHY_SECTION,
+                                title: '', // Empty title for the nested section
+                                layout: {
+                                    className: 'grid-cols-1 md:grid-cols-3 gap-2',
+                                },
+                                tiles: [
+                                    createQueryTile(
+                                        TileId.PAGE_REPORTS_COUNTRIES,
+                                        'Countries',
+                                        'Countries where users access this page from',
+                                        queries.countriesQuery
+                                    ),
+                                    createQueryTile(
+                                        TileId.PAGE_REPORTS_REGIONS,
+                                        'Regions',
+                                        'Regions where users access this page from',
+                                        queries.regionsQuery
+                                    ),
+                                    createQueryTile(
+                                        TileId.PAGE_REPORTS_CITIES,
+                                        'Cities',
+                                        'Cities where users access this page from',
+                                        queries.citiesQuery
+                                    ),
+                                ].filter(Boolean) as WebAnalyticsTile[],
+                            },
+                            {
+                                kind: 'section',
+                                tileId: TileId.PAGE_REPORTS_GEOGRAPHY_SECTION,
+                                title: '', // Empty title for the nested section
+                                layout: {
+                                    className: 'grid-cols-1 md:grid-cols-2 gap-2 mt-2',
+                                },
+                                tiles: [
+                                    createQueryTile(
+                                        TileId.PAGE_REPORTS_TIMEZONES,
+                                        'Timezones',
+                                        'Timezones where users access this page from',
+                                        queries.timezonesQuery
+                                    ),
+                                    createQueryTile(
+                                        TileId.PAGE_REPORTS_LANGUAGES,
+                                        'Languages',
+                                        'Languages of users accessing this page',
+                                        queries.languagesQuery
+                                    ),
+                                ].filter(Boolean) as WebAnalyticsTile[],
+                            },
+                        ],
                     },
                 ]
             },
