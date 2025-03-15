@@ -93,12 +93,25 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         const invocations: HogFunctionInvocation[] = []
         // A list of all the promises related to job releasing that we need to await
         const failReleases: Promise<void>[] = []
+
+        const hogFunctionIds: string[] = []
+
         for (const job of jobs) {
-            // NOTE: This is all a bit messy and might be better to refactor into a helper
             if (!job.functionId) {
                 throw new Error('Bad job: ' + JSON.stringify(job))
             }
-            const hogFunction = this.hogFunctionManager.getHogFunction(job.functionId)
+
+            hogFunctionIds.push(job.functionId)
+        }
+
+        if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
+            const hogFunctions = await this.hogFunctionManagerLazy.getHogFunctions(hogFunctionIds)
+            status.info('🧐', `Lazy loaded ${Object.keys(hogFunctions).length} hog functions`)
+        }
+
+        for (const job of jobs) {
+            // NOTE: This is all a bit messy and might be better to refactor into a helper
+            const hogFunction = this.hogFunctionManager.getHogFunction(job.functionId!)
 
             if (!hogFunction) {
                 // Here we need to mark the job as failed

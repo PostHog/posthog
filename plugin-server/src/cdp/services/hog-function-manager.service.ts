@@ -98,10 +98,6 @@ export class HogFunctionManagerService {
     }
 
     public getTeamHogFunctions(teamId: Team['id']): HogFunctionType[] {
-        if (!this.ready) {
-            throw new Error('HogFunctionManagerService is not ready! Run HogFunctionManagerService.start() before this')
-        }
-
         if (!this.orderedHogFunctionsCache[teamId]) {
             const functions = Object.values(this.hogFunctions).filter((x) => x?.team_id === teamId) as HogFunctionType[]
             this.orderedHogFunctionsCache[teamId] = this.sortHogFunctions(functions)
