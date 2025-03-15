@@ -12,7 +12,7 @@ import { CurrencyDropdown } from './CurrencyDropdown'
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 
 export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<HTMLButtonElement> }): JSX.Element {
-    const { events, saveDisabledReason } = useValues(revenueEventsSettingsLogic)
+    const { events, saveEventsDisabledReason, changesMadeToEvents } = useValues(revenueEventsSettingsLogic)
     const { addEvent, deleteEvent, updateEventRevenueProperty, updateEventRevenueCurrencyProperty, save } =
         useActions(revenueEventsSettingsLogic)
 
@@ -114,13 +114,17 @@ export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<H
                                         ref={buttonRef}
                                     />
 
-                                    <LemonButton type="primary" onClick={save} disabledReason={saveDisabledReason}>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={save}
+                                        disabledReason={saveEventsDisabledReason}
+                                    >
                                         Save
                                     </LemonButton>
                                 </div>
-                                {!saveDisabledReason && (
+                                {changesMadeToEvents && (
                                     <span className="text-xs text-error normal-case font-normal">
-                                        Save changes to take effect
+                                        Remember to save your changes to take effect
                                     </span>
                                 )}
                             </div>

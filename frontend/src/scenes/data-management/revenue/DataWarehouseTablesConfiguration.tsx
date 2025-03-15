@@ -47,7 +47,12 @@ export function DataWarehouseTablesConfiguration({
 }: {
     buttonRef: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
-    const { baseCurrency, dataWarehouseTables, saveDisabledReason } = useValues(revenueEventsSettingsLogic)
+    const {
+        baseCurrency,
+        dataWarehouseTables,
+        saveDataWarehouseTablesDisabledReason,
+        changesMadeToDataWarehouseTables,
+    } = useValues(revenueEventsSettingsLogic)
     const {
         addDataWarehouseTable,
         deleteDataWarehouseTable,
@@ -180,13 +185,17 @@ export function DataWarehouseTablesConfiguration({
                                         ref={buttonRef}
                                     />
 
-                                    <LemonButton type="primary" onClick={save} disabledReason={saveDisabledReason}>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={save}
+                                        disabledReason={saveDataWarehouseTablesDisabledReason}
+                                    >
                                         Save
                                     </LemonButton>
                                 </div>
-                                {!saveDisabledReason && (
+                                {changesMadeToDataWarehouseTables && (
                                     <span className="text-xs text-error normal-case font-normal">
-                                        Save changes to take effect
+                                        Remember to save your changes
                                     </span>
                                 )}
                             </div>
