@@ -212,7 +212,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
-    revenue_tracking_config = serializers.SerializerMethodField()
+    revenue_tracking_config = serializers.JSONField(required=False)
 
     class Meta:
         model = Team
