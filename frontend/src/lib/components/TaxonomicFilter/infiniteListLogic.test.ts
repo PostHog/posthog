@@ -372,9 +372,9 @@ describe('infiniteListLogic', () => {
                     isExpandable: false,
                     isExpanded: true,
                     isExpandableButtonSelected: false,
-                    totalResultCount: 3,
+                    totalResultCount: 2,
                     totalExtraCount: 0,
-                    totalListCount: 3,
+                    totalListCount: 2,
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
