@@ -38,6 +38,7 @@ pub async fn get_app_test_context(db: PgPool) -> AppContext {
         max_response_bytes: 1024 * 1024,
         retry_backoff_base: Duration::milliseconds(1000),
         allow_internal_ips: true,
+        should_compress_vm_state: true,
     };
 
     let (_, mock_producer) = create_mock_kafka().await;
