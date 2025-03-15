@@ -6,9 +6,6 @@ edition = "2021"
 [lints]
 workspace = true
 
-[features]
-examples = ["dep:axum"]
-
 [dependencies]
 async-trait = { workspace = true }
 axum = { workspace = true, optional = true }
