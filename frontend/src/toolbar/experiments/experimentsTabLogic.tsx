@@ -103,11 +103,11 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             [
                 'dataAttributes',
                 'apiURL',
-                'temporaryToken',
                 'buttonVisible',
                 'userIntent',
                 'dataAttributes',
                 'experimentId',
+                'accessToken',
             ],
             experimentsLogic,
             ['allExperiments'],
@@ -190,20 +190,30 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 // This property is only used in the editor to undo transforms
                 delete experimentToSave.original_html_state
 
-                const { apiURL, temporaryToken } = values
+                const { apiURL, accessToken } = values
                 const { selectedExperimentId } = values
 
                 let response: WebExperiment
                 try {
                     if (selectedExperimentId && selectedExperimentId !== 'new') {
                         response = await api.update(
-                            `${apiURL}/api/projects/@current/web_experiments/${selectedExperimentId}/?temporary_token=${temporaryToken}`,
-                            experimentToSave
+                            `${apiURL}/api/projects/@current/web_experiments/${selectedExperimentId}/`,
+                            experimentToSave,
+                            {
+                                headers: {
+                                    Authorization: `Bearer ${accessToken}`,
+                                },
+                            }
                         )
                     } else {
                         response = await api.create(
-                            `${apiURL}/api/projects/@current/web_experiments/?temporary_token=${temporaryToken}`,
-                            experimentToSave
+                            `${apiURL}/api/projects/@current/web_experiments/`,
+                            experimentToSave,
+                            {
+                                headers: {
+                                    Authorization: `Bearer ${accessToken}`,
+                                },
+                            }
                         )
                     }
 

@@ -158,7 +158,6 @@ class User(AbstractUser, UUIDClassicModel):
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email = models.EmailField(_("email address"), unique=True)
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
-    temporary_token = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
     requested_password_reset_at = models.DateTimeField(null=True, blank=True)
@@ -181,6 +180,7 @@ class User(AbstractUser, UUIDClassicModel):
 
     # DEPRECATED
     events_column_config = models.JSONField(default=events_column_config_default)
+    temporary_token = models.CharField(max_length=200, null=True, blank=True, unique=True)
     # DEPRECATED - Most emails are done via 3rd parties and we use their opt/in out tooling
     email_opt_in = models.BooleanField(default=False, null=True, blank=True)
 

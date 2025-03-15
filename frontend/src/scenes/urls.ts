@@ -157,6 +157,7 @@ export const urls = {
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
     moveToPostHogCloud: (): string => '/move-to-cloud',
+    clientAuthorization: (): string => `/client_authorization`,
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',

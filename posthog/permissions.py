@@ -9,13 +9,9 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
+from posthog.auth import SharingAccessTokenAuthentication, SessionAuthentication
 from rest_framework.viewsets import ViewSet
 
-from posthog.auth import (
-    PersonalAPIKeyAuthentication,
-    SessionAuthentication,
-    SharingAccessTokenAuthentication,
-)
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -326,6 +322,16 @@ class ScopeBasePermission(BasePermission):
                 return "patch"
         return view.action
 
+    def _get_scopes(self, request, view) -> tuple[list[str], list[str], list[str]]:
+        if not hasattr(request.successful_authenticator, "scopes"):
+            raise NotImplementedError("This permission class only works with authenticators containing 'scopes'")
+
+        scopes: list[str] = request.successful_authenticator.scopes
+        scoped_teams: list[str] = getattr(request.successful_authenticator, "scoped_teams", [])
+        scoped_organizations: list[str] = getattr(request.successful_authenticator, "scoped_organizations", [])
+
+        return scopes, scoped_teams, scoped_organizations
+
     def _get_required_scopes(self, request, view) -> Optional[list[str]]:
         # If required_scopes is set on the view method then use that
         # Otherwise use the scope_object and derive the required scope from the action
@@ -372,14 +378,13 @@ class APIScopePermission(ScopeBasePermission):
         # Helps devs remember to add it.
         self._get_scope_object(request, view)
 
-        # API Scopes currently only apply to PersonalAPIKeyAuthentication
-        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+        try:
+            scopes, _, _ = self._get_scopes(request, view)
+        except NotImplementedError:
             return True
 
-        key_scopes = request.successful_authenticator.personal_api_key.scopes
-
-        # TRICKY: Legacy API keys have no scopes and are allowed to do anything, even if the view is unsupported.
-        if not key_scopes:
+        # API Scopes permissioning only applies if scopes are present in some form, otherwise nothing is applied
+        if not scopes:
             return True
 
         required_scopes = self._get_required_scopes(request, view)
@@ -390,7 +395,7 @@ class APIScopePermission(ScopeBasePermission):
 
         self.check_team_and_org_permissions(request, view)
 
-        if "*" in key_scopes:
+        if "*" in scopes:
             return True
 
         for required_scope in required_scopes:
@@ -400,7 +405,7 @@ class APIScopePermission(ScopeBasePermission):
             if required_scope.endswith(":read"):
                 valid_scopes.append(required_scope.replace(":read", ":write"))
 
-            if not any(scope in key_scopes for scope in valid_scopes):
+            if not any(scope in scopes for scope in valid_scopes):
                 self.message = f"API key missing required scope '{required_scope}'"
                 return False
 
@@ -411,8 +416,7 @@ class APIScopePermission(ScopeBasePermission):
         if scope_object == "user":
             return  # The /api/users/@me/ endpoint is exempt from team and org scoping
 
-        scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
-        scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
+        _, scoped_teams, scoped_organizations = self._get_scopes(request, view)
 
         if scoped_teams:
             try:

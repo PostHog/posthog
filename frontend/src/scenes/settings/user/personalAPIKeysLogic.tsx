@@ -55,6 +55,7 @@ export const APIScopes: APIScope[] = [
     { key: 'export' },
     { key: 'feature_flag' },
     { key: 'group' },
+    { key: 'heatmaps' },
     { key: 'hog_function' },
     { key: 'insight' },
     { key: 'notebook' },

@@ -2,7 +2,6 @@ from rest_framework import viewsets, exceptions, status
 from rest_framework.response import Response
 from rest_framework.request import Request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import TemporaryTokenAuthentication
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 
@@ -10,10 +9,8 @@ from posthog.hogql_queries.query_runner import get_query_runner, ExecutionMode
 
 
 # This is a simple wrapper around a basic query, so that's why `scope_object = "query"`
-# This `Viewset` does need to exist, however, because we need to support the `TemporaryTokenAuthentication` method
 class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "query"
-    authentication_classes = [TemporaryTokenAuthentication]
 
     """
     Get web vitals for a specific pathname.

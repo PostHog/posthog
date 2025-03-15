@@ -25,6 +25,7 @@ import { urls } from 'scenes/urls'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
+import { TOOLBAR_REQUIRED_API_SCOPES } from '~/toolbar/toolbarConfigLogic'
 import { ExperimentIdType, ToolbarParams, ToolbarUserIntent } from '~/types'
 
 import type { authorizedUrlListLogicType } from './authorizedUrlListLogicType'
@@ -113,6 +114,7 @@ function buildToolbarParams(options?: {
         // we require e.g. SSO login to the app, which will not work when placed
         // behind a proxy unless we register each domain with the OAuth2 client.
         apiURL: apiHostOrigin(),
+        scopes: TOOLBAR_REQUIRED_API_SCOPES,
         ...(options?.actionId ? { actionId: options.actionId } : {}),
         ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
     }

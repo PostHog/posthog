@@ -6,7 +6,6 @@ from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import TemporaryTokenAuthentication
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Element, Filter
 from posthog.models.element.element import chain_to_elements
@@ -34,14 +33,13 @@ class ElementSerializer(serializers.ModelSerializer):
 
 
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "heatmaps"
     filter_rewrite_rules = {"team_id": "group__team_id"}
 
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
-    authentication_classes = [TemporaryTokenAuthentication]
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["heatmaps:read"])
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         """
         The original version of this API always and only returned $autocapture elements
@@ -151,7 +149,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 raise ValidationError("Only $autocapture and $rageclick are supported for now.")
         return event_to_filter
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["heatmaps:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         value = request.GET.get("value")

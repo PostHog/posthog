@@ -27,6 +27,7 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
+    client_auth,
     comments,
     dead_letter_queue,
     debug_ch_queries,
@@ -393,6 +394,7 @@ organizations_router.register(
 router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
+router.register(r"client_authorization", client_auth.ClientAuthorizationViewset, "client_authorization")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")

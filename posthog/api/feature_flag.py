@@ -30,7 +30,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
-from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -658,9 +658,6 @@ class FeatureFlagViewSet(
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
     permission_classes = [CanEditFeatureFlag]
-    authentication_classes = [
-        TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
-    ]
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -856,7 +853,7 @@ class FeatureFlagViewSet(
 
         return Response({"success": True}, status=200)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()

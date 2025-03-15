@@ -33,6 +33,7 @@ from rest_framework.response import Response
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
+from posthog.api.client_auth import confirm_client_auth_flow, start_client_auth_flow
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
@@ -44,9 +45,9 @@ from posthog.api.utils import (
     unparsed_hostname_in_allowed_url_list,
 )
 from posthog.auth import (
+    JwtAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
-    TemporaryTokenAuthentication,
     authenticate_secondarily,
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
@@ -388,12 +389,13 @@ class UserViewSet(
     scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    authentication_classes = [JwtAuthentication, SessionAuthentication, PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff"]
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
+    required_scopes: Optional[list[str]] = None  # NOTE: The scope_object covers this
 
     def get_object(self) -> User:
         lookup_value = self.kwargs[self.lookup_field]
@@ -495,7 +497,8 @@ class UserViewSet(
         methods=["GET", "PATCH"],
         detail=True,
         throttle_classes=[],
-        authentication_classes=[TemporaryTokenAuthentication, SessionAuthentication, PersonalAPIKeyAuthentication],
+        required_scopes=["user:read"],
+        authentication_classes=[SessionAuthentication, JwtAuthentication, PersonalAPIKeyAuthentication],
     )
     def hedgehog_config(self, request, **kwargs):
         instance = self.get_object()
@@ -604,6 +607,7 @@ def redirect_to_site(request):
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
+    scopes = request.GET.get("scopes", "")
 
     if not app_url:
         return HttpResponse(status=404)
@@ -614,12 +618,14 @@ def redirect_to_site(request):
             "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
         )
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
-    request.user.temporary_token = secrets.token_urlsafe(32)
-    request.user.save()
+
+    code, verification = start_client_auth_flow()
+    confirm_client_auth_flow(code, verification, request.user, scopes.split(" "))
+
     params = {
         "action": "ph_authorize",
         "token": team.api_token,
-        "temporaryToken": request.user.temporary_token,
+        "authorizationCode": code,
         "actionId": request.GET.get("actionId"),
         "experimentId": request.GET.get("experimentId"),
         "userIntent": request.GET.get("userIntent"),

@@ -23,6 +23,7 @@ APIScopeObject = Literal[
     "feature_flag",
     "file_system",
     "group",
+    "heatmaps",
     "hog_function",
     "insight",
     "notebook",
@@ -55,3 +56,7 @@ APIScopeObjectOrNotSupported = Literal[
 
 API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
 API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
+
+ALL_API_SCOPES: tuple[str, ...] = tuple(
+    f"{object}:{action}" for object in API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS
+)
