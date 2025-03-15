@@ -154,6 +154,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                                 loading={!!billingLoading}
                                 onClick={() => showPaymentEntryModal()}
                                 data-attr="onboarding-subscribe-button"
+                                fullWidth
                             >
                                 {planData.ctaText}
                             </BillingUpgradeCTA>
@@ -172,6 +173,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                                     reportBillingUpgradeClicked(product.type)
                                 }}
                                 data-attr="onboarding-subscribe-button"
+                                fullWidth
                             >
                                 {planData.ctaText}
                             </BillingUpgradeCTA>
