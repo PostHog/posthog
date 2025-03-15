@@ -42,7 +42,12 @@ export function TopHeading({ query }: { query: Node | null }): JSX.Element {
     return (
         <>
             <span title={insightType?.description}>{insightType?.name}</span>
-            {dateText ? <> • {dateText}</> : null}
+            {dateText ? (
+                <>
+                    {' '}
+                    • <span className="whitespace-nowrap">{dateText}</span>
+                </>
+            ) : null}
         </>
     )
 }

@@ -55,7 +55,7 @@ Follow this instruction to create a query:
 * Build the insight according to the plan. Properties can be of multiple types: String, Numeric, Bool, and DateTime. A property can be an array of those types and only has a single type.
 * When evaluating filter operators, replace the `equals` or `doesn't equal` operators with `contains` or `doesn't contain` if the query value is likely a personal name, company name, or any other name-sensitive term where letter casing matters. For instance, if the value is ‘John Doe' or ‘Acme Corp', replace `equals` with `contains` and change the value to lowercase from `John Doe` to `john doe` or  `Acme Corp` to `acme corp`.
 * Determine the activation type that will answer the user's question in the best way. Use the provided defaults.
-* Determine the retention period and number of periods to look back.
+* Use the time period as the retention period from the plan and determine the number of periods to look back.
 * Determine if the user wants to filter out internal and test users. If the user didn't specify, filter out internal and test users by default.
 * Determine if you need to apply a sampling factor. Only specify those if the user has explicitly asked.
 * Use your judgment if there are any other parameters that the user might want to adjust that aren't listed here.

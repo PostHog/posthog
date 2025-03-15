@@ -46,8 +46,11 @@ class TrendsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
                         - entity
                         - property name
                     - Repeat for each breakdown.
-                    ```
 
+                    (if a time period or interval is explicitly mentioned)
+                    Time period: from and/or to dates or durations. For example: `last 1 week`, `last 12 days`, `from 2025-01-15 to 2025-01-20`, `2025-01-15`, from `last month` to `2024-11-15`.
+                    Time interval: hour/day/week/month/year
+                    ```
                     Args:
                         final_response: List all events and properties that you want to use to answer the question.
                 """,
