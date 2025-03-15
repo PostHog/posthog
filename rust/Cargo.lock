@@ -1370,12 +1370,22 @@ dependencies = [
 name = "common-cookieless"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
+ "axum 0.7.5",
  "base64 0.22.0",
+ "chrono",
+ "common-metrics",
+ "common-redis",
+ "futures",
  "itoa",
+ "metrics",
+ "moka",
+ "rand",
  "serde",
  "serde_json",
  "siphasher 1.0.1",
  "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
