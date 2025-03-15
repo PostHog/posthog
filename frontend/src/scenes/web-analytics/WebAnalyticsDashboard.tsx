@@ -116,10 +116,10 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
         >
             {title && (
-                <>
-                    <h2 className="flex-1 m-0 flex flex-row ml-1">{title}</h2>
+                <div className="flex flex-row items-center">
+                    <h2>{title}</h2>
                     {docs && <LearnMorePopover url={docs.url} title={docs.title} description={docs.description} />}
-                </>
+                </div>
             )}
 
             <WebQuery

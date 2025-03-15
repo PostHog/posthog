@@ -1,13 +1,29 @@
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { XRayHog2 } from 'lib/components/hedgehogs'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { pageReportsLogic } from './pageReportsLogic'
 import { Tiles } from './WebAnalyticsDashboard'
+
+function NoUrlSelectedMessage(): JSX.Element {
+    return (
+        <div className="border-2 border-dashed border-primary w-full p-8 rounded flex items-center justify-center gap-8">
+            <div className="flex-shrink-0">
+                <XRayHog2 alt="X-ray hedgehog" className="w-60" />
+            </div>
+            <div className="flex-1 max-w-140">
+                <h2>No page reports yet</h2>
+                <p className="ml-0">
+                    Page Reports provide in-depth analytics for individual pages on your website. Use the search bar
+                    above to select a specific page and see detailed metrics.
+                </p>
+            </div>
+        </div>
+    )
+}
 
 export function PageReportsFilters(): JSX.Element {
     const { pagesUrls, pageUrl, isLoading, stripQueryParams, dateFilter } = useValues(pageReportsLogic)
@@ -39,7 +55,7 @@ export function PageReportsFilters(): JSX.Element {
                         onChange={(val: string[]) => setPageUrl(val.length > 0 ? val[0] : null)}
                         options={options}
                         onInputChange={(val: string) => setPageUrlSearchTerm(val)}
-                        data-attr="page-url-search"
+                        data-attr="page-reports-url-search"
                         onFocus={() => loadPages('')}
                         className="max-w-full"
                     />
@@ -56,11 +72,7 @@ export function PageReportsFilters(): JSX.Element {
                     </div>
                 </Tooltip>
                 <div>
-                    <DateFilter
-                        dateFrom={dateFilter.dateFrom}
-                        dateTo={dateFilter.dateTo}
-                        onChange={(fromDate, toDate) => setDates(fromDate, toDate)}
-                    />
+                    <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
                 </div>
             </div>
         </div>
@@ -73,13 +85,7 @@ export function PageReports(): JSX.Element {
     if (!hasPageUrl) {
         return (
             <div className="space-y-2 mt-2">
-                <ProductIntroduction
-                    productName="PAGE REPORTS"
-                    thingName="page report"
-                    description="Page Reports provide in-depth analytics for individual pages on your website. Use the search bar above to select a specific page and see detailed metrics."
-                    isEmpty={true}
-                    customHog={() => <XRayHog2 alt="X-ray hedgehog" className="w-60" />}
-                />
+                <NoUrlSelectedMessage />
             </div>
         )
     }
