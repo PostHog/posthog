@@ -15,10 +15,10 @@ function NoUrlSelectedMessage(): JSX.Element {
                 <XRayHog2 alt="X-ray hedgehog" className="w-60" />
             </div>
             <div className="flex-1 max-w-140">
-                <h2>No page reports yet</h2>
+                <h2>Select a page to analyze</h2>
                 <p className="ml-0">
-                    Page Reports provide in-depth analytics for individual pages on your website. Use the search bar
-                    above to select a specific page and see detailed metrics.
+                    See detailed performance metrics for any page on your site. Just use the search bar above to find
+                    and select a page you want to analyze.
                 </p>
             </div>
         </div>
