@@ -201,12 +201,17 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                 resetConfig: () => {
                     return values.savedRevenueTrackingConfig
                 },
+                updateCurrentTeam: (_, { revenue_tracking_config }) => {
+                    return revenue_tracking_config || createEmptyConfig(values.preflight?.region)
+                },
             },
         ],
         savedRevenueTrackingConfig: [
             values.currentTeam?.revenue_tracking_config || createEmptyConfig(values.preflight?.region),
             {
-                saveChanges: (_, team) => team.revenue_tracking_config || createEmptyConfig(values.preflight?.region),
+                updateCurrentTeam: (_, { revenue_tracking_config }) => {
+                    return revenue_tracking_config || createEmptyConfig(values.preflight?.region)
+                },
             },
         ],
     })),
@@ -224,8 +229,23 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             (revenueTrackingConfig: RevenueTrackingConfig | null) =>
                 revenueTrackingConfig?.baseCurrency || CurrencyCode.USD,
         ],
-        saveDisabledReason: [
-            (s) => [s.revenueTrackingConfig, s.changesMade],
+
+        changesMadeToEvents: [
+            (s) => [s.revenueTrackingConfig, s.savedRevenueTrackingConfig],
+            (config, savedConfig): boolean => {
+                return !!config && !objectsEqual(config.events, savedConfig.events)
+            },
+        ],
+
+        changesMadeToDataWarehouseTables: [
+            (s) => [s.revenueTrackingConfig, s.savedRevenueTrackingConfig],
+            (config, savedConfig): boolean => {
+                return !!config && !objectsEqual(config.dataWarehouseTables, savedConfig.dataWarehouseTables)
+            },
+        ],
+
+        saveEventsDisabledReason: [
+            (s) => [s.revenueTrackingConfig, s.changesMadeToEvents],
             (config, changesMade): string | null => {
                 if (!config) {
                     return 'Loading...'
@@ -236,10 +256,16 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                 return null
             },
         ],
-        changesMade: [
-            (s) => [s.revenueTrackingConfig, s.savedRevenueTrackingConfig],
-            (config, savedConfig): boolean => {
-                return !!config && !objectsEqual(config, savedConfig)
+        saveDataWarehouseTablesDisabledReason: [
+            (s) => [s.revenueTrackingConfig, s.changesMadeToDataWarehouseTables],
+            (config, changesMade): string | null => {
+                if (!config) {
+                    return 'Loading...'
+                }
+                if (!changesMade) {
+                    return 'No changes to save'
+                }
+                return null
             },
         ],
 
@@ -265,7 +291,6 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                 return query
             },
         ],
-
         exampleDataWarehouseTablesQuery: [
             (s) => [s.savedRevenueTrackingConfig],
             (revenueTrackingConfig: RevenueTrackingConfig | null) => {
@@ -309,7 +334,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         },
     })),
     beforeUnload(({ actions, values }) => ({
-        enabled: () => values.changesMade,
+        enabled: () => values.changesMadeToEvents || values.changesMadeToDataWarehouseTables,
         message: 'Changes you made will be discarded. Make sure you save your changes before leaving this page.',
         onConfirm: () => {
             actions.resetConfig()

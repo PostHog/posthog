@@ -212,7 +212,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
-    revenue_tracking_config = serializers.SerializerMethodField()
+    revenue_tracking_config = serializers.JSONField(required=False)
 
     class Meta:
         model = Team
@@ -296,14 +296,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
 
     def get_revenue_tracking_config(self, obj):
-        # tracking_config = obj.revenue_config
-        # tracking_config["events"] = list(map(dict, tracking_config["events"]))
-        # for event in tracking_config["events"]:
-        #     event["revenueCurrencyProperty"] = event["revenueCurrencyProperty"].model_dump()
-
-        # tracking_config["dataWarehouseTables"] = list(map(dict, tracking_config["dataWarehouseTables"]))
-        # for table in tracking_config["dataWarehouseTables"]:
-        #     table["revenueCurrencyColumn"] = table["revenueCurrencyColumn"].model_dump()
         return obj.revenue_config.model_dump()
 
     @staticmethod

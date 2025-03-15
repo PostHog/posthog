@@ -20,6 +20,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
+import { cn } from 'lib/utils/css-classes'
 import { Fragment, useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
@@ -373,7 +374,11 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 return (
                                     <Fragment key={key}>
                                         <label className="definition-popover-edit-form-label" htmlFor={key}>
-                                            <span className="label-text">
+                                            <span
+                                                className={cn('label-text', {
+                                                    'font-semibold': !optional,
+                                                })}
+                                            >
                                                 {label}
                                                 {!optional && <span className="text-muted">&nbsp;*</span>}
                                             </span>
