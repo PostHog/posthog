@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     team_id Int64,
     session_id_v7 UInt128, -- integer representation of a uuidv7
+    session_ts datetime MATERIALIZED fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)),
 
     -- ClickHouse will pick the latest value of distinct_id for the session
     -- this is fine since even if the distinct_id changes during a session
@@ -141,10 +142,10 @@ def RAW_SESSIONS_TABLE_SQL(on_cluster=True):
     return (
         RAW_SESSIONS_TABLE_BASE_SQL
         + """
-PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
+PARTITION BY toYYYYMM(session_ts)
 ORDER BY (
     team_id,
-    toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
+    toStartOfHour(session_ts),
     cityHash64(session_id_v7),
     session_id_v7
 )
