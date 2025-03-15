@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
+from pydantic import ValidationError
 from typing import Any, Optional, cast
 from uuid import UUID
 
@@ -49,6 +50,7 @@ from posthog.permissions import (
 from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.schema import RevenueTrackingConfig
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
@@ -204,6 +206,27 @@ TEAM_CONFIG_FIELDS = (
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
 
+class RevenueTrackingConfigSerializer(serializers.Field):
+    def to_representation(self, value):
+        # When reading, access the revenue_config from the team model
+        if value is None:
+            return None
+        # Get the instance (Team) that has this field
+        team = self.parent.instance
+        if team and hasattr(team, "revenue_config"):
+            return team.revenue_config.model_dump() if team.revenue_config else None
+        return None
+
+    def to_internal_value(self, data):
+        if data is None:
+            return None
+
+        try:
+            return RevenueTrackingConfig.model_validate(data).model_dump()
+        except ValidationError as e:
+            raise serializers.ValidationError(str(e))
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Optional[Team]
 
@@ -212,7 +235,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
-    revenue_tracking_config = serializers.JSONField(required=False)
+    revenue_tracking_config = RevenueTrackingConfigSerializer(required=False)
 
     class Meta:
         model = Team
@@ -294,9 +317,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return ProductIntent.objects.filter(team=obj).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
-
-    def get_revenue_tracking_config(self, obj):
-        return obj.revenue_config.model_dump()
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
