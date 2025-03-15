@@ -1,10 +1,11 @@
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
 
-use feature_flags::api::types::FlagsResponse;
+use feature_flags::api::types::{FlagsResponse, LegacyFlagsResponse};
 use limiters::redis::ServiceName;
 use rand::Rng;
 use reqwest::StatusCode;
+use rstest::rstest;
 use serde_json::{json, Value};
 
 use crate::common::*;
@@ -18,8 +19,14 @@ use feature_flags::utils::test_utils::{
 
 pub mod common;
 
+#[rstest]
+#[case(None)]
+#[case(Some("1"))]
+#[case(Some("banana"))]
 #[tokio::test]
-async fn it_sends_flag_request() -> Result<()> {
+async fn it_gets_legacy_response_by_default_or_invalid_version(
+    #[case] version: Option<&str>,
+) -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
 
     let distinct_id = "user_distinct_id".to_string();
@@ -62,7 +69,9 @@ async fn it_sends_flag_request() -> Result<()> {
         "groups": {"group1": "group1"}
     });
 
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server
+        .send_flags_request(payload.to_string(), version)
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -72,6 +81,83 @@ async fn it_sends_flag_request() -> Result<()> {
             "errorsWhileComputingFlags": false,
             "featureFlags": {
                 "test-flag": true
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[rstest]
+#[case("2")]
+#[case("3")]
+#[tokio::test]
+async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    // Insert a specific flag for the team
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "groups": {"group1": "group1"}
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some(version))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "test-flag": {
+                    "key": "test-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0
+                    },
+                    "metadata": {
+                        "id": 1,
+                        "version": 0
+                    }
+                }
             }
         })
     );
@@ -126,7 +212,7 @@ async fn it_rejects_empty_distinct_id() -> Result<()> {
         "distinct_id": "",
         "groups": {"group1": "group1"}
     });
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
     assert_eq!(
         res.text().await?,
@@ -147,7 +233,7 @@ async fn it_rejects_missing_distinct_id() -> Result<()> {
         "token": token,
         "groups": {"group1": "group1"}
     });
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
     assert_eq!(
         res.text().await?,
@@ -165,7 +251,7 @@ async fn it_rejects_missing_token() -> Result<()> {
         "distinct_id": "user1",
         "groups": {"group1": "group1"}
     });
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
     assert_eq!(
         res.text().await?,
@@ -184,7 +270,7 @@ async fn it_rejects_invalid_token() -> Result<()> {
         "distinct_id": "user1",
         "groups": {"group1": "group1"}
     });
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
     assert_eq!(
         res.text().await?,
@@ -199,7 +285,7 @@ async fn it_handles_malformed_json() -> Result<()> {
     let server = ServerHandle::for_config(config).await;
 
     let payload = "{invalid_json}";
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
 
     let response_text = res.text().await?;
@@ -235,7 +321,46 @@ async fn it_handles_quota_limiting() -> Result<()> {
         "groups": {"group1": "group1"}
     });
 
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
+    assert_eq!(StatusCode::OK, res.status());
+    let response_body = res.json::<LegacyFlagsResponse>().await?;
+
+    // Parse response body and assert that the quota_limited field is present and contains the correct value
+    assert!(response_body.quota_limited.is_some());
+    assert_eq!(
+        vec![ServiceName::FeatureFlags.as_string()],
+        response_body.quota_limited.unwrap()
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_handles_quota_limiting_v2() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    // Create a token for testing
+    let token = format!("test_token_{}", rand::thread_rng().gen::<u64>());
+    let team_id = 12345;
+
+    // Create a server with the limited token
+    let server = ServerHandle::for_config_with_mock_redis(
+        config.clone(),
+        vec![token.clone()],            // Limited tokens
+        vec![(token.clone(), team_id)], // Valid tokens with their team IDs
+    )
+    .await;
+
+    // Test with a limited token
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user1",
+        "groups": {"group1": "group1"}
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"))
+        .await;
     assert_eq!(StatusCode::OK, res.status());
     let response_body = res.json::<FlagsResponse>().await?;
 
@@ -309,7 +434,7 @@ async fn it_handles_multivariate_flags() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -383,7 +508,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
         }
     });
 
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -406,7 +531,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
         }
     });
 
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -486,7 +611,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
         }
     });
 
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -514,7 +639,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
         }
     });
 
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -600,7 +725,7 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
 
     assert_eq!(StatusCode::OK, res.status());
 
@@ -710,7 +835,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
             "distinct_id": distinct_id
         });
 
-        let res = server.send_flags_request(payload.to_string()).await;
+        let res = server.send_flags_request(payload.to_string(), None).await;
         assert_eq!(res.status(), StatusCode::OK);
 
         let json_data = res.json::<Value>().await?;
@@ -737,7 +862,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
             }
         });
 
-        let res = server.send_flags_request(payload.to_string()).await;
+        let res = server.send_flags_request(payload.to_string(), None).await;
         assert_eq!(res.status(), StatusCode::OK);
 
         let json_data = res.json::<Value>().await?;
@@ -764,7 +889,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
             }
         });
 
-        let res = server.send_flags_request(payload.to_string()).await;
+        let res = server.send_flags_request(payload.to_string(), None).await;
         assert_eq!(res.status(), StatusCode::OK);
 
         let json_data = res.json::<Value>().await?;
@@ -832,7 +957,7 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -923,7 +1048,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -947,7 +1072,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
         }
     });
 
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
@@ -971,7 +1096,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
         }
     });
 
-    let res = server.send_flags_request(payload.to_string()).await;
+    let res = server.send_flags_request(payload.to_string(), None).await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;

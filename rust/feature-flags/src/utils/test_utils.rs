@@ -287,6 +287,7 @@ pub async fn insert_flag_for_team_in_pg(
                     },
                 ],
             }),
+            version: None,
         },
     };
 
