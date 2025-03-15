@@ -47,6 +47,7 @@ jobs:
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
+                  no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
 
     deploy_preview:
         name: Deploy preview environment
