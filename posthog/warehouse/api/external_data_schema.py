@@ -128,40 +128,34 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         validated_data["sync_type"] = sync_type
 
-        # Check whether we need a full table refresh
         trigger_refresh = False
-        if instance.sync_type is not None and sync_type is not None:
-            # If sync type changes
-            if instance.sync_type != sync_type:
-                trigger_refresh = True
-
-            # If sync type is incremental and the incremental field changes
-            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and instance.sync_type_config.get(
-                "incremental_field"
-            ) != data.get("incremental_field"):
-                trigger_refresh = True
-
         # Update the validated_data with incremental fields
-        if sync_type == "incremental":
+        if sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+            incremental_field_changed = (
+                instance.sync_type_config.get("incremental_field") != data.get("incremental_field")
+                or instance.sync_type_config.get("incremental_field_last_value") is None
+            )
+
             payload = instance.sync_type_config
             payload["incremental_field"] = data.get("incremental_field")
             payload["incremental_field_type"] = data.get("incremental_field_type")
-            payload["incremental_field_last_value"] = None
-            payload["partitioning_enabled"] = None
-            payload["partitioning_size"] = None
-            payload["partitioning_keys"] = None
+
+            # If the incremental field has changed
+            if incremental_field_changed:
+                if instance.table is not None:
+                    # Get the max_value and set it on incremental_field_last_value
+                    max_value = instance.table.get_max_value_for_column(data.get("incremental_field"))
+                    if max_value:
+                        instance.update_incremental_field_last_value(max_value, save=False)
+                    else:
+                        # if we can't get the max value, reset the table
+                        payload["incremental_field_last_value"] = None
+                        trigger_refresh = True
 
             validated_data["sync_type_config"] = payload
         else:
-            payload = instance.sync_type_config
-            payload.pop("incremental_field", None)
-            payload.pop("incremental_field_type", None)
-            payload.pop("incremental_field_last_value", None)
-            payload.pop("partitioning_enabled", None)
-            payload.pop("partitioning_size", None)
-            payload.pop("partitioning_keys", None)
-
-            validated_data["sync_type_config"] = payload
+            # No need to update sync_type_config for full refresh sync_type - it'll happen on the next sync
+            pass
 
         should_sync = validated_data.get("should_sync", None)
         sync_frequency = data.get("sync_frequency", None)
