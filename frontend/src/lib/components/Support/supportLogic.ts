@@ -332,6 +332,8 @@ export const supportLogic = kea<supportLogicType>([
         closeEmailForm: true,
         openMaxChatInterface: true,
         closeMaxChatInterface: true,
+        openInKeepMaxChatInterface: true,
+        closeInKeepMaxChatInterface: true,
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -340,6 +342,7 @@ export const supportLogic = kea<supportLogicType>([
                 openSupportForm: () => true,
                 closeSupportForm: () => false,
                 openMaxChatInterface: () => false,
+                openInKeepMaxChatInterface: () => false,
             },
         ],
         isEmailFormOpen: [
@@ -355,6 +358,16 @@ export const supportLogic = kea<supportLogicType>([
                 openMaxChatInterface: () => true,
                 closeMaxChatInterface: () => false,
                 openEmailForm: () => false,
+                openInKeepMaxChatInterface: () => false,
+            },
+        ],
+        isInKeepMaxChatInterfaceOpen: [
+            false,
+            {
+                openInKeepMaxChatInterface: () => true,
+                closeInKeepMaxChatInterface: () => false,
+                openEmailForm: () => false,
+                openMaxChatInterface: () => false,
             },
         ],
     })),
@@ -585,6 +598,19 @@ export const supportLogic = kea<supportLogicType>([
                 'max-chat',
                 '', // No target area needed for Max (yet)
                 '', // No severity level needed for Max
+                'false', // Make sure we don't open the email form instead
+            ].join(':')
+
+            if (values.sidePanelAvailable) {
+                actions.setSidePanelOptions(panelOptions)
+            }
+            actions.updateUrlParams()
+        },
+        openInKeepMaxChatInterface: async () => {
+            const panelOptions = [
+                'inkeep-max-chat',
+                '', // No target area needed for InKeep Max (yet)
+                '', // No severity level needed for InKeep Max
                 'false', // Make sure we don't open the email form instead
             ].join(':')
 
