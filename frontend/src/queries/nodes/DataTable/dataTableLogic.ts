@@ -193,6 +193,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     columns: columnsInQuery,
                     hiddenColumns: [],
                     source,
+                    context: query.context ?? { type: 'team_columns' },
                     ...sortedKeys({
                         ...rest,
                         full: query.full ?? false,
