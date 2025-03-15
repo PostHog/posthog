@@ -31,6 +31,7 @@ function CategoryPill({
     const { totalResultCount, totalListCount, isLoading, results, hasRemoteDataSource } = useValues(logic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
+    const count = hasRemoteDataSource ? totalResultCount : results?.length || 0
 
     // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
     const canInteract = totalListCount > 0 || taxonomicFilterGroupTypesWithEmptyStates.includes(groupType)
@@ -54,7 +55,10 @@ function CategoryPill({
                     {showLoading ? (
                         <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
                     ) : (
-                        results?.length || totalResultCount || 0
+                        <>
+                            {count}
+                            {hasRemoteDataSource && totalResultCount > count && ` / ${totalResultCount}`}
+                        </>
                     )}
                 </>
             )}

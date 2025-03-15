@@ -315,12 +315,13 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         <List
                             width={width}
                             height={height}
-                            rowCount={Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)}
-                            overscanRowCount={100}
-                            rowHeight={36} // LemonRow heights
+                            rowCount={Math.max(results.length || 0, totalListCount || 0)}
+                            overscanRowCount={50}
+                            rowHeight={36}
                             rowRenderer={renderItem}
-                            onRowsRendered={onRowsRendered}
-                            scrollToIndex={index}
+                            onRowsRendered={(rowInfo) => {
+                                onRowsRendered(rowInfo)
+                            }}
                         />
                     )}
                 </AutoSizer>
