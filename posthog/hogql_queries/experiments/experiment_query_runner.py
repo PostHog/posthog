@@ -181,13 +181,15 @@ class ExperimentQueryRunner(QueryRunner):
             return [property_to_expr(property, self.team) for property in self.metric.metric_config.properties]
         return []
 
-    def _get_experiment_query(self) -> ast.SelectQuery:
-        is_funnel_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
-        test_accounts_filter = self._get_test_accounts_filter()
-        metric_value = self._get_metric_value()
-        metric_property_filters = self._get_metric_property_filters()
-
-        event_name = "$feature_flag_called"
+    def _get_exposure_query(self) -> ast.SelectQuery:
+        """
+        Returns the query for the exposure data. One row per entity. If an entity is exposed to multiple variants,
+        we place them in the $multiple variant so we can warn the user and exclude them from the analysis.
+        Columns:
+            entity_id
+            variant
+            first_exposure_time
+        """
         exposure_config = (
             self.experiment.exposure_criteria.get("exposure_config") if self.experiment.exposure_criteria else None
         )
@@ -273,10 +275,7 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=[*exposure_metric_config.events_join_key.split(".")]),
             ]
 
-        # First exposure query: One row per user-variant combination
-        # Columns: entity_id, variant, first_exposure_time
-        # Finds when each user was first exposed to each experiment variant
-        exposure_query = ast.SelectQuery(
+        return ast.SelectQuery(
             select=exposure_query_select,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
@@ -293,11 +292,17 @@ class ExperimentQueryRunner(QueryRunner):
                         left=ast.Field(chain=["timestamp"]),
                         right=ast.Constant(value=self.date_range_query.date_to()),
                     ),
-                    *test_accounts_filter,
+                    *self._get_test_accounts_filter(),
                 ]
             ),
             group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
+
+    def _get_experiment_query(self) -> ast.SelectQuery:
+        is_funnel_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
+        metric_value = self._get_metric_value()
+
+        exposure_query = self._get_exposure_query()
 
         match self.metric.metric_config:
             case ExperimentDataWarehouseMetricConfig() as metric_config:
@@ -401,8 +406,8 @@ class ExperimentQueryRunner(QueryRunner):
                         exprs=[
                             *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
                             event_filter,
-                            *test_accounts_filter,
-                            *metric_property_filters,
+                            *self._get_test_accounts_filter(),
+                            *self._get_metric_property_filters(),
                         ],
                     ),
                 )
