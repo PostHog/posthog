@@ -349,6 +349,7 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
             organization_id=org_id,
             properties={"err": str(err)},
         )
+        pha_client.shutdown()
         raise
 
 
@@ -836,6 +837,8 @@ def capture_report(
             team_id=team_id,
             properties={"error": str(err)},
         )
+    finally:
+        pha_client.shutdown()
 
 
 # extend this with future usage based products
