@@ -15,6 +15,7 @@ import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/typ
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { stripHTTP } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -30,7 +31,7 @@ export function ActionsTable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions, pinAction, unpinAction } = useActions(actionsModel)
-
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { filterType, searchTerm, actionsFiltered, shouldShowEmptyState } = useValues(actionsLogic)
     const { setFilterType, setSearchTerm } = useActions(actionsLogic)
 
@@ -207,6 +208,13 @@ export function ActionsTable(): JSX.Element {
                                             ],
                                         },
                                     })}
+                                    onClick={() => {
+                                        addProductIntentForCrossSell({
+                                            from: ProductKey.ACTIONS,
+                                            to: ProductKey.SESSION_REPLAY,
+                                            intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
+                                        })
+                                    }}
                                     sideIcon={<IconPlayCircle />}
                                     fullWidth
                                     data-attr="action-table-view-recordings"

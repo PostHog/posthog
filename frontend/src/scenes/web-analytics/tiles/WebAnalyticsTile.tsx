@@ -17,8 +17,10 @@ import {
     LANGUAGE_CODE_TO_NAME,
     languageCodeToFlag,
 } from 'lib/utils/geography/country'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import {
@@ -576,6 +578,7 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
 export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<DataTableNode>): JSX.Element | null => {
     const { actions, actionsLoading } = useValues(actionsModel)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     if (actionsLoading) {
         return null
@@ -600,7 +603,19 @@ export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<Data
     return (
         <div className="border rounded bg-surface-primary flex-1">
             <div className="flex flex-row-reverse p-2">
-                <LemonButton to={urls.actions()} sideIcon={<IconOpenInNew />} type="secondary" size="small">
+                <LemonButton
+                    to={urls.actions()}
+                    onClick={() => {
+                        addProductIntentForCrossSell({
+                            from: ProductKey.WEB_ANALYTICS,
+                            to: ProductKey.ACTIONS,
+                            intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                        })
+                    }}
+                    sideIcon={<IconOpenInNew />}
+                    type="secondary"
+                    size="small"
+                >
                     Manage actions
                 </LemonButton>
             </div>
