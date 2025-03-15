@@ -328,7 +328,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                 return {
                     results,
-                    count: results.length,
+                    count: localItems.count + remoteItems.count,
                     searchQuery: localItems.searchQuery,
                     expandedCount: remoteItems.expandedCount,
                     queryChanged: remoteItems.queryChanged,
