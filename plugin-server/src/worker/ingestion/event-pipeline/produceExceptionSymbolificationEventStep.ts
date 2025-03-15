@@ -1,5 +1,5 @@
 import { RawKafkaEvent } from '../../../types'
-import { status } from '../../../utils/status'
+import { logger } from '../../../utils/logger'
 import { EventPipelineRunner } from './runner'
 
 export function produceExceptionSymbolificationEventStep(
@@ -17,7 +17,7 @@ export function produceExceptionSymbolificationEventStep(
             ],
         })
         .catch((error) => {
-            status.warn('⚠️', 'Failed to produce exception event for symbolification', {
+            logger.warn('⚠️', 'Failed to produce exception event for symbolification', {
                 team_id: event.team_id,
                 uuid: event.uuid,
                 error,

@@ -1,9 +1,9 @@
 import { ConsoleLogsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/console-logs-ingester'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
-import { status } from '../../../../../src/utils/status'
+import { logger } from '../../../../../src/utils/logger'
 
-jest.mock('../../../../../src/utils/status')
+jest.mock('../../../../../src/utils/logger')
 
 import { getParsedQueuedMessages, mockProducer } from '../../../../helpers/mocks/producer.mock'
 
@@ -51,7 +51,7 @@ describe('console log ingester', () => {
                     true
                 )
             )
-            expect(jest.mocked(status.debug).mock.calls).toEqual([])
+            expect(jest.mocked(logger.debug).mock.calls).toEqual([])
 
             expect(getParsedQueuedMessages()).toEqual([
                 {
@@ -94,7 +94,7 @@ describe('console log ingester', () => {
                     true
                 )
             )
-            expect(jest.mocked(status.debug).mock.calls).toEqual([])
+            expect(jest.mocked(logger.debug).mock.calls).toEqual([])
             expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
             expect(getParsedQueuedMessages()).toEqual([
                 {
@@ -145,7 +145,7 @@ describe('console log ingester', () => {
                     true
                 )
             )
-            expect(jest.mocked(status.debug).mock.calls).toEqual([])
+            expect(jest.mocked(logger.debug).mock.calls).toEqual([])
             expect(getParsedQueuedMessages()).toEqual([
                 {
                     topic: 'log_entries_test',
@@ -175,7 +175,7 @@ describe('console log ingester', () => {
         })
         test('it does not drop events with no console logs', async () => {
             await consoleLogIngester.consume(makeIncomingMessage([{ plugin: 'some-other-plugin' }], false))
-            expect(jest.mocked(status.debug).mock.calls).toEqual([])
+            expect(jest.mocked(logger.debug).mock.calls).toEqual([])
             expect(jest.mocked(mockProducer.queueMessages)).not.toHaveBeenCalled()
         })
     })

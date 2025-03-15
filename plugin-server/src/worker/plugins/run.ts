@@ -8,7 +8,7 @@ import {
     mutatePostIngestionEventWithElementsList,
 } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { IllegalOperationError } from '../../utils/utils'
 import { WebhookFormatter } from '../ingestion/webhook-formatter'
 import { pluginActionMsSummary } from '../metrics'
@@ -22,7 +22,7 @@ async function runSingleTeamPluginOnEvent(
     onEvent: PluginMethodsConcrete['onEvent']
 ): Promise<void> {
     const timeout = setTimeout(() => {
-        status.warn('⌛', `Still running single onEvent plugin for team ${event.teamId} for plugin ${pluginConfig.id}`)
+        logger.warn('⌛', `Still running single onEvent plugin for team ${event.teamId} for plugin ${pluginConfig.id}`)
     }, 10 * 1000) // 10 seconds
 
     if (!hub.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)) {
@@ -116,7 +116,7 @@ async function runSingleTeamPluginComposeWebhook(
 
         if (!maybeWebhook) {
             // TODO: ideally we'd queryMetric it as skipped, but that's not an option atm
-            status.debug('Skipping composeWebhook returned null', {
+            logger.debug('Skipping composeWebhook returned null', {
                 teamId: event.team_id,
                 pluginConfigId: pluginConfig.id,
                 eventUuid: event.uuid,
@@ -167,7 +167,7 @@ async function runSingleTeamPluginComposeWebhook(
     // Old-style `fetch` send, used for on-prem.
     const slowWarningTimeout = hub.EXTERNAL_REQUEST_TIMEOUT_MS * 0.7
     const timeout = setTimeout(() => {
-        status.warn(
+        logger.warn(
             '⌛',
             `Still running single composeWebhook plugin for team ${event.team_id} for plugin ${pluginConfig.id}`
         )

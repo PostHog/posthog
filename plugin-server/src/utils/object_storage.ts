@@ -1,7 +1,7 @@
 import { HeadBucketCommand, S3Client } from '@aws-sdk/client-s3'
 
 import { PluginsServerConfig } from '../types'
-import { status } from './status'
+import { logger } from './logger'
 
 export interface ObjectStorage {
     healthcheck: () => Promise<boolean>
@@ -42,7 +42,7 @@ export const getObjectStorage = (serverConfig: Partial<PluginsServerConfig>): Ob
                 objectStorage = {
                     healthcheck: async () => {
                         if (!OBJECT_STORAGE_BUCKET) {
-                            status.error('😢', 'No object storage bucket configured')
+                            logger.error('😢', 'No object storage bucket configured')
                             return false
                         }
 
@@ -50,7 +50,7 @@ export const getObjectStorage = (serverConfig: Partial<PluginsServerConfig>): Ob
                             await S3.send(new HeadBucketCommand({ Bucket: OBJECT_STORAGE_BUCKET }))
                             return true
                         } catch (error) {
-                            status.error('💣', 'Could not access bucket:', error)
+                            logger.error('💣', 'Could not access bucket:', error)
                             return false
                         }
                     },
@@ -59,7 +59,7 @@ export const getObjectStorage = (serverConfig: Partial<PluginsServerConfig>): Ob
             }
         } catch (e) {
             // only warn here... object storage is not mandatory until after #9901 at the earliest
-            status.warn('😢', 'could not initialise storage:', e)
+            logger.warn('😢', 'could not initialise storage:', e)
         }
     }
 

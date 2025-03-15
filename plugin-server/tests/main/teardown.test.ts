@@ -45,7 +45,7 @@ describe('teardown', () => {
     it('teardown code runs when stopping', async () => {
         const server = new PluginServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
-            LOG_LEVEL: LogLevel.Log,
+            LOG_LEVEL: LogLevel.Info,
         })
         await server.start()
 
@@ -72,7 +72,7 @@ describe('teardown', () => {
     it('no need to tear down if plugin was never setup', async () => {
         const server = new PluginServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
-            LOG_LEVEL: LogLevel.Log,
+            LOG_LEVEL: LogLevel.Info,
         })
         await server.start()
         await server.stop()

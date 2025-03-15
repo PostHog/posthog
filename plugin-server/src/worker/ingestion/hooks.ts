@@ -5,8 +5,8 @@ import { Action, Hook, HookPayload, PostIngestionEvent, Team } from '../../types
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { convertToHookPayload } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
+import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { status } from '../../utils/status'
 import { AppMetric, AppMetrics } from './app-metrics'
 import { OrganizationManager } from './organization-manager'
 import { TeamManager } from './team-manager'
@@ -53,7 +53,7 @@ export class HookCommander {
         if (process.env.SITE_URL) {
             this.siteUrl = process.env.SITE_URL
         } else {
-            status.warn('⚠️', 'SITE_URL env is not set for webhooks')
+            logger.warn('⚠️', 'SITE_URL env is not set for webhooks')
             this.siteUrl = ''
         }
         this.rustyHook = rustyHook
@@ -62,12 +62,12 @@ export class HookCommander {
     }
 
     public async findAndFireHooks(event: PostIngestionEvent, actionMatches: Action[]): Promise<void> {
-        status.debug('🔍', `Looking for hooks to fire for event "${event.event}"`)
+        logger.debug('🔍', `Looking for hooks to fire for event "${event.event}"`)
         if (!actionMatches.length) {
-            status.debug('🔍', `No hooks to fire for event "${event.event}"`)
+            logger.debug('🔍', `No hooks to fire for event "${event.event}"`)
             return
         }
-        status.debug('🔍', `Found ${actionMatches.length} matching actions`)
+        logger.debug('🔍', `Found ${actionMatches.length} matching actions`)
 
         const team = await this.teamManager.fetchTeam(event.teamId)
 
@@ -179,7 +179,7 @@ export class HookCommander {
 
         const slowWarningTimeout = this.EXTERNAL_REQUEST_TIMEOUT * 0.7
         const timeout = setTimeout(() => {
-            status.warn(
+            logger.warn(
                 '⌛',
                 `Posting Webhook slow. Timeout warning after ${slowWarningTimeout / 1000} sec! url=${url} team_id=${
                     team.id
@@ -187,7 +187,7 @@ export class HookCommander {
             )
         }, slowWarningTimeout)
 
-        status.debug('⚠️', `Firing webhook ${url} for team ${team.id}`)
+        logger.debug('⚠️', `Firing webhook ${url} for team ${team.id}`)
 
         try {
             await instrumentWebhookStep('fetch', async () => {
@@ -203,7 +203,7 @@ export class HookCommander {
                     await this.deleteRestHook(hook.id)
                 }
                 if (!request.ok) {
-                    status.warn('⚠️', `HTTP status ${request.status} for team ${team.id}`)
+                    logger.warn('⚠️', `HTTP status ${request.status} for team ${team.id}`)
                     await this.appMetrics.queueError(
                         {
                             ...partialMetric,

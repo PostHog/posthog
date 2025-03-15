@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { normalizeEvent, normalizeProcessPerson } from '../../../utils/event'
-import { status } from '../../../utils/status'
+import { logger } from '../../../utils/logger'
 import { parseEventTimestamp } from '../timestamps'
 
 export function normalizeEventStep(event: PluginEvent, processPerson: boolean): Promise<[PluginEvent, DateTime]> {
@@ -12,7 +12,7 @@ export function normalizeEventStep(event: PluginEvent, processPerson: boolean): 
         event = normalizeProcessPerson(event, processPerson)
         timestamp = parseEventTimestamp(event)
     } catch (error) {
-        status.warn('⚠️', 'Failed normalizing event', {
+        logger.warn('⚠️', 'Failed normalizing event', {
             team_id: event.team_id,
             uuid: event.uuid,
             error,

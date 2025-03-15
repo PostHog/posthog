@@ -4,7 +4,7 @@ import { Hub, ISOTimestamp, PluginConfig, PostIngestionEvent } from '../../../sr
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { runComposeWebhook, runOnEvent } from '../../../src/worker/plugins/run'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 jest.mock('../../../src/utils/db/error')
 
 describe('runOnEvent', () => {

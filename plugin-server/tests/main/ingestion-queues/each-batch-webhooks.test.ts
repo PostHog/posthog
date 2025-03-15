@@ -15,7 +15,7 @@ import { HookCommander } from '../../../src/worker/ingestion/hooks'
 import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 
 const kafkaEvent: RawKafkaEvent = {
     event: '$pageview',

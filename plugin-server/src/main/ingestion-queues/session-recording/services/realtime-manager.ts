@@ -5,8 +5,8 @@ import { EventEmitter } from 'node:events'
 import { PluginsServerConfig, RedisPool } from '../../../../types'
 import { createRedis } from '../../../../utils/db/redis'
 import { timeoutGuard } from '../../../../utils/db/utils'
+import { logger } from '../../../../utils/logger'
 import { captureException } from '../../../../utils/posthog'
-import { status } from '../../../../utils/status'
 
 const Keys = {
     snapshots(prefix: string, teamId: number, suffix: string): string {
@@ -101,7 +101,7 @@ export class RealtimeManager extends EventEmitter {
                 return pipeline.exec()
             })
         } catch (error) {
-            status.error('🧨', 'RealtimeManager failed to add recording message to redis', {
+            logger.error('🧨', 'RealtimeManager failed to add recording message to redis', {
                 error,
                 key,
             })
@@ -116,7 +116,7 @@ export class RealtimeManager extends EventEmitter {
                 return client.zremrangebyscore(key, 0, timestamp)
             })
         } catch (error) {
-            status.error('🧨', 'RealtimeManager failed to clear message from redis', {
+            logger.error('🧨', 'RealtimeManager failed to clear message from redis', {
                 error,
                 key,
             })
@@ -153,7 +153,7 @@ export class RealtimeManager extends EventEmitter {
             })
         } catch (error) {
             captureException(error, { tags: { teamId, sessionId }, extra: { key } })
-            status.error('🧨', 'RealtimeManager failed to clear all messages from redis', {
+            logger.error('🧨', 'RealtimeManager failed to clear all messages from redis', {
                 error,
                 key,
             })

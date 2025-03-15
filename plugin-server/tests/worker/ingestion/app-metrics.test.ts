@@ -5,7 +5,7 @@ import { UUIDT } from '../../../src/utils/utils'
 import { AppMetricIdentifier, AppMetrics } from '../../../src/worker/ingestion/app-metrics'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 
 const metric: AppMetricIdentifier = {
     teamId: 2,

@@ -6,7 +6,7 @@ import RE2 from 're2'
 
 import { buildIntegerMatcher } from '../../config/config'
 import { Hub, ValueMatcher } from '../../types'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import {
     CyclotronFetchFailureInfo,
@@ -179,7 +179,7 @@ export class HogExecutorService {
                         telemetry: this.telemetryMatcher(hogFunction.team_id),
                     })
                     if (filterResult.error) {
-                        status.error('🦔', `[HogExecutor] Error filtering function`, {
+                        logger.error('🦔', `[HogExecutor] Error filtering function`, {
                             hogFunctionId: hogFunction.id,
                             hogFunctionName: hogFunction.name,
                             teamId: hogFunction.team_id,
@@ -204,7 +204,7 @@ export class HogExecutorService {
 
                     return result
                 } catch (error) {
-                    status.error('🦔', `[HogExecutor] Error filtering function`, {
+                    logger.error('🦔', `[HogExecutor] Error filtering function`, {
                         hogFunctionId: hogFunction.id,
                         hogFunctionName: hogFunction.name,
                         teamId: hogFunction.team_id,
@@ -234,7 +234,7 @@ export class HogExecutorService {
                     hogFunctionFilterDuration.observe(performance.now() - start)
 
                     if (duration > DEFAULT_TIMEOUT_MS) {
-                        status.error('🦔', `[HogExecutor] Filter took longer than expected`, {
+                        logger.error('🦔', `[HogExecutor] Filter took longer than expected`, {
                             hogFunctionId: hogFunction.id,
                             hogFunctionName: hogFunction.name,
                             teamId: hogFunction.team_id,
@@ -343,7 +343,7 @@ export class HogExecutorService {
             hogFunctionUrl: invocation.globals.source?.url,
         }
 
-        status.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
+        logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
         const result: HogFunctionInvocationResult = {
             invocation,
@@ -627,7 +627,7 @@ export class HogExecutorService {
 
                     if (execRes.state.maxMemUsed > 1024 * 1024) {
                         // If the memory used is more than a MB then we should log it
-                        status.warn('🦔', `[HogExecutor] Function used more than 1MB of memory`, {
+                        logger.warn('🦔', `[HogExecutor] Function used more than 1MB of memory`, {
                             hogFunctionId: invocation.hogFunction.id,
                             hogFunctionName: invocation.hogFunction.name,
                             teamId: invocation.teamId,
@@ -645,7 +645,7 @@ export class HogExecutorService {
         } catch (err) {
             result.error = err.message
             result.finished = true // Explicitly set to true to prevent infinite loops
-            status.error(
+            logger.error(
                 '🦔',
                 `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.globals.event?.url}'`,
                 err

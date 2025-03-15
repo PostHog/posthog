@@ -14,7 +14,7 @@ import { pluginConfig39 } from '../helpers/plugins'
 import { plugin60 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 
 jest.setTimeout(100000)
 

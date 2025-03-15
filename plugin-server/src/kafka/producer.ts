@@ -12,8 +12,8 @@ import { Counter, Summary } from 'prom-client'
 
 import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
+import { logger } from '../utils/logger'
 import { getSpan } from '../utils/sentry'
-import { status } from '../utils/status'
 import { createRdConnectionConfigFromEnvVars, getProducerConfigFromEnv } from './config'
 
 // TODO: Rewrite this description
@@ -58,25 +58,25 @@ export class KafkaProducerWrapper {
             dr_cb: true,
         }
 
-        status.info('📝', 'librdkafka producer config', { config: producerConfig })
+        logger.info('📝', 'librdkafka producer config', { config: producerConfig })
 
         const producer = new HighLevelProducer(producerConfig)
 
         producer.on('event.log', function (log) {
-            status.info('📝', 'librdkafka log', { log: log })
+            logger.info('📝', 'librdkafka log', { log: log })
         })
 
         producer.on('event.error', function (err) {
-            status.error('📝', 'librdkafka error', { log: err })
+            logger.error('📝', 'librdkafka error', { log: err })
         })
 
         await new Promise((resolve, reject) =>
             producer.connect(undefined, (error, data) => {
                 if (error) {
-                    status.error('⚠️', 'connect_error', { error: error })
+                    logger.error('⚠️', 'connect_error', { error: error })
                     reject(error)
                 } else {
-                    status.info('📝', 'librdkafka producer connected', { error, brokers: data?.brokers })
+                    logger.info('📝', 'librdkafka producer connected', { error, brokers: data?.brokers })
                     resolve(data)
                 }
             })
@@ -104,7 +104,7 @@ export class KafkaProducerWrapper {
             const produceTimer = ingestEventKafkaProduceLatency.labels({ topic }).startTimer()
             const produceSpan = getSpan()?.startChild({ op: 'kafka_produce' })
             kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
-            status.debug('📤', 'Producing message', { topic: topic })
+            logger.debug('📤', 'Producing message', { topic: topic })
 
             const result = await new Promise((resolve, reject) => {
                 this.producer.produce(
@@ -122,11 +122,11 @@ export class KafkaProducerWrapper {
 
             produceSpan?.finish()
             kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
-            status.debug('📤', 'Produced message', { topic: topic, offset: result })
+            logger.debug('📤', 'Produced message', { topic: topic, offset: result })
             produceTimer()
         } catch (error) {
             kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
-            status.error('⚠️', 'kafka_produce_error', {
+            logger.error('⚠️', 'kafka_produce_error', {
                 error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
                 topic: topic,
             })
@@ -166,11 +166,11 @@ export class KafkaProducerWrapper {
     }
 
     public async flush() {
-        status.debug('📤', 'flushing_producer')
+        logger.debug('📤', 'flushing_producer')
 
         return await new Promise((resolve, reject) =>
             this.producer.flush(10000, (error) => {
-                status.debug('📤', 'flushed_producer')
+                logger.debug('📤', 'flushed_producer')
                 if (error) {
                     reject(error)
                 } else {
@@ -183,10 +183,10 @@ export class KafkaProducerWrapper {
     public async disconnect(): Promise<void> {
         await this.flush()
 
-        status.info('🔌', 'Disconnecting producer')
+        logger.info('🔌', 'Disconnecting producer')
         await new Promise<ClientMetrics>((resolve, reject) =>
             this.producer.disconnect((error: any, data: ClientMetrics) => {
-                status.info('🔌', 'Disconnected producer')
+                logger.info('🔌', 'Disconnected producer')
                 if (error) {
                     reject(error)
                 } else {
