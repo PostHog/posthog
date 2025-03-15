@@ -6,14 +6,17 @@ import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheck
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import React, { useState } from 'react'
+import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -26,6 +29,7 @@ import {
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     webAnalyticsLogic,
+    WebSectionTile,
 } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 
@@ -167,6 +171,37 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
             openModal={openModal}
             getNewInsightUrl={getNewInsightUrl}
         />
+    )
+}
+
+export const SectionTileItem = ({ section }: { section: WebSectionTile }): JSX.Element => {
+    return (
+        <div className="col-span-full mb-4">
+            <h2 className="text-lg font-semibold mb-2">{section.title}</h2>
+            <div className={`grid ${section.gridClassName || 'grid-cols-1 md:grid-cols-3'} gap-4`}>
+                {section.tiles.map((tile) => {
+                    if (tile.kind === 'query') {
+                        return <QueryTileItem key={tile.tileId} tile={tile} />
+                    } else if (tile.kind === 'tabs') {
+                        return <TabsTileItem key={tile.tileId} tile={tile} />
+                    }
+                    return null
+                })}
+            </div>
+        </div>
+    )
+}
+
+export const SectionsList = ({ sections }: { sections: WebSectionTile[] }): JSX.Element => {
+    return (
+        <>
+            {sections.map((section, index) => (
+                <React.Fragment key={section.title}>
+                    <SectionTileItem section={section} />
+                    {index < sections.length - 1 && <LemonDivider className="my-3" />}
+                </React.Fragment>
+            ))}
+        </>
     )
 }
 
@@ -338,9 +373,48 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
     )
 }
 
-export const WebAnalyticsDashboard = (): JSX.Element => {
-    const { mobileLayout } = useValues(navigationLogic)
+// We're switching the filters based on the productTab right now so it is abstracted here
+// until we decide if we want to keep the same components/states for both tabs
+const Filters = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
+
+    return productTab === ProductTab.PAGE_REPORTS ? <PageReportsFilters /> : <WebAnalyticsFilters />
+}
+
+const MainContent = (): JSX.Element => {
+    const { productTab } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    return productTab === ProductTab.PAGE_REPORTS && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS] ? (
+        <PageReports />
+    ) : (
+        <Tiles />
+    )
+}
+
+const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]) {
+        return []
+    }
+    return [
+        {
+            key: ProductTab.PAGE_REPORTS,
+            label: (
+                <div className="flex items-center gap-1">
+                    Page reports
+                    <LemonTag type="completion" className="uppercase">
+                        Alpha
+                    </LemonTag>
+                </div>
+            ),
+        },
+    ]
+}
+
+export const WebAnalyticsDashboard = (): JSX.Element => {
+    const { productTab } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { mobileLayout } = useValues(navigationLogic)
 
     const { setProductTab } = useActions(webAnalyticsLogic)
 
@@ -364,14 +438,15 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                             tabs={[
                                 { key: ProductTab.ANALYTICS, label: 'Web analytics' },
                                 { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
+                                ...pageReportsTab(featureFlags),
                             ]}
                         />
 
-                        <WebAnalyticsFilters />
+                        <Filters />
                     </div>
 
                     <WebAnalyticsHealthCheck />
-                    <Tiles />
+                    <MainContent />
                 </div>
             </BindLogic>
         </BindLogic>

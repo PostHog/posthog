@@ -87,11 +87,28 @@ export enum TileId {
     GOALS = 'GOALS',
     WEB_VITALS = 'WEB_VITALS',
     WEB_VITALS_PATH_BREAKDOWN = 'WEB_VITALS_PATH_BREAKDOWN',
+
+    // Page Report Tiles to avoid conflicts with web analytics
+    PAGE_REPORTS_COMBINED_METRICS_CHART = 'PAGE_REPORTS_COMBINED_METRICS_CHART',
+    PAGE_REPORTS_ENTRY_PATHS = 'PAGE_REPORTS_ENTRY_PATHS',
+    PAGE_REPORTS_EXIT_PATHS = 'PAGE_REPORTS_EXIT_PATHS',
+    PAGE_REPORTS_OUTBOUND_CLICKS = 'PAGE_REPORTS_OUTBOUND_CLICKS',
+    PAGE_REPORTS_CHANNELS = 'PAGE_REPORTS_CHANNELS',
+    PAGE_REPORTS_REFERRERS = 'PAGE_REPORTS_REFERRERS',
+    PAGE_REPORTS_DEVICE_TYPES = 'PAGE_REPORTS_DEVICE_TYPES',
+    PAGE_REPORTS_BROWSERS = 'PAGE_REPORTS_BROWSERS',
+    PAGE_REPORTS_OPERATING_SYSTEMS = 'PAGE_REPORTS_OPERATING_SYSTEMS',
+    PAGE_REPORTS_COUNTRIES = 'PAGE_REPORTS_COUNTRIES',
+    PAGE_REPORTS_REGIONS = 'PAGE_REPORTS_REGIONS',
+    PAGE_REPORTS_CITIES = 'PAGE_REPORTS_CITIES',
+    PAGE_REPORTS_TIMEZONES = 'PAGE_REPORTS_TIMEZONES',
+    PAGE_REPORTS_LANGUAGES = 'PAGE_REPORTS_LANGUAGES',
 }
 
 export enum ProductTab {
     ANALYTICS = 'analytics',
     WEB_VITALS = 'web-vitals',
+    PAGE_REPORTS = 'page-reports',
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
 }
 
@@ -112,6 +129,22 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.GOALS]: 10,
     [TileId.WEB_VITALS]: 11,
     [TileId.WEB_VITALS_PATH_BREAKDOWN]: 12,
+
+    // Page Report Tiles
+    [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART]: 1,
+    [TileId.PAGE_REPORTS_ENTRY_PATHS]: 2,
+    [TileId.PAGE_REPORTS_EXIT_PATHS]: 3,
+    [TileId.PAGE_REPORTS_OUTBOUND_CLICKS]: 4,
+    [TileId.PAGE_REPORTS_CHANNELS]: 5,
+    [TileId.PAGE_REPORTS_REFERRERS]: 6,
+    [TileId.PAGE_REPORTS_DEVICE_TYPES]: 7,
+    [TileId.PAGE_REPORTS_BROWSERS]: 8,
+    [TileId.PAGE_REPORTS_OPERATING_SYSTEMS]: 9,
+    [TileId.PAGE_REPORTS_COUNTRIES]: 10,
+    [TileId.PAGE_REPORTS_REGIONS]: 11,
+    [TileId.PAGE_REPORTS_CITIES]: 12,
+    [TileId.PAGE_REPORTS_TIMEZONES]: 13,
+    [TileId.PAGE_REPORTS_LANGUAGES]: 14,
 }
 
 export interface BaseTile {
@@ -164,6 +197,12 @@ export interface ReplayTile extends BaseTile {
 export interface ErrorTrackingTile extends BaseTile {
     kind: 'error_tracking'
     query: QuerySchema
+}
+
+export interface WebSectionTile {
+    title: string
+    tiles: WebAnalyticsTile[]
+    gridClassName?: string
 }
 
 export type WebAnalyticsTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
@@ -685,6 +724,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         key: Scene.WebAnalyticsWebVitals,
                         name: `Web vitals`,
                         path: urls.webAnalyticsWebVitals(),
+                    })
+                }
+
+                if (productTab === ProductTab.PAGE_REPORTS) {
+                    breadcrumbs.push({
+                        key: Scene.WebAnalyticsPageReports,
+                        name: `Page reports`,
+                        path: urls.webAnalyticsPageReports(),
                     })
                 }
 
@@ -2287,9 +2334,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (compareFilter) {
                 urlParams.set('compare_filter', JSON.stringify(compareFilter))
             }
-            if (productTab !== ProductTab.ANALYTICS) {
-                urlParams.set('product_tab', productTab)
-            }
+
+            const { featureFlags } = featureFlagLogic.values
+            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
+
             if (productTab === ProductTab.WEB_VITALS) {
                 urlParams.set('percentile', webVitalsPercentile)
             }
@@ -2303,7 +2351,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('tile_visualizations', JSON.stringify(tileVisualizations))
             }
 
-            const basePath = productTab === ProductTab.WEB_VITALS ? '/web/web-vitals' : '/web'
+            let basePath = '/web'
+            if (pageReportsEnabled && productTab === ProductTab.PAGE_REPORTS) {
+                basePath = '/web/page-reports'
+            } else if (productTab === ProductTab.WEB_VITALS) {
+                basePath = '/web/web-vitals'
+            }
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
 
@@ -2352,7 +2405,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 tile_visualizations,
             }: Record<string, any>
         ): void => {
-            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS].includes(productTab)) {
+            const { featureFlags } = featureFlagLogic.values
+            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
+
+            // If trying to access page reports but the feature flag is not enabled, redirect to analytics
+            if (productTab === ProductTab.PAGE_REPORTS && !pageReportsEnabled) {
+                productTab = ProductTab.ANALYTICS
+            }
+
+            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS].includes(productTab)) {
                 return
             }
 
@@ -2422,7 +2483,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
         }
 
-        return { '/web': toAction, '/web/:productTab': toAction }
+        return { '/web': toAction, '/web/:productTab': toAction, '/web/page-reports': toAction }
     }),
 
     listeners(({ values, actions }) => {

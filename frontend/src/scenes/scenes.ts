@@ -98,6 +98,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics/web-vitals',
     },
+    [Scene.WebAnalyticsPageReports]: {
+        projectBased: true,
+        name: 'Page reports',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics',
+    },
     [Scene.Cohort]: {
         projectBased: true,
         name: 'Cohort',
@@ -541,6 +547,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
+    [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
     [urls.revenue()]: [Scene.DataManagement, 'revenue'],
     [urls.actions()]: [Scene.DataManagement, 'actions'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
