@@ -182,11 +182,11 @@ describe('infiniteListLogic', () => {
                     index: 0,
                     remoteItems: partial({ count: 156 }),
                     localItems: partial({ count: 1 }),
-                    items: partial({ count: 101 }),
+                    items: partial({ count: 157 }),
                 })
-                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 100 })
-                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 99 })
-                expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 100 })
+                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 156 })
+                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 155 })
+                expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 156 })
                 expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 0 })
                 expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 1 })
                 expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 0 })
@@ -198,7 +198,7 @@ describe('infiniteListLogic', () => {
                     index: 0,
                     remoteItems: partial({ count: 156 }),
                     localItems: partial({ count: 1 }),
-                    items: partial({ count: 101 }),
+                    items: partial({ count: 157 }),
                 })
 
                 await expectLogic(logic, () =>
