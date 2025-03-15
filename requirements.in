@@ -12,8 +12,8 @@ antlr4-python3-runtime==4.13.1
 beautifulsoup4==4.12.3
 boto3==1.28.16
 brotli==1.1.0
-celery==5.3.4
-celery-redbeat==2.1.1
+celery==5.4.0
+celery-redbeat==2.3.2
 clickhouse-connect==0.8.11
 clickhouse-driver==0.2.9
 clickhouse-pool==0.5.3
@@ -54,7 +54,7 @@ gunicorn==20.1.0
 infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
 jsonref==1.1.0
 kafka-python==2.0.2
-kombu==5.3.2
+kombu==5.3.4
 langchain==0.3.9
 langchain-community==0.3.2
 langchain-openai==0.2.11
