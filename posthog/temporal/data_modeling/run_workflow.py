@@ -31,10 +31,10 @@ from posthog.models import Team
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+from posthog.warehouse.data_load.create_table import create_table_from_saved_query
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 from posthog.warehouse.util import database_sync_to_async
-from posthog.warehouse.data_load.create_table import create_table_from_saved_query
-from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 logger = structlog.get_logger()
 
@@ -110,6 +110,9 @@ class RunDagActivityInputs:
 
     team_id: int
     dag: DAG
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id"]
 
 
 class ModelStatus(enum.StrEnum):
@@ -467,6 +470,9 @@ class BuildDagActivityInputs:
     team_id: int
     select: list[Selector] = dataclasses.field(default_factory=list)
 
+    def properties_to_log(self) -> list[str]:
+        return ["team_id"]
+
 
 class InvalidSelector(Exception):
     def __init__(self, invalid_input: str):
@@ -588,6 +594,9 @@ class StartRunActivityInputs:
     run_at: str
     team_id: int
 
+    def properties_to_log(self) -> list[str]:
+        return ["team_id", "run_at"]
+
 
 @temporalio.activity.defn
 async def start_run_activity(inputs: StartRunActivityInputs) -> None:
@@ -613,6 +622,9 @@ class FinishRunActivityInputs:
     failed: list[str]
     run_at: str
     team_id: int
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id", "run_at"]
 
 
 @temporalio.activity.defn
@@ -640,6 +652,9 @@ async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
 class CreateTableActivityInputs:
     models: list[str]
     team_id: int
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id"]
 
 
 @temporalio.activity.defn
@@ -682,6 +697,9 @@ class RunWorkflowInputs:
 
     team_id: int
     select: list[Selector] = dataclasses.field(default_factory=list)
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id"]
 
 
 @temporalio.workflow.defn(name="data-modeling-run")

@@ -6,16 +6,22 @@ import json
 from django.db import close_old_connections
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from posthog.exceptions_capture import capture_exception
-from posthog.settings import TEST, DEBUG
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
-from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.logger import FilteringBoundLogger, bind_temporal_worker_logger_sync
-from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
-from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
 from temporalio.exceptions import WorkflowAlreadyStartedError
+
+from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
+from posthog.exceptions_capture import capture_exception
+from posthog.settings import DEBUG, TEST
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.temporal.common.logger import (
+    FilteringBoundLogger,
+    bind_temporal_worker_logger_sync,
+)
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    DeltaTableHelper,
+)
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 
 
 def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema, logger: FilteringBoundLogger) -> str:
@@ -55,6 +61,9 @@ def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema, log
 class DeltalakeCompactionJobWorkflowInputs:
     team_id: int
     external_data_job_id: str
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id", "external_data_job_id"]
 
 
 @activity.defn
