@@ -137,6 +137,16 @@ class ExperimentQueryRunner(QueryRunner):
             time_window_clause,
         ]
 
+    def _get_test_accounts_filter(self) -> list[ast.Expr]:
+        if (
+            self.experiment.exposure_criteria
+            and self.experiment.exposure_criteria.get("filterTestAccounts")
+            and isinstance(self.team.test_account_filters, list)
+            and len(self.team.test_account_filters) > 0
+        ):
+            return [property_to_expr(property, self.team) for property in self.team.test_account_filters]
+        return []
+
     def _get_experiment_query(self) -> ast.SelectQuery:
         # Lots of shortcuts taken here, but it's a proof of concept to illustrate the idea
 
@@ -166,16 +176,7 @@ class ExperimentQueryRunner(QueryRunner):
                 # We then just emit 1 so we can easily sum it up
                 metric_value = parse_expr("1")
 
-        # Filter Test Accounts
-        test_accounts_filter: list[ast.Expr] = []
-        if (
-            self.experiment.exposure_criteria
-            and self.experiment.exposure_criteria.get("filterTestAccounts")
-            and isinstance(self.team.test_account_filters, list)
-            and len(self.team.test_account_filters) > 0
-        ):
-            for property in self.team.test_account_filters:
-                test_accounts_filter.append(property_to_expr(property, self.team))
+        test_accounts_filter = self._get_test_accounts_filter()
 
         # Property filters
         metric_property_filters: list[ast.Expr] = []
