@@ -63,6 +63,7 @@ async fn it_sends_flag_request() -> Result<()> {
     });
 
     let res = server.send_flags_request(payload.to_string()).await;
+    println!("res: {:?}", res);
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
