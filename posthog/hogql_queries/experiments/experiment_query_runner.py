@@ -79,6 +79,10 @@ class ExperimentQueryRunner(QueryRunner):
         # Just to simplify access
         self.metric = self.query.metric
 
+    @property
+    def is_data_warehouse_query(self) -> bool:
+        return isinstance(self.query.metric.metric_config, ExperimentDataWarehouseMetricConfig)
+
     def _get_date_range(self) -> DateRange:
         """
         Returns an DateRange object based on the experiment's start and end dates,
@@ -147,25 +151,17 @@ class ExperimentQueryRunner(QueryRunner):
             return [property_to_expr(property, self.team) for property in self.team.test_account_filters]
         return []
 
-    def _get_experiment_query(self) -> ast.SelectQuery:
-        # Lots of shortcuts taken here, but it's a proof of concept to illustrate the idea
-
-        feature_flag_key = self.feature_flag.key
-        feature_flag_property = f"$feature/{feature_flag_key}"
-
-        is_data_warehouse_query = isinstance(self.metric.metric_config, ExperimentDataWarehouseMetricConfig)
-        is_funnel_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
-
+    def _get_metric_value(self) -> ast.Expr:
         # Pick the correct value for the aggregation chosen
         match self.metric.metric_config.math:
             case ExperimentMetricMathType.SUM:
                 # If the metric is a property math type, we need to extract the value from the event property
                 metric_property = self.metric.metric_config.math_property
                 if metric_property:
-                    if is_data_warehouse_query:
-                        metric_value = parse_expr(metric_property)
+                    if self.is_data_warehouse_query:
+                        return parse_expr(metric_property)
                     else:
-                        metric_value = parse_expr(
+                        return parse_expr(
                             "toFloat(JSONExtractRaw(properties, {property}))",
                             placeholders={"property": ast.Constant(value=metric_property)},
                         )
@@ -174,9 +170,17 @@ class ExperimentQueryRunner(QueryRunner):
             case _:
                 # Else, we default to count
                 # We then just emit 1 so we can easily sum it up
-                metric_value = parse_expr("1")
+                return parse_expr("1")
+
+    def _get_experiment_query(self) -> ast.SelectQuery:
+        feature_flag_key = self.feature_flag.key
+        feature_flag_property = f"$feature/{feature_flag_key}"
+
+        is_funnel_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
 
         test_accounts_filter = self._get_test_accounts_filter()
+
+        metric_value = self._get_metric_value()
 
         # Property filters
         metric_property_filters: list[ast.Expr] = []
@@ -256,7 +260,7 @@ class ExperimentQueryRunner(QueryRunner):
             ),
         ]
         exposure_query_group_by = [ast.Field(chain=["entity_id"])]
-        if is_data_warehouse_query:
+        if self.is_data_warehouse_query:
             exposure_metric_config = cast(ExperimentDataWarehouseMetricConfig, self.metric.metric_config)
             exposure_query_select = [
                 *exposure_query_select,
@@ -430,7 +434,7 @@ class ExperimentQueryRunner(QueryRunner):
                                     right=parse_expr("toString(events_after_exposure.after_exposure_identifier)"),
                                     op=ast.CompareOperationOp.Eq,
                                 )
-                                if is_data_warehouse_query
+                                if self.is_data_warehouse_query
                                 else ast.CompareOperation(
                                     left=parse_expr("toString(exposure_data.entity_id)"),
                                     right=parse_expr("toString(events_after_exposure.entity_id)"),
