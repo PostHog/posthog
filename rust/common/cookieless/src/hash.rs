@@ -192,4 +192,4 @@ mod tests {
 
         assert_eq!(result, Err(HashError::InvalidSaltSize(8)));
     }
-} 
+}
