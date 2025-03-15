@@ -108,6 +108,16 @@ export function PieChart({
 
         const processedDatasets = datasets.map((dataset) => dataset as ChartDataset<'pie'>)
         const onlyOneValue = processedDatasets?.[0]?.data?.length === 1
+
+        // Make sure canvas is properly set up for rendering
+        if (canvasRef.current) {
+            const ctx = canvasRef.current.getContext('2d')
+            if (ctx) {
+                // Clear any previous renderings
+                ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+            }
+        }
+
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: 'pie',
             plugins: [ChartDataLabels as Plugin<'pie'>],
@@ -117,21 +127,30 @@ export function PieChart({
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: false,
+                maintainAspectRatio: true,
+                aspectRatio: 1, // Square aspect ratio for pie charts
+                cutout: 0, // Explicitly set to 0 for pie charts
+                radius: '80%', // Use 80% of available space
                 hover: {
                     mode: 'index',
                 },
                 layout: {
                     padding: {
-                        top: 12, // 12 px so that the label isn't cropped
+                        top: 20,
                         left: 20,
                         right: 20,
-                        bottom: 20, // 12 px so that the label isn't cropped + 8 px of padding against the number below
+                        bottom: 20,
                     },
                 },
-                borderWidth: 0,
-                borderRadius: 0,
-                hoverOffset: onlyOneValue || disableHoverOffset ? 0 : 16, // don't offset hovered segment if it is 100%
+                circumference: 360, // Full circle (360 degrees)
+                rotation: -90, // Start from top
+                elements: {
+                    arc: {
+                        borderWidth: 0,
+                        borderRadius: 0,
+                        hoverOffset: onlyOneValue || disableHoverOffset ? 0 : 16,
+                    },
+                },
                 onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
                     onChartHover(event, chart, onClick)
                 },
@@ -276,8 +295,10 @@ export function PieChart({
     }, [datasets, hiddenLegendIndexes])
 
     return (
-        <div className="absolute w-full h-full" data-attr={dataAttr}>
-            <canvas ref={canvasRef} />
+        <div className="w-full h-full min-h-[400px] flex items-center justify-center" data-attr={dataAttr}>
+            <div className="w-full h-full min-h-[300px] max-w-[500px] max-h-[500px] items-center justify-center mx-auto aspect-square">
+                <canvas ref={canvasRef} className="w-full h-full" />
+            </div>
         </div>
     )
 }
