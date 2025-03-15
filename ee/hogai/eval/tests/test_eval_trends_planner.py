@@ -42,13 +42,18 @@ def call_node(team, runnable_config: RunnableConfig) -> Callable[[str], str]:
     graph: CompiledStateGraph = (
         AssistantGraph(team)
         .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
-        .add_trends_planner(AssistantNodeName.END)
+        .add_trends_planner(AssistantNodeName.END, AssistantNodeName.END)
         .compile()
     )
 
     def callable(query: str) -> str:
         state = graph.invoke(
-            AssistantState(messages=[HumanMessage(content=query)]),
+            AssistantState(
+                messages=[HumanMessage(content=query)],
+                root_tool_insight_plan=query,
+                root_tool_id="eval_test",
+                root_tool_insight_type="trends",
+            ),
             runnable_config,
         )
         return AssistantState.model_validate(state).plan or ""
@@ -192,5 +197,25 @@ def test_trends_does_not_include_timeframe(metric, call_node):
             - math operation: total count
         """,
         actual_output=call_node(query),
+    )
+    assert_test(test_case, [metric])
+
+
+def test_trends_for_unique_sessions(metric, call_node):
+    query = "how many $pageviews with unique sessions did we have?"
+    plan = call_node(query)
+
+    test_case = LLMTestCase(
+        input=query,
+        expected_output="""
+        Series:
+        - $pageview
+            - math operation: unique sessions
+
+        Time period: last month
+        Time interval: day
+        """,
+        actual_output=plan,
+        comments=plan,
     )
     assert_test(test_case, [metric])

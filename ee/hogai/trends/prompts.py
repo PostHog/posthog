@@ -40,6 +40,7 @@ Available math aggregations types for the event count are:
 - 95th percentile
 - 99th percentile
 - unique users
+- unique sessions
 - weekly active users
 - daily active users
 - first time for a user
