@@ -153,7 +153,10 @@ class ExperimentQueryRunner(QueryRunner):
         return []
 
     def _get_metric_value(self) -> ast.Expr:
-        # Pick the correct value for the aggregation chosen
+        """
+        Returns the expression for the value of the metric. For count metrics, we just emit 1.
+        For sum or other math types, we return the metric property (revenue f.ex).
+        """
         match self.metric.metric_config.math:
             case ExperimentMetricMathType.SUM:
                 # If the metric is a property math type, we need to extract the value from the event property
