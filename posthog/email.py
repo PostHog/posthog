@@ -82,6 +82,12 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "2fa_enabled": "31",
     "2fa_disabled": "30",
     "2fa_backup_code_used": "29",
+    "password_reset": "32",
+    "invite": "33",
+    "member_join": "34",
+    "email_verification": "35",
+    "email_change_old_address": "36",
+    "email_change_new_address": "37",
 }
 
 
@@ -262,7 +268,6 @@ class EmailMessage:
         headers: Optional[dict] = None,
         reply_to: Optional[str] = None,
         use_http: Optional[bool] = False,
-        properties: Optional[dict] = None,
     ):
         if template_context is None:
             template_context = {}
@@ -278,7 +283,14 @@ class EmailMessage:
         self.subject = subject or ""
         self.reply_to = reply_to
         self.template_name = template_name
-        self.properties = properties or {}
+
+        # Convert any Django models to strings for JSON serialization
+        self.properties = {
+            k: str(v)
+            if hasattr(v, "_meta") and hasattr(v, "pk")  # Check if it's a Django model
+            else v
+            for k, v in template_context.items()
+        }
 
         template = get_template(f"email/{template_name}.html")
         self.html_body = inline_css(template.render(template_context))

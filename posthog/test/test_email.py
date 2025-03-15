@@ -122,7 +122,7 @@ class TestEmail(BaseTest):
                 campaign_key="test_campaign",
                 subject="Test subject",
                 template_name="2fa_enabled",
-                properties={"decimal_value": Decimal("1.23")},
+                template_context={"decimal_value": Decimal("1.23")},
                 use_http=True,
             )
             message.add_recipient("test@posthog.com")
