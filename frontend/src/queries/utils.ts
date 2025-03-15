@@ -18,6 +18,7 @@ import {
     EventsQuery,
     FunnelsQuery,
     GoalLine,
+    GroupsQuery,
     HogQLASTQuery,
     HogQLMetadata,
     HogQLQuery,
@@ -487,6 +488,16 @@ export function taxonomicPersonFilterToHogQL(
     return null
 }
 
+export function taxonomicGroupFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    return null
+}
+
 export function isHogQlAggregation(hogQl: string): boolean {
     return (
         hogQl.includes('count(') ||
@@ -556,4 +567,8 @@ export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): brea
 
 export function isValidQueryForExperiment(query: Node): boolean {
     return isNodeWithSource(query) && isFunnelsQuery(query.source) && query.source.series.length >= 2
+}
+
+export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {
+    return node?.kind === NodeKind.GroupsQuery
 }

@@ -245,6 +245,18 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
+
+    if kind == "GroupsQuery":
+        from .groups.groups_query_runner import GroupsQueryRunner
+
+        return GroupsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind in ("InsightActorsQuery", "FunnelsActorsQuery", "FunnelCorrelationActorsQuery", "StickinessActorsQuery"):
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 

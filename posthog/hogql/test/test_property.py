@@ -40,7 +40,7 @@ class TestProperty(BaseTest):
         self,
         property: Union[PropertyGroup, Property, dict, list],
         team: Optional[Team] = None,
-        scope: Optional[Literal["event", "person"]] = None,
+        scope: Optional[Literal["event", "person", "group"]] = None,
     ):
         return clear_locations(property_to_expr(property, team=team or self.team, scope=scope or "event"))
 
@@ -89,6 +89,28 @@ class TestProperty(BaseTest):
         )
 
         self.assertEqual(self._property_to_expr({"type": "group", "key": "a", "value": "b"}), self._parse_expr("1"))
+
+    def test_property_to_expr_group_scope(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "group", "group_type_index": 0, "key": "name", "value": "Hedgebox Inc."}, scope="group"
+            ),
+            self._parse_expr("properties.name = 'Hedgebox Inc.'"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr(
+                Property(type="group", group_type_index=0, key="a", value=["b", "c"]), scope="group"
+            ),
+            self._parse_expr("properties.a = 'b' OR properties.a = 'c'"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr(
+                Property(type="group", group_type_index=0, key="arr", operator="gt", value=100), scope="group"
+            ),
+            self._parse_expr("properties.arr > 100"),
+        )
 
     def test_property_to_expr_group_booleans(self):
         PropertyDefinition.objects.create(
