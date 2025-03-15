@@ -62,6 +62,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
+        self.feature_flag_property = f"$feature/{self.feature_flag.key}"
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
@@ -173,9 +174,6 @@ class ExperimentQueryRunner(QueryRunner):
                 return parse_expr("1")
 
     def _get_experiment_query(self) -> ast.SelectQuery:
-        feature_flag_key = self.feature_flag.key
-        feature_flag_property = f"$feature/{feature_flag_key}"
-
         is_funnel_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
 
         test_accounts_filter = self._get_test_accounts_filter()
@@ -207,7 +205,7 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", feature_flag_property]),
+                        left=ast.Field(chain=["properties", self.feature_flag_property]),
                         right=ast.Constant(value=self.variants),
                     ),
                     *exposure_property_filters,
@@ -224,7 +222,7 @@ class ExperimentQueryRunner(QueryRunner):
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=["properties", "$feature_flag"]),
-                        right=ast.Constant(value=feature_flag_key),
+                        right=ast.Constant(value=self.feature_flag.key),
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
@@ -233,7 +231,7 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", feature_flag_property]),
+                        left=ast.Field(chain=["properties", self.feature_flag_property]),
                         right=ast.Constant(value=self.variants),
                     ),
                 ]
@@ -246,7 +244,7 @@ class ExperimentQueryRunner(QueryRunner):
                 expr=parse_expr(
                     "if(count(distinct {feature_flag_property}) > 1, {multiple_variant_key}, any({feature_flag_property}))",
                     placeholders={
-                        "feature_flag_property": ast.Field(chain=["properties", feature_flag_property]),
+                        "feature_flag_property": ast.Field(chain=["properties", self.feature_flag_property]),
                         "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                     },
                 ),
