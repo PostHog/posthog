@@ -5,7 +5,7 @@
   FROM
     (SELECT e.distinct_id AS distinct_id
      FROM events AS e
-     WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'US/Pacific')), less(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-13 00:00:00.000000', 6, 'US/Pacific')), equals(e.event, '$pageview')), less(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2025-03-14 21:08:18.785474', 6, 'US/Pacific')))
+     WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'US/Pacific')), less(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-13 00:00:00.000000', 6, 'US/Pacific')), equals(e.event, '$pageview')), less(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2025-03-14 21:27:50.992628', 6, 'US/Pacific')))
      ORDER BY e.distinct_id ASC)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
