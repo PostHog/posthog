@@ -5,7 +5,6 @@ from django.db.models.constraints import ForeignKeyConstraint
 
 
 class Migration(migrations.Migration):
-    # 1) Must be False so these schema changes don't hold locks for the entire migration
     atomic = False
 
     dependencies = [
@@ -13,12 +12,13 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # ----------------------------------------------------------------------------
-        # STEP 1: DROP any existing constraints & convert columns to bigint
-        # ----------------------------------------------------------------------------
+        #
+        # STEP 1: Raw SQL to drop existing constraints & convert columns to bigint.
+        #         *NO* "ADD CONSTRAINT" statements here!
+        #
         migrations.RunSQL(
             sql="""
-                -- 1a) Drop existing FK constraints if needed
+                -- Drop existing FK constraints if they exist
                 ALTER TABLE "posthog_cohortpeople"
                     DROP CONSTRAINT IF EXISTS "posthog_cohortpeople_person_id_33da7d3f_fk";
                 ALTER TABLE "posthog_featureflaghashkeyoverride"
@@ -26,7 +26,7 @@ class Migration(migrations.Migration):
                 ALTER TABLE "posthog_persondistinctid"
                     DROP CONSTRAINT IF EXISTS "posthog_persondistinctid_person_id_5d655bba_fk";
 
-                -- 1b) Convert columns to bigint
+                -- Convert columns to bigint
                 ALTER TABLE "posthog_person"
                     ALTER COLUMN "id" TYPE bigint USING "id"::bigint;
                 ALTER SEQUENCE IF EXISTS "posthog_person_id_seq" AS bigint;
@@ -44,9 +44,9 @@ class Migration(migrations.Migration):
             """,
             reverse_sql=migrations.RunSQL.noop,
         ),
-        # ----------------------------------------------------------------------------
-        # STEP 2: Update the Django model state to BigAutoField & new FKs
-        # ----------------------------------------------------------------------------
+        #
+        # STEP 2: Update the Django model state for BigAutoField & new FKs
+        #
         migrations.AlterField(
             model_name="person",
             name="id",
@@ -81,14 +81,14 @@ class Migration(migrations.Migration):
                 on_delete=models.CASCADE,
             ),
         ),
-        # ----------------------------------------------------------------------------
-        # STEP 3: Add each constraint with NOT VALID
-        # ----------------------------------------------------------------------------
+        #
+        # STEP 3: Add each foreign key constraint with NOT VALID (non-blocking)
+        #
         AddConstraintNotValid(
             model_name="cohortpeople",
             constraint=ForeignKeyConstraint(
-                fields=["person_id"],  # local DB column
-                to=["posthog_person", "id"],  # remote table & column
+                fields=["person_id"],
+                to=["posthog_person", "id"],
                 on_delete=models.CASCADE,
                 name="posthog_cohortpeople_person_id_33da7d3f_fk",
             ),
@@ -111,9 +111,9 @@ class Migration(migrations.Migration):
                 name="posthog_persondistinctid_person_id_5d655bba_fk",
             ),
         ),
-        # ----------------------------------------------------------------------------
-        # STEP 4: Validate each constraint in separate steps
-        # ----------------------------------------------------------------------------
+        #
+        # STEP 4: Validate constraints in separate steps
+        #
         ValidateConstraint(
             model_name="cohortpeople",
             name="posthog_cohortpeople_person_id_33da7d3f_fk",
