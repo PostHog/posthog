@@ -23,7 +23,7 @@ jobs:
 
             - name: Check if common/hogql_parser/ has changed
               id: changed-files
-              # uses: tj-actions/changed-files@v43 compromised
+              uses: step-security/changed-files@v45
               with:
                   since_last_remote_commit: true
                   files_yaml: |
