@@ -107,7 +107,7 @@ class TestEmail(BaseTest):
                     "to": "test@posthog.com",
                     "identifiers": {"email": "test@posthog.com"},
                     "transactional_message_id": CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"],
-                    "message_data": {},
+                    "message_data": {"utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=2fa_enabled"},
                 },
             )
 
@@ -138,7 +138,10 @@ class TestEmail(BaseTest):
                     "to": "test@posthog.com",
                     "identifiers": {"email": "test@posthog.com"},
                     "transactional_message_id": CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"],
-                    "message_data": {"decimal_value": 1.23},
+                    "message_data": {
+                        "decimal_value": 1.23,
+                        "utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=2fa_enabled",
+                    },
                 },
             )
 
