@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
+import { parse as simdjson_parse } from 'simdjson'
 
 import { buildIntegerMatcher } from '../config/config'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
@@ -388,7 +389,8 @@ export class PropertyDefsConsumer {
         messages.forEach((message) => {
             try {
                 const clickHouseEvent = parseRawClickHouseEvent(
-                    JSON.parse(message.value!.toString()) as RawClickHouseEvent
+                    simdjson_parse(message.value!.toString()) as RawClickHouseEvent,
+                    true
                 )
 
                 events.push(clickHouseEvent)

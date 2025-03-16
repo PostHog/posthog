@@ -1,6 +1,8 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { bool } from 'aws-sdk/clients/signer'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
+import { parse as simdjson_parse } from 'simdjson'
 
 import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {
@@ -76,7 +78,7 @@ export function convertToHookPayload(event: PostIngestionEvent): HookPayload['da
 }
 
 /** Parse an event row SELECTed from ClickHouse into a more malleable form. */
-export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHouseEvent {
+export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent, use_simdjson: bool = false): ClickHouseEvent {
     return {
         ...rawEvent,
         timestamp: clickHouseTimestampToDateTime(rawEvent.timestamp),
@@ -86,12 +88,36 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
         person_created_at: rawEvent.person_created_at
             ? clickHouseTimestampToDateTime(rawEvent.person_created_at)
             : null,
-        person_properties: rawEvent.person_properties ? JSON.parse(rawEvent.person_properties) : {},
-        group0_properties: rawEvent.group0_properties ? JSON.parse(rawEvent.group0_properties) : {},
-        group1_properties: rawEvent.group1_properties ? JSON.parse(rawEvent.group1_properties) : {},
-        group2_properties: rawEvent.group2_properties ? JSON.parse(rawEvent.group2_properties) : {},
-        group3_properties: rawEvent.group3_properties ? JSON.parse(rawEvent.group3_properties) : {},
-        group4_properties: rawEvent.group4_properties ? JSON.parse(rawEvent.group4_properties) : {},
+        person_properties: rawEvent.person_properties
+            ? use_simdjson
+                ? simdjson_parse(rawEvent.person_properties)
+                : JSON.parse(rawEvent.person_properties)
+            : {},
+        group0_properties: rawEvent.group0_properties
+            ? use_simdjson
+                ? simdjson_parse(rawEvent.group0_properties)
+                : JSON.parse(rawEvent.group0_properties)
+            : {},
+        group1_properties: rawEvent.group1_properties
+            ? use_simdjson
+                ? simdjson_parse(rawEvent.group1_properties)
+                : JSON.parse(rawEvent.group1_properties)
+            : {},
+        group2_properties: rawEvent.group2_properties
+            ? use_simdjson
+                ? simdjson_parse(rawEvent.group2_properties)
+                : JSON.parse(rawEvent.group2_properties)
+            : {},
+        group3_properties: rawEvent.group3_properties
+            ? use_simdjson
+                ? simdjson_parse(rawEvent.group3_properties)
+                : JSON.parse(rawEvent.group3_properties)
+            : {},
+        group4_properties: rawEvent.group4_properties
+            ? use_simdjson
+                ? simdjson_parse(rawEvent.group4_properties)
+                : JSON.parse(rawEvent.group4_properties)
+            : {},
         group0_created_at: rawEvent.group0_created_at
             ? clickHouseTimestampToDateTime(rawEvent.group0_created_at)
             : null,
