@@ -21,7 +21,7 @@ import {
     RawClickHouseEvent,
     ValueMatcher,
 } from '../types'
-import { parseRawClickHouseEventConditionalJson } from '../utils/event'
+import { parseRawClickHouseEvent } from '../utils/event'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
 import { GroupTypeManager, GroupTypesByProjectId } from '../worker/ingestion/group-type-manager'
@@ -390,7 +390,7 @@ export class PropertyDefsConsumer {
 
         messages.forEach((message) => {
             try {
-                const clickHouseEvent = parseRawClickHouseEventConditionalJson(
+                const clickHouseEvent = parseRawClickHouseEvent(
                     simdjson_parse(message.value!.toString()) as RawClickHouseEvent,
                     this.hub.PROPERTY_DEFS_USE_SIMDJSON
                 )
