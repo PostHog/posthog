@@ -444,11 +444,6 @@ class ExperimentQueryRunner(QueryRunner):
                                     right=parse_expr("toString(metric_events.entity_id)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
-                                # ast.CompareOperation(
-                                #     left=ast.Field(chain=["exposures", "variant"]),
-                                #     right=ast.Field(chain=["metric_events", "variant"]),
-                                #     op=ast.CompareOperationOp.Eq,
-                                # ),
                             ]
                         ),
                         constraint_type="ON",
