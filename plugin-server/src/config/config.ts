@@ -225,7 +225,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_JSON,
         PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: isDevEnv() ? '*' : '',
         PROPERTY_DEFS_WRITE_DISABLED: isProdEnv() ? true : false, // For now we don't want to do writes on prod - only count them
-        PROPERTY_DEFS_USE_SIMDJSON: isProdEnv() ? true : false, // testing this only in property-defs-node service for eval
+        PROPERTY_DEFS_USE_SIMDJSON: isProdEnv() ? false : true, // testing this only in dev env on property-defs-node service for eval
 
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
