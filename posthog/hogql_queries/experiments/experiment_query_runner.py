@@ -298,19 +298,14 @@ class ExperimentQueryRunner(QueryRunner):
             group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
 
-    def _get_experiment_query(self) -> ast.SelectQuery:
-        is_funnel_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
-        metric_value = self._get_metric_value()
-
-        exposure_query = self._get_exposure_query()
-
+    def _get_metric_events_query(self, exposure_query: ast.SelectQuery, metric_value: ast.Expr) -> ast.SelectQuery:
         match self.metric.metric_config:
             case ExperimentDataWarehouseMetricConfig() as metric_config:
                 # Events after exposure query: One row per event after exposure
                 # Columns: timestamp, after_exposure_identifier, variant, value
                 # Joins data warehouse events with exposure data to get all relevant events
                 # that occurred after a user was exposed to a variant
-                events_after_exposure_query = ast.SelectQuery(
+                return ast.SelectQuery(
                     select=[
                         ast.Alias(
                             alias="timestamp",
@@ -378,7 +373,7 @@ class ExperimentQueryRunner(QueryRunner):
                 # Events after exposure query: One row per PostHog event after exposure
                 # Columns: timestamp, entity_id, variant, event, value
                 # Finds all matching events that occurred after a user was exposed to a variant
-                events_after_exposure_query = ast.SelectQuery(
+                return ast.SelectQuery(
                     select=[
                         ast.Field(chain=["events", "timestamp"]),
                         ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", "person_id"])),
@@ -412,6 +407,14 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                 )
 
+    def _get_experiment_query(self) -> ast.SelectQuery:
+        is_funnel_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
+        metric_value = self._get_metric_value()
+
+        exposure_query = self._get_exposure_query()
+
+        metric_events_query = self._get_metric_events_query(exposure_query, metric_value)
+
         # User metrics aggregation: One row per user
         # Columns: variant, entity_id, value (sum of all event values)
         # Aggregates all events per user to get their total contribution to the metric
@@ -430,7 +433,7 @@ class ExperimentQueryRunner(QueryRunner):
                 table=exposure_query,
                 alias="exposure_data",
                 next_join=ast.JoinExpr(
-                    table=events_after_exposure_query,
+                    table=metric_events_query,
                     join_type="LEFT JOIN",
                     alias="events_after_exposure",
                     constraint=ast.JoinConstraint(
