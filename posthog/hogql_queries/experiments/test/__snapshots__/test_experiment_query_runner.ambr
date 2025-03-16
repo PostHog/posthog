@@ -1,10 +1,10 @@
 # serializer version: 1
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_continuous_metric
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -51,8 +51,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -64,10 +64,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_count_metric
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -114,8 +114,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -127,10 +127,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_funnel_metric
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -177,8 +177,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -190,10 +190,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_excludes_multiple_variants
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -242,8 +242,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -255,10 +255,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_funnel_metric
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -307,8 +307,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -320,10 +320,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_includes_date_range
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -372,8 +372,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -385,10 +385,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_includes_event_property_filters
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -437,8 +437,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'pro'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -450,10 +450,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_invalid_feature_flag_property
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -502,8 +502,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -515,10 +515,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_mean_property_sum_metric
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -567,8 +567,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -580,10 +580,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_no_control_variant
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -632,8 +632,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -645,10 +645,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_no_exposures
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -697,8 +697,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -710,10 +710,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_no_variant_events
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -762,8 +762,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -775,10 +775,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_standard_flow_v2_stats
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -827,8 +827,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -840,10 +840,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_using_action
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -892,8 +892,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -905,10 +905,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_custom_exposure
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -957,8 +957,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -970,10 +970,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1040,8 +1040,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1053,10 +1053,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1103,8 +1103,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1116,10 +1116,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1166,8 +1166,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1179,10 +1179,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1229,8 +1229,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1242,10 +1242,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1292,8 +1292,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1305,10 +1305,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1355,8 +1355,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1377,10 +1377,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1433,8 +1433,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1446,10 +1446,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.2
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1496,8 +1496,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1529,10 +1529,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.2
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1585,8 +1585,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1598,10 +1598,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.3
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1648,8 +1648,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1661,10 +1661,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1727,8 +1727,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1740,10 +1740,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1790,8 +1790,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1803,10 +1803,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1853,8 +1853,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1866,10 +1866,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -1916,8 +1916,8 @@
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
         WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1929,10 +1929,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_subscriptions_table
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2003,8 +2003,8 @@
                     events__person.properties___email) AS exposure_data ON equals(subscriptions__subscription_customer.customer_email, toString(exposure_data.exposure_identifier))
         WHERE and(ifNull(greaterOrEquals(toTimeZone(subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(subscriptions.subscription_created_at, 'UTC'), exposure_data.first_exposure_time), 0), ifNull(lessOrEquals(toTimeZone(subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2016,10 +2016,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_0_person_properties
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2098,8 +2098,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2111,10 +2111,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_0_person_properties.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2163,8 +2163,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2176,10 +2176,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_1_event_properties
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2228,8 +2228,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2241,10 +2241,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_1_event_properties.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2293,8 +2293,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2306,10 +2306,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_2_feature_flags
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2358,8 +2358,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'control'), 0)))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2371,10 +2371,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_2_feature_flags.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2423,8 +2423,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2445,10 +2445,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_3_cohort_static.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2506,8 +2506,8 @@
                                                                                                                                                                                                                                                                                                                                                                                                                  FROM person_static_cohort
                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2519,10 +2519,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_3_cohort_static.2
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2571,8 +2571,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2604,10 +2604,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.2
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2665,8 +2665,8 @@
                                                                                                                                                                                                                                                                                                                                                                                                                  FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2678,10 +2678,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.3
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2730,8 +2730,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2743,10 +2743,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_5_group
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2819,8 +2819,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2832,10 +2832,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_5_group.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2884,8 +2884,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2897,10 +2897,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_6_element
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -2949,8 +2949,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2962,10 +2962,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_6_element.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3014,8 +3014,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3036,10 +3036,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3088,8 +3088,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3110,10 +3110,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3162,8 +3162,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3184,10 +3184,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3236,8 +3236,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3258,10 +3258,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3340,8 +3340,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3362,10 +3362,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3444,8 +3444,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'), ifNull(notILike(toString(events__person.properties___email), '%@earlierevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3466,10 +3466,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3548,8 +3548,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'), ifNull(notILike(toString(events__person.properties___email), '%@laterevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3570,10 +3570,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3601,8 +3601,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(events.person_id, exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3623,10 +3623,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3654,8 +3654,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(events.person_id, exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3676,10 +3676,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.1
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3707,8 +3707,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(events.person_id, exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3720,10 +3720,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_time_window_0_experiment_duration
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3772,8 +3772,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3785,10 +3785,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_time_window_1_24_hour_window
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3837,8 +3837,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), less(toTimeZone(events.timestamp, 'UTC'), plus(exposure_data.first_exposure_time, toIntervalHour(24.0))), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3850,10 +3850,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_time_window_2_48_hour_window
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3902,8 +3902,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), less(toTimeZone(events.timestamp, 'UTC'), plus(exposure_data.first_exposure_time, toIntervalHour(48.0))), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3915,10 +3915,10 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_time_window_3_72_hour_window
   '''
-  SELECT metrics_per_user.variant AS variant,
-         count(metrics_per_user.entity_id) AS num_users,
-         sum(metrics_per_user.value) AS total_sum,
-         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
@@ -3967,8 +3967,8 @@
            GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), less(toTimeZone(events.timestamp, 'UTC'), plus(exposure_data.first_exposure_time, toIntervalHour(72.0))), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
-              exposure_data.entity_id) AS metrics_per_user
-  GROUP BY metrics_per_user.variant
+              exposure_data.entity_id) AS metric_events
+  GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

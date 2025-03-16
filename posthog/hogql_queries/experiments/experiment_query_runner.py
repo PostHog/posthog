@@ -298,7 +298,12 @@ class ExperimentQueryRunner(QueryRunner):
             group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
 
-    def _get_metric_events_query(self, exposure_query: ast.SelectQuery, metric_value: ast.Expr) -> ast.SelectQuery:
+    def _get_metric_events_query(self, exposure_query: ast.SelectQuery) -> ast.SelectQuery:
+        """
+        Returns the query to get the relevant metric events. One row per event, so multiple rows per entity.
+        Columns: timestamp, after_exposure_identifier, variant, value
+        """
+        metric_value = self._get_metric_value()
         match self.metric.metric_config:
             case ExperimentDataWarehouseMetricConfig() as metric_config:
                 # Events after exposure query: One row per event after exposure
@@ -407,18 +412,15 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                 )
 
-    def _get_experiment_query(self) -> ast.SelectQuery:
-        is_funnel_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
-        metric_value = self._get_metric_value()
-
-        exposure_query = self._get_exposure_query()
-
-        metric_events_query = self._get_metric_events_query(exposure_query, metric_value)
-
-        # User metrics aggregation: One row per user
-        # Columns: variant, entity_id, value (sum of all event values)
-        # Aggregates all events per user to get their total contribution to the metric
-        metrics_aggregated_per_user_query = ast.SelectQuery(
+    def _get_metrics_aggregated_per_entity_query(
+        self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
+    ) -> ast.SelectQuery:
+        """
+        Aggregates all events per entity to get their total contribution to the metric
+        One row per entity
+        Columns: variant, entity_id, value (sum of all event values)
+        """
+        return ast.SelectQuery(
             select=[
                 ast.Field(chain=["exposure_data", "variant"]),
                 ast.Field(chain=["exposure_data", "entity_id"]),
@@ -426,7 +428,7 @@ class ExperimentQueryRunner(QueryRunner):
                     expr=parse_expr("if(any(events_after_exposure.value), 1, 0)"),
                     alias="value",
                 )
-                if is_funnel_metric
+                if self.metric.metric_type == ExperimentMetricType.FUNNEL
                 else parse_expr("sum(coalesce(toFloat(events_after_exposure.value), 0)) as value"),
             ],
             select_from=ast.JoinExpr(
@@ -467,18 +469,40 @@ class ExperimentQueryRunner(QueryRunner):
             ],
         )
 
-        # Final results: One row per variant
-        # Columns: variant, num_users, total_sum, total_sum_of_squares
-        # Aggregates user metrics into final statistics used for significance calculations
-        experiment_variant_results_query = ast.SelectQuery(
+    def _get_experiment_variant_results_query(
+        self, metrics_aggregated_per_entity_query: ast.SelectQuery
+    ) -> ast.SelectQuery:
+        """
+        Aggregates entity metrics into final statistics used for significance calculations
+        One row per variant
+        Columns: variant, num_users, total_sum, total_sum_of_squares
+        """
+        return ast.SelectQuery(
             select=[
-                ast.Field(chain=["metrics_per_user", "variant"]),
-                parse_expr("count(metrics_per_user.entity_id) as num_users"),
-                parse_expr("sum(metrics_per_user.value) as total_sum"),
-                parse_expr("sum(power(metrics_per_user.value, 2)) as total_sum_of_squares"),
+                ast.Field(chain=["metric_events", "variant"]),
+                parse_expr("count(metric_events.entity_id) as num_users"),
+                parse_expr("sum(metric_events.value) as total_sum"),
+                parse_expr("sum(power(metric_events.value, 2)) as total_sum_of_squares"),
             ],
-            select_from=ast.JoinExpr(table=metrics_aggregated_per_user_query, alias="metrics_per_user"),
-            group_by=[ast.Field(chain=["metrics_per_user", "variant"])],
+            select_from=ast.JoinExpr(table=metrics_aggregated_per_entity_query, alias="metric_events"),
+            group_by=[ast.Field(chain=["metric_events", "variant"])],
+        )
+
+    def _get_experiment_query(self) -> ast.SelectQuery:
+        # Get all entities that should be included in the experiment
+        exposure_query = self._get_exposure_query()
+
+        # Get all metric events that are relevant to the experiment
+        metric_events_query = self._get_metric_events_query(exposure_query)
+
+        # Aggregate all events per entity to get their total contribution to the metric
+        metrics_aggregated_per_entity_query = self._get_metrics_aggregated_per_entity_query(
+            exposure_query, metric_events_query
+        )
+
+        # Get the final results for each variant
+        experiment_variant_results_query = self._get_experiment_variant_results_query(
+            metrics_aggregated_per_entity_query
         )
 
         return experiment_variant_results_query
