@@ -311,7 +311,7 @@ def create_event_definitions_sql(
             SELECT {",".join(event_definition_fields)}
             FROM posthog_eventdefinition
             {enterprise_join}
-            WHERE project_id = %(project_id)s OR (project_id IS NULL AND team_id = %(project_id)s) {conditions}
+            WHERE (project_id = %(project_id)s OR (project_id IS NULL AND team_id = %(project_id)s)) {conditions}
             ORDER BY {additional_ordering}name ASC
         """
 
