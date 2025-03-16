@@ -91,6 +91,7 @@ export class PropertyDefsConsumer {
     protected promises: Set<Promise<any>> = new Set()
     private propDefsEnabledProjects: ValueMatcher<number>
     private writeDisabled: boolean
+    private useSimdJson: boolean
 
     constructor(private hub: Hub) {
         this.groupId = hub.PROPERTY_DEFS_CONSUMER_GROUP_ID
@@ -100,6 +101,7 @@ export class PropertyDefsConsumer {
         this.groupTypeManager = new GroupTypeManager(hub.postgres, this.teamManager)
         this.propDefsEnabledProjects = buildIntegerMatcher(hub.PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS, true)
         this.writeDisabled = hub.PROPERTY_DEFS_WRITE_DISABLED
+        this.useSimdJson = hub.PROPERTY_DEFS_USE_SIMDJSON
     }
 
     public get service(): PluginServerService {
@@ -390,7 +392,7 @@ export class PropertyDefsConsumer {
             try {
                 const clickHouseEvent = parseRawClickHouseEventConditionalJson(
                     simdjson_parse(message.value!.toString()) as RawClickHouseEvent,
-                    true
+                    this.hub.PROPERTY_DEFS_USE_SIMDJSON
                 )
 
                 events.push(clickHouseEvent)

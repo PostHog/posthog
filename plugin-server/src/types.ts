@@ -344,10 +344,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 
+    // property-defs-node configs (some temporary!)
     PROPERTY_DEFS_CONSUMER_GROUP_ID: string
     PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
     PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: string
     PROPERTY_DEFS_WRITE_DISABLED: boolean
+    PROPERTY_DEFS_USE_SIMDJSON: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
