@@ -77,13 +77,8 @@ export function convertToHookPayload(event: PostIngestionEvent): HookPayload['da
     }
 }
 
-// poor-man's partial application to keep parseRawClickHouseEvent compatible with map calls like this:
-// https://github.com/PostHog/posthog/blob/master/plugin-server/src/utils/db/db.ts#L1011
-// obviously, we'll remove this nonsense once the simdjson_nodejs eval is completed
-export function parseRawClickHouseEventConditionalJson(
-    rawEvent: RawClickHouseEvent,
-    use_simdjson: bool
-): ClickHouseEvent {
+/** Parse an event row SELECTed from ClickHouse into a more malleable form. */
+export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent, use_simdjson: bool = false): ClickHouseEvent {
     return {
         ...rawEvent,
         timestamp: clickHouseTimestampToDateTime(rawEvent.timestamp),
@@ -139,11 +134,6 @@ export function parseRawClickHouseEventConditionalJson(
             ? clickHouseTimestampToDateTime(rawEvent.group4_created_at)
             : null,
     }
-}
-
-/** Parse an event row SELECTed from ClickHouse into a more malleable form. */
-export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHouseEvent {
-    return parseRawClickHouseEventConditionalJson(rawEvent, false)
 }
 
 export function convertToPostHogEvent(event: PostIngestionEvent): PostHogEvent {

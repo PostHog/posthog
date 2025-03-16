@@ -1008,7 +1008,7 @@ export class DB {
         const queryResult = await this.clickhouseQuery<RawClickHouseEvent>(
             `SELECT * FROM events ORDER BY timestamp ASC`
         )
-        return queryResult.data.map(parseRawClickHouseEvent)
+        return queryResult.data.map((evt) => parseRawClickHouseEvent(evt, false))
     }
 
     public async fetchDeadLetterQueueEvents(): Promise<DeadLetterQueueEvent[]> {
