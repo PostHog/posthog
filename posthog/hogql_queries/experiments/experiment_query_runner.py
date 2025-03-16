@@ -301,15 +301,10 @@ class ExperimentQueryRunner(QueryRunner):
     def _get_metric_events_query(self, exposure_query: ast.SelectQuery) -> ast.SelectQuery:
         """
         Returns the query to get the relevant metric events. One row per event, so multiple rows per entity.
-        Columns: timestamp, after_exposure_identifier, variant, value
+        Columns: timestamp, entity_identifier, variant, value
         """
-        metric_value = self._get_metric_value()
         match self.metric.metric_config:
             case ExperimentDataWarehouseMetricConfig() as metric_config:
-                # Events after exposure query: One row per event after exposure
-                # Columns: timestamp, after_exposure_identifier, variant, value
-                # Joins data warehouse events with exposure data to get all relevant events
-                # that occurred after a user was exposed to a variant
                 return ast.SelectQuery(
                     select=[
                         ast.Alias(
@@ -317,7 +312,7 @@ class ExperimentQueryRunner(QueryRunner):
                             expr=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
                         ),
                         ast.Alias(
-                            alias="after_exposure_identifier",
+                            alias="entity_identifier",
                             expr=ast.Field(
                                 chain=[
                                     metric_config.table_name,
@@ -326,7 +321,7 @@ class ExperimentQueryRunner(QueryRunner):
                             ),
                         ),
                         ast.Field(chain=["exposure_data", "variant"]),
-                        ast.Alias(alias="value", expr=metric_value),
+                        ast.Alias(alias="value", expr=self._get_metric_value()),
                     ],
                     select_from=ast.JoinExpr(
                         table=ast.Field(chain=[metric_config.table_name]),
@@ -375,16 +370,13 @@ class ExperimentQueryRunner(QueryRunner):
                         right=ast.Constant(value=metric_config.event),
                         op=ast.CompareOperationOp.Eq,
                     )
-                # Events after exposure query: One row per PostHog event after exposure
-                # Columns: timestamp, entity_id, variant, event, value
-                # Finds all matching events that occurred after a user was exposed to a variant
                 return ast.SelectQuery(
                     select=[
                         ast.Field(chain=["events", "timestamp"]),
                         ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", "person_id"])),
                         ast.Field(chain=["exposure_data", "variant"]),
                         ast.Field(chain=["events", "event"]),
-                        ast.Alias(alias="value", expr=metric_value),
+                        ast.Alias(alias="value", expr=self._get_metric_value()),
                     ],
                     select_from=ast.JoinExpr(
                         table=ast.Field(chain=["events"]),
@@ -422,41 +414,41 @@ class ExperimentQueryRunner(QueryRunner):
         """
         return ast.SelectQuery(
             select=[
-                ast.Field(chain=["exposure_data", "variant"]),
-                ast.Field(chain=["exposure_data", "entity_id"]),
+                ast.Field(chain=["exposures", "variant"]),
+                ast.Field(chain=["exposures", "entity_id"]),
                 ast.Alias(
-                    expr=parse_expr("if(any(events_after_exposure.value), 1, 0)"),
+                    expr=parse_expr("if(any(metric_events.value), 1, 0)"),
                     alias="value",
                 )
                 if self.metric.metric_type == ExperimentMetricType.FUNNEL
-                else parse_expr("sum(coalesce(toFloat(events_after_exposure.value), 0)) as value"),
+                else parse_expr("sum(coalesce(toFloat(metric_events.value), 0)) as value"),
             ],
             select_from=ast.JoinExpr(
                 table=exposure_query,
-                alias="exposure_data",
+                alias="exposures",
                 next_join=ast.JoinExpr(
                     table=metric_events_query,
                     join_type="LEFT JOIN",
-                    alias="events_after_exposure",
+                    alias="metric_events",
                     constraint=ast.JoinConstraint(
                         expr=ast.And(
                             exprs=[
                                 ast.CompareOperation(
-                                    left=parse_expr("toString(exposure_data.exposure_identifier)"),
-                                    right=parse_expr("toString(events_after_exposure.after_exposure_identifier)"),
+                                    left=parse_expr("toString(exposures.exposure_identifier)"),
+                                    right=parse_expr("toString(metric_events.entity_identifier)"),
                                     op=ast.CompareOperationOp.Eq,
                                 )
                                 if self.is_data_warehouse_query
                                 else ast.CompareOperation(
-                                    left=parse_expr("toString(exposure_data.entity_id)"),
-                                    right=parse_expr("toString(events_after_exposure.entity_id)"),
+                                    left=parse_expr("toString(exposures.entity_id)"),
+                                    right=parse_expr("toString(metric_events.entity_id)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
-                                ast.CompareOperation(
-                                    left=ast.Field(chain=["exposure_data", "variant"]),
-                                    right=ast.Field(chain=["events_after_exposure", "variant"]),
-                                    op=ast.CompareOperationOp.Eq,
-                                ),
+                                # ast.CompareOperation(
+                                #     left=ast.Field(chain=["exposures", "variant"]),
+                                #     right=ast.Field(chain=["metric_events", "variant"]),
+                                #     op=ast.CompareOperationOp.Eq,
+                                # ),
                             ]
                         ),
                         constraint_type="ON",
@@ -464,8 +456,8 @@ class ExperimentQueryRunner(QueryRunner):
                 ),
             ),
             group_by=[
-                ast.Field(chain=["exposure_data", "variant"]),
-                ast.Field(chain=["exposure_data", "entity_id"]),
+                ast.Field(chain=["exposures", "variant"]),
+                ast.Field(chain=["exposures", "entity_id"]),
             ],
         )
 
