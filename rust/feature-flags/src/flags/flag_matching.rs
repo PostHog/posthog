@@ -30,7 +30,7 @@ use std::{
 use tokio::time::{sleep, timeout};
 use tracing::{error, info};
 
-pub type PersonId = i32;
+pub type PersonId = i64;
 pub type GroupTypeIndex = i32;
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
 pub type PostgresWriter = Arc<dyn DatabaseClient + Send + Sync>;
@@ -1379,7 +1379,7 @@ impl FeatureFlagMatcher {
 /// Evaluate static cohort filters by checking if the person is in each cohort.
 async fn evaluate_static_cohorts(
     reader: PostgresReader,
-    person_id: i32,
+    person_id: PersonId,
     cohort_ids: Vec<CohortId>,
 ) -> Result<Vec<(CohortId, bool)>, FlagError> {
     let mut conn = reader.get_connection().await?;
@@ -1644,7 +1644,7 @@ async fn fetch_and_locally_cache_all_relevant_properties(
     let group_type_indexes_vec: Vec<GroupTypeIndex> = group_type_indexes.iter().cloned().collect();
     let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
-    let row: (Option<i32>, Option<Value>, Option<Value>) = sqlx::query_as(query)
+    let row: (Option<PersonId>, Option<Value>, Option<Value>) = sqlx::query_as(query)
         .bind(&distinct_id)
         .bind(team_id)
         .bind(&group_type_indexes_vec)
@@ -1701,7 +1701,7 @@ async fn fetch_person_properties_from_db(
     reader: PostgresReader,
     distinct_id: String,
     team_id: TeamId,
-) -> Result<(HashMap<String, Value>, i32), FlagError> {
+) -> Result<(HashMap<String, Value>, PersonId), FlagError> {
     let mut conn = reader.as_ref().get_connection().await?;
 
     let query = r#"
@@ -1714,7 +1714,7 @@ async fn fetch_person_properties_from_db(
            LIMIT 1
        "#;
 
-    let row: Option<(i32, Value)> = sqlx::query_as(query)
+    let row: Option<(PersonId, Value)> = sqlx::query_as(query)
         .bind(&distinct_id)
         .bind(team_id)
         .fetch_optional(&mut *conn)

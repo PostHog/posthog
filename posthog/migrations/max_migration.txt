@@ -1,1 +1,1 @@
-0688_update_default_version
+0690_validate_raw_sql_query_fields

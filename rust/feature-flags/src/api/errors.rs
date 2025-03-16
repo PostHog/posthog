@@ -40,6 +40,8 @@ pub enum FlagError {
     RowNotFound,
     #[error("failed to parse redis cache data")]
     RedisDataParsingError,
+    #[error("failed to deserialize filters")]
+    DeserializeFiltersError,
     #[error("failed to update redis cache")]
     CacheUpdateError,
     #[error("redis unavailable")]
@@ -109,6 +111,13 @@ impl IntoResponse for FlagError {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Failed to update internal cache. This is likely a temporary issue. Please try again later.".to_string(),
+                )
+            }
+            FlagError::DeserializeFiltersError => {
+                tracing::error!("Failed to deserialize filters: {:?}", self);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to deserialize property filters.  This is likely a temporary issue. Please try again later.".to_string(),
                 )
             }
             FlagError::RedisUnavailable => {
