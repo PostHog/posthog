@@ -11,7 +11,13 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
 from posthog.tasks.utils import CeleryQueue
 from posthog.redis import get_client
-from posthog.schema import RecordingsQuery, FilterLogicalOperator, PropertyOperator, PropertyFilterType
+from posthog.schema import (
+    RecordingsQuery,
+    FilterLogicalOperator,
+    PropertyOperator,
+    PropertyFilterType,
+    RecordingPropertyFilter,
+)
 from django.db.models import F, Q
 from django.utils import timezone
 
@@ -82,6 +88,14 @@ DEFAULT_RECORDING_FILTERS = {
     ],
     "order": "start_time",
 }
+
+
+def asRecordingPropertyFilter(filter: dict[str, Any]) -> RecordingPropertyFilter:
+    return RecordingPropertyFilter(
+        key=filter["key"],
+        operator=filter["operator"],
+        value=filter["value"],
+    )
 
 
 def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -194,7 +208,7 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
     order = filters.get("order")
     duration_filters = filters.get("duration", [])
     if duration_filters and len(duration_filters) > 0:
-        having_predicates.append(duration_filters[0])
+        having_predicates.append(asRecordingPropertyFilter(duration_filters[0]))
 
     # Process each filter
     for f in extracted_filters:
