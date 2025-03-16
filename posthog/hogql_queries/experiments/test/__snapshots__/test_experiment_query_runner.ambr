@@ -134,7 +134,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
+            if(any(events_after_exposure.value), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -262,7 +262,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
+            if(any(events_after_exposure.value), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -3043,7 +3043,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
+            if(any(events_after_exposure.value), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -3117,7 +3117,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
+            if(any(events_after_exposure.value), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -3191,7 +3191,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
+            if(any(events_after_exposure.value), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -3265,7 +3265,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
+            if(any(events_after_exposure.value), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -3369,7 +3369,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
+            if(any(events_after_exposure.value), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -3473,7 +3473,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
+            if(any(events_after_exposure.value), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -3577,7 +3577,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
+            if(any(events_after_exposure.value), 1, 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -3630,7 +3630,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
+            if(any(events_after_exposure.value), 1, 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -3683,7 +3683,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
+            if(any(events_after_exposure.value), 1, 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
