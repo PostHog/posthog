@@ -190,6 +190,29 @@ class ExperimentQueryRunner(QueryRunner):
             variant
             first_exposure_time
         """
+
+        # Common criteria for all exposure queries
+        common_exposure_criteria: ast.Expr = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=self.date_range_query.date_from()),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=self.date_range_query.date_to()),
+                ),
+                *self._get_test_accounts_filter(),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["properties", self.feature_flag_property]),
+                    right=ast.Constant(value=self.variants),
+                ),
+            ]
+        )
+
         exposure_config = (
             self.experiment.exposure_criteria.get("exposure_config") if self.experiment.exposure_criteria else None
         )
@@ -199,23 +222,19 @@ class ExperimentQueryRunner(QueryRunner):
             if exposure_config.get("properties"):
                 for property in exposure_config.get("properties"):
                     exposure_property_filters.append(property_to_expr(property, self.team))
-            exposure_where_clause = ast.And(
+            expsoure_event_criteria = ast.And(
                 exprs=[
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=["event"]),
                         right=ast.Constant(value=event_name),
                     ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", self.feature_flag_property]),
-                        right=ast.Constant(value=self.variants),
-                    ),
                     *exposure_property_filters,
                 ]
             )
         else:
-            exposure_where_clause = ast.And(
+            # The default $feature_flag_called event exposure event criteria
+            expsoure_event_criteria = ast.And(
                 exprs=[
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
@@ -230,11 +249,6 @@ class ExperimentQueryRunner(QueryRunner):
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
                         left=ast.Field(chain=["properties", "$feature_flag_response"]),
-                        right=ast.Constant(value=self.variants),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", self.feature_flag_property]),
                         right=ast.Constant(value=self.variants),
                     ),
                 ]
@@ -280,19 +294,8 @@ class ExperimentQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
-                    exposure_where_clause,
-                    # Filter by experiment date range
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
-                        left=ast.Field(chain=["timestamp"]),
-                        right=ast.Constant(value=self.date_range_query.date_from()),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.LtEq,
-                        left=ast.Field(chain=["timestamp"]),
-                        right=ast.Constant(value=self.date_range_query.date_to()),
-                    ),
-                    *self._get_test_accounts_filter(),
+                    common_exposure_criteria,
+                    expsoure_event_criteria,
                 ]
             ),
             group_by=cast(list[ast.Expr], exposure_query_group_by),
