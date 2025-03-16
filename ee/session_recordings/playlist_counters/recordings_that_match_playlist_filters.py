@@ -5,6 +5,7 @@ import posthoganalytics
 from celery import shared_task
 from django.conf import settings
 from prometheus_client import Counter, Histogram
+from pydantic import ValidationError
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -247,19 +248,36 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
             # For any other property filter
             properties.append(f)
 
-    # Construct the RecordingsQuery
-    return RecordingsQuery(
-        order=order,
-        date_from=filters.get("date_from"),
-        date_to=filters.get("date_to"),
-        properties=properties,
-        events=events,
-        actions=actions,
-        console_log_filters=console_log_filters,
-        having_predicates=having_predicates,
-        filter_test_accounts=filters.get("filter_test_accounts"),
-        operand=filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
-    )
+    try:
+        # Construct the RecordingsQuery
+        return RecordingsQuery(
+            order=order,
+            date_from=filters.get("date_from"),
+            date_to=filters.get("date_to"),
+            properties=properties,
+            events=events,
+            actions=actions,
+            console_log_filters=console_log_filters,
+            having_predicates=having_predicates,
+            filter_test_accounts=filters.get("filter_test_accounts"),
+            operand=filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
+        )
+    except ValidationError as e:
+        # we were seeing errors here and it was hard to debug
+        # so we're logging all the data and the error
+        logger.exception(
+            "Failed to convert universal filters to RecordingsQuery",
+            filters=filters,
+            error=e,
+            having_predicates=having_predicates,
+            properties=properties,
+            events=events,
+            actions=actions,
+            console_log_filters=console_log_filters,
+            filter_test_accounts=filters.get("filter_test_accounts"),
+            operand=filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
+        )
+        raise
 
 
 @shared_task(
