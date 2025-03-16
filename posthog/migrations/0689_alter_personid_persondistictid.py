@@ -3,41 +3,21 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
+    # Non-atomic so that the "ADD CONSTRAINT NOT VALID" + "VALIDATE CONSTRAINT" can run concurrently
+    atomic = False
+
     dependencies = [
-        ("posthog", "0688_update_default_version"),
+        ("posthog", "0688_update_default_version"),  # Adjust to the migration your code depends on
     ]
 
     operations = [
-        migrations.RunSQL(
-            sql="""
-                -- Drop existing foreign key constraints
-                ALTER TABLE "posthog_cohortpeople" DROP CONSTRAINT IF EXISTS "posthog_cohortpeople_person_id_33da7d3f_fk";
-                ALTER TABLE "posthog_featureflaghashkeyoverride" DROP CONSTRAINT IF EXISTS "posthog_featureflaghashkeyoverride_person_id_7e517f7c_fk";
-                ALTER TABLE "posthog_persondistinctid" DROP CONSTRAINT IF EXISTS "posthog_persondistinctid_person_id_5d655bba_fk";
-
-                -- Alter column types to bigint
-                ALTER TABLE "posthog_person" ALTER COLUMN "id" TYPE bigint USING "id"::bigint;
-                ALTER SEQUENCE IF EXISTS "posthog_person_id_seq" AS bigint;
-
-                ALTER TABLE "posthog_cohortpeople" ALTER COLUMN "person_id" TYPE bigint USING "person_id"::bigint;
-                ALTER TABLE "posthog_featureflaghashkeyoverride" ALTER COLUMN "person_id" TYPE bigint USING "person_id"::bigint;
-                ALTER TABLE "posthog_persondistinctid" ALTER COLUMN "person_id" TYPE bigint USING "person_id"::bigint;
-
-                ALTER TABLE "posthog_persondistinctid" ALTER COLUMN "id" TYPE bigint USING "id"::bigint;
-                ALTER SEQUENCE IF EXISTS "posthog_persondistinctid_id_seq" AS bigint;
-
-                -- Add constraints safely (with NOT VALID)
-                ALTER TABLE "posthog_cohortpeople" ADD CONSTRAINT "posthog_cohortpeople_person_id_33da7d3f_fk"
-                    FOREIGN KEY ("person_id") REFERENCES "posthog_person" ("id") NOT VALID;
-
-                ALTER TABLE "posthog_featureflaghashkeyoverride" ADD CONSTRAINT "posthog_featureflaghashkeyoverride_person_id_7e517f7c_fk"
-                    FOREIGN KEY ("person_id") REFERENCES "posthog_person" ("id") NOT VALID;
-
-                ALTER TABLE "posthog_persondistinctid" ADD CONSTRAINT "posthog_persondistinctid_person_id_5d655bba_fk"
-                    FOREIGN KEY ("person_id") REFERENCES "posthog_person" ("id") NOT VALID;
-            """,
-            reverse_sql=migrations.RunSQL.noop,
+        #
+        # 1) Split the field changes & constraint additions into "SeparateDatabaseAndState".
+        #
+        migrations.SeparateDatabaseAndState(
             state_operations=[
+                # These define the new "bigint" fields in Django’s model state and update the FKs,
+                # but do NOT forcibly add constraints at the DB level in one go.
                 migrations.AlterField(
                     model_name="person",
                     name="id",
@@ -51,18 +31,84 @@ class Migration(migrations.Migration):
                 migrations.AlterField(
                     model_name="cohortpeople",
                     name="person",
-                    field=models.ForeignKey(to="posthog.person", on_delete=models.CASCADE),
+                    field=models.ForeignKey(
+                        to="posthog.person",
+                        on_delete=models.CASCADE,
+                    ),
                 ),
                 migrations.AlterField(
                     model_name="featureflaghashkeyoverride",
                     name="person",
-                    field=models.ForeignKey(to="posthog.person", on_delete=models.CASCADE),
+                    field=models.ForeignKey(
+                        to="posthog.person",
+                        on_delete=models.CASCADE,
+                    ),
                 ),
                 migrations.AlterField(
                     model_name="persondistinctid",
                     name="person",
-                    field=models.ForeignKey(to="posthog.person", on_delete=models.CASCADE),
+                    field=models.ForeignKey(
+                        to="posthog.person",
+                        on_delete=models.CASCADE,
+                    ),
                 ),
             ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="""
+                    -- 1a) Drop existing FK constraints if they exist
+                    ALTER TABLE "posthog_cohortpeople"
+                        DROP CONSTRAINT IF EXISTS "posthog_cohortpeople_person_id_33da7d3f_fk";
+                    ALTER TABLE "posthog_featureflaghashkeyoverride"
+                        DROP CONSTRAINT IF EXISTS "posthog_featureflaghashkeyoverride_person_id_7e517f7c_fk";
+                    ALTER TABLE "posthog_persondistinctid"
+                        DROP CONSTRAINT IF EXISTS "posthog_persondistinctid_person_id_5d655bba_fk";
+
+                    -- 1b) Convert columns to bigint
+                    ALTER TABLE "posthog_person"
+                        ALTER COLUMN "id" TYPE bigint USING "id"::bigint;
+                    ALTER SEQUENCE IF EXISTS "posthog_person_id_seq" AS bigint;
+
+                    ALTER TABLE "posthog_cohortpeople"
+                        ALTER COLUMN "person_id" TYPE bigint USING "person_id"::bigint;
+                    ALTER TABLE "posthog_featureflaghashkeyoverride"
+                        ALTER COLUMN "person_id" TYPE bigint USING "person_id"::bigint;
+                    ALTER TABLE "posthog_persondistinctid"
+                        ALTER COLUMN "person_id" TYPE bigint USING "person_id"::bigint;
+
+                    ALTER TABLE "posthog_persondistinctid"
+                        ALTER COLUMN "id" TYPE bigint USING "id"::bigint;
+                    ALTER SEQUENCE IF EXISTS "posthog_persondistinctid_id_seq" AS bigint;
+
+                    -- 1c) Add the foreign key constraints with NOT VALID
+                    ALTER TABLE "posthog_cohortpeople" ADD CONSTRAINT "posthog_cohortpeople_person_id_33da7d3f_fk"
+                        FOREIGN KEY ("person_id") REFERENCES "posthog_person" ("id") NOT VALID;
+
+                    ALTER TABLE "posthog_featureflaghashkeyoverride" ADD CONSTRAINT "posthog_featureflaghashkeyoverride_person_id_7e517f7c_fk"
+                        FOREIGN KEY ("person_id") REFERENCES "posthog_person" ("id") NOT VALID;
+
+                    ALTER TABLE "posthog_persondistinctid" ADD CONSTRAINT "posthog_persondistinctid_person_id_5d655bba_fk"
+                        FOREIGN KEY ("person_id") REFERENCES "posthog_person" ("id") NOT VALID;
+                    """,
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+            ],
+        ),
+        #
+        # 2) Validate each constraint in a separate step.
+        #    This ensures the table isn't locked for the entire validation.
+        #
+        migrations.RunSQL(
+            sql="""
+            ALTER TABLE "posthog_cohortpeople"
+                VALIDATE CONSTRAINT "posthog_cohortpeople_person_id_33da7d3f_fk";
+
+            ALTER TABLE "posthog_featureflaghashkeyoverride"
+                VALIDATE CONSTRAINT "posthog_featureflaghashkeyoverride_person_id_7e517f7c_fk";
+
+            ALTER TABLE "posthog_persondistinctid"
+                VALIDATE CONSTRAINT "posthog_persondistinctid_person_id_5d655bba_fk";
+            """,
+            reverse_sql=migrations.RunSQL.noop,
         ),
     ]
