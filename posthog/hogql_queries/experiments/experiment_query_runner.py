@@ -76,13 +76,10 @@ class ExperimentQueryRunner(QueryRunner):
             interval=IntervalType.DAY,
             now=datetime.now(),
         )
+        self.is_data_warehouse_query = isinstance(self.query.metric.metric_config, ExperimentDataWarehouseMetricConfig)
 
         # Just to simplify access
         self.metric = self.query.metric
-
-    @property
-    def is_data_warehouse_query(self) -> bool:
-        return isinstance(self.query.metric.metric_config, ExperimentDataWarehouseMetricConfig)
 
     def _get_date_range(self) -> DateRange:
         """
