@@ -807,18 +807,16 @@ def capture_report(
     pha_client: PostHogClient,
     capture_event_name: str,
     organization_id: Optional[str] = None,
-    team_id: Optional[int] = None,
     full_report_dict: dict[str, Any],
-    at_date: Optional[datetime] = None,
+    at_date: Optional[str] = None,
 ) -> None:
-    if not organization_id and not team_id:
-        raise ValueError("Either organization_id or team_id must be provided")
+    if not organization_id:
+        raise ValueError("Organization_id must be provided")
     try:
         capture_event(
             pha_client=pha_client,
             name=capture_event_name,
             organization_id=organization_id,
-            team_id=team_id,
             properties=full_report_dict,
             timestamp=at_date,
         )
@@ -831,7 +829,6 @@ def capture_report(
             pha_client=pha_client,
             name=f"{capture_event_name} failure",
             organization_id=organization_id,
-            team_id=team_id,
             properties={"error": str(err)},
         )
 
@@ -1283,14 +1280,16 @@ def send_all_org_usage_reports(
 
         time_now = datetime.now()
         logger.info("Sending usage reports to PostHog and Billing...")  # noqa T201
-        capture_event(
-            pha_client=pha_client,
-            name="organization usage reports starting",
-            properties={
+
+        pha_client.capture(
+            "internal_billing_events",
+            "organization usage report starting",
+            {
                 "total_orgs": total_orgs,
                 "total_orgs_sent": total_orgs_sent,
                 "region": get_instance_region(),
             },
+            groups={"instance": settings.SITE_URL},
         )
 
         for org_report in org_reports.values():
@@ -1327,15 +1326,17 @@ def send_all_org_usage_reports(
 
         time_since = datetime.now() - time_now
         logger.info(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
-        capture_event(
-            pha_client=pha_client,
-            name="organization usage reports complete",
-            properties={
+
+        pha_client.capture(
+            "internal_billing_events",
+            "organization usage report complete",
+            {
                 "total_orgs": total_orgs,
                 "total_orgs_sent": total_orgs_sent,
                 "total_time": time_since.total_seconds(),
                 "region": get_instance_region(),
             },
+            groups={"instance": settings.SITE_URL},
         )
 
     except Exception as err:
