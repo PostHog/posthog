@@ -192,21 +192,6 @@ export const SectionTileItem = ({ tile }: { tile: SectionTile }): JSX.Element =>
                                 <QueryTileItem tile={subTile} />
                             </div>
                         )
-                    } else if (subTile.kind === 'section') {
-                        return (
-                            <div key={`${subTile.tileId}-${i}`} className="col-span-full">
-                                <div className={`grid ${subTile.layout.className}`}>
-                                    {subTile.tiles.map(
-                                        (nestedTile, j) =>
-                                            nestedTile.kind === 'query' && (
-                                                <div key={`${nestedTile.tileId}-${j}`} className="col-span-1">
-                                                    <QueryTileItem tile={nestedTile} />
-                                                </div>
-                                            )
-                                    )}
-                                </div>
-                            </div>
-                        )
                     }
                     return null
                 })}

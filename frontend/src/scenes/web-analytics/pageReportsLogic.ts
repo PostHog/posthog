@@ -468,60 +468,40 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         tileId: TileId.PAGE_REPORTS_GEOGRAPHY_SECTION,
                         title: 'Geography',
                         layout: {
-                            className: '',
+                            className: 'grid-cols-1 md:grid-cols-3 gap-2 gap-y-8',
                         },
                         tiles: [
-                            {
-                                kind: 'section',
-                                tileId: TileId.PAGE_REPORTS_GEOGRAPHY_SECTION,
-                                title: '', // Empty title for the nested section
-                                layout: {
-                                    className: 'grid-cols-1 md:grid-cols-3 gap-2',
-                                },
-                                tiles: [
-                                    createQueryTile(
-                                        TileId.PAGE_REPORTS_COUNTRIES,
-                                        'Countries',
-                                        'Countries where users access this page from',
-                                        queries.countriesQuery
-                                    ),
-                                    createQueryTile(
-                                        TileId.PAGE_REPORTS_REGIONS,
-                                        'Regions',
-                                        'Regions where users access this page from',
-                                        queries.regionsQuery
-                                    ),
-                                    createQueryTile(
-                                        TileId.PAGE_REPORTS_CITIES,
-                                        'Cities',
-                                        'Cities where users access this page from',
-                                        queries.citiesQuery
-                                    ),
-                                ].filter(Boolean) as WebAnalyticsTile[],
-                            },
-                            {
-                                kind: 'section',
-                                tileId: TileId.PAGE_REPORTS_GEOGRAPHY_SECTION,
-                                title: '', // Empty title for the nested section
-                                layout: {
-                                    className: 'grid-cols-1 md:grid-cols-2 gap-2 mt-2',
-                                },
-                                tiles: [
-                                    createQueryTile(
-                                        TileId.PAGE_REPORTS_TIMEZONES,
-                                        'Timezones',
-                                        'Timezones where users access this page from',
-                                        queries.timezonesQuery
-                                    ),
-                                    createQueryTile(
-                                        TileId.PAGE_REPORTS_LANGUAGES,
-                                        'Languages',
-                                        'Languages of users accessing this page',
-                                        queries.languagesQuery
-                                    ),
-                                ].filter(Boolean) as WebAnalyticsTile[],
-                            },
-                        ],
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_COUNTRIES,
+                                'Countries',
+                                'Countries where users access this page from',
+                                queries.countriesQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_REGIONS,
+                                'Regions',
+                                'Regions where users access this page from',
+                                queries.regionsQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_CITIES,
+                                'Cities',
+                                'Cities where users access this page from',
+                                queries.citiesQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_TIMEZONES,
+                                'Timezones',
+                                'Timezones where users access this page from',
+                                queries.timezonesQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_LANGUAGES,
+                                'Languages',
+                                'Languages of users accessing this page',
+                                queries.languagesQuery
+                            ),
+                        ].filter(Boolean) as WebAnalyticsTile[],
                     },
                 ]
             },
