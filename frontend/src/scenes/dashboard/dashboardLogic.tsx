@@ -180,10 +180,10 @@ async function getSingleInsight(
 
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], variableDataLogic, ['variables']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
-    }),
+    })),
 
     props({} as DashboardLogicProps),
 
