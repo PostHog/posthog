@@ -46,62 +46,6 @@ RUN bin/turbo --filter=@posthog/frontend build
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.82-node_18.19.1 AS plugin-server-build
-
-# Compile and install system dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    "make" \
-    "g++" \
-    "gcc" \
-    "python3" \
-    "libssl-dev" \
-    "zlib1g-dev" \
-    && \
-    rm -rf /var/lib/apt/lists/*
-
-WORKDIR /code
-COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY ./bin/turbo ./bin/turbo
-COPY ./patches ./patches
-COPY ./rust ./rust
-COPY ./common/esbuilder/ ./common/esbuilder/
-COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
-COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
-COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
-SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
-
-# Compile and install Node.js dependencies.
-# NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
-    corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
-
-# Build the plugin server.
-#
-# Note: we run the build as a separate action to increase
-# the cache hit ratio of the layers above.
-COPY ./plugin-server/src/ ./plugin-server/src/
-COPY ./plugin-server/tests/ ./plugin-server/tests/
-
-# Build cyclotron first with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
-
-# Then build the plugin server with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server build
-
-# only prod dependencies in the node_module folder
-# as we will copy it to the last image.
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
-    corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
-    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server prepare
-
-#
-# ---------------------------------------------------------
-#
 FROM python:3.11.9-slim-bookworm AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
@@ -204,20 +148,6 @@ USER posthog
 # Add the commit hash
 ARG COMMIT_HASH
 RUN echo $COMMIT_HASH > /code/commit.txt
-
-# Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
-COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
-COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/package.json /code/rust/cyclotron-node/package.json
-COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/index.node /code/rust/cyclotron-node/index.node
-COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
-COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
-COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
-COPY --from=plugin-server-build --chown=posthog:posthog /code/common/hogvm/typescript/dist /code/common/hogvm/typescript/dist
-COPY --from=plugin-server-build --chown=posthog:posthog /code/common/hogvm/typescript/node_modules /code/common/hogvm/typescript/node_modules
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
-COPY --from=plugin-server-build --chown=posthog:posthog /code/node_modules /code/node_modules
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
