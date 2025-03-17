@@ -105,6 +105,24 @@
             "hash": "jZfBjkLcdjlQTVmIKIhC3Q==",
             "team_id": 42,
             "expected_identifies_key": "cklsi:42:jZfBjkLcdjlQTVmIKIhC3Q"
+        },
+        {
+            "//": "Test case with team_id=0",
+            "hash": "jZfBjkLcdjlQTVmIKIhC3Q==",
+            "team_id": 0,
+            "expected_identifies_key": "cklsi:0:jZfBjkLcdjlQTVmIKIhC3Q"
+        },
+        {
+            "//": "Test case with negative team_id",
+            "hash": "jZfBjkLcdjlQTVmIKIhC3Q==",
+            "team_id": -1,
+            "expected_identifies_key": "cklsi:-1:jZfBjkLcdjlQTVmIKIhC3Q"
+        },
+        {
+            "//": "Test case with very large team_id",
+            "hash": "jZfBjkLcdjlQTVmIKIhC3Q==",
+            "team_id": 9007199254740991,
+            "expected_identifies_key": "cklsi:9007199254740991:jZfBjkLcdjlQTVmIKIhC3Q"
         }
     ]
 }
