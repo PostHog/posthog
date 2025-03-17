@@ -59,7 +59,6 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                 actions.setResponse({
                     ...values.response,
                     results: results
-                        // remove merged issues
                         .filter(({ id }) => !mergingIds.includes(id))
                         .map((issue) =>
                             // replace primary issue
@@ -78,7 +77,6 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
             // optimistically update local results
             actions.setResponse({
                 ...values.response,
-                // remove resolved issues
                 results: results.map((issue) => {
                     if (ids.includes(issue.id)) {
                         return { ...issue, status: 'resolved' }
@@ -96,7 +94,6 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
             // optimistically update local results
             actions.setResponse({
                 ...values.response,
-                // remove suppressed issues
                 results: results.map((issue) => {
                     if (ids.includes(issue.id)) {
                         return { ...issue, status: 'suppressed' }
@@ -115,7 +112,6 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
             // optimistically update local results
             actions.setResponse({
                 ...values.response,
-                // remove suppressed issues
                 results: results.map((issue) => {
                     if (ids.includes(issue.id)) {
                         return { ...issue, status: 'active' }
@@ -135,7 +131,6 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
             // optimistically update local results
             actions.setResponse({
                 ...values.response,
-                // remove resolved issues
                 results: results.map((issue) =>
                     // replace primary issue
                     ids.includes(issue.id) ? { ...issue, assignee } : issue
