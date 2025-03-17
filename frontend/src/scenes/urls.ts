@@ -56,6 +56,7 @@ export const urls = {
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenue: (): string => '/data-management/revenue',
+
     pipelineNodeNew: (stage: PipelineStage | ':stage', id?: string | number): string => {
         return `/pipeline/new/${stage}${id ? `/${id}` : ''}`
     },
