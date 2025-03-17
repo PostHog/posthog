@@ -47,8 +47,10 @@ export interface TaxonomicFilterProps {
 export interface DataWarehousePopoverField {
     key: string
     label: string
+    description?: string
     allowHogQL?: boolean
     hogQLOnly?: boolean
+    optional?: boolean
     tableName?: string
 }
 
