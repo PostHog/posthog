@@ -6,9 +6,6 @@ edition = "2021"
 [lints]
 workspace = true
 
-[features]
-examples = []
-
 [dependencies]
 base64 = { workspace = true }
 chrono = { workspace = true }

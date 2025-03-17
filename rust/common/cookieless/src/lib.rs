@@ -10,6 +10,3 @@ pub use manager::{
     CookielessConfig, CookielessManager, CookielessManagerError, EventData, HashParams,
 };
 pub use salt_cache::{is_calendar_date_valid, SaltCache, SaltCacheError};
-
-#[cfg(feature = "examples")]
-pub mod examples;
