@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { KAFKA_CDP_INTERNAL_EVENTS } from '../../config/kafka-topics'
+import { parseJSON } from '../../utils/json-parse'
 import { status } from '../../utils/status'
 import { CdpInternalEventSchema } from '../schema'
 import { HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
@@ -22,7 +23,7 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
                 await Promise.all(
                     messages.map(async (message) => {
                         try {
-                            const kafkaEvent = JSON.parse(message.value!.toString()) as unknown
+                            const kafkaEvent = parseJSON(message.value!.toString()) as unknown
                             // This is the input stream from elsewhere so we want to do some proper validation
                             const event = CdpInternalEventSchema.parse(kafkaEvent)
 

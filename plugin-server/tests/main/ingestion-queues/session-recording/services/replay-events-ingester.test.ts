@@ -4,6 +4,7 @@ import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/
 import { ReplayEventsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/replay-events-ingester'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
 import { TimestampFormat } from '../../../../../src/types'
+import { parseJSON } from '../../../../../src/utils/json-parse'
 import { status } from '../../../../../src/utils/status'
 import { castTimestampOrNow } from '../../../../../src/utils/utils'
 
@@ -65,7 +66,7 @@ describe('replay events ingester', () => {
         expect(value.source).toEqual('plugin-server')
         expect(value.team_id).toEqual(0)
         expect(value.type).toEqual('replay_timestamp_too_far')
-        const details = JSON.parse(value.details)
+        const details = parseJSON(value.details)
         expect(details).toEqual(
             expect.objectContaining({
                 isValid: true,
