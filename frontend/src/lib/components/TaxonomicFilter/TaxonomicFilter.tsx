@@ -92,8 +92,7 @@ export function TaxonomicFilter({
                 className={clsx(
                     'taxonomic-filter',
                     taxonomicGroupTypes.length === 1 && 'one-taxonomic-tab',
-                    !width && 'force-minimum-width',
-                    'h-full'
+                    !width && 'force-minimum-width'
                 )}
                 data-attr={taxonomicFilterLogicKey}
                 // eslint-disable-next-line react/forbid-dom-props
