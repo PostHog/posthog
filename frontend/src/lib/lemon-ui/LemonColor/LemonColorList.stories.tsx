@@ -39,3 +39,7 @@ export const CustomColors: Story = {
         />
     ),
 }
+
+export const CustomTheme: Story = {
+    render: () => <LemonColorListComponent colorTokens={colorTokens} selectedColor={colorTokens[3]} themeId={2} />,
+}

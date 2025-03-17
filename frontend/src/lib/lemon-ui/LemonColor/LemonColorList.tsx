@@ -11,6 +11,7 @@ type LemonColorListProps = {
         (color: string): void
         (colorToken: DataColorToken): void
     }
+    themeId?: number
 }
 
 export function LemonColorList({
@@ -19,6 +20,7 @@ export function LemonColorList({
     selectedColor,
     selectedColorToken,
     onClick,
+    themeId,
 }: LemonColorListProps): JSX.Element | null {
     if (colorTokens?.length) {
         return (
@@ -34,6 +36,7 @@ export function LemonColorList({
 
                             onClick(colorToken)
                         }}
+                        themeId={themeId}
                     />
                 ))}
             </div>
