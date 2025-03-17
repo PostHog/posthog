@@ -834,8 +834,8 @@ export class SessionRecordingIngester {
 
                 if (!highestOffsetToCommit) {
                     const partitionDebug = this.isDebugLoggingEnabled(partition)
-                    const logMethod = partitionDebug ? logger.info : logger.debug
-                    logMethod(
+
+                    const logArgs = [
                         '🤔',
                         `[blob_ingester_consumer]${
                             partitionDebug ? ' - [PARTITION DEBUG] - ' : ' - '
@@ -847,8 +847,9 @@ export class SessionRecordingIngester {
                             // committedHighOffset,
                             lastMessageOffset: metrics.lastMessageOffset,
                             highestOffsetToCommit,
-                        }
-                    )
+                        },
+                    ]
+                    partitionDebug ? logger.info(...logArgs) : logger.debug(...logArgs)
                     counterCommitSkippedDueToPotentiallyBlockingSession.inc()
                     histogramActiveSessionsWhenCommitIsBlocked.observe(activeSessionsOnThisPartition)
                     return
