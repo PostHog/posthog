@@ -12,7 +12,7 @@ import { LemonButtonWithoutSideActionProps } from '../LemonButton'
 
 export type LemonColorGlyphProps = {
     /** Overwrite the theme id from the context e.g. an insight that has a custom theme set. */
-    themeId?: string | null
+    themeId?: number | null
     /** Additional class names. */
     className?: string
     /** Content to display inside the glyph. */

@@ -327,4 +327,10 @@ export const MOCK_DATA_COLOR_THEMES: DataColorThemeModel[] = [
         ],
         is_global: true,
     },
+    {
+        id: 2,
+        name: 'Custom Theme',
+        colors: ['#00ffff', '#ff00ff', '#ffff00'],
+        is_global: false,
+    },
 ]
