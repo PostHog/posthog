@@ -21,7 +21,8 @@ import {
     ValueMatcher,
 } from '../types'
 import { parseRawClickHouseEvent } from '../utils/event'
-import { status } from '../utils/status'
+import { parseJSON } from '../utils/json-parse'
+import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { GroupTypeManager, GroupTypesByProjectId } from '../worker/ingestion/group-type-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
@@ -121,13 +122,13 @@ export class PropertyDefsConsumer {
     }
 
     public async stop(): Promise<void> {
-        status.info('🔁', `${this.name} - stopping`)
+        logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
 
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
-        status.info('🔁', `${this.name} - stopping batch consumer`)
+        logger.info('🔁', `${this.name} - stopping batch consumer`)
         await this.batchConsumer?.stop()
-        status.info('👍', `${this.name} - stopped!`)
+        logger.info('👍', `${this.name} - stopped!`)
     }
 
     public isHealthy() {
@@ -152,7 +153,7 @@ export class PropertyDefsConsumer {
         parsedMessages = parsedMessages.filter((msg) => this.propDefsEnabledProjects(msg.project_id))
 
         if (parsedMessages.length === 0) {
-            status.debug('🔁', `No messages to process`)
+            logger.debug('🔁', `No messages to process`)
             return
         }
 
@@ -179,7 +180,7 @@ export class PropertyDefsConsumer {
 
         if (eventDefinitions.length > 0) {
             eventDefTypesCounter.inc(eventDefinitions.length)
-            status.info('🔁', `Writing event definitions batch of size ${eventDefinitions.length}`)
+            logger.info('🔁', `Writing event definitions batch of size ${eventDefinitions.length}`)
             propDefsPostgresWritesCounter.inc({ type: 'event_definitions' })
             if (!this.writeDisabled) {
                 void this.scheduleWork(this.propertyDefsDB.writeEventDefinitions(eventDefinitions))
@@ -194,7 +195,7 @@ export class PropertyDefsConsumer {
             for (const propDef of propertyDefinitions) {
                 propertyDefTypesCounter.inc({ type: propDef.type })
             }
-            status.info('🔁', `Writing property definitions batch of size ${propertyDefinitions.length}`)
+            logger.info('🔁', `Writing property definitions batch of size ${propertyDefinitions.length}`)
             propDefsPostgresWritesCounter.inc({ type: 'property_definitions' })
             if (!this.writeDisabled) {
                 void this.scheduleWork(this.propertyDefsDB.writePropertyDefinitions(propertyDefinitions))
@@ -207,16 +208,16 @@ export class PropertyDefsConsumer {
 
         if (eventProperties.length > 0) {
             eventPropTypesCounter.inc(eventProperties.length)
-            status.info('🔁', `Writing event properties batch of size ${eventProperties.length}`)
+            logger.info('🔁', `Writing event properties batch of size ${eventProperties.length}`)
             propDefsPostgresWritesCounter.inc({ type: 'event_properties' })
             if (!this.writeDisabled) {
                 void this.scheduleWork(this.propertyDefsDB.writeEventProperties(eventProperties))
             }
         }
 
-        status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
+        logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
-        status.debug('🔁', `Processed batch`)
+        logger.debug('🔁', `Processed batch`)
     }
 
     private extractPropertyDefinitions(
@@ -388,12 +389,12 @@ export class PropertyDefsConsumer {
         messages.forEach((message) => {
             try {
                 const clickHouseEvent = parseRawClickHouseEvent(
-                    JSON.parse(message.value!.toString()) as RawClickHouseEvent
+                    parseJSON(message.value!.toString()) as RawClickHouseEvent
                 )
 
                 events.push(clickHouseEvent)
             } catch (e) {
-                status.error('Error parsing message', e)
+                logger.error('Error parsing message', e)
             }
         })
 
@@ -420,7 +421,7 @@ export class PropertyDefsConsumer {
             topicCreationTimeoutMs: this.hub.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             topicMetadataRefreshInterval: this.hub.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
             eachBatch: async (messages, { heartbeat }) => {
-                status.info('🔁', `${this.name} - handling batch`, {
+                logger.info('🔁', `${this.name} - handling batch`, {
                     size: messages.length,
                 })
 
@@ -448,7 +449,7 @@ export class PropertyDefsConsumer {
             }
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
-            status.info('🔁', `${this.name} batch consumer disconnected, cleaning up`, { err })
+            logger.info('🔁', `${this.name} batch consumer disconnected, cleaning up`, { err })
             await this.stop()
         })
     }

@@ -122,6 +122,7 @@ export enum NodeKind {
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
+    VectorSearchQuery = 'VectorSearchQuery',
 }
 
 export type AnyDataNode =
@@ -151,6 +152,7 @@ export type AnyDataNode =
     | ExperimentTrendsQuery
     | RecordingsQuery
     | TracesQuery
+    | VectorSearchQuery
 
 /**
  * @discriminator kind
@@ -211,6 +213,7 @@ export type QuerySchema =
     | EventTaxonomyQuery
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
+    | VectorSearchQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -266,6 +269,7 @@ export interface HogQLQueryModifiers {
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     bounceRateDurationSeconds?: number
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
+    sessionsV2JoinMode?: 'string' | 'uuid'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
@@ -2405,7 +2409,8 @@ export type EventTaxonomyResponse = EventTaxonomyItem[]
 
 export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse> {
     kind: NodeKind.EventTaxonomyQuery
-    event: string
+    event?: string
+    actionId?: integer
     properties?: string[]
     maxPropertyValues?: integer
 }
@@ -2431,6 +2436,22 @@ export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxo
 export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
+
+export interface VectorSearchResponseItem {
+    id: string
+    distance: number
+}
+
+export type VectorSearchResponse = VectorSearchResponseItem[]
+
+export interface VectorSearchQuery extends DataNode<VectorSearchQueryResponse> {
+    kind: NodeKind.VectorSearchQuery
+    embedding: number[]
+}
+
+export type VectorSearchQueryResponse = AnalyticsQueryResponseBase<VectorSearchResponse>
+
+export type CachedVectorSearchQueryResponse = CachedQueryResponse<VectorSearchQueryResponse>
 
 export enum CustomChannelField {
     UTMSource = 'utm_source',

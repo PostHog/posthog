@@ -60,10 +60,32 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
     property: str = Field(..., description="Property name from the plan to break down by.")
 
 
+class AssistantDateRange(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: str = Field(..., description="ISO8601 date string.")
+    date_to: Optional[str] = Field(default=None, description="ISO8601 date string.")
+
+
 class AssistantDateTimePropertyFilterOperator(StrEnum):
     IS_DATE_EXACT = "is_date_exact"
     IS_DATE_BEFORE = "is_date_before"
     IS_DATE_AFTER = "is_date_after"
+
+
+class AssistantDurationRange(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: str = Field(
+        ...,
+        description=(
+            "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year),"
+            " `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day"
+            " from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start."
+        ),
+    )
 
 
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
@@ -92,6 +114,11 @@ class AssistantFunnelsBreakdownType(StrEnum):
     EVENT = "event"
     GROUP = "group"
     SESSION = "session"
+
+
+class AssistantFunnelsMath(StrEnum):
+    FIRST_TIME_FOR_USER = "first_time_for_user"
+    FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
 
 class AssistantGenerationStatusType(StrEnum):
@@ -272,11 +299,6 @@ class AssistantTrendsFilter(BaseModel):
     yAxisScaleType: Optional[YAxisScaleType] = Field(
         default=YAxisScaleType.LINEAR, description="Whether to scale the y-axis."
     )
-
-
-class AssistantTrendsMath(StrEnum):
-    FIRST_TIME_FOR_USER = "first_time_for_user"
-    FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
 
 class AutocompleteCompletionItemKind(StrEnum):
@@ -1172,6 +1194,11 @@ class SessionTableVersion(StrEnum):
     V2 = "v2"
 
 
+class SessionsV2JoinMode(StrEnum):
+    STRING = "string"
+    UUID = "uuid"
+
+
 class HogQLVariable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1341,6 +1368,7 @@ class NodeKind(StrEnum):
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
+    VECTOR_SEARCH_QUERY = "VectorSearchQuery"
 
 
 class PathCleaningFilter(BaseModel):
@@ -1754,6 +1782,14 @@ class TrendsFilterLegacy(BaseModel):
     show_values_on_series: Optional[bool] = None
     smoothing_intervals: Optional[float] = None
     y_axis_scale_type: Optional[YAxisScaleType] = YAxisScaleType.LINEAR
+
+
+class VectorSearchResponseItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distance: float
+    id: str
 
 
 class ActionsPie(BaseModel):
@@ -2173,6 +2209,62 @@ class AssistantMessageMetadata(BaseModel):
         extra="forbid",
     )
     form: Optional[AssistantForm] = None
+
+
+class AssistantRetentionActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: float = Field(..., description="Action ID from the plan.")
+    name: str = Field(..., description="Action name from the plan.")
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = Field(default=None, description="Property filters for the action.")
+    type: Literal["actions"] = "actions"
+
+
+class AssistantRetentionEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = Field(
+        default=None, description="Custom name for the event if it is needed to be renamed."
+    )
+    name: str = Field(..., description="Event name from the plan.")
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = Field(default=None, description="Property filters for the event.")
+    type: Literal["events"] = "events"
 
 
 class AssistantSetPropertyFilter(BaseModel):
@@ -2627,6 +2719,7 @@ class HogQLQueryModifiers(BaseModel):
     propertyGroupsMode: Optional[PropertyGroupsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
+    sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
     useMaterializedViews: Optional[bool] = None
 
 
@@ -3446,16 +3539,11 @@ class AssistantBasePropertyFilter(
     ]
 
 
-class AssistantFunnelsEventsNode(BaseModel):
+class AssistantFunnelNodeShared(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    custom_name: Optional[str] = Field(
-        default=None, description="Optional custom name for the event if it is needed to be renamed."
-    )
-    event: str = Field(..., description="Name of the event.")
-    kind: Literal["EventsNode"] = "EventsNode"
-    math: Optional[AssistantTrendsMath] = Field(
+    math: Optional[AssistantFunnelsMath] = Field(
         default=None,
         description=(
             "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."
@@ -3482,7 +3570,80 @@ class AssistantFunnelsEventsNode(BaseModel):
             ]
         ]
     ] = None
-    response: Optional[dict[str, Any]] = None
+
+
+class AssistantFunnelsActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: float = Field(..., description="Action ID from the plan.")
+    kind: Literal["ActionsNode"] = "ActionsNode"
+    math: Optional[AssistantFunnelsMath] = Field(
+        default=None,
+        description=(
+            "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."
+            " `first_time_for_user` - counts the number of users who have completed the event for the first time ever."
+            " `first_time_for_user_with_filters` - counts the number of users who have completed the event with"
+            " specified filters for the first time."
+        ),
+    )
+    name: str = Field(..., description="Action name from the plan.")
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = None
+
+
+class AssistantFunnelsEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = Field(
+        default=None, description="Optional custom name for the event if it is needed to be renamed."
+    )
+    event: str = Field(..., description="Name of the event.")
+    kind: Literal["EventsNode"] = "EventsNode"
+    math: Optional[AssistantFunnelsMath] = Field(
+        default=None,
+        description=(
+            "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."
+            " `first_time_for_user` - counts the number of users who have completed the event for the first time ever."
+            " `first_time_for_user_with_filters` - counts the number of users who have completed the event with"
+            " specified filters for the first time."
+        ),
+    )
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = None
 
 
 class AssistantFunnelsQuery(BaseModel):
@@ -3499,7 +3660,9 @@ class AssistantFunnelsQuery(BaseModel):
     breakdownFilter: Optional[AssistantFunnelsBreakdownFilter] = Field(
         default=None, description="Breakdown the chart by a property"
     )
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[Union[AssistantDateRange, AssistantDurationRange]] = Field(
+        default=None, description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3531,14 +3694,18 @@ class AssistantFunnelsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
     )
-    series: list[AssistantFunnelsEventsNode] = Field(..., description="Events to include")
+    series: list[Union[AssistantFunnelsEventsNode, AssistantFunnelsActionsNode]] = Field(
+        ..., description="Events or actions to include"
+    )
 
 
 class AssistantInsightsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[Union[AssistantDateRange, AssistantDurationRange]] = Field(
+        default=None, description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3576,6 +3743,138 @@ class AssistantMessage(BaseModel):
     type: Literal["ai"] = "ai"
 
 
+class AssistantRetentionFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cumulative: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user"
+            " coming back in period 5 makes them count towards all the previous periods."
+        ),
+    )
+    meanRetentionCalculation: Optional[MeanRetentionCalculation] = Field(
+        default=None,
+        description=(
+            "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
+        ),
+    )
+    period: Optional[RetentionPeriod] = Field(
+        default=RetentionPeriod.DAY, description="Retention period, the interval to track cohorts by."
+    )
+    retentionReference: Optional[RetentionReference] = Field(
+        default=None,
+        description="Whether retention is with regard to initial cohort size, or that of the previous period.",
+    )
+    retentionType: Optional[RetentionType] = Field(
+        default=None,
+        description=(
+            "Retention type: recurring or first time. Recurring retention counts a user as part of a cohort if they"
+            " performed the cohort event during that time period, irrespective of it was their first time or not. First"
+            " time retention only counts a user as part of the cohort if it was their first time performing the cohort"
+            " event."
+        ),
+    )
+    returningEntity: Union[AssistantRetentionEventsNode, AssistantRetentionActionsNode] = Field(
+        ..., description="Retention event (event marking the user coming back)."
+    )
+    showMean: Optional[bool] = Field(
+        default=None,
+        description=(
+            "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period"
+            " across cohorts."
+        ),
+    )
+    targetEntity: Union[AssistantRetentionEventsNode, AssistantRetentionActionsNode] = Field(
+        ..., description="Activation event (event putting the actor into the initial cohort)."
+    )
+    totalIntervals: Optional[int] = Field(
+        default=11,
+        description=(
+            "How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial"
+            " cohort)."
+        ),
+    )
+
+
+class AssistantRetentionQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[Union[AssistantDateRange, AssistantDurationRange]] = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    kind: Literal["RetentionQuery"] = "RetentionQuery"
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    retentionFilter: AssistantRetentionFilter = Field(..., description="Properties specific to the retention insight")
+    samplingFactor: Optional[float] = Field(
+        default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
+    )
+
+
+class AssistantTrendsActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    id: int
+    kind: Literal["ActionsNode"] = "ActionsNode"
+    math: Optional[
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
+    name: str = Field(..., description="Action name from the plan.")
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = None
+
+
 class AssistantTrendsEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3598,7 +3897,6 @@ class AssistantTrendsEventsNode(BaseModel):
     math_property: Optional[str] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
-    orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
         list[
             Union[
@@ -3617,7 +3915,6 @@ class AssistantTrendsEventsNode(BaseModel):
             ]
         ]
     ] = None
-    response: Optional[dict[str, Any]] = None
 
 
 class AssistantTrendsQuery(BaseModel):
@@ -3625,10 +3922,12 @@ class AssistantTrendsQuery(BaseModel):
         extra="forbid",
     )
     breakdownFilter: Optional[AssistantTrendsBreakdownFilter] = Field(
-        default=None, description="Breakdown of the events"
+        default=None, description="Breakdown of the series"
     )
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[Union[AssistantDateRange, AssistantDurationRange]] = Field(
+        default=None, description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3658,7 +3957,9 @@ class AssistantTrendsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
     )
-    series: list[AssistantTrendsEventsNode] = Field(..., description="Events to include")
+    series: list[Union[AssistantTrendsEventsNode, AssistantTrendsActionsNode]] = Field(
+        ..., description="Events or actions to include"
+    )
     trendsFilter: Optional[AssistantTrendsFilter] = Field(
         default=None, description="Properties specific to the trends insight"
     )
@@ -4233,6 +4534,36 @@ class CachedTrendsQueryResponse(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[dict[str, Any]]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedVectorSearchQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[VectorSearchResponseItem]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -6173,6 +6504,27 @@ class QueryResponseAlternative49(BaseModel):
     )
 
 
+class QueryResponseAlternative50(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[VectorSearchResponseItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class RecordingsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6375,6 +6727,39 @@ class TracesQuery(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[TracesQueryResponse] = None
     traceId: Optional[str] = None
+
+
+class VectorSearchQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[VectorSearchResponseItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery]] = None
+    id: Optional[str] = None
+    initiator: Optional[str] = None
+    plan: Optional[str] = None
+    query: Optional[str] = ""
+    type: Literal["ai/viz"] = "ai/viz"
 
 
 class WebExternalClicksTableQuery(BaseModel):
@@ -6626,94 +7011,6 @@ class AnyResponseType(
     ]
 
 
-class AssistantRetentionFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cumulative: Optional[bool] = Field(
-        default=None,
-        description=(
-            "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user"
-            " coming back in period 5 makes them count towards all the previous periods."
-        ),
-    )
-    meanRetentionCalculation: Optional[MeanRetentionCalculation] = Field(
-        default=None,
-        description=(
-            "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
-        ),
-    )
-    period: Optional[RetentionPeriod] = Field(
-        default=RetentionPeriod.DAY, description="Retention period, the interval to track cohorts by."
-    )
-    retentionReference: Optional[RetentionReference] = Field(
-        default=None,
-        description="Whether retention is with regard to initial cohort size, or that of the previous period.",
-    )
-    retentionType: Optional[RetentionType] = Field(
-        default=None,
-        description=(
-            "Retention type: recurring or first time. Recurring retention counts a user as part of a cohort if they"
-            " performed the cohort event during that time period, irrespective of it was their first time or not. First"
-            " time retention only counts a user as part of the cohort if it was their first time performing the cohort"
-            " event."
-        ),
-    )
-    returningEntity: Optional[RetentionEntity] = Field(
-        default=None, description="Retention event (event marking the user coming back)."
-    )
-    showMean: Optional[bool] = Field(
-        default=None,
-        description=(
-            "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period"
-            " across cohorts."
-        ),
-    )
-    targetEntity: Optional[RetentionEntity] = Field(
-        default=None, description="Activation event (event putting the actor into the initial cohort)."
-    )
-    totalIntervals: Optional[int] = Field(
-        default=11,
-        description=(
-            "How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial"
-            " cohort)."
-        ),
-    )
-
-
-class AssistantRetentionQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
-    filterTestAccounts: Optional[bool] = Field(
-        default=False, description="Exclude internal and test users by applying the respective filters"
-    )
-    kind: Literal["RetentionQuery"] = "RetentionQuery"
-    properties: Optional[
-        list[
-            Union[
-                Union[
-                    AssistantGenericPropertyFilter1,
-                    AssistantGenericPropertyFilter2,
-                    AssistantGenericPropertyFilter3,
-                    AssistantGenericPropertyFilter4,
-                ],
-                Union[
-                    AssistantGroupPropertyFilter1,
-                    AssistantGroupPropertyFilter2,
-                    AssistantGroupPropertyFilter3,
-                    AssistantGroupPropertyFilter4,
-                ],
-            ]
-        ]
-    ] = Field(default=[], description="Property filters for all series")
-    retentionFilter: AssistantRetentionFilter = Field(..., description="Properties specific to the retention insight")
-    samplingFactor: Optional[float] = Field(
-        default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
-    )
-
-
 class CachedErrorTrackingQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6959,7 +7256,8 @@ class EventTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    event: str
+    actionId: Optional[int] = None
+    event: Optional[str] = None
     kind: Literal["EventTaxonomyQuery"] = "EventTaxonomyQuery"
     maxPropertyValues: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -7180,6 +7478,12 @@ class RetentionQueryResponse(BaseModel):
     )
 
 
+class RootAssistantMessage(
+    RootModel[Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]]
+):
+    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]
+
+
 class StickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7297,16 +7601,16 @@ class TrendsQuery(BaseModel):
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
 
 
-class VisualizationMessage(BaseModel):
+class VectorSearchQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery]] = None
-    id: Optional[str] = None
-    initiator: Optional[str] = None
-    plan: Optional[str] = None
-    query: Optional[str] = ""
-    type: Literal["ai/viz"] = "ai/viz"
+    embedding: list[float]
+    kind: Literal["VectorSearchQuery"] = "VectorSearchQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[VectorSearchQueryResponse] = None
 
 
 class WebVitalsPathBreakdownQuery(BaseModel):
@@ -7861,12 +8165,6 @@ class RetentionQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
-class RootAssistantMessage(
-    RootModel[Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]]
-):
-    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]
-
-
 class CachedExperimentFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8094,6 +8392,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative47,
             QueryResponseAlternative48,
             QueryResponseAlternative49,
+            QueryResponseAlternative50,
         ]
     ]
 ):
@@ -8140,6 +8439,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative47,
         QueryResponseAlternative48,
         QueryResponseAlternative49,
+        QueryResponseAlternative50,
     ]
 
 
@@ -8575,6 +8875,7 @@ class HogQLAutocomplete(BaseModel):
             ExperimentTrendsQuery,
             RecordingsQuery,
             TracesQuery,
+            VectorSearchQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -8624,6 +8925,7 @@ class HogQLMetadata(BaseModel):
             ExperimentTrendsQuery,
             RecordingsQuery,
             TracesQuery,
+            VectorSearchQuery,
         ]
     ] = Field(
         default=None,
@@ -8688,6 +8990,7 @@ class QueryRequest(BaseModel):
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        VectorSearchQuery,
     ] = Field(
         ...,
         description=(
@@ -8762,6 +9065,7 @@ class QuerySchemaRoot(
             EventTaxonomyQuery,
             ActorsPropertyTaxonomyQuery,
             TracesQuery,
+            VectorSearchQuery,
         ]
     ]
 ):
@@ -8810,6 +9114,7 @@ class QuerySchemaRoot(
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        VectorSearchQuery,
     ] = Field(..., discriminator="kind")
 
 
