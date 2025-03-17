@@ -73,8 +73,8 @@ class AssistantGraph:
             "trends": AssistantNodeName.TRENDS_PLANNER,
             "funnel": AssistantNodeName.FUNNEL_PLANNER,
             "retention": AssistantNodeName.RETENTION_PLANNER,
-            "docs": AssistantNodeName.INKEEP_DOCS,
-            "session_recordings_filters": AssistantNodeName.SESSION_RECORDINGS_FILTERS,
+            "search_documentation": AssistantNodeName.INKEEP_DOCS,
+            "search_session_recordings": AssistantNodeName.SESSION_RECORDINGS_FILTERS,
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
         }

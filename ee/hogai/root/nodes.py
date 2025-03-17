@@ -33,7 +33,9 @@ from posthog.schema import (
     HumanMessage,
 )
 
-RouteName = Literal["trends", "funnel", "retention", "root", "end", "docs", "session_recordings_filters"]
+RouteName = Literal[
+    "trends", "funnel", "retention", "root", "end", "search_documentation", "session_recordings_filters"
+]
 
 
 # Lower casing matters here. Do not change it.
@@ -288,22 +290,13 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_type=tool_call.query_kind,
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif isinstance(tool_call, search_documentation):
-            return PartialAssistantState(
-                root_tool_call_id=langchain_msg.tool_calls[-1]["id"],
-                root_tool_insight_plan=None,  # No insight plan for docs search
-                root_tool_insight_type=None,  # No insight type for docs search
-                root_tool_calls_count=tool_call_count + 1,
-            )
-        elif isinstance(tool_call, CONTEXTUAL_TOOL_MODELS):
-            return PartialAssistantState(
-                root_tool_call_id=langchain_msg.tool_calls[-1]["id"],
-                root_tool_insight_plan=type(tool_call).__name__,
-                root_tool_insight_type=None,
-                root_tool_calls_count=tool_call_count + 1,
-            )
         else:
-            raise ValueError(f"Unsupported tool call: {type(tool_call)}")
+            return PartialAssistantState(
+                root_tool_call_id=langchain_msg.tool_calls[-1]["id"],
+                root_tool_insight_plan=None,  # No insight plan here
+                root_tool_insight_type=None,  # No insight type here
+                root_tool_calls_count=tool_call_count + 1,
+            )
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
@@ -312,10 +305,8 @@ class RootNodeTools(AssistantNode):
         if state.root_tool_call_id:
             if state.root_tool_insight_type:
                 return cast(RouteName, state.root_tool_insight_type)
-            # If no insight type is set but we have a tool call ID, it must be a docs search or session recordings filters
-            if state.root_tool_insight_plan == "search_session_recordings":
-                return "session_recordings_filters"  # TODO: Solve routing properly
-            return "docs"
+            # For all other tools, we route based on tool name
+            return self._get_tool_call(state.messages, state.root_tool_call_id).name
         return "end"
 
     def _construct_langchain_ai_message(self, message: AssistantMessage):

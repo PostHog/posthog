@@ -1,5 +1,6 @@
 import datetime
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from uuid import UUID
 
 from django.utils import timezone
@@ -8,8 +9,9 @@ from langchain_core.runnables import RunnableConfig
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.models import Conversation, CoreMemory
 from posthog.models import Team
+from posthog.schema import AssistantMessage, AssistantToolCall
 
-from .types import AssistantState, PartialAssistantState
+from .types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
 
 class AssistantNode(ABC):
@@ -75,3 +77,12 @@ class AssistantNode(ABC):
             return conversation.status == Conversation.Status.CANCELING
         except Conversation.DoesNotExist:
             return True
+
+    def _get_tool_call(self, messages: Sequence[AssistantMessageUnion], tool_call_id: str) -> AssistantToolCall:
+        for message in reversed(messages):
+            if not isinstance(message, AssistantMessage) or not message.tool_calls:
+                continue
+            for tool_call in message.tool_calls:
+                if tool_call.id == tool_call_id:
+                    return tool_call
+        raise ValueError(f"Tool call {tool_call_id} not found in state")
