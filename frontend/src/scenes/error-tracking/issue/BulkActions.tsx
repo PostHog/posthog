@@ -1,37 +1,26 @@
 import { LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AssigneeSelect } from '../AssigneeSelect'
+import { errorTrackingDataNodeLogic } from '../errorTrackingDataNodeLogic'
+import { errorTrackingSceneLogic } from '../errorTrackingSceneLogic'
 import { GenericSelect } from './StatusSelect'
 import { IssueStatus, StatusTag } from './StatusTag'
 
-export interface BulkActionsProps {
-    issueSelection: ErrorTrackingIssue[]
-    onAssign: (issueIds: string[], assigneeId: ErrorTrackingIssue['assignee']) => void
-    onMerge: (issueIds: string[]) => void
-    onResolve: (issueIds: string[]) => void
-    onSuppress: (issueIds: string[]) => void
-    onActivate: (issueIds: string[]) => void
-    onSelectAll: () => void
-    onClearSelection: () => void
-}
+export function BulkActions(): JSX.Element {
+    const { mergeIssues, assignIssues, resolveIssues, suppressIssues, activateIssues } =
+        useActions(errorTrackingDataNodeLogic)
+    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
+    const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
+    const { results } = useValues(errorTrackingDataNodeLogic)
 
-export function BulkActions({
-    onMerge,
-    onResolve,
-    onSuppress,
-    onActivate,
-    onAssign,
-    issueSelection,
-    onSelectAll,
-    onClearSelection,
-}: BulkActionsProps): JSX.Element {
-    const hasAtLeastOneIssue = issueSelection.length > 0
-    const hasAtLeastTwoIssues = issueSelection.length >= 2
-    const selectedIssueIds = issueSelection.map((issue) => issue.id)
-    const currentStatus = issueSelection
-        .map((issue) => issue.status)
+    const hasAtLeastOneIssue = selectedIssueIds.length > 0
+    const hasAtLeastTwoIssues = selectedIssueIds.length >= 2
+
+    const currentStatus = selectedIssueIds
+        .map((issue: ErrorTrackingIssue) => issue.status)
         .reduce<string | undefined | null>((acc, status) => {
             if (acc === null) {
                 return status
@@ -49,7 +38,7 @@ export function BulkActions({
         <>
             {hasAtLeastOneIssue ? (
                 <>
-                    <LemonButton type="secondary" size="small" onClick={() => onClearSelection()}>
+                    <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>
                         Unselect all
                     </LemonButton>
                     <LemonButton
@@ -57,8 +46,8 @@ export function BulkActions({
                         type="secondary"
                         size="small"
                         onClick={() => {
-                            onMerge(selectedIssueIds)
-                            onClearSelection()
+                            mergeIssues(selectedIssueIds)
+                            setSelectedIssueIds([])
                         }}
                     >
                         Merge
@@ -74,16 +63,16 @@ export function BulkActions({
                         onChange={(value) => {
                             switch (value) {
                                 case 'resolved':
-                                    onResolve(selectedIssueIds)
-                                    onClearSelection()
+                                    resolveIssues(selectedIssueIds)
+                                    setSelectedIssueIds([])
                                     break
                                 case 'suppressed':
-                                    onSuppress(selectedIssueIds)
-                                    onClearSelection()
+                                    suppressIssues(selectedIssueIds)
+                                    setSelectedIssueIds([])
                                     break
                                 case 'active':
-                                    onActivate(selectedIssueIds)
-                                    onClearSelection()
+                                    activateIssues(selectedIssueIds)
+                                    setSelectedIssueIds([])
                                     break
                                 default:
                                     break
@@ -97,11 +86,15 @@ export function BulkActions({
                         showIcon={false}
                         unassignedLabel="Assign"
                         assignee={null}
-                        onChange={(assignee) => onAssign(selectedIssueIds, assignee)}
+                        onChange={(assignee) => assignIssues(selectedIssueIds, assignee)}
                     />
                 </>
             ) : (
-                <LemonButton type="secondary" size="small" onClick={() => onSelectAll()}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => setSelectedIssueIds(results.map((issue: ErrorTrackingIssue) => issue.id))}
+                >
                     Select all
                 </LemonButton>
             )}
