@@ -315,11 +315,9 @@ pub fn extract_root_domain(host: &str) -> Result<String, CookielessManagerError>
     }
 
     // Check if it's an IPv6 address
-    if let Ok(ip_addr) = host.parse::<IpAddr>() {
-        if let IpAddr::V6(ipv6) = ip_addr {
-            // Return the normalized form of the IPv6 address in brackets
-            return Ok(format!("[{}]", ipv6));
-        }
+    if let Ok(IpAddr::V6(ipv6)) = host.parse::<IpAddr>() {
+        // Return the normalized form of the IPv6 address in brackets
+        return Ok(format!("[{}]", ipv6));
     }
 
     // Split host and port for special handling of IP addresses
