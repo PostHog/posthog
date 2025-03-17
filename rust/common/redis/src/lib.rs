@@ -56,7 +56,8 @@ pub trait Client {
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError>;
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError>;
-    async fn set_nx_ex(&self, k: String, v: String, seconds: u64) -> Result<bool, CustomRedisError>;
+    async fn set_nx_ex(&self, k: String, v: String, seconds: u64)
+        -> Result<bool, CustomRedisError>;
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
 }
@@ -123,11 +124,16 @@ impl Client for RedisClient {
         Ok(fut?)
     }
 
-    async fn set_nx_ex(&self, k: String, v: String, seconds: u64) -> Result<bool, CustomRedisError> {
+    async fn set_nx_ex(
+        &self,
+        k: String,
+        v: String,
+        seconds: u64,
+    ) -> Result<bool, CustomRedisError> {
         let bytes = serde_pickle::to_vec(&v, Default::default())?;
         let mut conn = self.client.get_async_connection().await?;
         let seconds_usize = seconds as usize;
-        
+
         // Use SET with both NX and EX options
         let result: Result<Option<String>, RedisError> = timeout(
             Duration::from_millis(REDIS_TIMEOUT_MILLISECS),
@@ -137,12 +143,13 @@ impl Client for RedisClient {
                 .arg("EX")
                 .arg(seconds_usize)
                 .arg("NX")
-                .query_async(&mut conn)
-        ).await?;
-        
+                .query_async(&mut conn),
+        )
+        .await?;
+
         match result {
-            Ok(Some(_)) => Ok(true),   // Key was set successfully
-            Ok(None) => Ok(false),     // Key already existed
+            Ok(Some(_)) => Ok(true), // Key was set successfully
+            Ok(None) => Ok(false),   // Key already existed
             Err(e) => Err(CustomRedisError::Other(e.to_string())),
         }
     }
@@ -325,7 +332,12 @@ impl Client for MockRedisClient {
         }
     }
 
-    async fn set_nx_ex(&self, key: String, value: String, seconds: u64) -> Result<bool, CustomRedisError> {
+    async fn set_nx_ex(
+        &self,
+        key: String,
+        value: String,
+        seconds: u64,
+    ) -> Result<bool, CustomRedisError> {
         // Record the call
         let mut calls = self.lock_calls();
         calls.push(MockRedisCall {
