@@ -126,10 +126,11 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query = re.sub(r"(\"?) IN \[\d+(, ?\d+)*\]", r"\1 IN [1, 2, 3, 4, 5 /* ... */]", query)
         # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
         query = re.sub(
-            r"\"uuid\" IN \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
+            r"\"uuid\" IN \('[0-9a-f-]{32,36}'(::uuid)?(, '[0-9a-f-]{32,36}'(::uuid)?)*\)",
             r""""uuid" IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
             query,
         )
+        query = re.sub(r"'[0-9a-f-]{32,36}'::uuid", r"'00000000-0000-0000-0000-000000000000'::uuid", query)
 
     else:
         query = re.sub(r"(team|project|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
