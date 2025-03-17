@@ -440,7 +440,7 @@ test.concurrent('plugins can use attachements', async () => {
         contentType: 'text/plain',
         fileName: 'test.txt',
         key: 'testAttachment',
-        contents: parseJSON(JSON.stringify(Buffer.from('test'))),
+        contents: 'test',
     })
     await enablePluginConfig(teamId, pluginConfig.id)
 

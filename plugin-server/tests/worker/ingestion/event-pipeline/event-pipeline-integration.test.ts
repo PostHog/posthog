@@ -236,8 +236,7 @@ describe('Event Pipeline integration test', () => {
         // and use expect.any for a few payload properties, which wouldn't be possible in a simpler way
         expect(jest.mocked(fetch).mock.calls[0][0]).toBe('https://example.com/')
         const secondArg = jest.mocked(fetch).mock.calls[0][1]
-        expect(parseJSON(secondArg!.body as unknown as string)).toStrictEqual(expectedPayload)
-        expect(parseJSON(secondArg!.body as unknown as string)).toStrictEqual(expectedPayload)
+        expect(parseJSON(secondArg!.body as unknown as string)).toEqual(expectedPayload)
         expect(secondArg!.headers).toStrictEqual({ 'Content-Type': 'application/json' })
         expect(secondArg!.method).toBe('POST')
     })
