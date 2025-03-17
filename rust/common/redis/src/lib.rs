@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use std::time::Duration;
-use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use redis::{AsyncCommands, RedisError};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use thiserror::Error;
 use tokio::time::timeout;
 
@@ -155,13 +155,13 @@ pub struct MockRedisClient {
 
 #[derive(Clone)]
 pub enum MockRedisValue {
-    None, 
+    None,
     Error(CustomRedisError),
     String(String),
     VecString(Vec<String>),
     I32(i32),
     I64(i64),
-    MinMax(String, String)
+    MinMax(String, String),
 }
 
 #[derive(Clone)]
@@ -169,9 +169,8 @@ pub enum MockRedisValue {
 pub struct MockRedisCall {
     op: String,
     key: String,
-    value: MockRedisValue
+    value: MockRedisValue,
 }
-
 
 impl MockRedisClient {
     pub fn new() -> Self {
@@ -230,7 +229,7 @@ impl Client for MockRedisClient {
             key: key.clone(),
             value: MockRedisValue::MinMax(min, max),
         });
-        
+
         match self.zrangebyscore_ret.get(&key) {
             Some(val) => Ok(val.clone()),
             None => Err(CustomRedisError::NotFound),
@@ -251,9 +250,9 @@ impl Client for MockRedisClient {
             value: match count {
                 None => MockRedisValue::None,
                 Some(v) => MockRedisValue::I32(v),
-            }
+            },
         });
-        
+
         match self.hincrby_ret.get(&key) {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
@@ -268,7 +267,7 @@ impl Client for MockRedisClient {
             key: key.clone(),
             value: MockRedisValue::None,
         });
-        
+
         match self.get_ret.get(&key) {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
@@ -283,7 +282,7 @@ impl Client for MockRedisClient {
             key: key.clone(),
             value: MockRedisValue::String(value.clone()),
         });
-        
+
         match self.set_ret.get(&key) {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
@@ -298,7 +297,7 @@ impl Client for MockRedisClient {
             key: key.clone(),
             value: MockRedisValue::None,
         });
-        
+
         match self.del_ret.get(&key) {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
@@ -313,7 +312,7 @@ impl Client for MockRedisClient {
             key: format!("{}:{}", key, field),
             value: MockRedisValue::None,
         });
-        
+
         match self.hget_ret.get(&key) {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
