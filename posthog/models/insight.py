@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from posthog.exceptions_capture import capture_exception
 import structlog
@@ -8,6 +8,7 @@ from django.db import models
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
+from django.db.models import QuerySet
 
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
@@ -15,8 +16,13 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.utils import get_filter
 from posthog.models.utils import sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 
 logger = structlog.get_logger(__name__)
+
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 
 class InsightManager(models.Manager):
@@ -29,8 +35,6 @@ class Insight(FileSystemSyncMixin, models.Model):
     Stores saved insights along with their entire configuration options. Saved insights can be stored as standalone
     reports or part of a dashboard.
     """
-
-    file_system_config_key = "insight"
 
     name = models.CharField(max_length=400, null=True, blank=True)
     derived_name = models.CharField(max_length=400, null=True, blank=True)
@@ -107,6 +111,27 @@ class Insight(FileSystemSyncMixin, models.Model):
 
     def __str__(self):
         return self.name or self.derived_name or self.short_id
+
+    file_system_type = "insight"
+
+    @classmethod
+    def get_unfiled_queryset(cls, team: "Team") -> QuerySet["Insight"]:
+        base_qs = cls.objects.filter(team=team, deleted=False, saved=True)
+        return cls._filter_unfiled_queryset(base_qs, team, ref_field="short_id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        should_delete = self.deleted or not self.saved
+        return FileSystemRepresentation(
+            base_folder="Unfiled/Insights",
+            ref=self.short_id,
+            name=self.name or "Untitled",
+            href=f"/insights/{self.short_id}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=should_delete,
+        )
 
     @property
     def is_sharing_enabled(self):

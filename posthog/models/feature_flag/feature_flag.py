@@ -1,17 +1,19 @@
 import json
 from django.http import HttpRequest
 import structlog
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 from django.contrib.auth.base_user import AbstractBaseUser
+from django.db.models import QuerySet
 
 from django.core.cache import cache
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
-from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.signals import mutable_receiver
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 
 from posthog.constants import (
     ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
@@ -25,10 +27,11 @@ FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
 logger = structlog.get_logger(__name__)
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
 
 class FeatureFlag(ModelActivityMixin, FileSystemSyncMixin, models.Model):
-    file_system_config_key = "feature_flag"
-
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
     name = models.TextField(
@@ -73,8 +76,28 @@ class FeatureFlag(ModelActivityMixin, FileSystemSyncMixin, models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 
+    file_system_type = "feature_flag"
+
     def __str__(self):
         return f"{self.key} ({self.pk})"
+
+    @classmethod
+    def get_unfiled_queryset(cls, team: "Team") -> QuerySet["FeatureFlag"]:
+        base_qs = cls.objects.filter(team=team, deleted=False)
+        return cls._filter_unfiled_queryset(base_qs, team, ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder="Unfiled/Feature Flags",
+            ref=str(self.id),
+            name=self.name or "Untitled",
+            href=f"/feature_flags/{self.id}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=self.deleted,
+        )
 
     def get_analytics_metadata(self) -> dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)

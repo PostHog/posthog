@@ -1,6 +1,5 @@
 from django.db import models
 from typing import Optional
-
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -8,20 +7,17 @@ from posthog.models.utils import uuid7
 
 class FileSystem(models.Model):
     """
-    A generic "file system" model that can represent hierarchical
-    folders and "files" for any object type in PostHog.
+    A model representing a "file" (or folder) in our hierarchical system.
     """
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     id = models.UUIDField(primary_key=True, default=uuid7)
-
     path = models.TextField()
     depth = models.IntegerField(null=True, blank=True)
     type = models.CharField(max_length=100, blank=True)
     ref = models.CharField(max_length=100, null=True, blank=True)
     href = models.TextField(null=True, blank=True)
     meta = models.JSONField(default=dict, null=True, blank=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
 
@@ -33,6 +29,7 @@ def generate_unique_path(team: Team, base_folder: str, name: str) -> str:
     desired = f"{base_folder}/{escape_path(name)}"
     path = desired
     index = 1
+
     while FileSystem.objects.filter(team=team, path=path).exists():
         path = f"{desired} ({index})"
         index += 1
@@ -52,20 +49,16 @@ def create_or_update_file(
 ) -> FileSystem:
     existing = FileSystem.objects.filter(team=team, type=file_type, ref=ref).first()
     if existing:
-        # Optionally, update path to match the new name – or leave as-is if you don't want to rename once created.
+        # Optionally rename the path to match the new name
         segments = split_path(existing.path)
-        # Example: if we want to keep the same base folder and rename only the last segment:
         if len(segments) <= 2:
-            # Just generate a brand-new path if there's no "folder" portion
             new_path = generate_unique_path(team, base_folder, name)
         else:
-            # Replace last segment with new name, ensuring uniqueness
-            # This approach might cause collisions, so if you want bulletproof uniqueness,
-            # you can rely on generate_unique_path again. For brevity here, we do a direct swap.
+            # Replace last segment
             segments[-1] = escape_path(name)
             new_path = "/".join(segments)
 
-        # Ensure uniqueness in any case
+        # Ensure uniqueness
         if FileSystem.objects.filter(team=team, path=new_path).exclude(id=existing.id).exists():
             new_path = generate_unique_path(team, base_folder, name)
 

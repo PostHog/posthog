@@ -1,12 +1,17 @@
+from typing import TYPE_CHECKING
 from django.db import models
 from django.utils import timezone
 
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from django.db.models import QuerySet
+
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 
 class Experiment(FileSystemSyncMixin, models.Model):
-    file_system_config_key = "experiment"
-
     class ExperimentType(models.TextChoices):
         WEB = "web", "web"
         PRODUCT = "product", "product"
@@ -54,6 +59,9 @@ class Experiment(FileSystemSyncMixin, models.Model):
 
     stats_config = models.JSONField(default=dict, null=True, blank=True)
 
+    def __str__(self):
+        return self.name or "Untitled"
+
     def get_feature_flag_key(self):
         return self.feature_flag.key
 
@@ -63,6 +71,26 @@ class Experiment(FileSystemSyncMixin, models.Model):
     @property
     def is_draft(self):
         return not self.start_date
+
+    file_system_type = "experiment"
+
+    @classmethod
+    def get_unfiled_queryset(cls, team: "Team") -> QuerySet["Experiment"]:
+        base_qs = cls.objects.filter(team=team)
+        return cls._filter_unfiled_queryset(base_qs, team, ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder="Unfiled/Experiments",
+            ref=str(self.id),
+            name=self.name or "Untitled",
+            href=f"/experiments/{self.id}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=False,  # always keep in FileSystem
+        )
 
 
 class ExperimentHoldout(models.Model):
