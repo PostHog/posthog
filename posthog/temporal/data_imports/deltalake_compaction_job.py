@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 import datetime as dt
 import json
+import typing
 
 from django.db import close_old_connections
 from temporalio import activity, workflow
@@ -62,8 +63,12 @@ class DeltalakeCompactionJobWorkflowInputs:
     team_id: int
     external_data_job_id: str
 
-    def properties_to_log(self) -> list[str]:
-        return ["team_id", "external_data_job_id"]
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "external_data_job_id": self.external_data_job_id,
+        }
 
 
 @activity.defn

@@ -1,4 +1,5 @@
 import dataclasses
+import typing
 import uuid
 from typing import Optional
 
@@ -12,5 +13,12 @@ class ExternalDataWorkflowInputs:
     billable: bool = True
     reset_pipeline: Optional[bool] = None
 
-    def properties_to_log(self) -> list[str]:
-        return ["team_id", "external_data_source_id", "external_data_schema_id", "billable", "reset_pipeline"]
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "external_data_source_id": self.external_data_source_id,
+            "external_data_schema_id": self.external_data_schema_id,
+            "billable": self.billable,
+            "reset_pipeline": self.reset_pipeline,
+        }

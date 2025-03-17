@@ -36,8 +36,15 @@ class ImportDataActivityInputs:
     run_id: str
     reset_pipeline: Optional[bool] = None
 
-    def properties_to_log(self) -> list[str]:
-        return ["team_id", "schema_id", "source_id", "run_id", "reset_pipeline"]
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "schema_id": self.schema_id,
+            "source_id": self.source_id,
+            "run_id": self.run_id,
+            "reset_pipeline": self.reset_pipeline,
+        }
 
 
 def process_incremental_last_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:

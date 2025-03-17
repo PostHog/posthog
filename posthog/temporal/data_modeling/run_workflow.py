@@ -112,8 +112,11 @@ class RunDagActivityInputs:
     team_id: int
     dag: DAG
 
-    def properties_to_log(self) -> list[str]:
-        return ["team_id"]
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+        }
 
 
 class ModelStatus(enum.StrEnum):
@@ -471,8 +474,11 @@ class BuildDagActivityInputs:
     team_id: int
     select: list[Selector] = dataclasses.field(default_factory=list)
 
-    def properties_to_log(self) -> list[str]:
-        return ["team_id"]
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+        }
 
 
 class InvalidSelector(Exception):
@@ -595,8 +601,12 @@ class StartRunActivityInputs:
     run_at: str
     team_id: int
 
-    def properties_to_log(self) -> list[str]:
-        return ["team_id", "run_at"]
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "run_at": self.run_at,
+        }
 
 
 @temporalio.activity.defn
@@ -624,8 +634,12 @@ class FinishRunActivityInputs:
     run_at: str
     team_id: int
 
-    def properties_to_log(self) -> list[str]:
-        return ["team_id", "run_at"]
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "run_at": self.run_at,
+        }
 
 
 @temporalio.activity.defn
@@ -654,8 +668,11 @@ class CreateTableActivityInputs:
     models: list[str]
     team_id: int
 
-    def properties_to_log(self) -> list[str]:
-        return ["team_id"]
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+        }
 
 
 @temporalio.activity.defn
@@ -699,8 +716,11 @@ class RunWorkflowInputs:
     team_id: int
     select: list[Selector] = dataclasses.field(default_factory=list)
 
-    def properties_to_log(self) -> list[str]:
-        return ["team_id"]
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+        }
 
 
 @temporalio.workflow.defn(name="data-modeling-run")

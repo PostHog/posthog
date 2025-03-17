@@ -933,20 +933,21 @@ class BatchExportInsertInputs:
             return True
         return self.is_backfill
 
-    def properties_to_log(self) -> list[str]:
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
         """Return a dictionary of properties that we want to log if an error is raised.
 
         We list these explicitly rather than setting all fields as safe to log, so that the default is opt-out (just in
         case new fields get added which are sensitive).
         """
-        return [
-            "team_id",
-            "data_interval_start",
-            "data_interval_end",
-            "exclude_events",
-            "include_events",
-            "run_id",
-            "backfill_details",
-            "batch_export_model",
-            "batch_export_schema",
-        ]
+        return {
+            "team_id": self.team_id,
+            "data_interval_start": self.data_interval_start,
+            "data_interval_end": self.data_interval_end,
+            "exclude_events": self.exclude_events,
+            "include_events": self.include_events,
+            "run_id": self.run_id,
+            "backfill_details": self.backfill_details,
+            "batch_export_model": self.batch_export_model,
+            "batch_export_schema": self.batch_export_schema,
+        }

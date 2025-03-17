@@ -1,5 +1,6 @@
 import datetime as dt
 import json
+import typing as t
 import uuid
 from dataclasses import dataclass
 
@@ -26,8 +27,12 @@ class DeleteProxyRecordInputs:
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
 
-    def properties_to_log(self) -> list[str]:
-        return ["organization_id", "proxy_record_id"]
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+        }
 
 
 @dataclass
@@ -38,8 +43,13 @@ class DeleteManagedProxyInputs:
     proxy_record_id: uuid.UUID
     domain: str
 
-    def properties_to_log(self) -> list[str]:
-        return ["organization_id", "proxy_record_id", "domain"]
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+            "domain": self.domain,
+        }
 
 
 @activity.defn

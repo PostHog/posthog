@@ -1,4 +1,5 @@
 import dataclasses
+import typing as t
 
 from django.db import close_old_connections
 from temporalio import activity
@@ -23,8 +24,12 @@ class SyncNewSchemasActivityInputs:
     source_id: str
     team_id: int
 
-    def properties_to_log(self) -> list[str]:
-        return ["source_id", "team_id"]
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "source_id": self.source_id,
+            "team_id": self.team_id,
+        }
 
 
 @activity.defn

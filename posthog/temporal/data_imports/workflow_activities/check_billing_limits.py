@@ -1,4 +1,5 @@
 import dataclasses
+import typing
 
 from django.db import close_old_connections
 from temporalio import activity
@@ -17,8 +18,12 @@ class CheckBillingLimitsActivityInputs:
     team_id: int
     job_id: str
 
-    def properties_to_log(self) -> list[str]:
-        return ["team_id", "job_id"]
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "job_id": self.job_id,
+        }
 
 
 @activity.defn

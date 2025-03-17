@@ -1,3 +1,4 @@
+import typing as t
 import uuid
 from dataclasses import dataclass
 
@@ -32,8 +33,13 @@ class UpdateProxyRecordInputs:
     proxy_record_id: uuid.UUID
     status: str
 
-    def properties_to_log(self) -> list[str]:
-        return ["organization_id", "proxy_record_id", "status"]
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+            "status": self.status,
+        }
 
 
 @activity.defn

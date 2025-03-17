@@ -1,6 +1,7 @@
 import datetime as dt
 import ipaddress
 import json
+import typing as t
 import uuid
 from dataclasses import dataclass
 
@@ -39,8 +40,14 @@ class CreateManagedProxyInputs:
     domain: str
     target_cname: str
 
-    def properties_to_log(self) -> list[str]:
-        return ["organization_id", "proxy_record_id", "domain", "target_cname"]
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+            "domain": self.domain,
+            "target_cname": self.target_cname,
+        }
 
 
 @dataclass
@@ -50,8 +57,14 @@ class WaitForDNSRecordsInputs:
     domain: str
     target_cname: str
 
-    def properties_to_log(self) -> list[str]:
-        return ["organization_id", "proxy_record_id", "domain", "target_cname"]
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+            "domain": self.domain,
+            "target_cname": self.target_cname,
+        }
 
 
 @dataclass
@@ -60,8 +73,13 @@ class WaitForCertificateInputs:
     proxy_record_id: uuid.UUID
     domain: str
 
-    def properties_to_log(self) -> list[str]:
-        return ["organization_id", "proxy_record_id", "domain"]
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+            "domain": self.domain,
+        }
 
 
 @activity.defn

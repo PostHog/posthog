@@ -1,4 +1,5 @@
 import dataclasses
+import typing
 import uuid
 
 from django.db import close_old_connections
@@ -19,8 +20,14 @@ class CreateExternalDataJobModelActivityInputs:
     source_id: uuid.UUID
     billable: bool
 
-    def properties_to_log(self) -> list[str]:
-        return ["team_id", "schema_id", "source_id", "billable"]
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "schema_id": self.schema_id,
+            "source_id": self.source_id,
+            "billable": self.billable,
+        }
 
 
 @activity.defn
