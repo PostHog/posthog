@@ -1,6 +1,5 @@
 from django.test import override_settings
 from freezegun import freeze_time
-import pytest
 from posthog.hogql_queries.groups.groups_query_runner import GroupsQueryRunner
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -102,9 +101,9 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result.results), 3)
         self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
         self.assertEqual(result.results[0][0], "org0.inc")
-        self.assertEqual(result.results[0][2], "150")
-        self.assertEqual(result.results[1][2], "0")
-        self.assertEqual(result.results[2][2], "300")
+        self.assertEqual(result.results[0][2], 150)
+        self.assertEqual(result.results[1][2], 0)
+        self.assertEqual(result.results[2][2], 300)
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
@@ -143,9 +142,9 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(result.results), 3)
         self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
-        self.assertEqual(result.results[0][2], "300")
-        self.assertEqual(result.results[1][2], "150")
-        self.assertEqual(result.results[2][2], "0")
+        self.assertEqual(result.results[0][2], 300)
+        self.assertEqual(result.results[1][2], 150)
+        self.assertEqual(result.results[2][2], 0)
 
         # Default to ASC
         query = GroupsQuery(
@@ -161,9 +160,9 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(result.results), 3)
         self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
-        self.assertEqual(result.results[0][2], "0")
-        self.assertEqual(result.results[1][2], "150")
-        self.assertEqual(result.results[2][2], "300")
+        self.assertEqual(result.results[0][2], 0)
+        self.assertEqual(result.results[1][2], 150)
+        self.assertEqual(result.results[2][2], 300)
 
         # group_name has special case behavior
         query = GroupsQuery(
@@ -211,11 +210,9 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
-    @pytest.mark.skip("Doesn't work yet")
     def test_groups_query_runner_with_numeric_property(self):
         self.create_standard_test_groups()
 
-        # DESC
         query = GroupsQuery(
             group_type_index=0,
             limit=10,
@@ -236,5 +233,5 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(result.results), 2)
         self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
-        self.assertEqual(result.results[0][2], "150")
-        self.assertEqual(result.results[1][2], "300")
+        self.assertEqual(result.results[0][2], 150)
+        self.assertEqual(result.results[1][2], 300)

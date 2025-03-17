@@ -16,6 +16,24 @@
                     max_bytes_before_external_group_by=0
   '''
 # ---
+# name: TestGroupsQueryRunner.test_groups_query_runner_with_numeric_property
+  '''
+  SELECT coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key),
+         groups.group_key AS key,
+         accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), 'Float64') AS arr
+  FROM groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0), ifNull(greater(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), 'Float64'), 100.0), 0))
+  ORDER BY toTimeZone(groups.created_at, 'UTC') DESC
+  LIMIT 11
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_offset
   '''
   SELECT coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key),
@@ -37,10 +55,10 @@
   '''
   SELECT coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key),
          groups.group_key AS key,
-         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '') AS arr
+         accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), 'Float64') AS arr
   FROM groups
   WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0))
-  ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '') DESC
+  ORDER BY accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), 'Float64') DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -55,10 +73,10 @@
   '''
   SELECT coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key),
          groups.group_key AS key,
-         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '') AS arr
+         accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), 'Float64') AS arr
   FROM groups
   WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0))
-  ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '') ASC
+  ORDER BY accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), 'Float64') ASC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -90,7 +108,7 @@
   '''
   SELECT coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key),
          groups.group_key AS key,
-         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '') AS arr
+         accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), 'Float64') AS arr
   FROM groups
   WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0))
   ORDER BY toTimeZone(groups.created_at, 'UTC') DESC

@@ -1,4 +1,5 @@
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_order_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -95,6 +96,7 @@ class GroupsQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            context=HogQLContext(team_id=self.team.pk, globals={"group_id": self.query.group_type_index}),
         )
         results = response.results[: self.paginator.limit] if self.paginator.limit is not None else response.results
         return GroupsQueryResponse(
