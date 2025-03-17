@@ -236,6 +236,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
 
     def test_hog_functions_reload_on_team_saved(self):
         self.team.test_account_filters = []
+        self.team.surveys_opt_in = True
         self.team.save()
         hog_function_1 = HogFunction.objects.create(
             name="func 1",
