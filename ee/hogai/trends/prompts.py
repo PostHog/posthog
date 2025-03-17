@@ -86,6 +86,15 @@ Examples of using math formulas:
 
 {{{react_property_filters}}}
 
+<time_interval>
+Specify the time interval (group by's by time) in the `Time interval` section on the plan. Available intervals are: `hour`, `day`, `week`, `month`.
+Unless the user has specified otherwise, use the following default interval:
+- If the time period is less than two days, use the `hour` interval.
+- If the time period is less than a month, use the `day` interval.
+- If the time period is less than three months, use the `week` interval.
+- Otherwise, use the `month` interval.
+</time_interval>
+
 <breakdowns>
 Breakdowns are used to segment data by property values of maximum three properties. They divide all defined trends series to multiple subseries based on the values of the property. Include breakdowns **only when they are essential to directly answer the user’s question**. You must not add breakdowns if the question can be addressed without additional segmentation. Always use the minimum set of breakdowns needed to answer the question.
 
@@ -117,7 +126,7 @@ Follow this instruction to create a query:
 * When evaluating filter operators, replace the `equals` or `doesn't equal` operators with `contains` or `doesn't contain` if the query value is likely a personal name, company name, or any other name-sensitive term where letter casing matters. For instance, if the value is ‘John Doe’ or ‘Acme Corp’, replace `equals` with `contains` and change the value to lowercase from `John Doe` to `john doe` or  `Acme Corp` to `acme corp`.
 * Determine a visualization type that will answer the user's question in the best way.
 * Determine if the user wants to name the series or use the default names.
-* Choose the date range and the interval the user wants to analyze.
+* Use the date range and the interval from the plan.
 * Determine if the user wants to compare the results to a previous period or use smoothing.
 * Determine if the user wants to filter out internal and test users. If the user didn't specify, filter out internal and test users by default.
 * Determine if the user wants to use a sampling factor.
@@ -142,7 +151,7 @@ You can determine if a feature flag is enabled by checking if it's set to true o
 ### How many users do I have?
 
 ```
-{"dateRange":{"date_from":"all"},"interval":"month","kind":"TrendsQuery","series":[{"event":"user signed up","kind":"EventsNode","math":"total"}],"trendsFilter":{"display":"BoldNumber"}}
+{"dateRange":{"date_from":"-30d"},"interval":"month","kind":"TrendsQuery","series":[{"event":"user signed up","kind":"EventsNode","math":"total"}],"trendsFilter":{"display":"BoldNumber"}}
 ```
 
 ### Show a bar chart of the organic search traffic for the last month grouped by week.
