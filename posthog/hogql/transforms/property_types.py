@@ -133,7 +133,7 @@ class PropertyFinder(TraversingVisitor):
                         return
                     if self.group_properties.get(global_group_id) is None:
                         self.group_properties[global_group_id] = set()
-                    self.group_properties[group_id].add(property_name)
+                    self.group_properties[global_group_id].add(property_name)
                 if table_name == "events":
                     if (
                         isinstance(node.field_type.table_type, ast.VirtualTableType)
@@ -224,7 +224,9 @@ class PropertySwapper(CloningVisitor):
                     if not isinstance(global_group_id, int):
                         return
                     if f"{global_group_id}_{property_name}" in self.group_properties:
-                        return self._convert_string_property_to_type(node, "group", f"{group_id}_{property_name}")
+                        return self._convert_string_property_to_type(
+                            node, "group", f"{global_group_id}_{property_name}"
+                        )
                 if table_name == "events":
                     if property_name in self.event_properties:
                         return self._convert_string_property_to_type(node, "event", property_name)
