@@ -106,10 +106,6 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                                         value: 'suppressed',
                                         label: 'Suppressed',
                                     },
-                                    {
-                                        value: 'resolved',
-                                        label: 'Resolved',
-                                    },
                                 ]}
                                 size="small"
                             />

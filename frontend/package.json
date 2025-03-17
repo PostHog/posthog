@@ -198,7 +198,6 @@
         "@testing-library/dom": ">=7.21.4",
         "@testing-library/jest-dom": "^5.16.2",
         "@testing-library/react": "^13.4.0",
-        "@testing-library/react-hooks": "^8.0.1",
         "@testing-library/user-event": "^13.5.0",
         "@types/chartjs-plugin-crosshair": "^1.1.1",
         "@types/chartjs-plugin-trendline": "^1.0.4",

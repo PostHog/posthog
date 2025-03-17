@@ -35,10 +35,11 @@ import { closeHub, createHub } from './utils/db/hub'
 import { PostgresRouter } from './utils/db/postgres'
 import { createRedisClient } from './utils/db/redis'
 import { isTestEnv } from './utils/env-utils'
+import { parseJSON } from './utils/json-parse'
+import { logger } from './utils/logger'
 import { getObjectStorage } from './utils/object_storage'
 import { shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
-import { status } from './utils/status'
 import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
 import { initPlugins as _initPlugins, reloadPlugins } from './worker/tasks'
@@ -71,8 +72,6 @@ export class PluginServer {
             ...defaultConfig,
             ...config,
         }
-
-        status.updatePrompt(this.config.PLUGIN_SERVER_MODE)
 
         this.expressApp = express()
         this.expressApp.use(express.json())
@@ -264,7 +263,7 @@ export class PluginServer {
 
             if (capabilities.cdpCyclotronWorker) {
                 if (!hub.CYCLOTRON_DATABASE_URL) {
-                    status.error('💥', 'Cyclotron database URL not set.')
+                    logger.error('💥', 'Cyclotron database URL not set.')
                 } else {
                     serviceLoaders.push(async () => {
                         const worker = new CdpCyclotronWorker(hub)
@@ -285,7 +284,7 @@ export class PluginServer {
             if (capabilities.cdpCyclotronWorkerPlugins) {
                 await initPlugins()
                 if (!hub.CYCLOTRON_DATABASE_URL) {
-                    status.error('💥', 'Cyclotron database URL not set.')
+                    logger.error('💥', 'Cyclotron database URL not set.')
                 } else {
                     serviceLoaders.push(async () => {
                         const worker = new CdpCyclotronWorkerPlugins(hub)
@@ -300,16 +299,16 @@ export class PluginServer {
 
             this.pubsub = new PubSub(this.hub, {
                 [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                    status.info('⚡', 'Reloading plugins!')
+                    logger.info('⚡', 'Reloading plugins!')
                     await reloadPlugins(hub)
                 },
                 'reset-available-product-features-cache': (message) => {
-                    hub.organizationManager.resetAvailableProductFeaturesCache(JSON.parse(message).organization_id)
+                    hub.organizationManager.resetAvailableProductFeaturesCache(parseJSON(message).organization_id)
                 },
                 'populate-plugin-capabilities': async (message) => {
                     // We need this to be done in only once
                     if (hub?.capabilities.appManagementSingleton) {
-                        await populatePluginCapabilities(hub, Number(JSON.parse(message).plugin_id))
+                        await populatePluginCapabilities(hub, Number(parseJSON(message).plugin_id))
                     }
                 },
             })
@@ -321,7 +320,7 @@ export class PluginServer {
             if (!isTestEnv()) {
                 // We don't run http server in test env currently
                 this.httpServer = this.expressApp.listen(this.config.HTTP_SERVER_PORT, () => {
-                    status.info('🩺', `Status server listening on port ${this.config.HTTP_SERVER_PORT}`)
+                    logger.info('🩺', `Status server listening on port ${this.config.HTTP_SERVER_PORT}`)
                 })
             }
 
@@ -333,17 +332,17 @@ export class PluginServer {
 
             this.services.forEach((service) => {
                 service.batchConsumer?.join().catch(async (error) => {
-                    status.error('💥', 'Unexpected task joined!', { error: error.stack ?? error })
+                    logger.error('💥', 'Unexpected task joined!', { error: error.stack ?? error })
                     await this.stop(error)
                 })
             })
             pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
-            status.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
+            logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
         } catch (error) {
             Sentry.captureException(error)
-            status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
+            logger.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
             void Sentry.flush().catch(() => null) // Flush Sentry in the background
-            status.error('💥', 'Exception while starting server, shutting down!', { error })
+            logger.error('💥', 'Exception while starting server, shutting down!', { error })
             await this.stop(error)
         }
     }
@@ -352,13 +351,13 @@ export class PluginServer {
         for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
             process.on(signal, async () => {
                 // This makes async exit possible with the process waiting until jobs are closed
-                status.info('👋', `process handling ${signal} event. Stopping...`)
+                logger.info('👋', `process handling ${signal} event. Stopping...`)
                 await this.stop()
             })
         }
 
         process.on('unhandledRejection', (error: Error | any, promise: Promise<any>) => {
-            status.error('🤮', `Unhandled Promise Rejection`, { error: String(error), promise })
+            logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error), promise })
 
             Sentry.captureException(error, {
                 extra: { detected_at: `pluginServer.ts on unhandledRejection` },
@@ -372,16 +371,16 @@ export class PluginServer {
 
     async stop(error?: Error): Promise<void> {
         if (error) {
-            status.error('🤮', `Shutting down due to error`, { error: error.stack })
+            logger.error('🤮', `Shutting down due to error`, { error: error.stack })
         }
         if (this.stopping) {
-            status.info('🚨', 'Stop called but already stopping...')
+            logger.info('🚨', 'Stop called but already stopping...')
             return
         }
 
         this.stopping = true
 
-        status.info('💤', ' Shutting down gracefully...')
+        logger.info('💤', ' Shutting down gracefully...')
 
         this.httpServer?.close()
         Object.values(schedule.scheduledJobs).forEach((job) => {
