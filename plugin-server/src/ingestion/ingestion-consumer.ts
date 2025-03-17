@@ -19,9 +19,8 @@ import { Hub, PipelineEvent, PluginServerService, PluginsServerConfig } from '..
 import { normalizeEvent } from '../utils/event'
 import { parseJSON } from '../utils/json-parse'
 import { captureException } from '../utils/posthog'
-import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
-import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
+import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -204,6 +203,8 @@ export class IngestionConsumer {
                 setUsageInNonPersonEventsCounter.inc()
             }
 
+            let runner: EventPipelineRunnerV2 | undefined
+
             try {
                 status.debug('🔁', `Processing event`, {
                     event,
@@ -231,31 +232,26 @@ export class IngestionConsumer {
                     continue
                 }
 
-                const result = await this.runInstrumented('runEventPipeline', () => this.runEventPipeline(event))
-
-                status.debug('🔁', `Processed event`, {
-                    event,
-                })
-
-                // This contains the Kafka producer ACKs & message promises, to avoid blocking after every message.
-                result.ackPromises?.forEach((promise) => {
-                    void this.scheduleWork(
-                        promise.catch(async (error) => {
-                            await this.handleProcessingError(error, message, event)
-                        })
-                    )
-                })
+                runner = this.getEventPipelineRunner(event)
+                await runner.run()
             } catch (error) {
+                // NOTE: If we error at this point we want to handle it gracefully and continue to process the scheduled promises
                 await this.handleProcessingError(error, message, event)
             }
+
+            runner?.getPromises().forEach((promise) => {
+                // Schedule each promise with their own error handling
+                // That way if all fail with ignoreable errors we continue but if any one fails with an unexpected error we can crash out
+                this.scheduleWork(promise).catch((error) => {
+                    return this.handleProcessingError(error, message, event)
+                })
+            })
         }
     }
 
-    private async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
-        return await retryIfRetriable(async () => {
-            const runner = new EventPipelineRunner(this.hub, event, this.hogTransformer)
-            return await runner.runEventPipeline(event)
-        })
+    private getEventPipelineRunner(event: PipelineEvent): EventPipelineRunnerV2 {
+        // Mostly a helper method for testing
+        return new EventPipelineRunnerV2(this.hub, event, this.hogTransformer)
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
@@ -361,28 +357,21 @@ export class IngestionConsumer {
     }
 
     private async handleProcessingError(error: any, message: Message, event: PipelineEvent) {
-        status.error('🔥', `Error processing message`, {
-            stack: error.stack,
-            error: error,
-        })
+        if (error instanceof EventDroppedError) {
+            // In the case of an EventDroppedError we know that the error was expected and as such we should
+            // send it to the DLQ unless the doNotSendToDLQ flag is set
+            // We then return as there is nothing else to do
 
-        // If the error is a non-retriable error, push to the dlq and commit the offset. Else raise the
-        // error.
-        //
-        // NOTE: there is behavior to push to a DLQ at the moment within EventPipelineRunner. This
-        // doesn't work so well with e.g. messages that when sent to the DLQ is it's self too large.
-        // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
-        // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
-        //
-        // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
-        // fact that node-rdkafka adheres to the `isRetriable` interface.
+            if (error.doNotSendToDLQ) {
+                return
+            }
 
-        if (error?.isRetriable === false) {
-            const sentryEventId = captureException(error)
-            const headers: MessageHeader[] = message.headers ?? []
-            headers.push({ ['sentry-event-id']: sentryEventId })
-            headers.push({ ['event-id']: event.uuid })
             try {
+                const sentryEventId = captureException(error)
+                const headers: MessageHeader[] = message.headers ?? []
+                headers.push({ ['sentry-event-id']: sentryEventId })
+                headers.push({ ['event-id']: event.uuid })
+
                 await this.kafkaProducer!.produce({
                     topic: this.dlqTopic,
                     value: message.value,
@@ -390,22 +379,23 @@ export class IngestionConsumer {
                     headers: headers,
                 })
             } catch (error) {
-                // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
-                // offset and move on.
-                if (error?.isRetriable === false) {
-                    status.error('🔥', `Error pushing to DLQ`, {
-                        stack: error.stack,
-                        error: error,
-                    })
-                    return
-                }
-
-                // If we can't send to the DLQ and it is retriable, raise the error.
+                status.error('🔥', `Error pushing to DLQ`, {
+                    stack: error.stack,
+                    error: error,
+                })
                 throw error
             }
-        } else {
-            throw error
+
+            return // EventDroppedError is handled
         }
+
+        // All other errors indicate that something went wrong and we crash out
+        captureException(error, {
+            tags: { team_id: event.team_id },
+            extra: { originalEvent: event },
+        })
+
+        throw error
     }
 
     private logDroppedEvent(token?: string, distinctId?: string) {
