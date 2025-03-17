@@ -11,6 +11,7 @@ async-trait = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
 chrono = { workspace = true }
+common-cookieless = { path = "../common/cookieless" }
 common-redis = { path = "../common/redis" }
 envconfig = { workspace = true }
 limiters = { path = "../common/limiters" }

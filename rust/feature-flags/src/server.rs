@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use time::Duration;
 
+use common_cookieless::CookielessManager;
 use common_redis::RedisClient;
 use health::{HealthHandle, HealthRegistry};
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
@@ -100,6 +101,10 @@ where
         }
     };
 
+    // Initialize the cookieless manager
+    let cookieless_config = config.get_cookieless_config();
+    let cookieless_manager = Arc::new(CookielessManager::new(cookieless_config, redis_client.clone()));
+
     // You can decide which client to pass to the router, or pass both if needed
     let app = router::router(
         redis_client,
@@ -109,6 +114,7 @@ where
         geoip_service,
         health,
         billing_limiter,
+        cookieless_manager,
         config,
     );
 

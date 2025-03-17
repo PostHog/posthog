@@ -22,8 +22,13 @@ use std::{
     collections::{HashMap, HashSet},
     io::Read,
     net::IpAddr,
+    str::FromStr,
     sync::Arc,
 };
+use axum::http::Method;
+use axum_client_ip::InsecureClientIp;
+use common_cookieless::{CookielessManager, EventData};
+use tracing::{debug, error, info, instrument, warn};
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -99,7 +104,7 @@ pub type RequestPropertyOverrides = (
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
 
-    let (distinct_id, verified_token, request) =
+    let (mut distinct_id, verified_token, request) =
         parse_and_authenticate_request(&context, &flag_service).await?;
 
     // Once we've verified the token, check if the token is billing limited (this will save us from hitting the DB if we have a quota-limited token)
@@ -126,6 +131,40 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         .await?;
     let team_id = team.id;
     let project_id = team.project_id;
+
+    // Process cookieless distinct ID if needed
+    if request.is_cookieless() {
+        // Get the host from the request
+        let host = request.get_host().unwrap_or_default();
+        // Get the user agent from the request headers
+        let user_agent = context.headers
+            .get("user-agent")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or_default();
+        
+        // Create event data for cookieless processing
+        let event_data = EventData {
+            ip: &context.ip.to_string(),
+            timestamp_ms: chrono::Utc::now().timestamp_millis() as u64,
+            host,
+            user_agent,
+            event_time_zone: None,
+            hash_extra: None,
+            team_id: team_id as u64,
+            team_time_zone: Some("UTC"),
+        };
+
+        // Compute cookieless distinct ID
+        match context.state.cookieless_manager.compute_cookieless_distinct_id(event_data).await {
+            Ok(cookieless_distinct_id) => {
+                distinct_id = cookieless_distinct_id;
+            }
+            Err(e) => {
+                warn!("Failed to compute cookieless distinct ID: {}", e);
+                // Continue with the original distinct ID
+            }
+        }
+    }
 
     let filtered_flags = fetch_and_filter_flags(&flag_service, project_id, &request).await?;
 

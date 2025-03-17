@@ -5,6 +5,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use common_cookieless::CookielessManager;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::HealthRegistry;
@@ -32,6 +33,7 @@ pub struct State {
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdsToTrack,
     pub billing_limiter: RedisLimiter,
+    pub cookieless_manager: Arc<CookielessManager>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -43,6 +45,7 @@ pub fn router<R, D>(
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
     billing_limiter: RedisLimiter,
+    cookieless_manager: Arc<CookielessManager>,
     config: Config,
 ) -> Router
 where
@@ -57,6 +60,7 @@ where
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
         billing_limiter,
+        cookieless_manager,
     };
 
     // Very permissive CORS policy, as old SDK versions

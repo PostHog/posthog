@@ -35,6 +35,10 @@ pub struct FlagRequest {
     pub ip_address: Option<String>,
     #[serde(default)]
     pub flag_keys: Option<Vec<String>>,
+    #[serde(alias = "$host", skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(alias = "$cookieless", skip_serializing_if = "Option::is_none")]
+    pub cookieless: Option<bool>,
 }
 
 impl FlagRequest {
@@ -91,6 +95,17 @@ impl FlagRequest {
             properties.extend(person_properties.clone());
         }
         properties
+    }
+
+    /// Checks if the request is for cookieless tracking
+    pub fn is_cookieless(&self) -> bool {
+        self.cookieless.unwrap_or(false) || 
+        self.distinct_id.as_ref().map_or(false, |id| id == "cookieless")
+    }
+
+    /// Gets the host from the request
+    pub fn get_host(&self) -> Option<&str> {
+        self.host.as_deref()
     }
 }
 
