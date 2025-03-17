@@ -199,12 +199,17 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'web_analytics',
                 'data-attr': `support-form-target-area-web_analytics`,
-                label: 'Web Analytics',
+                label: 'Web analytics',
             },
             {
                 value: 'error_tracking',
                 'data-attr': `support-form-target-area-error_tracking`,
                 label: 'Error tracking',
+            },
+            {
+                value: 'llm-observability',
+                'data-attr': `support-form-target-area-llm-observability`,
+                label: 'LLM observability',
             },
         ],
     },

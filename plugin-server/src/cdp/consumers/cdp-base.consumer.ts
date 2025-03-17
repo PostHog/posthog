@@ -1,5 +1,5 @@
 import { Message } from 'node-rdkafka'
-import { Counter, Gauge, Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
@@ -13,6 +13,7 @@ import { FetchExecutorService } from '../services/fetch-executor.service'
 import { GroupsManagerService } from '../services/groups-manager.service'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
+import { HogFunctionManagerLazyService } from '../services/hog-function-manager-lazy.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/hog-masker.service'
 import { HogWatcherService } from '../services/hog-watcher.service'
@@ -31,28 +32,10 @@ export const histogramKafkaBatchSizeKb = new Histogram({
     buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
 })
 
-export const counterFunctionInvocation = new Counter({
-    name: 'cdp_function_invocation',
-    help: 'A function invocation was evaluated with an outcome',
-    labelNames: ['outcome'], // One of 'failed', 'succeeded', 'overflowed', 'disabled', 'filtered'
-})
-
 export const counterParseError = new Counter({
     name: 'cdp_function_parse_error',
     help: 'A function invocation was parsed with an error',
     labelNames: ['error'],
-})
-
-export const gaugeBatchUtilization = new Gauge({
-    name: 'cdp_cyclotron_batch_utilization',
-    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
-    labelNames: ['queue'],
-})
-
-export const counterJobsProcessed = new Counter({
-    name: 'cdp_cyclotron_jobs_processed',
-    help: 'The number of jobs we are managing to process',
-    labelNames: ['queue'],
 })
 
 export interface TeamIDWithConfig {
@@ -63,6 +46,7 @@ export interface TeamIDWithConfig {
 export abstract class CdpConsumerBase {
     batchConsumer?: BatchConsumer
     hogFunctionManager: HogFunctionManagerService
+    hogFunctionManagerLazy: HogFunctionManagerLazyService
     fetchExecutor: FetchExecutorService
     hogExecutor: HogExecutorService
     hogWatcher: HogWatcherService
@@ -81,9 +65,10 @@ export abstract class CdpConsumerBase {
     constructor(protected hub: Hub) {
         this.redis = createCdpRedisPool(hub)
         this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFunctionManagerLazy = new HogFunctionManagerLazyService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
-        this.hogExecutor = new HogExecutorService(this.hub, this.hogFunctionManager)
+        this.hogExecutor = new HogExecutorService(this.hub)
         this.fetchExecutor = new FetchExecutorService(this.hub)
         this.groupsManager = new GroupsManagerService(this.hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(this.hub)
@@ -96,6 +81,10 @@ export abstract class CdpConsumerBase {
             healthcheck: () => this.isHealthy() ?? false,
             batchConsumer: this.batchConsumer,
         }
+    }
+
+    protected runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
+        return runInstrumentedFunction<T>({ statsKey: `cdpConsumer.${name}`, func })
     }
 
     protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
@@ -151,12 +140,8 @@ export abstract class CdpConsumerBase {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                return await runInstrumentedFunction({
-                    statsKey: `cdpConsumer.handleEachBatch`,
-                    sendTimeoutGuardToSentry: false,
-                    func: async () => {
-                        await options.handleBatch(messages)
-                    },
+                return await this.runInstrumented('handleEachBatch', async () => {
+                    await options.handleBatch(messages)
                 })
             },
             callEachBatchWhenEmpty: false,

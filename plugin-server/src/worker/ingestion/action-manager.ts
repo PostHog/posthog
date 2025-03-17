@@ -2,6 +2,7 @@ import * as schedule from 'node-schedule'
 
 import { Action, Hook, PluginsServerConfig, RawAction, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { parseJSON } from '../../utils/json-parse'
 import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 
@@ -22,11 +23,11 @@ export class ActionManager {
 
         this.pubSub = new PubSub(this.serverConfig, {
             'reload-action': async (message) => {
-                const { actionId, teamId } = JSON.parse(message)
+                const { actionId, teamId } = parseJSON(message)
                 await this.reloadAction(teamId, actionId)
             },
             'drop-action': (message) => {
-                const { actionId, teamId } = JSON.parse(message)
+                const { actionId, teamId } = parseJSON(message)
                 this.dropAction(teamId, actionId)
             },
         })
@@ -109,6 +110,22 @@ export class ActionManager {
     }
 }
 
+const ACTION_SELECT_FIELDS = [
+    'id',
+    'team_id',
+    'name',
+    'description',
+    'created_at',
+    'created_by_id',
+    'deleted',
+    'post_to_slack',
+    'slack_message_format',
+    'is_calculating',
+    'updated_at',
+    'last_calculated_at',
+    'steps_json',
+] as const
+
 export async function fetchAllActionsGroupedByTeam(
     client: PostgresRouter
 ): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
@@ -120,22 +137,7 @@ export async function fetchAllActionsGroupedByTeam(
         await client.query<RawAction>(
             PostgresUse.COMMON_READ,
             `
-            SELECT
-                id,
-                team_id,
-                name,
-                description,
-                created_at,
-                created_by_id,
-                deleted,
-                post_to_slack,
-                slack_message_format,
-                is_calculating,
-                updated_at,
-                last_calculated_at,
-                steps_json,
-                bytecode,
-                bytecode_error
+            SELECT ${ACTION_SELECT_FIELDS.join(',')}
             FROM posthog_action
             WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
         `,
@@ -192,7 +194,7 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
     const rawActions: RawAction[] = (
         await client.query(
             PostgresUse.COMMON_READ,
-            `SELECT * FROM posthog_action WHERE id = $1 AND deleted = FALSE`,
+            `SELECT ${ACTION_SELECT_FIELDS.join(',')} FROM posthog_action WHERE id = $1 AND deleted = FALSE`,
             [id],
             'fetchActions'
         )

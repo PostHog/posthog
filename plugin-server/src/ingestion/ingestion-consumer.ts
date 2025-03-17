@@ -17,12 +17,12 @@ import {
 import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService, PluginsServerConfig } from '../types'
 import { normalizeEvent } from '../utils/event'
+import { parseJSON } from '../utils/json-parse'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'
-
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
@@ -67,7 +67,6 @@ export class IngestionConsumer {
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
-
     private overflowRateLimiter: MemoryRateLimiter
     private ingestionWarningLimiter: MemoryRateLimiter
     private tokensToDrop: string[] = []
@@ -282,8 +281,8 @@ export class IngestionConsumer {
             }
 
             // Parse the message payload into the event object
-            const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-            const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
+            const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
+            const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
             const event: PipelineEvent = normalizeEvent({
                 ...combinedEvent,
             })

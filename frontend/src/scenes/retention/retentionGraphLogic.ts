@@ -40,8 +40,8 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         count: 0,
                         label: cohortRetention.date
                             ? period === 'Hour'
-                                ? dayjs(cohortRetention.date).format('MMM D, h A')
-                                : dayjs(cohortRetention.date).format('MMM D')
+                                ? dayjs.utc(cohortRetention.date).format('MMM D, h A')
+                                : dayjs.utc(cohortRetention.date).format('MMM D')
                             : cohortRetention.label,
                         data: cohortRetention.values.map((value) => value.percentage),
                         index: datasetIndex,
@@ -64,9 +64,9 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 }
                 const numUnits = trendSeries[0].days.length
                 const interval = dateOptionToTimeIntervalMap?.[period ?? RetentionPeriod.Day]
-                const startDate = dayjs().startOf(interval)
+                const startDate = dayjs.utc().startOf(interval)
                 const startIndex = trendSeries[0].days.findIndex(
-                    (_, i) => dayjs(date_to).add(i - numUnits, interval as QUnitType) >= startDate
+                    (_, i) => dayjs.utc(date_to).add(i - numUnits, interval as QUnitType) >= startDate
                 )
 
                 if (startIndex !== undefined && startIndex !== -1) {

@@ -28,12 +28,14 @@ import {
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { DefaultBatchConsumerFactory } from './main/ingestion-queues/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
+import { PropertyDefsConsumer } from './property-defs/property-defs-consumer'
 import { setupCommonRoutes } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { closeHub, createHub } from './utils/db/hub'
 import { PostgresRouter } from './utils/db/postgres'
 import { createRedisClient } from './utils/db/redis'
 import { isTestEnv } from './utils/env-utils'
+import { parseJSON } from './utils/json-parse'
 import { getObjectStorage } from './utils/object_storage'
 import { shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
@@ -235,6 +237,14 @@ export class PluginServer {
                 })
             }
 
+            if (capabilities.propertyDefs) {
+                serviceLoaders.push(async () => {
+                    const consumer = new PropertyDefsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
             if (capabilities.cdpInternalEvents) {
                 serviceLoaders.push(async () => {
                     const consumer = new CdpInternalEventsConsumer(hub)
@@ -295,12 +305,12 @@ export class PluginServer {
                     await reloadPlugins(hub)
                 },
                 'reset-available-product-features-cache': (message) => {
-                    hub.organizationManager.resetAvailableProductFeaturesCache(JSON.parse(message).organization_id)
+                    hub.organizationManager.resetAvailableProductFeaturesCache(parseJSON(message).organization_id)
                 },
                 'populate-plugin-capabilities': async (message) => {
                     // We need this to be done in only once
                     if (hub?.capabilities.appManagementSingleton) {
-                        await populatePluginCapabilities(hub, Number(JSON.parse(message).plugin_id))
+                        await populatePluginCapabilities(hub, Number(parseJSON(message).plugin_id))
                     }
                 },
             })

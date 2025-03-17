@@ -96,7 +96,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                         prefix={<b>$</b>}
                                         disabled={billingLoading}
                                         min={0}
-                                        step={10}
+                                        step={1}
                                         suffix={<>/ {billing?.billing_period?.interval}</>}
                                         size="small"
                                     />

@@ -3,6 +3,7 @@ import { promisify } from 'node:util'
 import { Message } from 'node-rdkafka'
 import { gunzip } from 'zlib'
 
+import { parseJSON } from '../../../../utils/json-parse'
 import { status } from '../../../../utils/status'
 import { KafkaMetrics } from './metrics'
 import { EventSchema, ParsedMessageData, RawEventMessageSchema, SnapshotEvent, SnapshotEventSchema } from './types'
@@ -87,7 +88,7 @@ export class KafkaMessageParser {
 
         let rawPayload: unknown
         try {
-            rawPayload = JSON.parse(messageUnzipped.toString())
+            rawPayload = parseJSON(messageUnzipped.toString())
         } catch (error) {
             return dropMessage('invalid_json', { error })
         }
@@ -99,7 +100,7 @@ export class KafkaMessageParser {
 
         let eventData: unknown
         try {
-            eventData = JSON.parse(messageResult.data.data)
+            eventData = parseJSON(messageResult.data.data)
         } catch (error) {
             return dropMessage('received_non_snapshot_message', { error })
         }
