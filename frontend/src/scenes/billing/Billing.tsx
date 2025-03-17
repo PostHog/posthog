@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { PoliceHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -23,7 +24,6 @@ import { BillingCTAHero } from './BillingCTAHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
 import { CreditCTAHero } from './CreditCTAHero'
-import { PaymentEntryModal } from './PaymentEntryModal'
 import { UnsubscribeCard } from './UnsubscribeCard'
 
 export const scene: SceneExport = {
@@ -68,7 +68,7 @@ export function Billing(): JSX.Element {
 
     if (restrictionReason) {
         return (
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <h1>Billing</h1>
                 <LemonBanner type="warning">{restrictionReason}</LemonBanner>
                 <div className="flex">
@@ -82,7 +82,7 @@ export function Billing(): JSX.Element {
 
     if (!billing && !billingLoading) {
         return (
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <LemonBanner type="error">
                     {
                         'There was an issue retrieving your current billing information. If this message persists, please '
@@ -104,11 +104,14 @@ export function Billing(): JSX.Element {
     const platformAndSupportProduct = products?.find((product) => product.type === 'platform_and_support')
     return (
         <div ref={ref}>
-            <PaymentEntryModal />
-
             {showLicenseDirectInput && (
                 <>
-                    <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
+                    <Form
+                        logic={billingLogic}
+                        formKey="activateLicense"
+                        enableFormOnSubmit
+                        className="deprecated-space-y-4"
+                    >
                         <Field name="license" label="Activate license key">
                             <LemonInput fullWidth autoFocus />
                         </Field>
@@ -133,16 +136,23 @@ export function Billing(): JSX.Element {
             )}
 
             {billing?.trial ? (
-                <LemonBanner type="info" className="mb-2">
-                    You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)} plan</b> until{' '}
-                    <b>{dayjs(billing.trial.expires_at).format('LL')}</b>. At the end of the trial{' '}
-                    {billing.trial.type === 'autosubscribe'
-                        ? 'you will be automatically subscribed to the plan.'
-                        : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
+                <LemonBanner type="info" hideIcon className="mb-2">
+                    <div className="flex items-center gap-4">
+                        <PoliceHog className="w-20 h-20 flex-shrink-0" />
+                        <div>
+                            <p className="text-lg">You're on (a) trial</p>
+                            <p>
+                                You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)} plan</b>{' '}
+                                until <b>{dayjs(billing.trial.expires_at).format('LL')}</b>.
+                                {billing.trial.type === 'autosubscribe' &&
+                                    ' At the end of the trial you will be automatically subscribed to the plan.'}
+                            </p>
+                        </div>
+                    </div>
                 </LemonBanner>
             ) : null}
 
-            {!billing?.has_active_subscription && platformAndSupportProduct && (
+            {!billing?.has_active_subscription && !billing?.trial && platformAndSupportProduct && (
                 <div className="mb-4">
                     <BillingCTAHero product={platformAndSupportProduct} />
                 </div>
@@ -165,7 +175,7 @@ export function Billing(): JSX.Element {
                     >
                         {!isOnboarding && billing?.billing_period && (
                             <div className="flex-1 pt-2">
-                                <div className="space-y-4">
+                                <div className="deprecated-space-y-4">
                                     {billing?.has_active_subscription && (
                                         <>
                                             <div className="flex flex-row gap-10 items-end">
@@ -187,6 +197,26 @@ export function Billing(): JSX.Element {
                                                               humanFriendlyCurrency(billing.current_total_amount_usd)}
                                                     </div>
                                                 </div>
+                                                {billing?.projected_total_amount_usd &&
+                                                    parseFloat(billing?.projected_total_amount_usd) > 0 && (
+                                                        <div>
+                                                            <LemonLabel
+                                                                info="This is roughly calculated based on your current bill and the remaining time left in this billing period. This number updates once daily."
+                                                                className="text-secondary"
+                                                            >
+                                                                Projected total
+                                                            </LemonLabel>
+                                                            <div className="font-semibold text-2xl text-secondary">
+                                                                {billing.discount_percent
+                                                                    ? humanFriendlyCurrency(
+                                                                          billing.projected_total_amount_usd_after_discount
+                                                                      )
+                                                                    : humanFriendlyCurrency(
+                                                                          billing?.projected_total_amount_usd
+                                                                      )}
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 {billing?.discount_amount_usd && (
                                                     <div>
                                                         <LemonLabel

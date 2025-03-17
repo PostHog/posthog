@@ -4,6 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -27,12 +28,14 @@ function CategoryPill({
 }): JSX.Element {
     const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalResultCount, totalListCount } = useValues(logic)
+    const { totalResultCount, totalListCount, isLoading, results, hasRemoteDataSource } = useValues(logic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
     // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
     const canInteract = totalListCount > 0 || taxonomicFilterGroupTypesWithEmptyStates.includes(groupType)
+    const hasOnlyDefaultItems = results?.length === 1 && (!results[0].id || results[0].id === '')
+    const showLoading = isLoading && (!results || results.length === 0 || hasOnlyDefaultItems) && hasRemoteDataSource
 
     return (
         <LemonTag
@@ -48,7 +51,11 @@ function CategoryPill({
                 <>
                     {group?.name}
                     {': '}
-                    {totalResultCount ?? '...'}
+                    {showLoading ? (
+                        <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
+                    ) : (
+                        totalResultCount
+                    )}
                 </>
             )}
         </LemonTag>
@@ -95,7 +102,7 @@ export function InfiniteSelectResults({
     return (
         <>
             {hasMultipleGroups && (
-                <div className="border-b border-border-light">
+                <div className="border-b border-primary">
                     <div className="taxonomic-group-title">Categories</div>
                     <div className="taxonomic-pills flex gap-0.5 flex-wrap">
                         {taxonomicGroupTypes.map((groupType) => {

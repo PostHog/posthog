@@ -59,7 +59,7 @@ export class EventsProcessor {
         this.clickhouse = pluginsServer.clickhouse
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.teamManager = pluginsServer.teamManager
-        this.groupTypeManager = new GroupTypeManager(pluginsServer.postgres, this.teamManager, pluginsServer.SITE_URL)
+        this.groupTypeManager = new GroupTypeManager(pluginsServer.postgres, this.teamManager)
         this.groupAndFirstEventManager = new GroupAndFirstEventManager(
             this.teamManager,
             this.groupTypeManager,
@@ -73,7 +73,7 @@ export class EventsProcessor {
         teamId: number,
         timestamp: DateTime,
         eventUuid: string,
-        processPerson: boolean
+        processPerson: boolean = false
     ): Promise<PreIngestionEvent> {
         const singleSaveTimer = new Date()
         const timeout = timeoutGuard(

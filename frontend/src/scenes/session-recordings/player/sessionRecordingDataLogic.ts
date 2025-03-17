@@ -57,6 +57,8 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
+const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
+export const MUTATION_CHUNK_SIZE = 5000 // Maximum number of mutations per chunk
 
 let postHogEEModule: PostHogEE
 
@@ -207,10 +209,60 @@ function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean): even
         : (currentEvent as eventWithTime)
 }
 
+export function chunkMutationSnapshot(snapshot: RecordingSnapshot): RecordingSnapshot[] {
+    if (
+        snapshot.type !== EventType.IncrementalSnapshot ||
+        !('data' in snapshot) ||
+        !snapshot.data ||
+        typeof snapshot.data !== 'object' ||
+        !('source' in snapshot.data) ||
+        snapshot.data.source !== IncrementalSource.Mutation ||
+        !('adds' in snapshot.data) ||
+        !Array.isArray(snapshot.data.adds) ||
+        snapshot.data.adds.length <= MUTATION_CHUNK_SIZE
+    ) {
+        return [snapshot]
+    }
+
+    const chunks: RecordingSnapshot[] = []
+    const { adds, removes, texts, attributes } = snapshot.data
+    const totalAdds = adds.length
+    const chunksCount = Math.ceil(totalAdds / MUTATION_CHUNK_SIZE)
+
+    for (let i = 0; i < chunksCount; i++) {
+        const startIdx = i * MUTATION_CHUNK_SIZE
+        const endIdx = Math.min((i + 1) * MUTATION_CHUNK_SIZE, totalAdds)
+        const isFirstChunk = i === 0
+        const isLastChunk = i === chunksCount - 1
+
+        const chunkSnapshot: RecordingSnapshot = {
+            ...snapshot,
+            timestamp: snapshot.timestamp,
+            data: {
+                ...snapshot.data,
+                adds: adds.slice(startIdx, endIdx),
+                // Keep removes in the first chunk only
+                removes: isFirstChunk ? removes : [],
+                // Keep texts and attributes in the last chunk only
+                texts: isLastChunk ? texts : [],
+                attributes: isLastChunk ? attributes : [],
+            },
+        }
+
+        // If delay was present in the original snapshot, increment it by 1 for each chunk
+        if ('delay' in snapshot) {
+            chunkSnapshot.delay = snapshot.delay || 0
+        }
+
+        chunks.push(chunkSnapshot)
+    }
+
+    return chunks
+}
+
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
     sessionId: string,
-    // this is only kept so that we can export the untransformed data for debugging
     withMobileTransformer: boolean = true
 ): Promise<RecordingSnapshot[]> => {
     if (!postHogEEModule) {
@@ -231,6 +283,12 @@ export const parseEncodedSnapshots = async (
             if (typeof l === 'string') {
                 // is loaded from blob or realtime storage
                 snapshotLine = JSON.parse(l) as EncodedRecordingSnapshot
+                if (Array.isArray(snapshotLine)) {
+                    snapshotLine = {
+                        windowId: snapshotLine[0],
+                        data: [snapshotLine[1]],
+                    }
+                }
             } else {
                 // is loaded from file export
                 snapshotLine = l
@@ -248,17 +306,16 @@ export const parseEncodedSnapshots = async (
                 isMobileSnapshots = hasAnyWireframes(snapshotData)
             }
 
-            return snapshotData.map((d: unknown) => {
+            return snapshotData.flatMap((d: unknown) => {
                 const snap = coerceToEventWithTime(d, withMobileTransformer)
 
-                return {
-                    // this handles parsing data that was loaded from blob storage "window_id"
-                    // and data that was exported from the front-end "windowId"
-                    // we have more than one format of data that we store/pass around
-                    // but only one that we play back
+                const baseSnapshot: RecordingSnapshot = {
                     windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
                     ...snap,
                 }
+
+                // Apply chunking to the snapshot if needed
+                return chunkMutationSnapshot(baseSnapshot)
             })
         } catch (e) {
             if (typeof l === 'string') {
@@ -405,7 +462,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingComments: true,
         maybeLoadRecordingMeta: true,
         loadSnapshots: true,
-        loadSnapshotSources: true,
+        loadSnapshotSources: (breakpointLength?: number) => ({ breakpointLength }),
         loadNextSnapshotSource: true,
         loadSnapshotsForSource: (source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>) => ({ source }),
         loadEvents: true,
@@ -511,9 +568,18 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         snapshotSources: [
             null as SessionRecordingSnapshotSource[] | null,
             {
-                loadSnapshotSources: async () => {
+                loadSnapshotSources: async ({ breakpointLength }, breakpoint) => {
+                    if (breakpointLength) {
+                        await breakpoint(breakpointLength)
+                    }
                     const response = await api.recordings.listSnapshotSources(props.sessionRecordingId)
-                    return response.sources ?? []
+                    if (!response.sources) {
+                        return []
+                    }
+                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
+                        return response.sources.filter((s) => s.source === SnapshotSourceType.blob_v2)
+                    }
+                    return response.sources.filter((s) => s.source !== SnapshotSourceType.blob_v2)
                 },
             },
         ],
@@ -530,6 +596,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         params = { blob_key: source.blob_key, source: 'blob' }
                     } else if (source.source === SnapshotSourceType.realtime) {
                         params = { source: 'realtime', version: '2024-04-30' }
+                    } else if (source.source === SnapshotSourceType.blob_v2) {
+                        params = { source: 'blob_v2', blob_key: source.blob_key }
                     } else {
                         throw new Error(`Unsupported source: ${source.source}`)
                     }
@@ -679,7 +747,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             query: hogql`SELECT properties, uuid
                                          FROM events
                                         -- the timestamp range here is only to avoid querying too much of the events table
-                                        -- we don't really care about the absolute value, 
+                                        -- we don't really care about the absolute value,
                                         -- but we do care about whether timezones have an odd impact
                                         -- so, we extend the range by a day on each side so that timezones don't cause issues
                                          WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
@@ -802,6 +870,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return actions.loadSnapshotsForSource(nextSourceToLoad)
             }
 
+            if (values.snapshotSources?.find((s) => s.source === SnapshotSourceType.blob_v2)) {
+                actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
+            }
+
             // TODO: Move this to a one time check - only report once per recording
             cache.snapshotsLoadDuration = Math.round(performance.now() - cache.snapshotsStartTime)
             actions.reportUsageIfFullyLoaded()
@@ -890,7 +962,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (sessionEventsData): RecordingEventType[] =>
                 (sessionEventsData || []).filter((e) => e.event === '$web_vitals'),
         ],
-
+        AIEvents: [
+            (s) => [s.sessionEventsData],
+            (sessionEventsData): RecordingEventType[] =>
+                // see if event start with $ai_
+                (sessionEventsData || []).filter((e) => e.event.startsWith('$ai_')),
+        ],
         windowIdForTimestamp: [
             (s) => [s.segments],
             (segments) =>
@@ -1165,6 +1242,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         webVitalsEvents: (value: RecordingEventType[]) => {
             // we preload all web vitals data, so it can be used before user interaction
             if (!values.sessionEventsDataLoading) {
+                actions.loadFullEventData(value)
+            }
+        },
+        AIEvents: (value: RecordingEventType[]) => {
+            // we preload all AI  data, so it can be used before user interaction
+            if (value.length > 0) {
                 actions.loadFullEventData(value)
             }
         },

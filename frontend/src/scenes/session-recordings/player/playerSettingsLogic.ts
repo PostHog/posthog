@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,11 +12,6 @@ export enum TimestampFormat {
     Relative = 'relative',
     UTC = 'utc',
     Device = 'device',
-}
-
-export enum PlaybackMode {
-    Recording = 'recording',
-    Waterfall = 'waterfall',
 }
 
 export type HideViewedRecordingsOptions = 'current-user' | 'any-user' | false
@@ -36,7 +32,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
         setPlaylistTimestampFormat: (format: TimestampFormat) => ({ format }),
         setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
-        setPlaybackMode: (mode: PlaybackMode) => ({ mode }),
         setSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistOpen: (open: boolean) => ({ open }),
         setShowMouseTail: (showMouseTail: boolean) => ({ showMouseTail }),
@@ -53,13 +48,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setPreferredSidebarStacking: (_, { stacking }) => stacking,
-            },
-        ],
-        playbackMode: [
-            PlaybackMode.Recording as PlaybackMode,
-            { persist: true },
-            {
-                setPlaybackMode: (_, { mode }) => mode,
             },
         ],
         quickFilterProperties: [
@@ -162,6 +150,32 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             if (hideViewedRecordings === true) {
                 actions.setHideViewedRecordings('current-user')
             }
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        // intentionally locked to replay/* to prevent other pages from setting the tab
+        // this is a debug affordance
+        ['**/replay/*']: (_, searchParams) => {
+            // this is a debug affordance, so we only listen to whether it should be open, not also closed
+            const inspectorSideBarOpen = searchParams.inspectorSideBar === true
+            if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
+                actions.setSidebarOpen(inspectorSideBarOpen)
+            }
+        },
+    })),
+
+    actionToUrl(() => ({
+        setSidebarOpen: ({ open }) => {
+            const { currentLocation } = router.values
+            return [
+                currentLocation.pathname,
+                {
+                    ...currentLocation.searchParams,
+                    inspectorSideBar: open,
+                },
+                currentLocation.hashParams,
+            ]
         },
     })),
 ])

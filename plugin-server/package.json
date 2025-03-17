@@ -5,9 +5,9 @@
     "types": "dist/index.d.ts",
     "main": "dist/index.js",
     "scripts": {
-        "test": "jest --runInBand --forceExit",
+        "test": "SHARD_IDX=${SHARD_INDEX:-1}; SHARD_TOTAL=${SHARD_COUNT:-1}; echo $SHARD_IDX/$SHARD_TOTAL; jest --runInBand --forceExit --shard=$SHARD_IDX/$SHARD_TOTAL",
         "functional_tests": "jest --config ./jest.config.functional.js",
-        "start": "pnpm start:dist",
+        "start": "pnpm start:dev",
         "start:dist": "BASE_DIR=.. node dist/index.js",
         "start:dev": "NODE_ENV=dev BASE_DIR=.. nodemon --watch src/ --exec node -r @swc-node/register src/index.ts",
         "start:devNoWatch": "NODE_ENV=dev BASE_DIR=.. node -r @swc-node/register src/index.ts",
@@ -31,10 +31,7 @@
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
         "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
-        "update-ai-costs": "ts-node scripts/update-ai-costs.ts"
-    },
-    "graphile-worker": {
-        "maxContiguousErrors": 300
+        "update-ai-costs": "ts-node src/ingestion/ai-costs/scripts/update-ai-costs.ts"
     },
     "bin": {
         "posthog-plugin-server": "bin/posthog-plugin-server"
@@ -54,8 +51,8 @@
         "@google-cloud/storage": "^5.8.5",
         "@maxmind/geoip2-node": "^3.4.0",
         "@posthog/clickhouse": "^1.7.0",
-        "@posthog/cyclotron": "file:../rust/cyclotron-node",
-        "@posthog/hogvm": "^1.0.67",
+        "@posthog/cyclotron": "workspace:*",
+        "@posthog/hogvm": "workspace:*",
         "@posthog/plugin-scaffold": "1.4.4",
         "@posthog/siphash": "1.1.1",
         "@sentry/node": "7.112.1",
@@ -75,13 +72,13 @@
         "fastpriorityqueue": "^0.7.5",
         "fernet-nodejs": "^1.0.6",
         "generic-pool": "^3.7.1",
-        "graphile-worker": "0.13.0",
         "husky": "^7.0.4",
         "ioredis": "^4.27.6",
         "ipaddr.js": "^2.1.0",
         "js-big-decimal": "^2.2.0",
         "kafkajs": "^2.2.0",
         "kafkajs-snappy": "^1.1.0",
+        "lodash": "^4.17.21",
         "lru-cache": "^6.0.0",
         "luxon": "^3.4.4",
         "lz4-kafkajs": "1.0.0",
@@ -95,12 +92,13 @@
         "prom-client": "^14.2.0",
         "re2": "^1.20.3",
         "safe-stable-stringify": "^2.4.0",
+        "simdjson": "^0.9.2",
         "snappy": "^7.2.2",
         "tail": "^2.2.6",
         "tldts": "^6.1.57",
         "typescript": "^4.7.4",
         "undici-types": "^7.3.0",
-        "uuid": "^9.0.1",
+        "uuid": "^10.0.0",
         "v8-profiler-next": "^1.9.0",
         "vm2": "3.9.18",
         "zod": "^3.24.1"
@@ -121,6 +119,8 @@
         "@types/generic-pool": "^3.1.9",
         "@types/ioredis": "^4.26.4",
         "@types/jest": "^29.5.14",
+        "@types/kafkajs-snappy": "^1.0.0",
+        "@types/lodash": "^4.17.16",
         "@types/long": "4.x.x",
         "@types/luxon": "^3.4.2",
         "@types/node-fetch": "^2.5.10",
@@ -130,7 +130,7 @@
         "@types/snowflake-sdk": "^1.5.1",
         "@types/supertest": "^6.0.2",
         "@types/tar-stream": "^2.2.0",
-        "@types/uuid": "^9.0.1",
+        "@types/uuid": "^10.0.0",
         "@typescript-eslint/eslint-plugin": "^7.1.1",
         "@typescript-eslint/parser": "^7.1.1",
         "babel-eslint": "^10.1.0",
@@ -155,6 +155,6 @@
     },
     "cyclotron": {
         "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": true,
-        "version": "0.1.7"
+        "version": "0.1.8"
     }
 }

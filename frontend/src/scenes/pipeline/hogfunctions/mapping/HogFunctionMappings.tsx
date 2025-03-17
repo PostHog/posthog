@@ -85,7 +85,7 @@ export function HogFunctionMapping({
 
     return (
         <>
-            <div className="p-3 pl-10 space-y-2">
+            <div className="p-3 pl-10 deprecated-space-y-2">
                 {mapping.disabled ? (
                     <LemonBanner
                         type="warning"
@@ -257,7 +257,7 @@ export function HogFunctionMappings(): JSX.Element | null {
                             {addMappingButton}
                         </div>
 
-                        <div className="space-y-2">
+                        <div className="deprecated-space-y-2">
                             {value.length ? (
                                 <div className="-mx-3 border-t border-b">
                                     <LemonCollapse
@@ -274,7 +274,7 @@ export function HogFunctionMappings(): JSX.Element | null {
                                                         icon: <IconEllipsis />,
                                                         dropdown: {
                                                             overlay: (
-                                                                <div className="space-y-px">
+                                                                <div className="deprecated-space-y-px">
                                                                     <LemonButton
                                                                         onClick={() => toggleDisabled(mapping)}
                                                                     >

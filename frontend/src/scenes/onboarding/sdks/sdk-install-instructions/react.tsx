@@ -55,10 +55,7 @@ export function SDKInstallReactInstructions(): JSX.Element {
             <h3>Add environment variables</h3>
             <ReactEnvVarsSnippet />
             <h3>Initialize</h3>
-            <p>
-                Integrate PostHog at the root of your app (<code>src/index.js</code> for the default{' '}
-                <code>create-react-app</code>).
-            </p>
+            <p>Integrate PostHog at the root of your app.</p>
             <ReactSetupSnippet />
         </>
     )

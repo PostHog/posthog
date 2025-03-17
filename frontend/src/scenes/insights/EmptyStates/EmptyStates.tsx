@@ -184,6 +184,8 @@ export function StatelessInsightLoadingState({
     queryId,
     pollResponse,
     suggestion,
+    setProgress,
+    progress,
     delayLoadingAnimation = false,
     loadingTimeSeconds = 0,
     renderEmptyStateAsSkeleton = false,
@@ -194,6 +196,8 @@ export function StatelessInsightLoadingState({
     delayLoadingAnimation?: boolean
     loadingTimeSeconds?: number
     renderEmptyStateAsSkeleton?: boolean
+    setProgress?: (loadId: string, progress: number) => void
+    progress?: number
 }): JSX.Element {
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
@@ -277,7 +281,8 @@ export function StatelessInsightLoadingState({
         >
             <span
                 className={clsx(
-                    'font-semibold transition-opacity duration-300 mb-1 text-center',
+                    'font-semibold transition-opacity duration-300 mb-1',
+                    renderEmptyStateAsSkeleton ? 'text-start' : 'text-center',
                     isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
                 )}
             >
@@ -291,23 +296,14 @@ export function StatelessInsightLoadingState({
                 )}
             </span>
 
-            <div className="flex flex-col items-center gap-1 max-w-120">
-                {renderEmptyStateAsSkeleton ? (
-                    <>
-                        {showLoadingDetails && (
-                            <>
-                                <LoadingBar />
-                            </>
-                        )}
-                    </>
-                ) : (
-                    <></>
-                )}
-            </div>
-
             {showLoadingDetails && (
-                <div className="flex flex-col items-center justify-center">
-                    {!renderEmptyStateAsSkeleton && <LoadingBar className="w-16 mx-auto mb-2" />}
+                <div
+                    className={clsx(
+                        'flex flex-col gap-2 justify-center max-w-120',
+                        renderEmptyStateAsSkeleton ? 'items-start' : 'items-center'
+                    )}
+                >
+                    <LoadingBar loadId={queryId} progress={progress} setProgress={setProgress} />
                     {suggestions}
                     <LoadingDetails
                         pollResponse={pollResponse}
@@ -323,7 +319,7 @@ export function StatelessInsightLoadingState({
 }
 
 const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
-    <code className="border border-1 border-border-bold rounded-sm text-xs px-1 py-0.5">{props.children}</code>
+    <code className="border border-1 border-primary rounded-xs text-xs px-1 py-0.5">{props.children}</code>
 )
 
 const SLOW_LOADING_TIME = 15

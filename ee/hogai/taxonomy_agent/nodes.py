@@ -9,7 +9,6 @@ from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     AIMessage as LangchainAssistantMessage,
     BaseMessage,
-    HumanMessage as LangchainHumanMessage,
     merge_message_runs,
 )
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
@@ -27,7 +26,6 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
-    REACT_FORMAT_REMINDER_PROMPT,
     REACT_HELP_REQUEST_PROMPT,
     REACT_HUMAN_IN_THE_LOOP_PROMPT,
     REACT_MALFORMED_JSON_PROMPT,
@@ -35,11 +33,12 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_MISSING_ACTION_PROMPT,
     REACT_PROPERTY_FILTERS_PROMPT,
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
+    REACT_REACHED_LIMIT_PROMPT,
     REACT_SCRATCHPAD_PROMPT,
     REACT_USER_PROMPT,
 )
-from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
-from ee.hogai.utils.helpers import filter_and_merge_messages, remove_line_breaks, slice_messages_to_conversation_start
+from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit, TaxonomyAgentToolUnion
+from ee.hogai.utils.helpers import remove_line_breaks
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -48,7 +47,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     AssistantToolCallMessage,
     CachedTeamTaxonomyQueryResponse,
-    HumanMessage,
     TeamTaxonomyQuery,
     VisualizationMessage,
 )
@@ -129,11 +127,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             intermediate_steps=[*intermediate_steps, (result, None)],
         )
 
-    def router(self, state: AssistantState):
-        if state.intermediate_steps:
-            return "tools"
-        raise ValueError("Invalid state.")
-
     @property
     def _model(self) -> ChatOpenAI:
         return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True, stream_usage=True)
@@ -204,45 +197,26 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
-        start_id = state.start_id
-        filtered_messages = filter_and_merge_messages(slice_messages_to_conversation_start(state.messages, start_id))
-        human_messages = [message for message in filtered_messages if isinstance(message, HumanMessage)]
-        conversation = []
+        # Only process the last ten visualization messages.
+        viz_messages = [message for message in state.messages if isinstance(message, VisualizationMessage)][-10:]
+        conversation: list[BaseMessage] = []
 
-        for idx, message in enumerate(filtered_messages):
-            if isinstance(message, HumanMessage):
-                format_reminder = REACT_FORMAT_REMINDER_PROMPT if message.id == start_id else None
-                # Add initial instructions.
-                if idx == 0:
-                    # If there's only one human message, it's the initial question. Replace the initial question with the one from the tool call if it exists.
-                    human_question = state.root_tool_insight_plan if len(human_messages) == 1 else None
-                    if not human_question:
-                        human_question = message.content
+        for idx, message in enumerate(viz_messages):
+            prompt = REACT_USER_PROMPT if idx == 0 else REACT_FOLLOW_UP_PROMPT
+            conversation.append(
+                HumanMessagePromptTemplate.from_template(prompt, template_format="mustache").format(
+                    question=message.query
+                )
+            )
+            conversation.append(LangchainAssistantMessage(content=message.plan or ""))
 
-                    conversation.append(
-                        HumanMessagePromptTemplate.from_template(REACT_USER_PROMPT, template_format="mustache").format(
-                            question=human_question,
-                            react_format_reminder=format_reminder,
-                        )
-                    )
-                # Add follow-up instructions only for the human message that initiated a generation.
-                elif message.id == start_id:
-                    # follow-ups are always coming from the tool call
-                    human_question = state.root_tool_insight_plan or message.content
-                    conversation.append(
-                        HumanMessagePromptTemplate.from_template(
-                            REACT_FOLLOW_UP_PROMPT,
-                            template_format="mustache",
-                        ).format(
-                            feedback=human_question,
-                            react_format_reminder=format_reminder,
-                        )
-                    )
-                # Everything else leave as is.
-                else:
-                    conversation.append(LangchainHumanMessage(content=message.content))
-            elif isinstance(message, VisualizationMessage):
-                conversation.append(LangchainAssistantMessage(content=message.plan or ""))
+        # The description of a new insight is added to the end of the conversation.
+        new_insight_prompt = REACT_USER_PROMPT if not conversation else REACT_FOLLOW_UP_PROMPT
+        conversation.append(
+            HumanMessagePromptTemplate.from_template(new_insight_prompt, template_format="mustache").format(
+                question=state.root_tool_insight_plan,
+            )
+        )
 
         return conversation
 
@@ -256,53 +230,49 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
 
 class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
+    MAX_ITERATIONS = 16
+    """
+    Maximum number of iterations for the ReAct agent. After the limit is reached,
+    the agent will terminate the conversation and return a message to the root node
+    to request additional information.
+    """
+
     def _run_with_toolkit(
         self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
     ) -> PartialAssistantState:
         intermediate_steps = state.intermediate_steps or []
         action, observation = intermediate_steps[-1]
 
+        input = None
+        output = ""
+
         try:
             input = TaxonomyAgentTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
         except ValidationError as e:
-            observation = str(
+            output = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
                 .format_messages(exception=e.errors(include_url=False))[0]
                 .content
             )
-            return PartialAssistantState(
-                intermediate_steps=[*intermediate_steps[:-1], (action, str(observation))],
-            )
-
-        # The plan has been found. Move to the generation.
-        if input.name == "final_answer":
-            return PartialAssistantState(
-                plan=input.arguments,
-                intermediate_steps=[],
-            )
-
-        # The agent has requested help, so we return a message to the root node.
-        if input.name == "ask_user_for_help":
-            reset_state = PartialAssistantState.get_reset_state()
-            reset_state.messages = [
-                AssistantToolCallMessage(
-                    tool_call_id=state.root_tool_call_id,
-                    content=REACT_HELP_REQUEST_PROMPT.format(request=input.arguments),
-                )
-            ]
-            return reset_state
-
-        output = ""
-        if input.name == "retrieve_event_properties":
-            output = toolkit.retrieve_event_properties(input.arguments)
-        elif input.name == "retrieve_event_property_values":
-            output = toolkit.retrieve_event_property_values(input.arguments.event_name, input.arguments.property_name)
-        elif input.name == "retrieve_entity_properties":
-            output = toolkit.retrieve_entity_properties(input.arguments)
-        elif input.name == "retrieve_entity_property_values":
-            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)
         else:
-            output = toolkit.handle_incorrect_response(input.arguments)
+            # First check if we've reached the terminal stage.
+            # The plan has been found. Move to the generation.
+            if input.name == "final_answer":
+                return PartialAssistantState(
+                    plan=input.arguments,
+                    intermediate_steps=[],
+                )
+
+            # The agent has requested help, so we return a message to the root node.
+            if input.name == "ask_user_for_help":
+                return self._get_reset_state(state, REACT_HELP_REQUEST_PROMPT.format(request=input.arguments))
+
+        # If we're still here, the final prompt hasn't helped.
+        if len(intermediate_steps) >= self.MAX_ITERATIONS:
+            return self._get_reset_state(state, REACT_REACHED_LIMIT_PROMPT)
+
+        if input and not output:
+            output = self._handle_tool(input, toolkit)
 
         return PartialAssistantState(
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],
@@ -316,3 +286,26 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         if state.plan:
             return "plan_found"
         return "continue"
+
+    def _handle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
+        if input.name == "retrieve_event_properties":
+            output = toolkit.retrieve_event_properties(input.arguments)
+        elif input.name == "retrieve_event_property_values":
+            output = toolkit.retrieve_event_property_values(input.arguments.event_name, input.arguments.property_name)
+        elif input.name == "retrieve_entity_properties":
+            output = toolkit.retrieve_entity_properties(input.arguments)
+        elif input.name == "retrieve_entity_property_values":
+            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)
+        else:
+            output = toolkit.handle_incorrect_response(input.arguments)
+        return output
+
+    def _get_reset_state(self, state: AssistantState, output: str):
+        reset_state = PartialAssistantState.get_reset_state()
+        reset_state.messages = [
+            AssistantToolCallMessage(
+                tool_call_id=state.root_tool_call_id,
+                content=output,
+            )
+        ]
+        return reset_state

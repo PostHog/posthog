@@ -200,7 +200,7 @@ export function HogFunctionConfiguration({
     const showLeftPanel = showOverview || showExpectedVolume || showPersonsCount || showFilters
 
     return (
-        <div className="space-y-3">
+        <div className="deprecated-space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
                 {includeHeaderButtons && (
                     <PageHeader
@@ -219,19 +219,29 @@ export function HogFunctionConfiguration({
                             <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}
                         </LemonBanner>
                     </div>
+                ) : ['template-reddit-conversions-api', 'template-snapchat-ads'].includes(templateId ?? '') ? (
+                    <div>
+                        <LemonBanner type="warning">
+                            The receiving destination imposes a rate limit of 10 events per second. Exceeding this limit
+                            may result in some events failing to be delivered.
+                        </LemonBanner>
+                    </div>
                 ) : null}
 
                 <Form
                     logic={hogFunctionConfigurationLogic}
                     props={logicProps}
                     formKey="configuration"
-                    className="space-y-3"
+                    className="deprecated-space-y-3"
                 >
                     <div className="flex flex-wrap items-start gap-4">
                         {showLeftPanel && (
                             <div className="flex flex-col flex-1 gap-4 min-w-100">
                                 <div
-                                    className={clsx('p-3 space-y-2 bg-surface-primary', !embedded && 'border rounded')}
+                                    className={clsx(
+                                        'p-3 deprecated-space-y-2 bg-surface-primary',
+                                        !embedded && 'border rounded'
+                                    )}
                                 >
                                     <div className="flex flex-row items-center gap-2 min-h-16">
                                         <LemonField name="icon_url">
@@ -328,7 +338,7 @@ export function HogFunctionConfiguration({
                                 {showFilters && <HogFunctionFilters />}
 
                                 {showPersonsCount && (
-                                    <div className="relative p-3 space-y-2 border rounded bg-surface-primary">
+                                    <div className="relative p-3 deprecated-space-y-2 border rounded bg-surface-primary">
                                         <div>
                                             <LemonLabel>Matching persons</LemonLabel>
                                         </div>
@@ -361,9 +371,14 @@ export function HogFunctionConfiguration({
                             </div>
                         )}
 
-                        <div className="space-y-4 flex-2 min-w-100">
-                            <div className={clsx('p-3 space-y-2 bg-surface-primary', !embedded && 'border rounded')}>
-                                <div className="space-y-2">
+                        <div className="deprecated-space-y-4 flex-2 min-w-100">
+                            <div
+                                className={clsx(
+                                    'p-3 deprecated-space-y-2 bg-surface-primary',
+                                    !embedded && 'border rounded'
+                                )}
+                            >
+                                <div className="deprecated-space-y-2">
                                     {usesGroups && !hasGroupsAddon ? (
                                         <LemonBanner type="warning">
                                             <span className="flex items-center gap-2">
@@ -411,12 +426,12 @@ export function HogFunctionConfiguration({
                             {canEditSource && (
                                 <div
                                     className={clsx(
-                                        'border rounded p-3 space-y-2',
+                                        'border rounded p-3 deprecated-space-y-2',
                                         showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
                                     )}
                                 >
                                     <div className="flex items-center justify-end gap-2">
-                                        <div className="flex-1 space-y-2">
+                                        <div className="flex-1 deprecated-space-y-2">
                                             <h2 className="mb-0">Edit source</h2>
                                             {!showSource ? <p>Click here to edit the function's source code</p> : null}
                                         </div>

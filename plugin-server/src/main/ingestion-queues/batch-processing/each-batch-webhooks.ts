@@ -10,6 +10,7 @@ import { GroupTypeToColumnIndex, PostIngestionEvent, RawKafkaEvent } from '../..
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../utils/event'
+import { parseJSON } from '../../../utils/json-parse'
 import { status } from '../../../utils/status'
 import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
@@ -40,7 +41,7 @@ export function groupIntoBatchesByUsage(
     let currentBatch: RawKafkaEvent[] = []
     let currentCount = 0
     array.forEach((message, index) => {
-        const clickHouseEvent = JSON.parse(message.value!.toString()) as RawKafkaEvent
+        const clickHouseEvent = parseJSON(message.value!.toString()) as RawKafkaEvent
         if (shouldProcess(clickHouseEvent.team_id)) {
             currentBatch.push(clickHouseEvent)
             currentCount++
@@ -157,7 +158,7 @@ async function addGroupPropertiesToPostIngestionEvent(
     organizationManager: OrganizationManager,
     postgres: PostgresRouter
 ): Promise<PostIngestionEvent> {
-    let groupTypes: GroupTypeToColumnIndex | undefined = undefined
+    let groupTypes: GroupTypeToColumnIndex | null = null
     if (await organizationManager.hasAvailableFeature(event.teamId, 'group_analytics')) {
         // If the organization has group analytics enabled then we enrich the event with group data
         groupTypes = await groupTypeManager.fetchGroupTypes(event.projectId)

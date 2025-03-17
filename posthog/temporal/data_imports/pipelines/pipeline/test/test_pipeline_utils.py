@@ -1,9 +1,19 @@
-from ipaddress import IPv4Address, IPv6Address
-from dateutil import parser
 import decimal
+from unittest.mock import MagicMock
 import uuid
+from ipaddress import IPv4Address, IPv6Address
+
 import pyarrow as pa
-from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+import pytest
+from dateutil import parser
+
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    _get_max_decimal_type,
+    should_partition_table,
+    table_from_py_list,
+)
 
 
 def test_table_from_py_list_uuid():
@@ -88,11 +98,11 @@ def test_table_from_py_list_with_lists():
 def test_table_from_py_list_with_nan():
     table = table_from_py_list([{"column": 1.0}, {"column": float("NaN")}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
+    assert table.equals(pa.table({"column": [1.0, None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(2, 1)),
+                ("column", pa.float64()),
             ]
         )
     )
@@ -101,11 +111,11 @@ def test_table_from_py_list_with_nan():
 def test_table_from_py_list_with_inf():
     table = table_from_py_list([{"column": 1.0}, {"column": float("Inf")}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
+    assert table.equals(pa.table({"column": [1.0, None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(2, 1)),
+                ("column", pa.float64()),
             ]
         )
     )
@@ -114,11 +124,11 @@ def test_table_from_py_list_with_inf():
 def test_table_from_py_list_with_negative_inf():
     table = table_from_py_list([{"column": 1.0}, {"column": -float("Inf")}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
+    assert table.equals(pa.table({"column": [1.0, None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(2, 1)),
+                ("column", pa.float64()),
             ]
         )
     )
@@ -153,11 +163,25 @@ def test_table_from_py_list_with_negative_decimal_inf():
 def test_table_from_py_list_with_binary_column():
     table = table_from_py_list([{"column": 1.0, "some_bytes": b"hello"}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal("1.0")]}))
+    assert table.equals(pa.table({"column": [1.0]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(2, 1)),
+                ("column", pa.float64()),
+            ]
+        )
+    )
+
+
+def test_table_from_py_list_with_null_filled_binary_column():
+    schema = pa.schema([pa.field("column", pa.string()), pa.field("some_bytes", pa.binary())])
+    table = table_from_py_list([{"column": "hello", "some_bytes": None}], schema)
+
+    assert table.equals(pa.table({"column": ["hello"]}))
+    assert table.schema.equals(
+        pa.schema(
+            [
+                ("column", pa.string()),
             ]
         )
     )
@@ -222,6 +246,26 @@ def test_table_from_py_list_with_schema_and_too_small_decimal_type():
     assert table.schema.equals(expected_schema)
 
 
+@pytest.mark.parametrize(
+    "decimals,expected",
+    [
+        ([decimal.Decimal("1")], pa.decimal128(2, 1)),
+        ([decimal.Decimal("1.001112")], pa.decimal128(7, 6)),
+        ([decimal.Decimal("0.001112")], pa.decimal128(6, 6)),
+        ([decimal.Decimal("1.0100000")], pa.decimal128(8, 7)),
+        # That is 1 followed by 37 zeroes to go over the pa.Decimal128 precision limit of 38.
+        ([decimal.Decimal("10000000000000000000000000000000000000.1")], pa.decimal256(39, 1)),
+    ],
+)
+def test_get_max_decimal_type_returns_correct_decimal_type(
+    decimals: list[decimal.Decimal],
+    expected: pa.Decimal128Type | pa.Decimal256Type,
+):
+    """Test whether expected PyArrow decimal type variant is returned."""
+    result = _get_max_decimal_type(decimals)
+    assert result == expected
+
+
 def test_table_from_py_list_with_ipv4_address():
     table = table_from_py_list([{"column": IPv4Address("127.0.0.1")}])
 
@@ -246,3 +290,91 @@ def test_table_from_py_list_with_ipv6_address():
             ]
         )
     )
+
+
+def test_should_partition_table_non_incremental_schema():
+    schema = MagicMock()
+    schema.is_incremental = False
+    schema.partitioning_enabled = False
+
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
+
+    res = should_partition_table(None, schema, source)
+    assert res is False
+
+
+def test_should_partition_table_paritioning_settingd():
+    schema = MagicMock()
+    schema.is_incremental = True
+    schema.partitioning_enabled = True
+    schema.partitioning_size = 100
+    schema.partitioning_keys = ["id"]
+
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
+
+    res = should_partition_table(None, schema, source)
+    assert res is True
+
+
+def test_should_partition_table_incremental_with_bucket_size():
+    schema = MagicMock()
+    schema.is_incremental = True
+    schema.partitioning_enabled = False
+
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
+
+    res = should_partition_table(None, schema, source)
+    assert res is True
+
+
+def test_should_partition_table_no_table():
+    schema = MagicMock()
+    schema.is_incremental = True
+    schema.partitioning_enabled = False
+
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
+
+    res = should_partition_table(None, schema, source)
+    assert res is True
+
+
+def test_should_partition_table_with_table_and_no_key():
+    schema = MagicMock()
+    schema.is_incremental = True
+    schema.partitioning_enabled = False
+
+    delta_table = MagicMock()
+
+    to_pyarrow_mock = MagicMock()
+    to_pyarrow_mock.names = ["column1", "column2"]
+
+    schema_mock = MagicMock()
+    schema_mock.to_pyarrow = MagicMock(return_value=to_pyarrow_mock)
+
+    delta_table.schema = MagicMock(return_value=schema_mock)
+
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
+
+    res = should_partition_table(delta_table, schema, source)
+    assert res is False
+
+
+def test_should_partition_table_with_table_and_key():
+    schema = MagicMock()
+    schema.is_incremental = True
+    schema.partitioning_enabled = False
+
+    delta_table = MagicMock()
+
+    to_pyarrow_mock = MagicMock()
+    to_pyarrow_mock.names = ["column1", "column2", PARTITION_KEY]
+
+    schema_mock = MagicMock()
+    schema_mock.to_pyarrow = MagicMock(return_value=to_pyarrow_mock)
+
+    delta_table.schema = MagicMock(return_value=schema_mock)
+
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
+
+    res = should_partition_table(delta_table, schema, source)
+    assert res is True

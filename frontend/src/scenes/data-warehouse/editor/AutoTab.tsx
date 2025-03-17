@@ -37,7 +37,7 @@ const AutoTab = ({ value, onChange, onKeyDown, onBlur, autoFocus, handleRename }
             </span>
             <input
                 ref={inputRef}
-                className="bg-transparent border-none focus:outline-none p-0"
+                className="bg-transparent border-none focus:outline-hidden p-0"
                 value={value}
                 onChange={handleChange}
                 onKeyDown={onKeyDown}

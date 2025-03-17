@@ -1,6 +1,7 @@
 -- empty, notEmpty, length, lower, upper, reverse --
 3
 TEST
+null
 rennips
 
 -- encodeURLComponent, decodeURLComponent --
@@ -89,6 +90,7 @@ one
 true false
 true false
 true bcd
+bcdef
 firstNonNull notNull
 
 -- date --

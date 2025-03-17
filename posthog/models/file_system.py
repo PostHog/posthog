@@ -1,15 +1,18 @@
 from django.db import models
+from django.db.models import Exists, OuterRef, CharField
+from django.db.models.functions import Cast
+from typing import Optional
+
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.schema import FileSystemType
 from posthog.models.utils import uuid7
-from typing import Optional
 
 
 class FileSystem(models.Model):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     id = models.UUIDField(primary_key=True, default=uuid7)
     path = models.TextField()
+    depth = models.IntegerField(null=True, blank=True)
     type = models.CharField(max_length=100, blank=True)
     ref = models.CharField(max_length=100, null=True, blank=True)
     href = models.TextField(null=True, blank=True)
@@ -21,149 +24,330 @@ class FileSystem(models.Model):
         return self.path
 
 
-class UnfiledFileFinder:
+class UnfiledFileSaver:
+    """
+    Saves new FileSystem rows for items (FeatureFlags, Experiments, Insights, Dashboards, Notebooks, etc.)
+    that haven't yet been placed in the FileSystem. Also ensures each path is unique,
+    appending a numeric suffix if necessary.
+    """
+
     def __init__(self, team: Team, user: User):
         self.team = team
         self.user = user
+        self._in_memory_paths: set[str] = set()
 
-    def collect_feature_flags(self) -> list[FileSystem]:
+    def save_unfiled_feature_flags(self) -> list[FileSystem]:
+        """
+        Find all FeatureFlags in this team that aren't yet represented in FileSystem (via type=FEATURE_FLAG, ref=<id>),
+        create new FileSystem rows for them, and return the list of newly created FileSystem rows.
+        """
         from posthog.api.shared import UserBasicSerializer
         from posthog.models import FeatureFlag
 
-        flags = FeatureFlag.objects.filter(team=self.team, deleted=False)
-        return [
-            FileSystem(
-                id=uuid7(),
-                path=f"Unfiled/Feature Flags/{flag.name}",
-                type=FileSystemType.FEATURE_FLAG,
-                ref=str(flag.id),
-                href="/feature_flags/" + str(flag.id),
-                meta={
-                    "created_at": str(flag.created_at),
-                    "created_by": UserBasicSerializer(instance=flag.created_by).data if flag.created_by else None,
-                },
+        unsaved_qs = (
+            FeatureFlag.objects.filter(team=self.team, deleted=False)
+            .annotate(id_str=Cast("id", output_field=CharField()))
+            .annotate(
+                already_saved=Exists(
+                    FileSystem.objects.filter(
+                        team=self.team,
+                        type="feature_flag",
+                        ref=OuterRef("id_str"),
+                    )
+                )
             )
-            for flag in flags
-        ]
+            .filter(already_saved=False)
+        )
 
-    def collect_experiments(self) -> list[FileSystem]:
+        new_files = []
+        for flag in unsaved_qs:
+            path = self._generate_unique_path("Unfiled/Feature Flags", flag.name or "Untitled")
+
+            new_files.append(
+                FileSystem(
+                    team=self.team,
+                    path=path,
+                    depth=len(split_path(path)),
+                    type="feature_flag",
+                    ref=str(flag.id),  # store the ID as a string
+                    href=f"/feature_flags/{flag.id}",
+                    meta={
+                        "created_at": str(flag.created_at),
+                        "created_by": UserBasicSerializer(flag.created_by).data if flag.created_by else None,
+                    },
+                    created_by=self.user,
+                )
+            )
+
+        FileSystem.objects.bulk_create(new_files)
+        return new_files
+
+    def save_unfiled_experiments(self) -> list[FileSystem]:
         from posthog.api.shared import UserBasicSerializer
         from posthog.models import Experiment
 
-        experiments = Experiment.objects.filter(team=self.team)
-        return [
-            FileSystem(
-                id=uuid7(),
-                path=f"Unfiled/Experiments/{experiment.name}",
-                type=FileSystemType.EXPERIMENT,
-                ref=str(experiment.id),
-                href="/experiments/" + str(experiment.id),
-                meta={
-                    "created_at": str(experiment.created_at),
-                    "created_by": UserBasicSerializer(instance=experiment.created_by).data
-                    if experiment.created_by
-                    else None,
-                },
+        unsaved_qs = (
+            Experiment.objects.filter(team=self.team)
+            .annotate(id_str=Cast("id", output_field=CharField()))
+            .annotate(
+                already_saved=Exists(
+                    FileSystem.objects.filter(
+                        team=self.team,
+                        type="experiment",
+                        ref=OuterRef("id_str"),
+                    )
+                )
             )
-            for experiment in experiments
-        ]
+            .filter(already_saved=False)
+        )
 
-    def collect_insights(self) -> list[FileSystem]:
+        new_files = []
+        for experiment in unsaved_qs:
+            path = self._generate_unique_path("Unfiled/Experiments", experiment.name or "Untitled")
+
+            new_files.append(
+                FileSystem(
+                    team=self.team,
+                    path=path,
+                    depth=len(split_path(path)),
+                    type="experiment",
+                    ref=str(experiment.id),
+                    href=f"/experiments/{experiment.id}",
+                    meta={
+                        "created_at": str(experiment.created_at),
+                        "created_by": UserBasicSerializer(experiment.created_by).data
+                        if experiment.created_by
+                        else None,
+                    },
+                    created_by=self.user,
+                )
+            )
+
+        FileSystem.objects.bulk_create(new_files)
+        return new_files
+
+    def save_unfiled_insights(self) -> list[FileSystem]:
         from posthog.api.shared import UserBasicSerializer
         from posthog.models import Insight
 
-        insights = Insight.objects.filter(team=self.team, deleted=False, saved=True)
-        return [
-            FileSystem(
-                id=uuid7(),
-                path=f"Unfiled/Insights/{insight.name}",
-                type=FileSystemType.INSIGHT,
-                ref=str(insight.short_id),
-                href="/insights/" + str(insight.short_id),
-                meta={
-                    "created_at": str(insight.created_at),
-                    "created_by": UserBasicSerializer(instance=insight.created_by).data if insight.created_by else None,
-                },
+        unsaved_qs = (
+            Insight.objects.filter(team=self.team, deleted=False, saved=True)
+            .annotate(
+                already_saved=Exists(
+                    FileSystem.objects.filter(
+                        team=self.team,
+                        type="insight",
+                        ref=OuterRef("short_id"),
+                    )
+                )
             )
-            for insight in insights
-        ]
+            .filter(already_saved=False)
+        )
 
-    def collect_dashboards(self) -> list[FileSystem]:
+        new_files = []
+        for insight in unsaved_qs:
+            path = self._generate_unique_path("Unfiled/Insights", insight.name or "Untitled")
+
+            new_files.append(
+                FileSystem(
+                    team=self.team,
+                    path=path,
+                    depth=len(split_path(path)),
+                    type="insight",
+                    ref=str(insight.short_id),  # short_id is a string
+                    href=f"/insights/{insight.short_id}",
+                    meta={
+                        "created_at": str(insight.created_at),
+                        "created_by": UserBasicSerializer(insight.created_by).data if insight.created_by else None,
+                    },
+                    created_by=self.user,
+                )
+            )
+
+        FileSystem.objects.bulk_create(new_files)
+        return new_files
+
+    def save_unfiled_dashboards(self) -> list[FileSystem]:
         from posthog.api.shared import UserBasicSerializer
         from posthog.models import Dashboard
 
-        dashboards = Dashboard.objects.filter(team=self.team, deleted=False)
-        return [
-            FileSystem(
-                id=uuid7(),
-                path=f"Unfiled/Dashboards/{dashboard.name}",
-                type=FileSystemType.DASHBOARD,
-                ref=str(dashboard.id),
-                href="/dashboard/" + str(dashboard.id),
-                meta={
-                    "created_at": str(dashboard.created_at),
-                    "created_by": UserBasicSerializer(instance=dashboard.created_by).data
-                    if dashboard.created_by
-                    else None,
-                },
+        unsaved_qs = (
+            Dashboard.objects.filter(team=self.team, deleted=False)
+            .exclude(creation_mode="template")
+            .annotate(id_str=Cast("id", output_field=CharField()))
+            .annotate(
+                already_saved=Exists(
+                    FileSystem.objects.filter(
+                        team=self.team,
+                        type="dashboard",
+                        ref=OuterRef("id_str"),
+                    )
+                )
             )
-            for dashboard in dashboards
-        ]
+            .filter(already_saved=False)
+        )
 
-    def collect_notebooks(self) -> list[FileSystem]:
+        new_files = []
+        for dashboard in unsaved_qs:
+            path = self._generate_unique_path("Unfiled/Dashboards", dashboard.name or "Untitled")
+
+            new_files.append(
+                FileSystem(
+                    team=self.team,
+                    path=path,
+                    depth=len(split_path(path)),
+                    type="dashboard",
+                    ref=str(dashboard.id),
+                    href=f"/dashboard/{dashboard.id}",
+                    meta={
+                        "created_at": str(dashboard.created_at),
+                        "created_by": UserBasicSerializer(dashboard.created_by).data if dashboard.created_by else None,
+                    },
+                    created_by=self.user,
+                )
+            )
+
+        FileSystem.objects.bulk_create(new_files)
+        return new_files
+
+    def save_unfiled_notebooks(self) -> list[FileSystem]:
         from posthog.api.shared import UserBasicSerializer
         from posthog.models import Notebook
 
-        notebooks = Notebook.objects.filter(team=self.team, deleted=False)
-        return [
-            FileSystem(
-                id=uuid7(),
-                path=f"Unfiled/Notebooks/{notebook.title or 'Untitled'}",
-                type=FileSystemType.NOTEBOOK,
-                ref=str(notebook.id),
-                href="/notebooks/" + str(notebook.id),
-                meta={
-                    "created_at": str(notebook.created_at),
-                    "created_by": UserBasicSerializer(instance=notebook.created_by).data
-                    if notebook.created_by
-                    else None,
-                },
+        unsaved_qs = (
+            Notebook.objects.filter(team=self.team, deleted=False)
+            .annotate(id_str=Cast("id", output_field=CharField()))
+            .annotate(
+                already_saved=Exists(
+                    FileSystem.objects.filter(
+                        team=self.team,
+                        type="notebook",
+                        ref=OuterRef("id_str"),
+                    )
+                )
             )
-            for notebook in notebooks
-        ]
+            .filter(already_saved=False)
+        )
 
-    def collect_all(self) -> list[FileSystem]:
-        return [
-            *self.collect_feature_flags(),
-            *self.collect_experiments(),
-            *self.collect_insights(),
-            *self.collect_dashboards(),
-            *self.collect_notebooks(),
-            # TODO:
-            # annotations
-            # sources
-            # destinations
-            # transformations
-            # site_apps
-        ]
+        new_files = []
+        for notebook in unsaved_qs:
+            title = notebook.title or "Untitled"
+            path = self._generate_unique_path("Unfiled/Notebooks", title)
 
-    def collect(self, file_type: FileSystemType) -> list[FileSystem]:
-        if file_type == FileSystemType.FEATURE_FLAG:
-            return self.collect_feature_flags()
-        elif file_type == FileSystemType.EXPERIMENT:
-            return self.collect_experiments()
-        elif file_type == FileSystemType.INSIGHT:
-            return self.collect_insights()
-        elif file_type == FileSystemType.DASHBOARD:
-            return self.collect_dashboards()
-        elif file_type == FileSystemType.NOTEBOOK:
-            return self.collect_notebooks()
-        return []
+            new_files.append(
+                FileSystem(
+                    team=self.team,
+                    path=path,
+                    depth=len(split_path(path)),
+                    type="notebook",
+                    ref=str(notebook.id),
+                    href=f"/notebooks/{notebook.id}",
+                    meta={
+                        "created_at": str(notebook.created_at),
+                        "created_by": UserBasicSerializer(notebook.created_by).data if notebook.created_by else None,
+                    },
+                    created_by=self.user,
+                )
+            )
+
+        FileSystem.objects.bulk_create(new_files)
+        return new_files
+
+    def _generate_unique_path(self, base_folder: str, name: str) -> str:
+        """
+        Given a base folder (e.g. 'Unfiled/Feature Flags') and an item name,
+        build a path that does not yet exist for this team.
+        For instance:
+            'Unfiled/Feature Flags/Flag A'
+            If that exists, we try:
+            'Unfiled/Feature Flags/Flag A (1)', etc.
+
+        Also checks self._in_memory_paths for collisions
+        among newly generated paths in this run.
+        """
+        desired = f"{base_folder}/{escape_path(name)}"
+        path = desired
+        index = 1
+
+        # We loop until we find a path that is not used in the DB or in this run
+        while path in self._in_memory_paths or FileSystem.objects.filter(team=self.team, path=path).exists():
+            path = f"{desired} ({index})"
+            index += 1
+
+        # Mark it as used within this run
+        self._in_memory_paths.add(path)
+        return path
+
+    def save_all_unfiled(self) -> list[FileSystem]:
+        """
+        Convenience method to save all unfiled items of every supported type
+        and return the full list of newly created FileSystem objects.
+        """
+        created = []
+        created += self.save_unfiled_feature_flags()
+        created += self.save_unfiled_experiments()
+        created += self.save_unfiled_insights()
+        created += self.save_unfiled_dashboards()
+        created += self.save_unfiled_notebooks()
+        # TODO: add other object types here (annotations, etc.)
+        return created
 
 
-def get_unfiled_files(team: Team, user: User, file_type: Optional[FileSystemType] = None) -> list[FileSystem]:
-    finder = UnfiledFileFinder(team, user)
-    if file_type:
-        return finder.collect(file_type)
-    else:
-        return finder.collect_all()
+def save_unfiled_files(team: Team, user: User, file_type: Optional[str] = None) -> list[FileSystem]:
+    """
+    Public helper to save any "unfiled" items of a particular type (FeatureFlag, Dashboard, etc.)
+    or, if file_type is None, for all supported types.
+    """
+    saver = UnfiledFileSaver(team, user)
+
+    if file_type is None:
+        return saver.save_all_unfiled()
+    elif file_type == "feature_flag":
+        return saver.save_unfiled_feature_flags()
+    elif file_type == "experiment":
+        return saver.save_unfiled_experiments()
+    elif file_type == "insight":
+        return saver.save_unfiled_insights()
+    elif file_type == "dashboard":
+        return saver.save_unfiled_dashboards()
+    elif file_type == "notebook":
+        return saver.save_unfiled_notebooks()
+
+    # If it's an unknown/unsupported file type, return empty
+    return []
+
+
+def split_path(path: str) -> list[str]:
+    segments = []
+    current = ""
+    i = 0
+    while i < len(path):
+        # If we encounter a backslash, and the next char is either / or \
+        if path[i] == "\\" and i < len(path) - 1 and path[i + 1] in ["/", "\\"]:
+            current += path[i + 1]
+            i += 2
+            continue
+        elif path[i] == "/":
+            segments.append(current)
+            current = ""
+        else:
+            current += path[i]
+        i += 1
+
+    # Push any remaining part of the path into segments
+    segments.append(current)
+
+    # Filter out empty segments
+    return [s for s in segments if s != ""]
+
+
+def escape_path(path: str) -> str:
+    # Replace backslash with double-backslash, and forward slash with backslash-slash
+    path = path.replace("\\", "\\\\")
+    path = path.replace("/", "\\/")
+    return path
+
+
+def join_path(paths: list[str]) -> str:
+    # Join all segments using '/', while escaping each segment
+    return "/".join(escape_path(segment) for segment in paths)

@@ -22,7 +22,7 @@ from posthog.hogql.visitor import clone_expr
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.schema import (
     HogQLQueryResponse,
     HogQLFilters,
@@ -176,7 +176,7 @@ class HogQLQueryExecutor:
             LimitContext.QUERY_ASYNC,
             LimitContext.SAVED_QUERY,
         ):
-            settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+            settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
         try:
             self.clickhouse_context = dataclasses.replace(
                 self.context,

@@ -4,6 +4,7 @@ import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/
 import { ReplayEventsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/replay-events-ingester'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
 import { TimestampFormat } from '../../../../../src/types'
+import { parseJSON } from '../../../../../src/utils/json-parse'
 import { status } from '../../../../../src/utils/status'
 import { castTimestampOrNow } from '../../../../../src/utils/utils'
 
@@ -16,6 +17,7 @@ const makeIncomingMessage = (
     timestamp: number,
     extraWindowedEvents?: Record<string, Record<string, any>[]>
 ): IncomingRecordingMessage => {
+    // @ts-expect-error TODO: Fix underlying types
     return {
         distinct_id: '',
         eventsRange: { start: timestamp, end: timestamp },
@@ -64,7 +66,7 @@ describe('replay events ingester', () => {
         expect(value.source).toEqual('plugin-server')
         expect(value.team_id).toEqual(0)
         expect(value.type).toEqual('replay_timestamp_too_far')
-        const details = JSON.parse(value.details)
+        const details = parseJSON(value.details)
         expect(details).toEqual(
             expect.objectContaining({
                 isValid: true,

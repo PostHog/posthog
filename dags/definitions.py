@@ -1,26 +1,22 @@
-from dagster import (
-    Definitions,
-    load_assets_from_modules,
-    run_status_sensor,
-    ScheduleDefinition,
-    RunRequest,
-    DagsterRunStatus,
-)
+import dagster
+import dagster_slack
+
 from dagster_aws.s3.io_manager import s3_pickle_io_manager
-from dagster_aws.s3.resources import s3_resource
-from dagster import fs_io_manager
+from dagster_aws.s3.resources import S3Resource
 from django.conf import settings
 
-from . import ch_examples, deletes, orm_examples
-from .common import ClickhouseClusterResource
-from .materialized_columns import materialize_column
-from .person_overrides import squash_person_overrides
-
-all_assets = load_assets_from_modules([ch_examples, orm_examples])
-
-
-env = "local" if settings.DEBUG else "prod"
-
+from dags.common import ClickhouseClusterResource
+from dags import (
+    backups,
+    ch_examples,
+    deletes,
+    exchange_rate,
+    export_query_logs_to_s3,
+    materialized_columns,
+    orm_examples,
+    person_overrides,
+    slack_alerts,
+)
 
 # Define resources for different environments
 resources_by_env = {
@@ -29,39 +25,60 @@ resources_by_env = {
         "io_manager": s3_pickle_io_manager.configured(
             {"s3_bucket": settings.DAGSTER_S3_BUCKET, "s3_prefix": "dag-storage"}
         ),
-        "s3": s3_resource,
+        "s3": S3Resource(),
+        # Using EnvVar instead of the Django setting to ensure that the token is not leaked anywhere in the Dagster UI
+        "slack": dagster_slack.SlackResource(token=dagster.EnvVar("SLACK_TOKEN")),
     },
     "local": {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
-        "io_manager": fs_io_manager,
+        "io_manager": dagster.fs_io_manager,
+        "slack": dagster.ResourceDefinition.none_resource(description="Dummy Slack resource for local development"),
+        "s3": S3Resource(),
     },
 }
 
 
 # Get resources for current environment, fallback to local if env not found
+env = "local" if settings.DEBUG else "prod"
 resources = resources_by_env.get(env, resources_by_env["local"])
 
-
-# Schedule to run squash at 10 PM on Saturdays
-squash_schedule = ScheduleDefinition(
-    job=squash_person_overrides,
-    cron_schedule="0 22 * * 6",  # At 22:00 (10 PM) on Saturday
-    execution_timezone="UTC",
-    name="squash_person_overrides_schedule",
-)
-
-
-@run_status_sensor(
-    run_status=DagsterRunStatus.SUCCESS, monitored_jobs=[squash_person_overrides], request_job=deletes.deletes_job
-)
-def run_deletes_after_squash(context):
-    return RunRequest(run_key=None)
-
-
-defs = Definitions(
-    assets=all_assets,
-    jobs=[squash_person_overrides, deletes.deletes_job, materialize_column],
-    schedules=[squash_schedule],
-    sensors=[run_deletes_after_squash],
+defs = dagster.Definitions(
+    assets=[
+        ch_examples.get_clickhouse_version,
+        ch_examples.print_clickhouse_version,
+        exchange_rate.daily_exchange_rates,
+        exchange_rate.hourly_exchange_rates,
+        exchange_rate.daily_exchange_rates_in_clickhouse,
+        exchange_rate.hourly_exchange_rates_in_clickhouse,
+        orm_examples.pending_deletions,
+        orm_examples.process_pending_deletions,
+    ],
+    jobs=[
+        deletes.deletes_job,
+        exchange_rate.daily_exchange_rates_job,
+        exchange_rate.hourly_exchange_rates_job,
+        export_query_logs_to_s3.export_query_logs_to_s3,
+        materialized_columns.materialize_column,
+        person_overrides.cleanup_orphaned_person_overrides_snapshot,
+        person_overrides.squash_person_overrides,
+        backups.sharded_backup,
+        backups.non_sharded_backup,
+    ],
+    schedules=[
+        exchange_rate.daily_exchange_rates_schedule,
+        exchange_rate.hourly_exchange_rates_schedule,
+        export_query_logs_to_s3.query_logs_export_schedule,
+        person_overrides.squash_schedule,
+        backups.full_sharded_backup_schedule,
+    ],
+    sensors=[
+        deletes.run_deletes_after_squash,
+        slack_alerts.notify_slack_on_failure,
+    ],
     resources=resources,
 )
+
+if settings.DEBUG:
+    from . import testing
+
+    defs.jobs.append(testing.error)

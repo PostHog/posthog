@@ -257,6 +257,7 @@ export interface LineGraphProps {
     showValuesOnSeries?: boolean | null
     showPercentStackView?: boolean | null
     supportsPercentStackView?: boolean
+    showPercentView?: boolean | null
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
@@ -264,6 +265,7 @@ export interface LineGraphProps {
     yAxisScaleType?: string | null
     showMultipleYAxes?: boolean | null
     goalLines?: GoalLine[]
+    isStacked?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -298,6 +300,7 @@ export function LineGraph_({
     showValuesOnSeries,
     showPercentStackView,
     supportsPercentStackView,
+    showPercentView,
     hideAnnotations,
     hideXAxis,
     hideYAxis,
@@ -305,7 +308,9 @@ export function LineGraph_({
     showMultipleYAxes = false,
     legend = { display: false },
     goalLines: _goalLines,
+    isStacked = true,
 }: LineGraphProps): JSX.Element {
+    const originalDatasets = _datasets
     let datasets = _datasets
 
     const { aggregationLabel } = useValues(groupsModel)
@@ -401,6 +406,12 @@ export function LineGraph_({
             adjustedData = adjustedData.map((value) => (value === 0 ? LOG_ZERO : value))
         }
 
+        // Transform data to percentages if showPercentView is enabled
+        if (showPercentView && Array.isArray(adjustedData)) {
+            const count = dataset.count
+            adjustedData = adjustedData.map((value) => (typeof value === 'number' ? (value / count) * 100 : value))
+        }
+
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
         return {
             borderColor: mainColor,
@@ -448,6 +459,13 @@ export function LineGraph_({
         }
     }
 
+    function formatYAxisTick(value: number | string): string {
+        if (showPercentView) {
+            return `${Number(value).toFixed(1)}%`
+        }
+        return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+    }
+
     function generateYaxesForLineGraph(
         dataSetCount: number,
         seriesNonZeroMin: number,
@@ -468,8 +486,7 @@ export function LineGraph_({
                 ...tickOptions,
                 display: !hideYAxis,
                 ...(yAxisScaleType !== 'log10' && { precision }), // Precision is not supported for the log scale
-                callback: (value: number | string) =>
-                    formatPercentStackAxisValue(trendsFilter, value, isPercentStackView),
+                callback: formatYAxisTick,
                 color: (context: any) => {
                     if (context.tick) {
                         for (const annotation of goalLinesWithColor) {
@@ -492,7 +509,7 @@ export function LineGraph_({
                 )
                 const annotationTicks = goalLines.map((value) => ({
                     value: value.value,
-                    label: `⬤ ${formatPercentStackAxisValue(trendsFilter, value.value, isPercentStackView)}`,
+                    label: `⬤ ${formatYAxisTick(value.value)}`,
                 }))
 
                 // Guarantee that all annotations exist as ticks
@@ -711,6 +728,23 @@ export function LineGraph_({
                                     renderCount={
                                         tooltipConfig?.renderCount ||
                                         ((value: number): string => {
+                                            if (showPercentView) {
+                                                const series = seriesData.find((s) => s.count === value)
+                                                const datasetIndex = series?.datasetIndex
+                                                const dataIndex = series?.dataIndex
+                                                if (datasetIndex !== undefined && dataIndex !== undefined) {
+                                                    const originalDataset = originalDatasets[datasetIndex]
+                                                    const originalValue = originalDataset.data?.[dataIndex]
+
+                                                    if (originalValue !== undefined && originalValue !== null) {
+                                                        return `${value.toFixed(1)}% (${formatAggregationAxisValue(
+                                                            trendsFilter,
+                                                            originalValue
+                                                        )})`
+                                                    }
+                                                }
+                                            }
+
                                             if (!isPercentStackView) {
                                                 return formatAggregationAxisValue(trendsFilter, value)
                                             }
@@ -807,7 +841,7 @@ export function LineGraph_({
                 x: {
                     display: !hideXAxis,
                     beginAtZero: true,
-                    stacked: true,
+                    stacked: isStacked,
                     ticks: {
                         ...tickOptions,
                         precision,
@@ -826,7 +860,7 @@ export function LineGraph_({
                 y: {
                     display: !hideYAxis,
                     beginAtZero: true,
-                    stacked: true,
+                    stacked: isStacked,
                     ticks: {
                         ...tickOptions,
                         display: !hideYAxis,

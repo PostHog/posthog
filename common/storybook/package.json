@@ -2,10 +2,10 @@
     "name": "@posthog/storybook",
     "scripts": {
         "start": "DEBUG=0 storybook dev -p 6006",
-        "build-storybook": "DEBUG=0 storybook build -o dist",
+        "build": "DEBUG=0 storybook build -o dist",
         "test:visual:update": "cd ../.. && rm -rf frontend/__snapshots__/__failures__/ && docker compose -f docker-compose.playwright.yml run --rm -it --build playwright pnpm test:visual:update:docker --url http://host.docker.internal:6006",
-        "test:visual:update:docker": "NODE_OPTIONS=--max-old-space-size=6144 test-storybook -u --browsers chromium webkit --no-index-json",
-        "test:visual:debug": "PWDEBUG=1 NODE_OPTIONS=--max-old-space-size=6144 test-storybook --browsers chromium webkit --no-index-json",
+        "test:visual:update:docker": "NODE_OPTIONS=--max-old-space-size=16384 test-storybook -u --browsers chromium webkit --no-index-json",
+        "test:visual:debug": "PWDEBUG=1 NODE_OPTIONS=--max-old-space-size=16384 test-storybook --browsers chromium webkit --no-index-json",
         "test:visual:ci:update": "test-storybook -u --no-index-json --maxWorkers=2",
         "test:visual:ci:verify": "test-storybook --ci --no-index-json --maxWorkers=2"
     },
@@ -38,6 +38,7 @@
         "@storybook/theming": "^7.6.4",
         "@storybook/types": "^7.6.4",
         "babel-preset-nano-react-app": "^0.1.0",
+        "buffer": "^6.0.3",
         "webpack": "^5.88.2",
         "webpack-cli": "^5.1.4",
         "html-webpack-harddisk-plugin": "^2.0.0",

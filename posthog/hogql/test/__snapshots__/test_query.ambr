@@ -11,8 +11,8 @@
   GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint 
   HAVING ifNull(equals(argMax(error_tracking_issue_fingerprint_overrides.is_deleted, error_tracking_issue_fingerprint_overrides.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint) 
-  WHERE and(equals(events.team_id, 99999), and(equals(events.event, %(hogql_val_15)s), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_16)s), ''), 'null'), '^"|"$', ''), %(hogql_val_17)s))), and(1, greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_18)s), toDateTime64(%(hogql_val_19)s, 6, %(hogql_val_20)s))))) 
-  GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_21)s), ''), 'null'), '^"|"$', ''), %(hogql_val_22)s)) ORDER BY occurrences DESC 
+  WHERE and(equals(events.team_id, 99999), and(equals(events.event, %(hogql_val_15)s), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_16)s), ''), 'null'), '^"|"$', ''), %(hogql_val_17)s))), or(and(greater(toTimeZone(events.timestamp, %(hogql_val_18)s), parseDateTime64BestEffort(%(hogql_val_19)s, 6, %(hogql_val_20)s)), less(toTimeZone(events.timestamp, %(hogql_val_21)s), parseDateTime64BestEffort(%(hogql_val_22)s, 6, %(hogql_val_23)s))), and(greater(toTimeZone(events.timestamp, %(hogql_val_24)s), toDateTime(%(hogql_val_25)s, %(hogql_val_26)s)), less(toTimeZone(events.timestamp, %(hogql_val_27)s), toDateTime64(%(hogql_val_28)s, 6, %(hogql_val_29)s)))))) 
+  GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_30)s), ''), 'null'), '^"|"$', ''), %(hogql_val_31)s)) ORDER BY occurrences DESC 
   LIMIT 51 OFFSET 0 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -20,7 +20,7 @@
   
   SELECT issue_id AS id, count(DISTINCT uuid) AS occurrences, count(DISTINCT nullIf($session_id, '')) AS sessions, count(DISTINCT distinct_id) AS users, max(timestamp) AS last_seen, min(timestamp) AS first_seen, reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(now()))), x), range(24))) AS volumeDay, reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(timestamp), toStartOfDay(now()))), x), range(31))) AS volumeMonth, reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(now()))), x), range(168))) AS customVolume 
   FROM events 
-  WHERE and(equals(event, '$exception'), isNotNull(issue_id), and(1, greaterOrEquals(timestamp, toDateTime('2025-02-10 23:53:03.175952')))) 
+  WHERE and(equals(event, '$exception'), isNotNull(issue_id), or(and(greater(timestamp, toDateTime('2025-02-10 23:53:03.175952+02:30')), less(timestamp, toDateTime('2025-02-11 23:53'))), and(greater(timestamp, toDateTime('2025-02-12 23:53:03')), less(timestamp, toDateTime('2025-02-13 23:53:03.175952'))))) 
   GROUP BY issue_id ORDER BY occurrences DESC 
   LIMIT 51 OFFSET 0
   '''
@@ -133,9 +133,9 @@
   FROM (
   SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, nullIf(nullIf(argMinMerge(raw_sessions.entry_url), %(hogql_val_0)s), %(hogql_val_1)s) AS `$entry_current_url`, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_2)s)) AS `$start_timestamp`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
-  WHERE and(equals(raw_sessions.team_id, 99999), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toDateTime64('2024-07-06 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toDateTime64('2024-07-04 00:00:00.000000', 6, 'UTC')), 0)) 
+  WHERE and(equals(raw_sessions.team_id, 99999), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toDateTime64('today', 6, 'UTC')), 0), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toDateTime64('today', 6, 'UTC')), 0)) 
   GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS sessions 
-  WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-07-06 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(sessions.`$start_timestamp`, toDateTime64('2024-07-04 00:00:00.000000', 6, 'UTC')), 0)) 
+  WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC')), 0), ifNull(greaterOrEquals(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC')), 0)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   

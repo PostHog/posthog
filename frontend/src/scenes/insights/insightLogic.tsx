@@ -337,7 +337,20 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 )
             },
         ],
-        showPersonsModal: [() => [(s) => s.query], (query) => !query || !query.hidePersonsModal],
+        showPersonsModal: [
+            (s) => [s.query, s.insightProps, s.featureFlags],
+            (
+                query: Record<string, any>,
+                insightProps: InsightLogicProps,
+                featureFlags: Record<string, boolean>
+            ): boolean => {
+                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HIDE_MODAL_ACTORS]) {
+                    const theQuery = query || insightProps?.query
+                    return !theQuery || !theQuery.hidePersonsModal
+                }
+                return !query || !query.hidePersonsModal
+            },
+        ],
         supportsCreatingExperiment: [
             (s) => [s.insight, s.activeScene],
             (insight: QueryBasedInsightModel, activeScene: Scene) =>
@@ -350,6 +363,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     Scene.ExperimentsSharedMetrics,
                 ].includes(activeScene),
         ],
+        isUsingPathsV1: [(s) => [s.featureFlags], (featureFlags) => !featureFlags[FEATURE_FLAGS.PATHS_V2]],
+        isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
     }),
     listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode }) => {

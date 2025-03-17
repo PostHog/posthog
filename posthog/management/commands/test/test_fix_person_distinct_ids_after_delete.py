@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 import pytest
 
 import posthog.management.commands.fix_person_distinct_ids_after_delete
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.management.commands.fix_person_distinct_ids_after_delete import run
 from posthog.models.person.person import Person, PersonDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE

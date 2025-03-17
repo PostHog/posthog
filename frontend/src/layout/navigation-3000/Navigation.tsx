@@ -6,14 +6,15 @@ import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ReactNode } from 'react'
+import { ReactNode, useRef } from 'react'
 import { SceneConfig } from 'scenes/sceneTypes'
+
+import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
-import { ProjectTree } from './components/ProjectTree/ProjectTree'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
@@ -30,6 +31,7 @@ export function Navigation({
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { activeNavbarItem, mode } = useValues(navigation3000Logic)
+    const mainRef = useRef<HTMLElement>(null)
 
     if (mode !== 'full') {
         return (
@@ -44,13 +46,23 @@ export function Navigation({
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div className={clsx('Navigation3000', mobileLayout && 'Navigation3000--mobile')} style={theme?.mainStyle}>
+            {/* eslint-disable-next-line react/forbid-elements */}
+            <a
+                href="#main-content"
+                className="sr-only focus:not-sr-only focus:fixed focus:z-top focus:top-4 focus:left-4 focus:p-4 focus:bg-white focus:dark:bg-gray-800 focus:rounded focus:shadow-lg"
+                tabIndex={0}
+            >
+                Skip to content
+            </a>
+
             <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW} fallback={<Navbar />}>
-                <ProjectTree />
+                <PanelLayout mainRef={mainRef} />
             </FlaggedFeature>
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>
-            <main>
+
+            <main ref={mainRef} role="main" tabIndex={0} id="main-content">
                 {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
                 <div
                     className={clsx(

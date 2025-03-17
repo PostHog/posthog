@@ -22,7 +22,7 @@ django-linear-migrations==2.16.*
 Faker==17.5.0
 fakeredis[lua]==2.23.3
 freezegun==1.2.2
-inline-snapshot==0.12.*
+inline-snapshot==0.19.*
 multidict==6.0.5 # Not used by us directly, but code won't run on Ubuntu 24.04 unless we resolve this to 6.0.5
 packaging==24.1
 black~=23.9.1
@@ -37,7 +37,7 @@ types-python-dateutil>=2.8.3
 types-pytz==2023.3
 types-redis==4.3.20
 types-retry==0.9.9.4
-types-requests==2.26.1
+types-requests==2.31.0.6 # >= 2.31.0.7 versions require urllib>=2, which is incompatible with our dependencies
 types-tzlocal~=5.1.0.1
 parameterized==0.9.0
 pyarrow==18.1.0
@@ -62,6 +62,6 @@ aioresponses==0.7.6
 prance==23.06.21.0
 openapi-spec-validator==0.7.1 # Needed for prance as a validation backend
 deepeval==1.5.5
-tiktoken==0.8.*
 tach~=0.20.0
 stpyv8==13.1.201.22
+types-boto3[essential]==1.37.6

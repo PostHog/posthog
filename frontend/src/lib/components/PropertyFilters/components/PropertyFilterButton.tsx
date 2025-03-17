@@ -45,6 +45,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                     'ph-no-capture': true,
                 })}
                 aria-disabled={!!disabledReason}
+                type={ButtonComponent === 'button' ? 'button' : undefined}
             >
                 <PropertyFilterIcon type={item.type} />
                 <span className="PropertyFilterButton-content" title={label}>

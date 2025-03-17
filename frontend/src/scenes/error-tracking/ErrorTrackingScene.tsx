@@ -6,10 +6,10 @@ import {
     LemonDivider,
     LemonSegmentedButton,
     LemonSkeleton,
+    LemonTag,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -31,6 +31,7 @@ import { InsightLogicProps } from '~/types'
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
+import { STATUS_LABEL } from './ErrorTrackingIssueScene'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingLogic } from './errorTrackingLogic'
@@ -45,7 +46,7 @@ export const scene: SceneExport = {
 
 export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorTrackingLogic)
-    const { query, selectedIssueIds } = useValues(errorTrackingSceneLogic)
+    const { query } = useValues(errorTrackingSceneLogic)
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
@@ -60,9 +61,10 @@ export function ErrorTrackingScene(): JSX.Element {
             occurrences: { align: 'center', render: CountColumn },
             sessions: { align: 'center', render: CountColumn },
             users: { align: 'center', render: CountColumn },
-            volume: { renderTitle: VolumeColumnHeader, render: VolumeColumn },
-            assignee: { render: AssigneeColumn },
+            volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
+            assignee: { align: 'center', render: AssigneeColumn },
         },
+        refresh: 'blocking',
         showOpenEditorButton: false,
         insightProps: insightProps,
         emptyStateHeading: 'No issues found',
@@ -73,45 +75,17 @@ export function ErrorTrackingScene(): JSX.Element {
         <ErrorTrackingSetupPrompt>
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
-
                 {hasSentExceptionEventLoading ? null : hasSentExceptionEvent ? (
                     <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
                 ) : (
                     <IngestionStatusCheck />
                 )}
-
                 <ErrorTrackingFilters />
                 <LemonDivider className="mt-2" />
-                {selectedIssueIds.length === 0 ? <ErrorTrackingListOptions /> : <ErrorTrackingListActions />}
+                <ErrorTrackingListOptions />
                 <Query query={query} context={context} />
             </BindLogic>
         </ErrorTrackingSetupPrompt>
-    )
-}
-
-const ErrorTrackingListActions = (): JSX.Element => {
-    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
-    const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-    const { mergeIssues } = useActions(errorTrackingDataNodeLogic)
-
-    return (
-        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary flex space-x-1">
-            <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>
-                Unselect all
-            </LemonButton>
-            {selectedIssueIds.length > 1 && (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={() => {
-                        mergeIssues(selectedIssueIds)
-                        setSelectedIssueIds([])
-                    }}
-                >
-                    Merge
-                </LemonButton>
-            )}
-        </div>
     )
 }
 
@@ -132,7 +106,11 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
             ? [record.aggregations.customVolume, sparklineLabels(customSparklineConfig)]
             : [null, null]
 
-    return data ? <Sparkline className="h-8" data={data} labels={labels} /> : null
+    return data ? (
+        <div className="flex justify-end">
+            <Sparkline className="h-8" data={data} labels={labels} />
+        </div>
+    ) : null
 }
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
@@ -161,9 +139,9 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const checked = selectedIssueIds.includes(record.id)
 
     return (
-        <div className="flex items-start space-x-1.5 group">
+        <div className="flex items-start gap-x-1.5 group">
             <LemonCheckbox
-                className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
+                className="pt-1"
                 checked={checked}
                 onChange={(newValue) => {
                     setSelectedIssueIds(
@@ -176,9 +154,9 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
             <LemonTableLink
                 title={record.name || 'Unknown Type'}
                 description={
-                    <div className="space-y-1">
+                    <div className="deprecated-space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
-                        <div className="space-x-1">
+                        <div className="deprecated-space-x-1">
                             <TZLabel time={record.first_seen} className="border-dotted border-b" delayMs={750} />
                             <span>|</span>
                             {record.last_seen ? (
@@ -186,10 +164,14 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                             ) : (
                                 <LemonSkeleton />
                             )}
+                            <span>|</span>
+                            <span>
+                                <LemonTag>{STATUS_LABEL[record.status]}</LemonTag>
+                            </span>
                         </div>
                     </div>
                 }
-                className="flex-1"
+                className="flex-1 pr-12"
                 to={urls.errorTrackingIssue(record.id)}
                 onClick={() => {
                     const issueLogic = errorTrackingIssueSceneLogic({ id: record.id })
@@ -205,12 +187,16 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
     const aggregations = (record as ErrorTrackingIssue).aggregations as ErrorTrackingIssueAggregations
     const count = aggregations[columnName as 'occurrences' | 'sessions' | 'users']
 
-    return columnName === 'sessions' && count === 0 ? (
-        <Tooltip title="No $session_id was set for any event in this issue" delayMs={0}>
-            -
-        </Tooltip>
-    ) : (
-        <>{humanFriendlyLargeNumber(count)}</>
+    return (
+        <span className="text-lg font-medium">
+            {columnName === 'sessions' && count === 0 ? (
+                <Tooltip title="No $session_id was set for any event in this issue" delayMs={0}>
+                    -
+                </Tooltip>
+            ) : (
+                humanFriendlyLargeNumber(count)
+            )}
+        </span>
     )
 }
 

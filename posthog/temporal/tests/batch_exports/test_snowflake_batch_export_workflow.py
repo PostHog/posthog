@@ -1,6 +1,8 @@
 import asyncio
+import dataclasses
 import datetime as dt
 import gzip
+import io
 import json
 import operator
 import os
@@ -11,6 +13,7 @@ import uuid
 from collections import deque
 from uuid import uuid4
 
+import paramiko
 import pytest
 import pytest_asyncio
 import responses
@@ -47,12 +50,15 @@ from posthog.temporal.batch_exports.snowflake_batch_export import (
 from posthog.temporal.batch_exports.spmc import (
     Producer,
     RecordBatchQueue,
+    RecordBatchTaskError,
     SessionsRecordBatchModel,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.batch_exports.utils import (
+    FlakyClickHouseClient,
     get_record_batch_from_queue,
     mocked_start_batch_export_run,
+    remove_duplicates_from_records,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
@@ -878,6 +884,8 @@ async def assert_clickhouse_records_in_snowflake(
     backfill_details: BackfillDetails | None = None,
     sort_key: str = "event",
     expected_fields: list[str] | None = None,
+    expect_duplicates: bool = False,
+    primary_key: list[str] | None = None,
 ):
     """Assert ClickHouse records are written to Snowflake table.
 
@@ -892,6 +900,7 @@ async def assert_clickhouse_records_in_snowflake(
         include_events: Event names to be included in the export.
         batch_export_schema: Custom schema used in the batch export.
         expected_fields: List of fields expected to be in the destination table.
+        expect_duplicates: Whether duplicates are expected (e.g. when testing retrying logic).
     """
     snowflake_cursor.execute(f'SELECT * FROM "{table_name}"')
 
@@ -984,6 +993,9 @@ async def assert_clickhouse_records_in_snowflake(
                     expected_record[k] = v
 
             expected_records.append(expected_record)
+
+    if expect_duplicates:
+        inserted_records = remove_duplicates_from_records(inserted_records, primary_key)
 
     inserted_column_names = list(inserted_records[0].keys())
     expected_column_names = list(expected_records[0].keys())
@@ -1955,3 +1967,160 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
 def test_load_private_key_raises_error_if_key_is_invalid():
     with pytest.raises(InvalidPrivateKeyError):
         load_private_key("invalid_key", None)
+
+
+def test_load_private_key_raises_error_if_incorrect_passphrase():
+    """Test we raise the right error when passing an incorrect passphrase."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password="a-passphrase")
+    _ = buffer.seek(0)
+
+    with pytest.raises(InvalidPrivateKeyError) as exc_info:
+        _ = load_private_key(buffer.read(), "another-passphrase")
+
+    assert "incorrect passphrase" in str(exc_info.value)
+
+
+def test_load_private_key_raises_error_if_passphrase_not_empty():
+    """Test we raise the right error when passing a passphrase to a key without one."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer)
+    _ = buffer.seek(0)
+
+    with pytest.raises(InvalidPrivateKeyError) as exc_info:
+        _ = load_private_key(buffer.read(), "a-passphrase")
+
+    assert "passphrase was given but private key is not encrypted" in str(exc_info.value)
+
+
+def test_load_private_key_raises_error_if_passphrase_missing():
+    """Test we raise the right error when missing a passphrase to an encrypted key."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password="a-passphrase")
+    _ = buffer.seek(0)
+
+    with pytest.raises(InvalidPrivateKeyError) as exc_info:
+        _ = load_private_key(buffer.read(), None)
+
+    assert "passphrase was not given but private key is encrypted" in str(exc_info.value)
+
+
+def test_load_private_key_passes_with_empty_passphrase_and_no_encryption():
+    """Test we succeed in loading a passphrase without encryption and an empty passphrase."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password=None)
+    _ = buffer.seek(0)
+
+    loaded = load_private_key(buffer.read(), "")
+
+    assert loaded
+
+
+@pytest.mark.parametrize("passphrase", ["a-passphrase", None, ""])
+def test_load_private_key(passphrase: str | None):
+    """Test we can load a private key.
+
+    We treat `None` and empty string the same (no passphrase) because paramiko does
+    not support passphrases smaller than 1 byte.
+    """
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password=None if passphrase is None or passphrase == "" else passphrase)
+    _ = buffer.seek(0)
+    private_key = buffer.read()
+
+    # Just checking this doesn't fail.
+    loaded = load_private_key(private_key, passphrase)
+    assert loaded
+
+
+@SKIP_IF_MISSING_REQUIRED_ENV_VARS
+@pytest.mark.parametrize(
+    "model", [BatchExportModel(name="events", schema=None), BatchExportModel(name="persons", schema=None)]
+)
+async def test_insert_into_snowflake_activity_completes_range_when_there_is_a_failure(
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+    model,
+):
+    """Test that the insert_into_snowflake_activity can resume from a failure using heartbeat details."""
+    table_name = f"test_insert_activity_table_{ateam.pk}"
+
+    events_to_create, persons_to_create = generate_test_data
+    total_records = len(persons_to_create) if model.name == "persons" else len(events_to_create)
+    # fail halfway through
+    fail_after_records = total_records // 2
+
+    heartbeat_details: list[SnowflakeHeartbeatDetails] = []
+
+    def track_hearbeat_details(*details):
+        """Record heartbeat details received."""
+        nonlocal heartbeat_details
+        snowflake_details = SnowflakeHeartbeatDetails.from_activity_details(details)
+        heartbeat_details.append(snowflake_details)
+
+    activity_environment.on_heartbeat = track_hearbeat_details
+
+    insert_inputs = SnowflakeInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        **snowflake_config,
+    )
+
+    with unittest.mock.patch(
+        "posthog.temporal.common.clickhouse.ClickHouseClient",
+        lambda *args, **kwargs: FlakyClickHouseClient(*args, **kwargs, fail_after_records=fail_after_records),
+    ):
+        # We expect this to raise an exception
+        with pytest.raises(RecordBatchTaskError):
+            await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    assert len(heartbeat_details) > 0
+    detail = heartbeat_details[-1]
+    assert len(detail.done_ranges) > 0
+    assert detail.records_completed == fail_after_records
+
+    # Now we resume from the heartbeat
+    previous_info = dataclasses.asdict(activity_environment.info)
+    previous_info["heartbeat_details"] = detail.serialize_details()
+    new_info = activity.Info(
+        **previous_info,
+    )
+
+    activity_environment.info = new_info
+
+    await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    assert len(heartbeat_details) > 0
+    detail = heartbeat_details[-1]
+    assert len(detail.done_ranges) == 1
+    assert detail.done_ranges[0] == (data_interval_start, data_interval_end)
+
+    sort_key = "event" if model.name == "events" else "person_id"
+
+    # Verify all the data for the whole range was exported correctly
+    await assert_clickhouse_records_in_snowflake(
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        sort_key=sort_key,
+        batch_export_model=model,
+        expect_duplicates=True,
+        primary_key=["uuid"] if model.name == "events" else ["distinct_id", "person_id"],
+    )

@@ -1,11 +1,15 @@
+import json
 from typing import cast
 from django.test import override_settings
+from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.test.utils import create_data_warehouse_table
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.group.util import create_group
+from rest_framework.exceptions import ValidationError
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -14,6 +18,7 @@ from posthog.settings import (
     XDIST_SUFFIX,
 )
 from posthog.schema import (
+    ExperimentMetricMathType,
     EventPropertyFilter,
     ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
@@ -42,14 +47,9 @@ from datetime import datetime, timedelta
 from posthog.test.test_journeys import journeys_for
 from posthog.models.experiment import Experiment
 from parameterized import parameterized
-import s3fs
-from pyarrow import parquet as pq
-import pyarrow as pa
 from boto3 import resource
 from botocore.config import Config
-from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.join import DataWarehouseJoin
-from posthog.warehouse.models.table import DataWarehouseTable
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.experiments.queryrunner" + XDIST_SUFFIX
 
@@ -120,81 +120,36 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def create_data_warehouse_table_with_usage(self):
-        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
-            raise Exception("Missing vars")
-
-        fs = s3fs.S3FileSystem(
-            client_kwargs={
-                "region_name": "us-east-1",
-                "endpoint_url": OBJECT_STORAGE_ENDPOINT,
-                "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
-                "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            },
-        )
-
-        path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
-
         table_data = [
-            {"id": "1", "ds": "2023-01-01", "userid": "user_control_0", "usage": 1000},
-            {"id": "2", "ds": "2023-01-02", "userid": "user_test_1", "usage": 500},
-            {"id": "3", "ds": "2023-01-03", "userid": "user_test_2", "usage": 750},
-            {"id": "4", "ds": "2023-01-04", "userid": "internal_test_1", "usage": 100000},
-            {"id": "5", "ds": "2023-01-06", "userid": "user_test_3", "usage": 800},
-            {"id": "6", "ds": "2023-01-07", "userid": "user_extra", "usage": 900},
+            {"id": "1", "ds": "2023-01-01", "userid": "user_control_0", "usage": "1000"},
+            {"id": "2", "ds": "2023-01-02", "userid": "user_test_1", "usage": "500"},
+            {"id": "3", "ds": "2023-01-03", "userid": "user_test_2", "usage": "750"},
+            {"id": "4", "ds": "2023-01-04", "userid": "internal_test_1", "usage": "100000"},
+            {"id": "5", "ds": "2023-01-06", "userid": "user_test_3", "usage": "800"},
+            {"id": "6", "ds": "2023-01-07", "userid": "user_extra", "usage": "900"},
         ]
 
-        pq.write_to_dataset(
-            pa.Table.from_pylist(table_data),
-            path_to_s3_object,
-            filesystem=fs,
-            use_dictionary=True,
-            compression="snappy",
-        )
+        columns = {
+            "id": "String",
+            "ds": "Date",
+            "userid": "String",
+            "usage": "String",
+        }
 
         table_name = "usage"
 
-        credential = DataWarehouseCredential.objects.create(
-            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
-            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            team=self.team,
-        )
+        create_data_warehouse_table(self.team, table_name, table_data, columns)
 
-        DataWarehouseTable.objects.create(
-            name=table_name,
-            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            columns={
-                "id": "String",
-                "ds": "Date",
-                "userid": "String",
-                "usage": "Int64",
-            },
-            credential=credential,
-        )
         return table_name
 
     def create_data_warehouse_table_with_subscriptions(self):
-        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
-            raise Exception("Missing vars")
-
-        fs = s3fs.S3FileSystem(
-            client_kwargs={
-                "region_name": "us-east-1",
-                "endpoint_url": OBJECT_STORAGE_ENDPOINT,
-                "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
-                "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            },
-        )
-
-        path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
-
-        credential = DataWarehouseCredential.objects.create(
-            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
-            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            team=self.team,
-        )
-
+        subscription_table_name = "subscriptions"
+        subscription_columns = {
+            "subscription_id": "String",
+            "subscription_created_at": "DateTime64(3, 'UTC')",
+            "subscription_customer_id": "String",
+            "subscription_amount": "Int64",
+        }
         subscription_table_data = [
             {
                 "subscription_id": "1",
@@ -227,31 +182,15 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "subscription_amount": 90,
             },
         ]
+        create_data_warehouse_table(self.team, subscription_table_name, subscription_table_data, subscription_columns)
 
-        pq.write_to_dataset(
-            pa.Table.from_pylist(subscription_table_data),
-            path_to_s3_object,
-            filesystem=fs,
-            use_dictionary=True,
-            compression="snappy",
-        )
-
-        subscription_table_name = "subscriptions"
-
-        DataWarehouseTable.objects.create(
-            name=subscription_table_name,
-            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            columns={
-                "subscription_id": "String",
-                "subscription_created_at": "DateTime64(3, 'UTC')",
-                "subscription_customer_id": "String",
-                "subscription_amount": "Int64",
-            },
-            credential=credential,
-        )
-
+        customer_table_name = "customers"
+        customer_columns = {
+            "customer_id": "String",
+            "customer_created_at": "DateTime64(3, 'UTC')",
+            "customer_name": "String",
+            "customer_email": "String",
+        }
         customer_table_data = [
             {
                 "customer_id": "1",
@@ -284,30 +223,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "customer_email": "john.doejr@example.com",
             },
         ]
-
-        pq.write_to_dataset(
-            pa.Table.from_pylist(customer_table_data),
-            path_to_s3_object,
-            filesystem=fs,
-            use_dictionary=True,
-            compression="snappy",
-        )
-
-        customer_table_name = "customers"
-
-        DataWarehouseTable.objects.create(
-            name=customer_table_name,
-            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            columns={
-                "customer_id": "String",
-                "customer_created_at": "DateTime64(3, 'UTC')",
-                "customer_name": "String",
-                "customer_email": "String",
-            },
-            credential=credential,
-        )
+        create_data_warehouse_table(self.team, customer_table_name, customer_table_data, customer_columns)
 
         DataWarehouseJoin.objects.create(
             team=self.team,
@@ -361,7 +277,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.BINOMIAL,
+            metric_type=ExperimentMetricType.FUNNEL,
             metric_config=ExperimentEventMetricConfig(event="purchase"),
         )
 
@@ -413,15 +329,17 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_continuous_metric(self):
+    def test_query_runner_mean_property_sum_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"version": 2}
         experiment.save()
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.CONTINUOUS,
-            metric_config=ExperimentEventMetricConfig(event="purchase", math="sum", math_property="amount"),
+            metric_type=ExperimentMetricType.MEAN,
+            metric_config=ExperimentEventMetricConfig(
+                event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"
+            ),
         )
 
         experiment_query = ExperimentQuery(
@@ -465,7 +383,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(event="purchase"),
         )
 
@@ -575,7 +493,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(
                 event="purchase",
                 properties=[
@@ -658,7 +576,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         action.save()
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentActionMetricConfig(action=action.id),
         )
 
@@ -867,7 +785,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=ExperimentMetric(
-                metric_type=ExperimentMetricType.BINOMIAL,
+                metric_type=ExperimentMetricType.FUNNEL,
                 metric_config=ExperimentEventMetricConfig(event="purchase"),
             ),
         )
@@ -947,8 +865,26 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         if expected_results is None:
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
+
+            if "person_id_override_properties_joined_filter_laterevent" in name:
+                expected_errors = json.dumps(
+                    {
+                        ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
+                        ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: False,
+                        ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+                    }
+                )
+            else:
+                expected_errors = json.dumps(
+                    {
+                        ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
+                        ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                        ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+                    }
+                )
+            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
         else:
             result = query_runner.calculate()
 
@@ -979,7 +915,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ff_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(event="$pageview"),
         )
 
@@ -1085,7 +1021,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.exposure, 2.0)
 
     @snapshot_clickhouse_queries
-    def test_query_runner_data_warehouse_binomial_metric(self):
+    def test_query_runner_data_warehouse_funnel_metric(self):
         table_name = self.create_data_warehouse_table_with_usage()
 
         feature_flag = self.create_feature_flag()
@@ -1098,7 +1034,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.BINOMIAL,
+            metric_type=ExperimentMetricType.FUNNEL,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 events_join_key="properties.$user_id",
@@ -1166,13 +1102,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 events_join_key="properties.$user_id",
                 data_warehouse_join_key="userid",
                 timestamp_field="ds",
-                math="total",
+                math=ExperimentMetricMathType.TOTAL,
                 math_property=None,
             ),
         )
@@ -1236,13 +1172,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.CONTINUOUS,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 events_join_key="properties.$user_id",
                 data_warehouse_join_key="userid",
                 timestamp_field="ds",
-                math="sum",
+                math=ExperimentMetricMathType.SUM,
                 math_property="usage",
             ),
         )
@@ -1347,7 +1283,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=ExperimentMetric(
-                metric_type=ExperimentMetricType.COUNT,
+                metric_type=ExperimentMetricType.MEAN,
                 metric_config=ExperimentEventMetricConfig(event="purchase"),
             ),
         )
@@ -1380,7 +1316,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(event="purchase"),
         )
 
@@ -1425,6 +1361,157 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.count, 8)
         self.assertEqual(control_variant.absolute_exposure, 10)
         self.assertEqual(test_variant.absolute_exposure, 10)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_no_exposures(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.MEAN,
+            metric_config=ExperimentEventMetricConfig(event="purchase"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # No exposures
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with self.assertRaises(ValidationError) as context:
+            query_runner.calculate()
+
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+            }
+        )
+        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_no_variant_events(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.MEAN,
+            metric_config=ExperimentEventMetricConfig(event="purchase"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # No variant events
+        for variant in [("control", 10), ("test", 8)]:
+            for i in range(10):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with self.assertRaises(ValidationError) as context:
+            query_runner.calculate()
+
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,  # Should be False but the query doesn't support it yet
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+            }
+        )
+        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_no_control_variant(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.MEAN,
+            metric_config=ExperimentEventMetricConfig(event="purchase"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # No control variant
+        for variant, purchase_count in [("test", 8)]:
+            for i in range(10):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                if i < purchase_count:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={feature_flag_property: variant, "amount": 10 if i < 2 else ""},
+                    )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with self.assertRaises(ValidationError) as context:
+            query_runner.calculate()
+
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
+            }
+        )
+        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
 
     @parameterized.expand(
         [
@@ -1571,7 +1658,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(event="$pageview"),
         )
 
@@ -1653,10 +1740,17 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         # "feature_flags" and "element" filter out all events
         if name == "feature_flags" or name == "element":
-            with self.assertRaises(ValueError) as context:
+            with self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
 
-            self.assertEqual(context.exception.args[0], "Control variant not found in experiment results")
+            expected_errors = json.dumps(
+                {
+                    ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
+                    ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                    ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+                }
+            )
+            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
         else:
             result = query_runner.calculate()
 
@@ -1673,7 +1767,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         ## Run again with filterTestAccounts=False
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(event="$pageview"),
         )
         experiment_query = ExperimentQuery(
@@ -1701,6 +1795,113 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             [
+                "experiment_duration",
+                None,
+                {
+                    "control_count": 2,
+                    "test_count": 2,
+                },
+            ],
+            [
+                "24_hour_window",
+                24,
+                {
+                    "control_count": 1,
+                    "test_count": 1,
+                },
+            ],
+            [
+                "48_hour_window",
+                48,
+                {
+                    "control_count": 3,
+                    "test_count": 3,
+                },
+            ],
+            [
+                "72_hour_window",
+                72,
+                {
+                    "control_count": 4,
+                    "test_count": 4,
+                },
+            ],
+        ]
+    )
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_time_window(self, name, time_window_hours, expected_results):
+        feature_flag = self.create_feature_flag()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 5, 12, 0, 0)
+        )
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.MEAN,
+            metric_config=ExperimentEventMetricConfig(event="purchase"),
+            time_window_hours=time_window_hours,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        for variant, purchase_count in [("control", 6), ("test", 8)]:
+            for i in range(10):
+                d = datetime(2020, 1, i + 2, 11, 30, 0)
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp=d,
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                if i < purchase_count:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp=d + timedelta(hours=15 * (i + 1)),
+                        properties={feature_flag_property: variant},
+                    )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Exposures on 2020-01-02 11:30, 2020-01-03 11:30, 2020-01-04 11:30, 2020-01-05 11:30
+        self.assertEqual(control_variant.absolute_exposure, 4)
+        self.assertEqual(test_variant.absolute_exposure, 4)
+        # Purchases on 2020-01-03 02:30:00 (15 hours), 2020-01-04 17:30:00 (30 hours), 2020-01-06 08:30:00 (45 hours), 2020-01-07 23:30:00 (60 hours)
+        self.assertEqual(control_variant.count, expected_results["control_count"])
+        self.assertEqual(test_variant.count, expected_results["test_count"])
+
+    @parameterized.expand(
+        [
+            [
                 "person_properties",
                 {
                     "key": "email",
@@ -1709,7 +1910,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "type": "person",
                 },
                 {
-                    "control_absolute_exposure": 8,
+                    "control_absolute_exposure": 7,
                     "test_absolute_exposure": 9,
                 },
             ],
@@ -1722,7 +1923,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "type": "event",
                 },
                 {
-                    "control_absolute_exposure": 8,
+                    "control_absolute_exposure": 7,
                     "test_absolute_exposure": 9,
                 },
             ],
@@ -1763,7 +1964,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "operator": "exact",
                 },
                 {
-                    "control_absolute_exposure": 2,
+                    "control_absolute_exposure": 1,
                     "test_absolute_exposure": 1,
                 },
             ],
@@ -1847,13 +2048,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.CONTINUOUS,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 events_join_key="properties.$user_id",
                 data_warehouse_join_key="userid",
                 timestamp_field="ds",
-                math="avg",
+                math=ExperimentMetricMathType.SUM,
                 math_property="usage",
             ),
         )
@@ -1915,49 +2116,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             timestamp=datetime(2023, 1, 3),
         )
 
-        # "user_test_3" first exposure (feature_flag_property="control") is on 2023-01-03
-        # "user_test_3" relevant exposure (feature_flag_property="test") is on 2023-01-04
-        # "user_test_3" other event (feature_flag_property="control" is on 2023-01-05
-        # "user_test_3" purchase is on 2023-01-06
-        # "user_test_3" second exposure (feature_flag_property="control") is on 2023-01-09
-        # "user_test_3" should fall into the "test" variant, not the "control" variant
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id="distinct_test_3",
-            properties={
-                "$feature_flag_response": "control",
-                feature_flag_property: "control",
-                "$feature_flag": feature_flag.key,
-                "$user_id": "user_test_3",
-            },
-            timestamp=datetime(2023, 1, 3),
-        )
-        _create_event(
-            team=self.team,
-            event="Some other event",
-            distinct_id="distinct_test_3",
-            properties={
-                "$feature_flag_response": "control",
-                feature_flag_property: "control",
-                "$feature_flag": feature_flag.key,
-                "$user_id": "user_test_3",
-            },
-            timestamp=datetime(2023, 1, 5),
-        )
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id="distinct_test_3",
-            properties={
-                "$feature_flag_response": "control",
-                feature_flag_property: "control",
-                "$feature_flag": feature_flag.key,
-                "$user_id": "user_test_3",
-            },
-            timestamp=datetime(2023, 1, 9),
-        )
-
         flush_persons_and_events()
 
         if name == "cohort_static" and cohort:
@@ -1969,10 +2127,17 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         # "feature_flags" and "element" filter out all events
         if name == "feature_flags" or name == "element":
-            with freeze_time("2023-01-07"), self.assertRaises(ValueError) as context:
+            with self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
 
-            self.assertEqual(context.exception.args[0], "Control variant not found in experiment results")
+            expected_errors = json.dumps(
+                {
+                    ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
+                    ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                    ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+                }
+            )
+            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
         else:
             with freeze_time("2023-01-07"):
                 result = query_runner.calculate()
@@ -1992,13 +2157,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Run the query again without filtering
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.CONTINUOUS,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 events_join_key="properties.$user_id",
                 data_warehouse_join_key="userid",
                 timestamp_field="ds",
-                math="sum",
+                math=ExperimentMetricMathType.SUM,
                 math_property="usage",
             ),
         )
@@ -2024,7 +2189,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
         )
 
-        self.assertEqual(control_result.absolute_exposure, 8)
+        self.assertEqual(control_result.absolute_exposure, 7)
         self.assertEqual(test_result.absolute_exposure, 10)
 
     @snapshot_clickhouse_queries
@@ -2041,7 +2206,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 events_join_key="person.properties.email",
@@ -2118,3 +2283,130 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_result.count, 3)
         self.assertEqual(control_result.absolute_exposure, 7)
         self.assertEqual(test_result.absolute_exposure, 9)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_excludes_multiple_variants(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.MEAN,
+            metric_config=ExperimentEventMetricConfig(event="$pageview"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # User who sees only control variant
+        _create_person(distinct_ids=["user_control"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_control",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                "$feature_flag_response": "control",
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_control",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={feature_flag_property: "control"},
+        )
+
+        # User who sees only test variant
+        _create_person(distinct_ids=["user_test"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_test",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                "$feature_flag_response": "test",
+                feature_flag_property: "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_test",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={feature_flag_property: "test"},
+        )
+
+        # User who sees both variants (should be excluded)
+        _create_person(distinct_ids=["user_multiple"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_multiple",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                "$feature_flag_response": "control",
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_multiple",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={
+                "$feature_flag_response": "test",
+                feature_flag_property: "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_multiple",
+            timestamp="2020-01-02T12:02:00Z",
+            properties={feature_flag_property: "control"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_multiple",
+            timestamp="2020-01-02T12:03:00Z",
+            properties={feature_flag_property: "test"},
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Verify that only the single-variant users are counted
+        self.assertEqual(control_variant.count, 1)  # Only from user_control
+        self.assertEqual(test_variant.count, 1)  # Only from user_test
+
+        # Verify the exposure counts (users who have been exposed to the variant)
+        self.assertEqual(control_variant.absolute_exposure, 1)  # Only user_control
+        self.assertEqual(test_variant.absolute_exposure, 1)  # Only user_test

@@ -1,6 +1,7 @@
-use std::{fmt, hash::Hash, str::FromStr};
+use std::{fmt, hash::Hash, str::FromStr, sync::LazyLock};
 
 use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{Executor, Postgres};
@@ -12,6 +13,7 @@ use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_ISSUED, UPDATES_SKIPPED};
 // We skip updates for events we generate
 pub const EVENTS_WITHOUT_PROPERTIES: [&str; 1] = ["$$plugin_metrics"];
 
+pub const SIX_MONTHS_AGO_SECS: u64 = 15768000;
 // These properties have special meaning, and are ignored
 pub const SKIP_PROPERTIES: [&str; 9] = [
     "$set",
@@ -24,6 +26,29 @@ pub const SKIP_PROPERTIES: [&str; 9] = [
     "$group_4",
     "$groups",
 ];
+
+const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 7] = [
+    "time",
+    "timestamp",
+    "date",
+    "_at",
+    "-at",
+    "createdat",
+    "updatedat",
+];
+
+// TRICKY: the pattern below is a best-effort attempt to classify likely DateTime properties by
+// a string prefix of their value. While this doesn't enforce compliance to standard formats,
+// it does represent a pretty strong indication of the user's intent, for the purposes of
+// *property definition capture only* especially when a bad decision "locks" the property name
+// to the wrong type. Try it here: https://rustexp.lpil.uk/ and review the unit tests.
+// Also notable: post-capture, PostHog displays timestamps in a variety formats:
+// https://github.com/PostHog/posthog/blob/master/posthog/models/property_definition.py#L18-L30
+static DATETIME_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r#"^(([0-9]{4}[/-][0-2][0-9][/-][0-3][0-9])|([0-2][0-9][/-][0-3][0-9][/-][0-9]{4}))([ T][0-2][0-9]:[0-6][0-9]:[0-6][0-9].*)?$"#
+    ).unwrap()
+});
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum PropertyParentType {
@@ -112,21 +137,12 @@ pub struct EventProperty {
     pub property: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-pub struct HostDefinition {
-    pub team_id: i32,
-    pub project_id: i64,
-    pub host: String,
-    pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen
-}
-
 // Represents a generic update, but comparable, allowing us to dedupe and cache updates
 #[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Update {
     Event(EventDefinition),
     Property(PropertyDefinition),
     EventProperty(EventProperty),
-    Host(HostDefinition),
 }
 
 impl Update {
@@ -138,7 +154,6 @@ impl Update {
             Update::Event(e) => e.issue(executor).await,
             Update::Property(p) => p.issue(executor).await,
             Update::EventProperty(ep) => ep.issue(executor).await,
-            Update::Host(h) => h.issue(executor).await,
         }
     }
 }
@@ -229,9 +244,6 @@ impl Event {
             return updates;
         }
 
-        // Check for $host property and add HostDefinition if present
-        self.get_host_from_props(&mut updates, &props);
-
         // Grab the "ordinary" (non-person) event properties
         self.get_props_from_object(&mut updates, &props, PropertyParentType::Event, None);
 
@@ -249,22 +261,6 @@ impl Event {
         }
 
         updates
-    }
-
-    fn get_host_from_props(&self, updates: &mut Vec<Update>, props: &Map<String, Value>) {
-        if let Some(Value::String(host)) = props.get("$host") {
-            if will_fit_in_postgres_column(host) {
-                updates.push(Update::Host(HostDefinition {
-                    team_id: self.team_id,
-                    project_id: self.project_id,
-                    host: host.to_string(),
-                    last_seen_at: get_floored_last_seen(),
-                }));
-            } else {
-                metrics::counter!(UPDATES_SKIPPED, &[("reason", "host_wont_fit_in_postgres")])
-                    .increment(1);
-            }
-        }
     }
 
     fn get_props_from_object(
@@ -315,7 +311,9 @@ impl Event {
     }
 }
 
-fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
+pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
+    let key = key.to_lowercase();
+
     // There are a whole set of special cases here, taken from the TS
     if key.starts_with("utm_") {
         // utm_ prefixed properties should always be detected as strings.
@@ -348,26 +346,28 @@ fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
         return Some(PropertyValueType::String);
     }
 
+    if detect_timestamp_property_by_key_and_value(&key, value) {
+        return Some(PropertyValueType::DateTime);
+    }
+
+    // OK, attempt to classify prop type on value alone
     match value {
         Value::String(s) => {
             let s = &s.trim();
             if *s == "true" || *s == "false" || *s == "TRUE" || *s == "FALSE" {
                 Some(PropertyValueType::Boolean)
+            // Try to parse this as an ISO 8601 date, and if we can, use that as the type instead
+            } else if is_likely_date_string(s) {
+                Some(PropertyValueType::DateTime)
             } else {
-                // TODO - we should try to auto-detect datetime strings here, but I'm skipping the chunk of regex necessary to do it for v0
                 Some(PropertyValueType::String)
             }
         }
-        Value::Number(_) => {
-            // TODO - this is a divergence from the TS impl - the TS also checks if the contained number is
-            // "likely" to be a unix timestamp on the basis of the number of characters. I have mixed feelings about this,
-            // so I'm going to leave it as just checking the key for now. This means we're being /less/ strict with datetime
-            // detection here than in the TS
-            if key.contains("timestamp")
-                || key.contains("TIMESTAMP")
-                || key.contains("time")
-                || key.contains("TIME")
-            {
+        Value::Number(n) => {
+            // this is a more rigorous threshold to ensure we don't misclassify
+            // larger numerical values easily. It mimics (roughly) the old TS service
+            // classification but still may be too aggressive. TBD
+            if is_likely_unix_timestamp(n) {
                 Some(PropertyValueType::DateTime)
             } else {
                 Some(PropertyValueType::Numeric)
@@ -376,6 +376,46 @@ fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
         Value::Bool(_) => Some(PropertyValueType::Boolean),
         _ => None,
     }
+}
+
+fn detect_timestamp_property_by_key_and_value(key: &str, value: &Value) -> bool {
+    if DATETIME_PROPERTY_NAME_KEYWORDS
+        .iter()
+        .any(|kw| key.contains(*kw))
+    {
+        return match value {
+            Value::String(s) if is_likely_date_string(s) => true,
+            Value::Number(n) if is_likely_unix_timestamp(n) => true,
+            _ => false,
+        };
+    }
+
+    false
+}
+
+fn is_likely_date_string(s: &str) -> bool {
+    if DateTime::parse_from_rfc3339(s).is_ok() || DateTime::parse_from_rfc2822(s).is_ok() {
+        return true;
+    }
+
+    if DATETIME_PREFIX_REGEX.is_match(s) {
+        return true;
+    }
+
+    false
+}
+
+// frought with peril if folks are pushing big(ish) numbers into event prop values...
+fn is_likely_unix_timestamp(n: &serde_json::Number) -> bool {
+    if let Some(value) = n.as_u64() {
+        // we could go more conservative here, but you get the idea
+        let threshold: u64 = (Utc::now().timestamp_millis() as u64 / 1000u64) - SIX_MONTHS_AGO_SECS;
+        if value >= threshold {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn sanitize_event_name(event_name: &str) -> String {
@@ -397,14 +437,6 @@ impl Hash for EventDefinition {
         self.team_id.hash(state);
         self.name.hash(state);
         self.last_seen_at.hash(state)
-    }
-}
-
-impl Hash for HostDefinition {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.team_id.hash(state);
-        self.host.hash(state);
-        self.last_seen_at.hash(state);
     }
 }
 
@@ -548,52 +580,5 @@ impl EventProperty {
         metrics::counter!(UPDATES_ISSUED, &[("type", "event_property")]).increment(1);
 
         res
-    }
-}
-
-impl HostDefinition {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        let res = sqlx::query!(
-            r#"
-            INSERT INTO posthog_hostdefinition (id, host, team_id, project_id, last_seen_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, NOW())
-            ON CONFLICT (coalesce(project_id, team_id::bigint), host)
-            DO UPDATE SET last_seen_at = $5
-            "#,
-            Uuid::now_v7(),
-            sanitize_string(self.host.clone()),
-            self.team_id,
-            self.project_id,
-            Utc::now() // We floor the update datetime for cache purposes, but can insert the exact time we see the event
-        ).execute(executor).await.map(|_| ());
-
-        metrics::counter!(UPDATES_ISSUED, &[("type", "host_definition")]).increment(1);
-
-        res
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use chrono::{Timelike, Utc};
-
-    use crate::types::get_floored_last_seen;
-
-    #[test]
-    fn test_date_flooring() {
-        let now = Utc::now();
-        let rounded = get_floored_last_seen();
-
-        // Time should be rounded to the nearest hour
-        assert_eq!(rounded.minute(), 0);
-        assert_eq!(rounded.second(), 0);
-        assert_eq!(rounded.nanosecond(), 0);
-        assert!(rounded <= now);
-
-        // The difference between now and rounded should be less than 1 hour
-        assert!(now - rounded < chrono::Duration::hours(1));
     }
 }

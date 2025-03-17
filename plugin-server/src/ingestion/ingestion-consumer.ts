@@ -15,14 +15,14 @@ import {
     setUsageInNonPersonEventsCounter,
 } from '../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { Hub, PipelineEvent, PluginServerService } from '../types'
+import { Hub, PipelineEvent, PluginServerService, PluginsServerConfig } from '../types'
 import { normalizeEvent } from '../utils/event'
+import { parseJSON } from '../utils/json-parse'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'
-
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
@@ -58,6 +58,7 @@ export class IngestionConsumer {
     protected topic: string
     protected dlqTopic: string
     protected overflowTopic?: string
+    protected testingTopic?: string
 
     batchConsumer?: BatchConsumer
     isStopping = false
@@ -66,20 +67,32 @@ export class IngestionConsumer {
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
-
     private overflowRateLimiter: MemoryRateLimiter
     private ingestionWarningLimiter: MemoryRateLimiter
     private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
 
-    constructor(private hub: Hub) {
+    constructor(
+        private hub: Hub,
+        overrides: Partial<
+            Pick<
+                PluginsServerConfig,
+                | 'INGESTION_CONSUMER_GROUP_ID'
+                | 'INGESTION_CONSUMER_CONSUME_TOPIC'
+                | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
+                | 'INGESTION_CONSUMER_DLQ_TOPIC'
+                | 'INGESTION_CONSUMER_TESTING_TOPIC'
+            >
+        > = {}
+    ) {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
-        this.groupId = hub.INGESTION_CONSUMER_GROUP_ID
-        this.topic = hub.INGESTION_CONSUMER_CONSUME_TOPIC
-        this.overflowTopic = hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
-        this.dlqTopic = hub.INGESTION_CONSUMER_DLQ_TOPIC
+        this.groupId = overrides.INGESTION_CONSUMER_GROUP_ID ?? hub.INGESTION_CONSUMER_GROUP_ID
+        this.topic = overrides.INGESTION_CONSUMER_CONSUME_TOPIC ?? hub.INGESTION_CONSUMER_CONSUME_TOPIC
+        this.overflowTopic = overrides.INGESTION_CONSUMER_OVERFLOW_TOPIC ?? hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
+        this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? hub.INGESTION_CONSUMER_DLQ_TOPIC
         this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',').filter((x) => !!x)
         this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
+        this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
         this.name = `ingestion-consumer-${this.topic}`
         this.overflowRateLimiter = new MemoryRateLimiter(
@@ -101,6 +114,9 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
+        // NOTE: This needs to be started before the kafka consumer starts as other things rely on it
+        await this.hogTransformer.start()
+
         await Promise.all([
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
@@ -116,7 +132,6 @@ export class IngestionConsumer {
                 groupId: this.groupId,
                 handleBatch: async (messages) => this.handleKafkaBatch(messages),
             }),
-            this.hogTransformer.start(),
         ])
     }
 
@@ -193,9 +208,16 @@ export class IngestionConsumer {
                 status.debug('🔁', `Processing event`, {
                     event,
                 })
+
+                if (this.testingTopic) {
+                    void this.scheduleWork(this.emitToTestingTopic([message]))
+                    continue
+                }
+
                 const eventKey = `${event.token}:${event.distinct_id}`
                 // Check the rate limiter and emit to overflow if necessary
                 const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
+
                 if (this.overflowEnabled() && !isBelowRateLimit) {
                     status.debug('🔁', `Sending to overflow`, {
                         event,
@@ -259,8 +281,8 @@ export class IngestionConsumer {
             }
 
             // Parse the message payload into the event object
-            const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-            const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
+            const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
+            const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
             const event: PipelineEvent = normalizeEvent({
                 ...combinedEvent,
             })
@@ -328,7 +350,7 @@ export class IngestionConsumer {
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('disconnected', async (err) => {
-            if (!this.isStopping) {
+            if (this.isStopping) {
                 return
             }
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
@@ -407,7 +429,11 @@ export class IngestionConsumer {
     }
 
     private overflowEnabled() {
-        return !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC && this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
+        return (
+            !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
+            this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic &&
+            !this.testingTopic
+        )
     }
 
     private async emitToOverflow(kafkaMessages: Message[]) {
@@ -433,6 +459,24 @@ export class IngestionConsumer {
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
                     key: useRandomPartitioning ? null : message.key ?? null,
+                    headers: message.headers,
+                })
+            )
+        )
+    }
+
+    private async emitToTestingTopic(kafkaMessages: Message[]) {
+        const testingTopic = this.testingTopic
+        if (!testingTopic) {
+            throw new Error('No testing topic configured')
+        }
+
+        await Promise.all(
+            kafkaMessages.map((message) =>
+                this.kafkaOverflowProducer!.produce({
+                    topic: this.testingTopic!,
+                    value: message.value,
+                    key: message.key ?? null,
                     headers: message.headers,
                 })
             )

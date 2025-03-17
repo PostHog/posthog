@@ -10,6 +10,7 @@ from posthog.models import MessagingRecord, Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import BaseTest
 from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP
+from django.conf import settings
 
 
 class TestEmail(BaseTest):
@@ -96,12 +97,18 @@ class TestEmail(BaseTest):
             message.add_recipient("test@posthog.com", "Test User")
             message.send(send_async=False)
 
-            mock_post.assert_called_once()
-            call_kwargs = mock_post.call_args[1]
-            self.assertEqual(call_kwargs["headers"]["Authorization"], "Bearer test-key")
-            self.assertEqual(call_kwargs["json"]["to"], "test@posthog.com")
-            self.assertEqual(
-                call_kwargs["json"]["transactional_message_id"], CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"]
+            mock_post.assert_called_once_with(
+                f"{settings.CUSTOMER_IO_API_URL}/v1/send/email",
+                headers={
+                    "Authorization": "Bearer test-key",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "to": "test@posthog.com",
+                    "identifiers": {"email": "test@posthog.com"},
+                    "transactional_message_id": CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"],
+                    "message_data": {},
+                },
             )
 
     @patch("requests.post")
@@ -121,10 +128,19 @@ class TestEmail(BaseTest):
             message.add_recipient("test@posthog.com")
             message.send(send_async=False)
 
-            mock_post.assert_called_once()
-            call_kwargs = mock_post.call_args[1]
-            self.assertIsInstance(call_kwargs["json"]["message_data"]["decimal_value"], float)
-            self.assertEqual(call_kwargs["json"]["message_data"]["decimal_value"], 1.23)
+            mock_post.assert_called_once_with(
+                f"{settings.CUSTOMER_IO_API_URL}/v1/send/email",
+                headers={
+                    "Authorization": "Bearer test-key",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "to": "test@posthog.com",
+                    "identifiers": {"email": "test@posthog.com"},
+                    "transactional_message_id": CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"],
+                    "message_data": {"decimal_value": 1.23},
+                },
+            )
 
     @patch("requests.post")
     def test_send_via_http_api_error(self, mock_post) -> None:

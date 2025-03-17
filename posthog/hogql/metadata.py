@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from django.conf import settings
 
+from posthog.clickhouse.explain import execute_explain_get_index_use
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
@@ -25,6 +26,7 @@ from posthog.schema import (
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLNotice,
+    QueryIndexUsage,
 )
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -76,11 +78,16 @@ def get_hogql_metadata(
             table_names = get_table_names(select_ast)
             response.table_names = table_names
             response.isValidView = _is_valid_view
-            print_ast(
+            clickhouse_sql = print_ast(
                 select_ast,
                 context=context,
                 dialect="clickhouse",
             )
+
+            if context.errors:
+                response.isUsingIndices = QueryIndexUsage.UNDECISIVE
+            else:
+                response.isUsingIndices = execute_explain_get_index_use(clickhouse_sql, context)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
         response.warnings = context.warnings
