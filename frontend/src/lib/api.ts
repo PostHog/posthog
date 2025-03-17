@@ -657,6 +657,10 @@ class ApiRequest {
         })
     }
 
+    public groupActivity(teamId?: TeamType['id']): ApiRequest {
+        return this.groups(teamId).addPathComponent('activity')
+    }
+
     // # Search
     public search(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('search')
@@ -1361,6 +1365,9 @@ const api = {
                 [ActivityScope.PERSON]: () => {
                     return new ApiRequest().personActivity(props.id)
                 },
+                [ActivityScope.GROUP]: () => {
+                    return new ApiRequest().groupActivity()
+                },
                 [ActivityScope.INSIGHT]: () => {
                     return new ApiRequest().insightsActivity(projectId)
                 },
@@ -1393,10 +1400,16 @@ const api = {
                 },
             }
 
-            const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
+            let parameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE } as Record<string, any>
             const request = requestForScope[scopes[0]]?.()
+            // :KLUDGE: Groups don't expose a unique ID so we need to pass the index and the key
+            if (scopes[0] === ActivityScope.GROUP && props.id) {
+                const groupTypeIndex = (props.id as string)[0]
+                const groupKey = (props.id as string).substring(2)
+                parameters = { ...parameters, group_type_index: groupTypeIndex, group_key: groupKey }
+            }
             return request
-                ? request.withQueryString(toParams(pagingParameters)).get()
+                ? request.withQueryString(toParams(parameters)).get()
                 : Promise.resolve({ results: [], count: 0 })
         },
     },

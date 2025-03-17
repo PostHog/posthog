@@ -14,8 +14,11 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.client import sync_execute
+from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
+from loginas.utils import is_impersonated_session
 
 
 class GroupTypeSerializer(serializers.ModelSerializer):
@@ -168,6 +171,16 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                     )
             group.group_properties[request.data["key"]] = request.data["value"]
             group.save()
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=request.user,
+                was_impersonated=is_impersonated_session(request),
+                item_id=group.pk,
+                scope="Group",
+                activity="update_property",
+                detail=Detail(name=str(request.data["key"]), changes=[Change(type="Group", action="changed")]),
+            )
             return response.Response(self.get_serializer(group).data)
         except Group.DoesNotExist:
             raise NotFound()
@@ -205,9 +218,54 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                     )
             del group.group_properties[request.data["$unset"]]
             group.save()
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=request.user,
+                was_impersonated=is_impersonated_session(request),
+                item_id=group.pk,
+                scope="Group",
+                activity="delete_property",
+                detail=Detail(name=str(request.data["$unset"]), changes=[Change(type="Group", action="changed")]),
+            )
             return response.Response(self.get_serializer(group).data)
         except Group.DoesNotExist:
             raise NotFound()
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "group_type_index",
+                OpenApiTypes.INT,
+                description="Specify the group type to find",
+                required=True,
+            ),
+            OpenApiParameter(
+                "id",
+                OpenApiTypes.STR,
+                description="Specify the id of the user to find groups for",
+                required=True,
+            ),
+        ]
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["activity_log:read"])
+    def activity(self, request: request.Request, pk=None, **kwargs):
+        try:
+            group = self.get_queryset().get()
+        except Group.DoesNotExist:
+            raise NotFound()
+
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(
+            scope="Group",
+            team_id=self.team_id,
+            item_ids=[group.pk],
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
 
     @extend_schema(
         parameters=[

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -27,6 +28,7 @@ import { urls } from 'scenes/urls'
 import { Query } from '~/queries/Query/Query'
 import {
     ActionFilter,
+    ActivityScope,
     FilterLogicalOperator,
     Group as IGroup,
     NotebookNodeType,
@@ -234,6 +236,22 @@ export function Group(): JSX.Element {
                                 distinctId={groupData.group_key}
                                 groupTypeIndex={groupTypeIndex}
                                 groups={{ [groupType]: groupKey }}
+                            />
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.HISTORY,
+                        label: 'History',
+                        content: (
+                            <ActivityLog
+                                scope={ActivityScope.GROUP}
+                                id={`${groupTypeIndex}-${groupKey}`}
+                                caption={
+                                    <LemonBanner type="info">
+                                        This page only shows changes made by users in the PostHog site. Automatic
+                                        changes from the API aren't shown here.
+                                    </LemonBanner>
+                                }
                             />
                         ),
                     },
