@@ -8,11 +8,55 @@ from clickhouse_driver import Client
 import dagster
 from django.conf import settings
 import pydantic
+from dags.common import JobOwners
 from posthog.clickhouse.cluster import ClickhouseCluster
 
 from dagster_aws.s3 import S3Resource
 
 NO_SHARD_PATH = "noshard"
+
+SHARDED_TABLES = [
+    "sharded_app_metrics",
+    "sharded_app_metrics2",
+    "sharded_heatmaps",
+    "sharded_ingestion_warnings",
+    "sharded_performance_events",
+    "sharded_person_distinct_id",
+    "sharded_raw_sessions",
+    "sharded_session_replay_embeddings",
+    "sharded_session_replay_events",
+    "sharded_session_replay_events_v2_test",
+    "sharded_sessions",
+    "sharded_events",
+]
+
+NON_SHARDED_TABLES = [
+    "asyncdeletion",
+    "channel_definition",
+    "cohortpeople",
+    "error_tracking_issue_fingerprint_overrides",
+    "events_dead_letter_queue",
+    "events_plugin_ingestion_partition_statistics_v2",
+    "exchange_rate",
+    "groups",
+    "infi_clickhouse_orm_migrations",
+    "infi_clickhouse_orm_migrations_tmp",
+    "log_entries",
+    "metrics_query_log",
+    "metrics_time_to_see_data",
+    "pending_person_deletes_reporting",
+    "person",
+    "person_collapsing",
+    "person_distinct_id",
+    "person_distinct_id2",
+    "person_distinct_id_backup",
+    "person_distinct_id_overrides",
+    "person_overrides",
+    "person_static_cohort",
+    "pg_embeddings",
+    "plugin_log_entries",
+    "swap_person_distinct_id",
+]
 
 
 @dataclass
@@ -94,7 +138,7 @@ class Backup:
             """
         )
 
-        (hostname, status, error) = rows[0]
+        (hostname, status, error) = rows[0] if rows else (None, None, None)
 
         return BackupStatus(hostname=hostname, status=status, error=error) if rows else None
 
@@ -151,10 +195,6 @@ class BackupConfig(dagster.Config):
         pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$",
         validate_default=True,
     )
-    shard: int = pydantic.Field(
-        default=None,
-        description="The shard to backup. If not specified, the backup will be made once.",
-    )
 
 
 @dagster.op(out=dagster.DynamicOut())
@@ -209,12 +249,12 @@ def check_latest_backup_status(
         else cluster.map_all_hosts
     )
 
-    is_done = map_hosts(latest_backup.is_done).result()
+    is_done = map_hosts(latest_backup.is_done).result().values()
     if not all(is_done):
         context.log.info(f"Latest backup {latest_backup.path} is still in progress, waiting for it to finish")
         map_hosts(latest_backup.wait).result()
     else:
-        status = next(filter(lambda x: x is not None, map_hosts(latest_backup.status).result()))
+        status = next(filter(lambda x: x is not None, map_hosts(latest_backup.status).result().values()))
         if status.status != "BACKUP_CREATED":
             raise ValueError(
                 f"Latest backup {latest_backup.path} finished with an unexpected status: {status.status} on the host {status.hostname}. Please clean it from S3 before running a new backup."
@@ -250,10 +290,9 @@ def run_backup(
     )
 
     if latest_backup and latest_backup.path == backup.path:
-        context.log.warn(
+        raise ValueError(
             f"This backup directory exists in S3. Skipping its run, if you want to run it again, remove the data from {backup.path}"
         )
-        return
 
     if backup.shard:
         cluster.map_any_host_in_shards({backup.shard: backup.create}).result()
@@ -281,22 +320,26 @@ def wait_for_backup(
         context.log.info("No backup to wait for")
 
 
-@dagster.job()
+@dagster.job(
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 2}),
+)
 def sharded_backup():
     """
     Backup ClickHouse database / table to S3 once per shard
     """
-    pass
 
-    # def run_backup_for_shard(shard: int):
-    #     latest_backup = get_latest_backup(shard)
-    #     run_backup(latest_backup, shard)
+    def run_backup_for_shard(shard: int):
+        latest_backup = get_latest_backup(shard)
+        new_backup = run_backup(check_latest_backup_status(latest_backup), shard)
+        wait_for_backup(new_backup)
 
-    # shards: dagster.DynamicOutput = get_shards()
-    # shards.map(run_backup_for_shard)
+    shards: dagster.DynamicOutput = get_shards()
+    shards.map(run_backup_for_shard)
 
 
-@dagster.job
+@dagster.job(
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 8}),
+)
 def non_sharded_backup():
     """
     Backup ClickHouse database / table to S3 once (chooses a random shard)
@@ -306,31 +349,69 @@ def non_sharded_backup():
     wait_for_backup(new_backup)
 
 
+def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    config = BackupConfig(
+        database=settings.CLICKHOUSE_DATABASE,
+        date=timestamp,
+        table=table,
+        incremental=incremental,
+    )
+    return dagster.RunRequest(
+        run_key=timestamp,
+        run_config={
+            "ops": {
+                "get_latest_backup": {"config": config.model_dump()},
+                "run_backup": {"config": config.model_dump()},
+            }
+        },
+        tags={
+            "backup_type": "incremental" if incremental else "full",
+            "table": table,
+            "owner": JobOwners.TEAM_CLICKHOUSE.value,
+        },
+    )
+
+
 @dagster.schedule(
     job=sharded_backup,
     cron_schedule="0 22 * * 5",
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
 def full_sharded_backup_schedule():
     """Launch a full backup for sharded tables"""
-    pass
-    # timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    # tables = [
-    #     "sharded_app_metrics2",
-    # ]
+    for table in SHARDED_TABLES:
+        yield run_backup_request(table, incremental=False)
 
-    # for table in tables:
-    #     config = BackupConfig(
-    #         database=settings.CLICKHOUSE_DATABASE,
-    #         date=timestamp,
-    #         table=table,
-    #         incremental=False,
-    #     )
-    #     yield dagster.RunRequest(
-    #         run_key=timestamp,
-    #         run_config={
-    #             "ops": {
-    #                 "get_latest_backup": {"config": config.model_dump()},
-    #                 "run_backup": {"config": config.model_dump()},
-    #             }
-    #         },
-    #     )
+
+@dagster.schedule(
+    job=non_sharded_backup,
+    cron_schedule="0 22 * * 5",
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)
+def full_non_sharded_backup_schedule():
+    """Launch a full backup for non-sharded tables"""
+    for table in NON_SHARDED_TABLES:
+        yield run_backup_request(table, incremental=False)
+
+
+@dagster.schedule(
+    job=sharded_backup,
+    cron_schedule="0 22 * * 0-4,6",
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)
+def incremental_sharded_backup_schedule():
+    """Launch an incremental backup for sharded tables"""
+    for table in SHARDED_TABLES:
+        yield run_backup_request(table, incremental=True)
+
+
+@dagster.schedule(
+    job=non_sharded_backup,
+    cron_schedule="0 22 * * 0-4,6",
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)
+def incremental_non_sharded_backup_schedule():
+    """Launch an incremental backup for non-sharded tables"""
+    for table in NON_SHARDED_TABLES:
+        yield run_backup_request(table, incremental=True)
