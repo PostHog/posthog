@@ -13,7 +13,7 @@ import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 
 export function HogFunctionEventEstimates(): JSX.Element | null {
-    const { sparkline, sparklineLoading, eventsDataTableNode, showEventsList } =
+    const { sparkline, sparklineLoading, eventsDataTableNode, showEventsList, type } =
         useValues(hogFunctionConfigurationLogic)
 
     const { setShowEventsList } = useActions(hogFunctionConfigurationLogic)
@@ -50,15 +50,17 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                 <>
                     {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
                         <LemonBanner type="warning">
-                            <b>Warning:</b> This destination would have triggered{' '}
+                            <b>Warning:</b> This {type === 'transformation' ? 'transformation' : 'destination'} would
+                            have triggered{' '}
                             <strong>
                                 {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
                             </strong>{' '}
-                            in the last 7 days. Consider the impact of this function on your destination.
+                            in the last 7 days. Consider the impact of this function on your{' '}
+                            {type === 'transformation' ? 'data pipeline' : 'destination'}.
                         </LemonBanner>
                     ) : (
                         <p>
-                            This destination would have triggered{' '}
+                            This {type === 'transformation' ? 'transformation' : 'destination'} would have triggered{' '}
                             <strong>
                                 {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
                             </strong>{' '}

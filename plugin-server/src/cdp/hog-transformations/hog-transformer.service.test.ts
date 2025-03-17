@@ -1028,5 +1028,100 @@ describe('HogTransformer', () => {
                 `${hogFunction.name} (${hogFunction.id})`
             )
         })
+
+        it('should skip transformation when none of multiple filters match', async () => {
+            const multiFilterTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Multi Filter Template',
+                description: 'A template with multiple filters that should all not match',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.should_not_be_set := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: multiFilterTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(multiFilterTemplate.hog),
+                filters: {
+                    bytecode: await compileHog(`
+                        // First filter checks for 'match-me-1'
+                        let filter1 := event = 'match-me-1'
+                        // Second filter checks for 'match-me-2'
+                        let filter2 := event = 'match-me-2'
+                        // Only transform if at least one filter matches
+                        return filter1 or filter2
+                    `),
+                },
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event = createPluginEvent({ event: 'does-not-match-any' }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Verify transformation was skipped since no filters matched
+            expect(result.event?.properties?.should_not_be_set).toBeUndefined()
+            expect(result.event?.properties?.$transformations_succeeded).toBeUndefined()
+            expect(result.event?.properties?.$transformations_failed).toBeUndefined()
+        })
+
+        it('should apply transformation when at least one of multiple filters match', async () => {
+            const multiFilterTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Multi Filter Template',
+                description: 'A template with multiple filters where one should match',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.should_be_set := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: multiFilterTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(multiFilterTemplate.hog),
+                filters: {
+                    bytecode: await compileHog(`
+                        // First filter checks for 'match-me-1'
+                        let filter1 := event = 'match-me-1'
+                        // Second filter checks for 'match-me-2'
+                        let filter2 := event = 'match-me-2'
+                        // Only transform if at least one filter matches
+                        return filter1 or filter2
+                    `),
+                },
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event = createPluginEvent({ event: 'match-me-1' }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Verify transformation was applied since one filter matched
+            expect(result.event?.properties?.should_be_set).toBe(true)
+            expect(result.event?.properties?.$transformations_succeeded).toContain(
+                `${hogFunction.name} (${hogFunction.id})`
+            )
+        })
     })
 })

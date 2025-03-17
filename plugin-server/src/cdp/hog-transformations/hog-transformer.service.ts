@@ -1,4 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import {
@@ -162,6 +163,23 @@ export class HogTransformerService {
                                 event_id: event.uuid,
                                 transformation_id: hogFunction.id,
                                 transformation_name: hogFunction.name,
+                            })
+                            // Add a log entry to the results when filtered out
+                            const globalsWithInputs = buildGlobalsWithInputs(globals, {
+                                ...(hogFunction.inputs ?? {}),
+                                ...(hogFunction.encrypted_inputs ?? {}),
+                            })
+
+                            results.push({
+                                invocation: createInvocation(globalsWithInputs, hogFunction),
+                                logs: [
+                                    {
+                                        level: 'info',
+                                        timestamp: DateTime.now(),
+                                        message: `Transformation was skipped - filter did not match`,
+                                    },
+                                ],
+                                finished: true,
                             })
                             continue
                         }

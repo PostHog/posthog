@@ -100,7 +100,18 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     }
 
     if (hogFunctionId) {
-        return <HogFunctionConfiguration templateId={hogFunctionId} />
+        return (
+            <HogFunctionConfiguration
+                templateId={hogFunctionId}
+                displayOptions={{
+                    showFilters: true,
+                    showStatus: true,
+                    showExpectedVolume: true,
+                    showEnabled: true,
+                    showTesting: true,
+                }}
+            />
+        )
     }
 
     if (stage === PipelineStage.Transformation) {

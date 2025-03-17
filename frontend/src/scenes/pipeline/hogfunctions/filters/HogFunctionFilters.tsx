@@ -83,7 +83,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
     const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
 
     const showMasking = type === 'destination' && !isLegacyPlugin
-    const showDropEvents = type === 'transformation'
+    const showDropEvents = false // TODO coming back to this later for the dropEvents Transformation
 
     return (
         <div
@@ -138,8 +138,11 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                         <LemonLabel>Match events and actions</LemonLabel>
                                     </div>
                                     <p className="mb-0 text-xs text-secondary">
-                                        If set, the destination will only run if the <b>event matches any</b> of the
-                                        below.
+                                        If set,{' '}
+                                        {type === 'transformation'
+                                            ? 'the transformation will only be applied if the'
+                                            : 'the destination will only run if the'}{' '}
+                                        <b>event matches any</b> of the below.
                                     </p>
                                     <ActionFilter
                                         bordered
