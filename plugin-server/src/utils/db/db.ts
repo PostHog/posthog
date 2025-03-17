@@ -49,6 +49,7 @@ import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestio
 import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
+import { parseJSON } from '../json-parse'
 import { instrumentQuery } from '../metrics'
 import { captureException } from '../posthog'
 import { status } from '../status'
@@ -261,7 +262,7 @@ export class DB {
                 if (typeof value === 'undefined' || value === null) {
                     return defaultValue
                 }
-                return value ? (jsonSerialize ? JSON.parse(value) : value) : null
+                return value ? (jsonSerialize ? parseJSON(value) : value) : null
             } catch (error) {
                 if (error instanceof SyntaxError) {
                     // invalid JSON
@@ -1025,7 +1026,7 @@ export class DB {
         ).data.map((event) => {
             return {
                 ...event,
-                snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
+                snapshot_data: event.snapshot_data ? parseJSON(event.snapshot_data) : null,
             }
         })
         return events

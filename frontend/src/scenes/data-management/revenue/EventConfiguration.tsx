@@ -12,7 +12,7 @@ import { CurrencyDropdown } from './CurrencyDropdown'
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 
 export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<HTMLButtonElement> }): JSX.Element {
-    const { events, saveDisabledReason } = useValues(revenueEventsSettingsLogic)
+    const { events, saveEventsDisabledReason, changesMadeToEvents } = useValues(revenueEventsSettingsLogic)
     const { addEvent, deleteEvent, updateEventRevenueProperty, updateEventRevenueCurrencyProperty, save } =
         useActions(revenueEventsSettingsLogic)
 
@@ -60,7 +60,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<H
                         dataIndex: 'revenueCurrencyProperty',
                         render: (_, item: RevenueTrackingEventItem) => {
                             return (
-                                <div className="flex flex-col w-full gap-3 my-1">
+                                <div className="flex flex-col w-full gap-3 my-1 min-w-[250px] whitespace-nowrap">
                                     <div className="flex flex-row gap-1">
                                         <span className="font-bold">Dynamic property: </span>
                                         <TaxonomicPopover
@@ -95,27 +95,38 @@ export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<H
                         key: 'delete',
                         fullWidth: true,
                         title: (
-                            <div className="flex flex-row w-full gap-1 justify-end my-2">
-                                <TaxonomicPopover
-                                    type="primary"
-                                    groupType={TaxonomicFilterGroupType.CustomEvents}
-                                    onChange={addEvent}
-                                    value={undefined}
-                                    placeholder="Create revenue event"
-                                    placeholderClass=""
-                                    excludedProperties={{
-                                        [TaxonomicFilterGroupType.CustomEvents]: [
-                                            null,
-                                            ...events.map((item) => item.eventName),
-                                        ],
-                                    }}
-                                    id="data-management-revenue-settings-add-event"
-                                    ref={buttonRef}
-                                />
+                            <div className="flex flex-col gap-1 items-end w-full">
+                                <div className="flex flex-row w-full gap-1 justify-end my-2">
+                                    <TaxonomicPopover
+                                        type="primary"
+                                        groupType={TaxonomicFilterGroupType.CustomEvents}
+                                        onChange={addEvent}
+                                        value={undefined}
+                                        placeholder="Create revenue event"
+                                        placeholderClass=""
+                                        excludedProperties={{
+                                            [TaxonomicFilterGroupType.CustomEvents]: [
+                                                null,
+                                                ...events.map((item) => item.eventName),
+                                            ],
+                                        }}
+                                        id="data-management-revenue-settings-add-event"
+                                        ref={buttonRef}
+                                    />
 
-                                <LemonButton type="primary" onClick={save} disabledReason={saveDisabledReason}>
-                                    Save
-                                </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={save}
+                                        disabledReason={saveEventsDisabledReason}
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </div>
+                                {changesMadeToEvents && (
+                                    <span className="text-xs text-error normal-case font-normal">
+                                        Remember to save your changes to take effect
+                                    </span>
+                                )}
                             </div>
                         ),
                         render: (_, item) => (

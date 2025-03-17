@@ -79,7 +79,7 @@
   JOIN
     (SELECT events.event AS event,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90)))
+     FROM events PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE and(equals(session_replay_events.team_id, 99999), ifNull(equals(raw_session_replay_events__events.event, '$pageview'), 0))
   ORDER BY session_replay_events.session_id ASC
@@ -99,7 +99,7 @@
   JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90)))
+     FROM events PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE and(equals(session_replay_events.team_id, 99999), ifNull(like(raw_session_replay_events__events.`properties___$current_url`, '%example.com%'), 0))
   ORDER BY session_replay_events.session_id ASC
@@ -138,7 +138,7 @@
   JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90)))
+     FROM events PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE equals(session_replay_events.team_id, 99999)
   GROUP BY session_replay_events.session_id
@@ -166,7 +166,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), toIntervalDay(90)))
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   LEFT JOIN
     (SELECT person.id AS id,

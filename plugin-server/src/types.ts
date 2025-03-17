@@ -126,6 +126,7 @@ export type CdpConfig = {
     CDP_REDIS_PASSWORD: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
+    CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED: boolean
 }
 
 export type IngestionConsumerConfig = {
@@ -266,7 +267,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
-
+    USE_SIMD_JSON_PARSE: boolean
+    USE_SIMD_JSON_PARSE_FOR_COMPARISON: boolean
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
     STARTUP_PROFILE_CPU: boolean

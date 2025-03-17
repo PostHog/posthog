@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { parseJSON } from '../../../../utils/json-parse'
 import { ParsedMessageData } from '../kafka/types'
 import { RRWebEventType } from '../rrweb-types'
 import { SnappySessionRecorder } from './snappy-session-recorder'
@@ -46,7 +47,7 @@ describe('SnappySessionRecorder', () => {
             .split('\n')
             .map((line) => line.trim())
             .filter(Boolean)
-            .map((line) => JSON.parse(line))
+            .map((line) => parseJSON(line))
     }
 
     describe('recordMessage', () => {
