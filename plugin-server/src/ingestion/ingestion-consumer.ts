@@ -17,6 +17,7 @@ import {
 import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService, PluginsServerConfig } from '../types'
 import { normalizeEvent } from '../utils/event'
+import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
@@ -282,8 +283,8 @@ export class IngestionConsumer {
             }
 
             // Parse the message payload into the event object
-            const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-            const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
+            const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
+            const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
             const event: PipelineEvent = normalizeEvent({
                 ...combinedEvent,
             })

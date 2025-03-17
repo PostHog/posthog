@@ -11,6 +11,7 @@ import {
     TimestampFormat,
 } from '../../../src/types'
 import { PostgresUse } from '../../../src/utils/db/postgres'
+import { parseJSON } from '../../../src/utils/json-parse'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
@@ -89,7 +90,7 @@ describe('postgres parity', () => {
 
         const clickHousePersons = (await hub.db.fetchPersons(Database.ClickHouse)).map((row) => ({
             ...row,
-            properties: JSON.parse(row.properties), // avoids depending on key sort order
+            properties: parseJSON(row.properties), // avoids depending on key sort order
         }))
         expect(clickHousePersons).toEqual([
             {

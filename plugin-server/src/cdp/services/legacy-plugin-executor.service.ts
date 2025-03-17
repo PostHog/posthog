@@ -2,10 +2,10 @@ import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from 
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
-import { Hub } from '~/src/types'
-
+import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { Response, trackedFetch } from '../../utils/fetch'
+import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
@@ -70,7 +70,7 @@ export class LegacyPluginExecutorService {
                 'storageGet'
             )
 
-            return result?.rows.length === 1 ? JSON.parse(result.rows[0].value) : defaultValue
+            return result?.rows.length === 1 ? parseJSON(result.rows[0].value) : defaultValue
         }
         const set = async (key: string, value: unknown): Promise<void> => {
             const cacheKey = `${teamId}-${pluginConfigId}`

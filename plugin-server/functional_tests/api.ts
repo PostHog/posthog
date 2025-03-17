@@ -16,6 +16,7 @@ import {
 } from '../src/types'
 import { PostgresRouter, PostgresUse } from '../src/utils/db/postgres'
 import { parseRawClickHouseEvent } from '../src/utils/event'
+import { parseJSON } from '../src/utils/json-parse'
 import { UUIDT } from '../src/utils/utils'
 import { RawAppMetric } from '../src/worker/ingestion/app-metrics'
 import { insertRow } from '../tests/helpers/sql'
@@ -241,7 +242,7 @@ export const fetchIngestionWarnings = async (teamId: number) => {
         WHERE team_id = ${teamId}
         ORDER BY timestamp ASC
     `)) as unknown as ClickHouse.ObjectQueryResult<any>
-    return queryResult.data.map((warning) => ({ ...warning, details: JSON.parse(warning.details) }))
+    return queryResult.data.map((warning) => ({ ...warning, details: parseJSON(warning.details) }))
 }
 
 export const fetchEvents = async (teamId: number, uuid?: string) => {
@@ -267,14 +268,14 @@ export const fetchPersons = async (teamId: number) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM person WHERE team_id = ${teamId} ORDER BY created_at ASC`
     )) as unknown as ClickHouse.ObjectQueryResult<any>
-    return queryResult.data.map((person) => ({ ...person, properties: JSON.parse(person.properties) }))
+    return queryResult.data.map((person) => ({ ...person, properties: parseJSON(person.properties) }))
 }
 
 export const fetchGroups = async (teamId: number) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM groups WHERE team_id = ${teamId} ORDER BY created_at ASC`
     )) as unknown as ClickHouse.ObjectQueryResult<any>
-    return queryResult.data.map((group) => ({ ...group, group_properties: JSON.parse(group.group_properties) }))
+    return queryResult.data.map((group) => ({ ...group, group_properties: parseJSON(group.group_properties) }))
 }
 
 export const createGroupType = async (teamId: number, projectId: number, index: number, groupType: string) => {
@@ -345,7 +346,7 @@ export const fetchPluginConsoleLogEntries = async (pluginConfigId: number) => {
         SELECT * FROM plugin_log_entries
         WHERE plugin_config_id = ${pluginConfigId} AND source = 'CONSOLE'
     `)) as unknown as ClickHouse.ObjectQueryResult<PluginLogEntry>
-    return logEntries.map((entry) => ({ ...entry, message: JSON.parse(entry.message) }))
+    return logEntries.map((entry) => ({ ...entry, message: parseJSON(entry.message) }))
 }
 
 export const fetchPluginLogEntries = async (pluginConfigId: number) => {

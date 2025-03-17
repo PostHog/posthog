@@ -5,6 +5,7 @@ import { Counter } from 'prom-client'
 
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
+import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
@@ -251,8 +252,8 @@ export const parseKafkaMessage = async (
     }
 
     try {
-        messagePayload = JSON.parse(messageUnzipped.toString())
-        event = JSON.parse(messagePayload.data)
+        messagePayload = parseJSON(messageUnzipped.toString())
+        event = parseJSON(messagePayload.data)
     } catch (error) {
         return dropMessage('invalid_json', { error, team_id: teamIdWithConfig.teamId })
     }

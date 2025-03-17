@@ -35,6 +35,7 @@ import { closeHub, createHub } from './utils/db/hub'
 import { PostgresRouter } from './utils/db/postgres'
 import { createRedisClient } from './utils/db/redis'
 import { isTestEnv } from './utils/env-utils'
+import { parseJSON } from './utils/json-parse'
 import { logger } from './utils/logger'
 import { getObjectStorage } from './utils/object_storage'
 import { shutdown as posthogShutdown } from './utils/posthog'
@@ -302,12 +303,12 @@ export class PluginServer {
                     await reloadPlugins(hub)
                 },
                 'reset-available-product-features-cache': (message) => {
-                    hub.organizationManager.resetAvailableProductFeaturesCache(JSON.parse(message).organization_id)
+                    hub.organizationManager.resetAvailableProductFeaturesCache(parseJSON(message).organization_id)
                 },
                 'populate-plugin-capabilities': async (message) => {
                     // We need this to be done in only once
                     if (hub?.capabilities.appManagementSingleton) {
-                        await populatePluginCapabilities(hub, Number(JSON.parse(message).plugin_id))
+                        await populatePluginCapabilities(hub, Number(parseJSON(message).plugin_id))
                     }
                 },
             })

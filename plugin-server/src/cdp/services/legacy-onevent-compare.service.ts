@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { Hub, PluginConfig, PluginMethodsConcrete, PostIngestionEvent } from '../../types'
 import { Response } from '../../utils/fetch'
+import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { getHttpCallRecorder, HttpCallRecorder, RecordedHttpCall, recordFetchRequest } from '../../utils/recorded-fetch'
 import { cloneObject } from '../../utils/utils'
@@ -235,7 +236,7 @@ export class LegacyOneventCompareService {
                                 return rej(new Error('No response body'))
                             }
                             try {
-                                return res(JSON.parse(call.response.body))
+                                return res(parseJSON(call.response.body))
                             } catch (e) {
                                 return rej(e)
                             }

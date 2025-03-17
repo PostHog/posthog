@@ -6,6 +6,7 @@ import { Counter } from 'prom-client'
 import { runInstrumentedFunction } from '../main/utils'
 import { PluginsServerConfig } from '../types'
 import { isTestEnv } from './env-utils'
+import { parseJSON } from './json-parse'
 import { logger } from './logger'
 
 export type GeoIp = {
@@ -82,7 +83,7 @@ export class GeoIPService {
 
     private async loadMmdbMetadata(): Promise<MmdbMetadata | undefined> {
         try {
-            return JSON.parse(await fs.readFile(this.config.MMDB_FILE_LOCATION.replace('.mmdb', '.json'), 'utf8'))
+            return parseJSON(await fs.readFile(this.config.MMDB_FILE_LOCATION.replace('.mmdb', '.json'), 'utf8'))
         } catch (e) {
             logger.warn('🌎', 'Error loading MMDB metadata', {
                 error: e.message,

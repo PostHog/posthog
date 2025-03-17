@@ -10,6 +10,7 @@ import { GroupTypeToColumnIndex, PostIngestionEvent, RawKafkaEvent } from '../..
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../utils/event'
+import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
@@ -40,7 +41,7 @@ export function groupIntoBatchesByUsage(
     let currentBatch: RawKafkaEvent[] = []
     let currentCount = 0
     array.forEach((message, index) => {
-        const clickHouseEvent = JSON.parse(message.value!.toString()) as RawKafkaEvent
+        const clickHouseEvent = parseJSON(message.value!.toString()) as RawKafkaEvent
         if (shouldProcess(clickHouseEvent.team_id)) {
             currentBatch.push(clickHouseEvent)
             currentCount++
