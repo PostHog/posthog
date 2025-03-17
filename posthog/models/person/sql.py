@@ -428,10 +428,6 @@ BULK_INSERT_PERSON_DISTINCT_ID2 = """
 INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) VALUES
 """
 
-INSERT_PERSON_OVERRIDE = """
-INSERT INTO person_overrides (team_id, old_person_id, override_person_id, version, merged_at, oldest_event) SELECT %(team_id)s, %(old_person_id)s, %(override_person_id)s, %(version)s, %(merged_at)s, %(oldest_event)s VALUES
-"""
-
 
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
