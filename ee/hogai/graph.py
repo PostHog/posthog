@@ -20,7 +20,7 @@ from ee.hogai.memory.nodes import (
     MemoryOnboardingNode,
 )
 from ee.hogai.query_executor.nodes import QueryExecutorNode
-from ee.hogai.rag.nodes import ProductAnalyticsRetriever
+from ee.hogai.rag.nodes import InsightRagContextNode
 from ee.hogai.retention.nodes import (
     RetentionGeneratorNode,
     RetentionGeneratorToolsNode,
@@ -70,7 +70,7 @@ class AssistantGraph:
     ):
         builder = self._graph
         path_map = path_map or {
-            "insights": AssistantNodeName.PRODUCT_ANALYTICS_RETRIEVER,
+            "insights": AssistantNodeName.INSIGHT_RAG_CONTEXT,
             "docs": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
@@ -87,10 +87,10 @@ class AssistantGraph:
 
     def add_product_analytics_retriever(self):
         builder = self._graph
-        retriever = ProductAnalyticsRetriever(self._team)
-        builder.add_node(AssistantNodeName.PRODUCT_ANALYTICS_RETRIEVER, retriever)
+        retriever = InsightRagContextNode(self._team)
+        builder.add_node(AssistantNodeName.INSIGHT_RAG_CONTEXT, retriever)
         builder.add_conditional_edges(
-            AssistantNodeName.PRODUCT_ANALYTICS_RETRIEVER,
+            AssistantNodeName.INSIGHT_RAG_CONTEXT,
             retriever.router,
             path_map={
                 "trends": AssistantNodeName.TRENDS_PLANNER,

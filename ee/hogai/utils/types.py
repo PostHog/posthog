@@ -135,4 +135,4 @@ class AssistantNodeName(StrEnum):
     MEMORY_COLLECTOR = "memory_collector"
     MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"
     INKEEP_DOCS = "inkeep_docs"
-    PRODUCT_ANALYTICS_RETRIEVER = "product_analytics_retriever"
+    INSIGHT_RAG_CONTEXT = "insight_rag_context"

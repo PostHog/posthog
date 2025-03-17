@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import cohere
 from django.utils import timezone
 
-from ee.hogai.rag.nodes import ProductAnalyticsRetriever
+from ee.hogai.rag.nodes import InsightRagContextNode
 from ee.hogai.utils.types import AssistantState
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
@@ -17,7 +17,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
     return_value=cohere.EmbeddingsByTypeEmbedResponse(embeddings={"float_": [[2, 4]]}, texts=["test"], id="test"),
 )
 @patch("ee.hogai.rag.nodes.get_cohere_client", return_value=cohere.ClientV2(api_key="test"))
-class TestProductAnalyticsRetriever(ClickhouseTestMixin, BaseTest):
+class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self.action = Action.objects.create(
@@ -36,7 +36,7 @@ class TestProductAnalyticsRetriever(ClickhouseTestMixin, BaseTest):
     def test_prewarm_queries(self, mock_team_taxonomy_query_runner, cohere_mock, embed_mock):
         # Arrange
         team = MagicMock()
-        retriever = ProductAnalyticsRetriever(team=team)
+        retriever = InsightRagContextNode(team=team)
 
         mock_runner_instance = MagicMock()
         mock_team_taxonomy_query_runner.return_value = mock_runner_instance
@@ -55,7 +55,7 @@ class TestProductAnalyticsRetriever(ClickhouseTestMixin, BaseTest):
         mock_runner_instance.run.assert_called_once_with(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
 
     def test_injects_action(self, cohere_mock, embed_mock):
-        retriever = ProductAnalyticsRetriever(team=self.team)
+        retriever = InsightRagContextNode(team=self.team)
         response = retriever.run(AssistantState(root_tool_insight_plan="Plan", messages=[]), {})
         self.assertIn("Action", response.rag_context)
         self.assertIn("Description", response.rag_context)

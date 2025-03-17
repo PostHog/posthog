@@ -18,9 +18,9 @@ from posthog.schema import CachedVectorSearchQueryResponse, TeamTaxonomyQuery, V
 NextRagNode = Literal["trends", "funnel", "retention", "end"]
 
 
-class ProductAnalyticsRetriever(AssistantNode):
+class InsightRagContextNode(AssistantNode):
     """
-    Injects product analytics context: actions and events.
+    Injects the RAG context of product analytics insights: actions and events.
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
