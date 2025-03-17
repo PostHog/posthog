@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+
 import { LemonColorPicker } from './LemonColorPicker'
 
 type Story = StoryObj<typeof LemonColorPicker>

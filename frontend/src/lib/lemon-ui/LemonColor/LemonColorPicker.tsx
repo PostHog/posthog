@@ -14,8 +14,7 @@ type LemonColorPickerProps = {
 
 export const LemonColorPickerOverlay = ({
     showCustomColor: allowCustomColor = false,
-    hideDropdown = false,
-}: LemonColorPickerProps): JSX.Element => {
+}: Omit<LemonColorPickerProps, 'hideDropdown'>): JSX.Element => {
     const [color, setColor] = useState('#ff0000')
 
     return (
@@ -48,7 +47,7 @@ export const LemonColorPickerOverlay = ({
     )
 }
 
-export const LemonColorPicker = (props: LemonColorPickerProps): JSX.Element => {
+export const LemonColorPicker = ({ hideDropdown = false, ...props }: LemonColorPickerProps): JSX.Element => {
     const [isOpen, setIsOpen] = useState(false)
 
     return (
@@ -57,7 +56,11 @@ export const LemonColorPicker = (props: LemonColorPickerProps): JSX.Element => {
             overlay={<LemonColorPickerOverlay {...props} />}
             onClickOutside={() => setIsOpen(false)}
         >
-            <LemonColorButton type="secondary" onClick={() => setIsOpen(!isOpen)} />
+            <LemonColorButton
+                type="secondary"
+                onClick={() => setIsOpen(!isOpen)}
+                sideIcon={hideDropdown ? null : undefined}
+            />
         </Popover>
     )
 }
