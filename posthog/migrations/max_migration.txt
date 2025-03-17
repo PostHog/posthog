@@ -1,1 +1,1 @@
-0685_add_playlist_counted_date
+0688_update_default_version

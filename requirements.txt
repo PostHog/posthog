@@ -144,6 +144,8 @@ coloredlogs==14.0
     # via dagster
 conditional-cache==1.2
     # via -r requirements.in
+cramjam==2.9.1
+    # via python-snappy
 cryptography==39.0.2
     # via
     #   -r requirements.in
@@ -526,7 +528,7 @@ oauthlib==3.1.0
     # via
     #   requests-oauthlib
     #   social-auth-core
-openai==1.56.2
+openai==1.66.3
     # via
     #   -r requirements.in
     #   langchain-openai
@@ -578,7 +580,7 @@ pluggy==1.5.0
     # via dlt
 ply==3.11
     # via jsonpath-ng
-posthoganalytics==3.18.1
+posthoganalytics==3.20.0
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
@@ -681,6 +683,8 @@ python-dotenv==0.21.0
     #   pydantic-settings
     #   uvicorn
     #   webdriver-manager
+python-snappy==0.7.3
+    # via -r requirements.in
 python-statsd==2.1.0
     # via django-statsd
 python3-openid==3.1.0
@@ -913,6 +917,8 @@ trio==0.26.0
     #   trio-websocket
 trio-websocket==0.11.1
     # via selenium
+types-cachetools==5.5.0.20240820
+    # via -r requirements.in
 types-protobuf==4.22.0.0
     # via temporalio
 types-requests==2.31.0.6

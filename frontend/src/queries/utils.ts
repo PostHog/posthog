@@ -37,6 +37,8 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueExampleDataWarehouseTablesQuery,
+    RevenueExampleEventsQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
     StickinessQuery,
@@ -173,8 +175,14 @@ export function isSessionAttributionExplorerQuery(
     return node?.kind === NodeKind.SessionAttributionExplorerQuery
 }
 
-export function isRevenueExampleEventsQuery(node?: Record<string, any> | null): boolean {
+export function isRevenueExampleEventsQuery(node?: Record<string, any> | null): node is RevenueExampleEventsQuery {
     return node?.kind === NodeKind.RevenueExampleEventsQuery
+}
+
+export function isRevenueExampleDataWarehouseTablesQuery(
+    node?: Record<string, any> | null
+): node is RevenueExampleDataWarehouseTablesQuery {
+    return node?.kind === NodeKind.RevenueExampleDataWarehouseTablesQuery
 }
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {

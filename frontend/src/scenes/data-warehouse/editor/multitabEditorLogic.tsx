@@ -515,12 +515,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 source: newSource,
             })
             dataNodeLogic({
-                key: values.activeModelUri?.uri.path ?? dataNodeKey,
+                key: values.currentDataLogicKey,
                 query: newSource,
             }).mount()
 
             dataNodeLogic({
-                key: values.activeModelUri?.uri.path ?? dataNodeKey,
+                key: values.currentDataLogicKey,
                 query: newSource,
             }).actions.loadData(!switchTab)
         },
@@ -566,7 +566,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
 
             const logic = dataNodeLogic({
-                key: dataNodeKey,
+                key: values.currentDataLogicKey,
                 query: queryToSave,
             })
 
@@ -710,6 +710,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             (s) => [s.editingView],
             (editingView) => {
                 return !!editingView?.status
+            },
+        ],
+        currentDataLogicKey: [
+            (s) => [s.activeModelUri],
+            (activeModelUri) => {
+                return activeModelUri?.uri.path ?? dataNodeKey
             },
         ],
     }),

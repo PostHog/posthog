@@ -473,6 +473,7 @@ class Resolver(CloningVisitor):
 
         if func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
             if node.name == "recording_button":
@@ -630,6 +631,13 @@ class Resolver(CloningVisitor):
                 return ast.Constant(value=value, type=global_type)
 
             if self.dialect == "clickhouse":
+                # To debug, add a breakpoint() here and print self.context.database
+                #
+                # from rich.pretty import pprint
+                # pprint(self.context.database, max_depth=3)
+                #
+                # One likely cause is that the database context isn't set up as you
+                # expect it to be.
                 raise QueryError(f"Unable to resolve field: {name}")
             else:
                 type = ast.UnresolvedFieldType(name=name)
