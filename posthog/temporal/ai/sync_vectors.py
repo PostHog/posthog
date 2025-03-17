@@ -164,14 +164,11 @@ async def batch_embed_actions(
     responses = await asyncio.gather(*embedding_requests, return_exceptions=True)
 
     successful_batches = []
-    for action_batch, response in zip(filtered_batches, responses):
-        if isinstance(response, BaseException):
-            logger.exception("Error embedding actions", error=response)
+    for action_batch, maybe_vector in zip(filtered_batches, responses):
+        if isinstance(maybe_vector, BaseException):
+            logger.exception("Error embedding actions", error=maybe_vector)
             continue
-        if not response.embeddings.float_:
-            logger.warning("No embeddings found")
-            continue
-        for action, embedding in zip(action_batch, response.embeddings.float_):
+        for action, embedding in zip(action_batch, maybe_vector):
             successful_batches.append((action, embedding))
 
     return successful_batches
