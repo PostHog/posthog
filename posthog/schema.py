@@ -3853,6 +3853,7 @@ class AssistantTrendsActionsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_property: Optional[str] = None
+    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: str = Field(..., description="Action name from the plan.")
     properties: Optional[
