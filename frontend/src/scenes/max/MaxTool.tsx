@@ -73,46 +73,44 @@ export function MaxTool({
     } else {
         content = (
             <>
-                {isMaxAvailable && (
-                    <Tooltip
-                        title={
-                            !isMaxOpen ? (
-                                <>
-                                    <IconSparkles className="mr-1.5" />
-                                    {displayName} with Max
-                                </>
-                            ) : (
-                                <>
-                                    Max can use this tool
-                                    <br />
-                                    <IconTools className="mr-1.5" />
-                                    <i>{displayName}</i>
-                                </>
-                            )
-                        }
-                        placement="top-end"
-                        delayMs={0}
+                <Tooltip
+                    title={
+                        !isMaxOpen ? (
+                            <>
+                                <IconSparkles className="mr-1.5" />
+                                {displayName} with Max
+                            </>
+                        ) : (
+                            <>
+                                Max can use this tool
+                                <br />
+                                <IconTools className="mr-1.5" />
+                                <i>{displayName}</i>
+                            </>
+                        )
+                    }
+                    placement="top-end"
+                    delayMs={0}
+                >
+                    <button
+                        className="absolute -top-2 -right-2 z-10 transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110"
+                        type="button"
+                        onClick={() => {
+                            openSidePanel(SidePanelTab.Max, initialMaxPrompt)
+                            onMaxOpen?.()
+                        }}
                     >
-                        <button
-                            className="absolute -top-2 -right-2 z-10 transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110"
-                            type="button"
-                            onClick={() => {
-                                openSidePanel(SidePanelTab.Max, initialMaxPrompt)
-                                onMaxOpen?.()
-                            }}
-                        >
-                            {/* Burst border - the inset and size vals are very specific just bc these look nice */}
-                            <svg className={clsx('absolute -inset-1 size-8')} viewBox="0 0 100 100">
-                                <polygon points={generateBurstPoints(16, 3 / 16)} fill="var(--primary-3000)" />
-                            </svg>
-                            <ProfilePicture
-                                user={{ hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }}
-                                size="md"
-                                className="bg-bg-light"
-                            />
-                        </button>
-                    </Tooltip>
-                )}
+                        {/* Burst border - the inset and size vals are very specific just bc these look nice */}
+                        <svg className={clsx('absolute -inset-1 size-8')} viewBox="0 0 100 100">
+                            <polygon points={generateBurstPoints(16, 3 / 16)} fill="var(--primary-3000)" />
+                        </svg>
+                        <ProfilePicture
+                            user={{ hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }}
+                            size="md"
+                            className="bg-bg-light"
+                        />
+                    </button>
+                </Tooltip>
                 {typeof Children === 'function' ? <Children toolAvailable={true} /> : Children}
             </>
         )

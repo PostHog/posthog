@@ -37,7 +37,7 @@ export function isAssistantMessage(message: RootAssistantMessage | undefined | n
 export function isAssistantToolCallMessage(
     message: RootAssistantMessage | undefined | null
 ): message is AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>> {
-    return message?.type === AssistantMessageType.ToolCall
+    return message?.type === AssistantMessageType.ToolCall && message.ui_payload !== undefined
 }
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
