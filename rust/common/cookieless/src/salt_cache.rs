@@ -142,7 +142,11 @@ impl SaltCache {
         let new_salt_base64 = general_purpose::STANDARD.encode(&new_salt);
 
         // Try to set it in Redis with NX (only if it doesn't exist) and with TTL in a single operation
-        match self.redis_client.set_nx_ex(redis_key.clone(), new_salt_base64.clone(), SALT_TTL_SECONDS).await {
+        match self
+            .redis_client
+            .set_nx_ex(redis_key.clone(), new_salt_base64.clone(), SALT_TTL_SECONDS)
+            .await
+        {
             Ok(true) => {
                 // Successfully set the key with NX and TTL
                 // Store it in the cache
