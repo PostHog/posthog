@@ -238,7 +238,10 @@ pub fn is_calendar_date_valid(yyyymmdd: &str) -> bool {
     };
 
     let day = match parts[2].parse::<u32>() {
-        Ok(d) if (1..=31).contains(&d) => d,
+        Ok(d) => match chrono::NaiveDate::from_ymd_opt(year, month, d) {
+            Some(_) => d,
+            None => return false,
+        },
         _ => return false,
     };
 
