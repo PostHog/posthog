@@ -1,19 +1,11 @@
 # serializer version: 1
 # name: TestGroupsQueryRunner.test_groups_query_runner
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
-         groups.key AS key
-  FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
-            groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  WHERE ifNull(equals(groups.index, 0), 0)
-  ORDER BY groups.created_at DESC
+  SELECT coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key),
+         groups.group_key AS key
+  FROM groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0))
+  ORDER BY toTimeZone(groups.created_at, 'UTC') DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -26,19 +18,11 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_offset
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
-         groups.key AS key
-  FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
-            groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  WHERE ifNull(equals(groups.index, 0), 0)
-  ORDER BY groups.created_at DESC
+  SELECT coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key),
+         groups.group_key AS key
+  FROM groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0))
+  ORDER BY toTimeZone(groups.created_at, 'UTC') DESC
   LIMIT 11
   OFFSET 2 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -51,20 +35,12 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_order_by
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
-         groups.key AS key,
-         groups.properties___arr AS arr
-  FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
-            groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  WHERE ifNull(equals(groups.index, 0), 0)
-  ORDER BY groups.properties___arr DESC
+  SELECT coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key),
+         groups.group_key AS key,
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '') AS arr
+  FROM groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0))
+  ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '') DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -77,20 +53,12 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_order_by.1
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
-         groups.key AS key,
-         groups.properties___arr AS arr
-  FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
-            groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  WHERE ifNull(equals(groups.index, 0), 0)
-  ORDER BY groups.properties___arr ASC
+  SELECT coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key),
+         groups.group_key AS key,
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '') AS arr
+  FROM groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0))
+  ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '') ASC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -103,18 +71,11 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_order_by.2
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
-         groups.key AS key
-  FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  WHERE ifNull(equals(groups.index, 0), 0)
-  ORDER BY coalesce(groups.properties___name, groups.key) DESC
+  SELECT coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key),
+         groups.group_key AS key
+  FROM groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0))
+  ORDER BY coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key) DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -127,21 +88,12 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_property_columns
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
-         groups.key AS key,
-         groups.properties___arr AS arr
-  FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
-            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
-            groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  WHERE ifNull(equals(groups.index, 0), 0)
-  ORDER BY groups.created_at DESC
+  SELECT coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key),
+         groups.group_key AS key,
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '') AS arr
+  FROM groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0))
+  ORDER BY toTimeZone(groups.created_at, 'UTC') DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -154,19 +106,11 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_search
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
-         groups.key AS key
-  FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
-            groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  WHERE and(ifNull(equals(groups.index, 0), 0), or(ifNull(ilike(groups.properties___name, '%org2%'), 0), ilike(toString(groups.key), '%org2%')))
-  ORDER BY groups.created_at DESC
+  SELECT coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key),
+         groups.group_key AS key
+  FROM groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0), or(ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), '%org2%'), 0), ilike(toString(groups.group_key), '%org2%')))
+  ORDER BY toTimeZone(groups.created_at, 'UTC') DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -179,19 +123,11 @@
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_string_property
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
-         groups.key AS key
-  FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
-            groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 99999)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  WHERE and(ifNull(equals(groups.index, 0), 0), ifNull(equals(groups.properties___name, 'org0.inc'), 0))
-  ORDER BY groups.created_at DESC
+  SELECT coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), groups.group_key),
+         groups.group_key AS key
+  FROM groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.group_type_index, 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), 'org0.inc'), 0))
+  ORDER BY toTimeZone(groups.created_at, 'UTC') DESC
   LIMIT 11
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
