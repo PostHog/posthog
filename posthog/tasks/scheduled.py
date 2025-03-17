@@ -7,7 +7,6 @@ from celery.schedules import crontab
 from django.conf import settings
 
 from posthog.caching.warming import schedule_warming_for_teams_task
-from posthog.utils import get_instance_region
 from posthog.tasks.alerts.checks import (
     alerts_backlog_task,
     check_alerts_task,
@@ -115,20 +114,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Send all instance usage to the Billing service
-    region = get_instance_region()
-    if region == "EU":
-        # Shift EU reports by 30 minutes to lighten the load
-        sender.add_periodic_task(
-            crontab(hour="3", minute="45"),
-            send_org_usage_reports.s(),
-            name="send instance usage report",
-        )
-    else:
-        sender.add_periodic_task(
-            crontab(hour="4", minute="15"),
-            send_org_usage_reports.s(),
-            name="send instance usage report",
-        )
+    sender.add_periodic_task(
+        crontab(hour="3", minute="45"),
+        send_org_usage_reports.s(),
+        name="send instance usage report",
+    )
 
     sender.add_periodic_task(
         crontab(hour="*", minute="30"),
