@@ -75,65 +75,54 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     return null
                 }
 
-                const hasSavedFiltersCount = recordings_counts.saved_filters?.count !== null
-                const hasCollectionCount = recordings_counts.collection.count !== null
+                const hasResults =
+                    recordings_counts.collection.count !== null || recordings_counts.saved_filters?.count !== null
 
-                const totalPinnedCount =
-                    recordings_counts.collection.count === null ? 'null' : recordings_counts.collection.count
+                const totalPinnedCount = recordings_counts.collection.count
                 const unwatchedPinnedCount =
                     (recordings_counts.collection.count || 0) - (recordings_counts.collection.watched_count || 0)
-                const totalSavedFiltersCount =
-                    recordings_counts.saved_filters?.count === null
-                        ? 'null'
-                        : recordings_counts.saved_filters?.count || 0
+                const totalSavedFiltersCount = recordings_counts.saved_filters?.count || 0
                 const unwatchedSavedFiltersCount =
                     (recordings_counts.saved_filters?.count || 0) -
                     (recordings_counts.saved_filters?.watched_count || 0)
 
-                const totalCount =
-                    (totalPinnedCount === 'null' ? 0 : totalPinnedCount) +
-                    (totalSavedFiltersCount === 'null' ? 0 : totalSavedFiltersCount)
-                const unwatchedCount = unwatchedPinnedCount + unwatchedSavedFiltersCount
+                // we don't allow both saved filters and pinned anymore
+                const totalCount = totalPinnedCount || totalSavedFiltersCount
+                const unwatchedCount = unwatchedPinnedCount || unwatchedSavedFiltersCount
+
+                const description = recordings_counts.saved_filters?.count
+                    ? 'that match these saved filters'
+                    : 'in this collection'
 
                 const tooltip = (
-                    <div className="flex flex-col deprecated-space-y-1 items-center">
+                    <div className="flex flex-col gap-y-1 items-center text-center">
+                        {hasResults ? (
+                            <div>
+                                You have {unwatchedCount} unwatched recordings to watch out of a total of {totalCount}{' '}
+                                {description}.
+                            </div>
+                        ) : (
+                            <div>Counts have not yet been calculated for this playlist.</div>
+                        )}
+                        {recordings_counts.saved_filters?.increased ? (
+                            <div className="flex items-center gap-x-1">
+                                <span>The number of matched recordings is climbing</span>
+                                <IconArrowUp />
+                            </div>
+                        ) : null}
                         <span>Playlist counts are recalculated once a day.</span>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Type</th>
-                                    <th>Count</th>
-                                    <th>Unwatched</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>Pinned</td>
-                                    <td>{totalPinnedCount}</td>
-                                    <td>{unwatchedPinnedCount}</td>
-                                </tr>
-                                <tr>
-                                    <td>Saved filters</td>
-                                    <td>
-                                        {totalSavedFiltersCount}
-                                        <span>{recordings_counts.saved_filters?.has_more ? '+' : ''}</span>
-                                    </td>
-                                    <td>{unwatchedSavedFiltersCount}</td>
-                                </tr>
-                            </tbody>
-                        </table>
                     </div>
                 )
 
                 return (
                     <div className="flex items-center justify-center w-full h-full">
                         <Tooltip title={tooltip}>
-                            {hasSavedFiltersCount || hasCollectionCount ? (
+                            {hasResults ? (
                                 <span className="flex items-center deprecated-space-x-1">
                                     <LemonBadge.Number
-                                        status={unwatchedCount || totalCount ? 'primary' : 'muted'}
+                                        status={unwatchedCount ? 'primary' : 'muted'}
                                         className="text-xs cursor-pointer"
-                                        count={unwatchedCount || totalCount}
+                                        count={totalCount}
                                         maxDigits={3}
                                         showZero={true}
                                         forcePlus={
