@@ -221,9 +221,10 @@ class PropertySwapper(CloningVisitor):
                                 )
                 if table_name == "raw_groups":
                     global_group_id = self.context.globals.get("group_id") if self.context.globals else None
-                    if not isinstance(global_group_id, int):
-                        return
-                    if f"{global_group_id}_{property_name}" in self.group_properties:
+                    if (
+                        isinstance(global_group_id, int)
+                        and f"{global_group_id}_{property_name}" in self.group_properties
+                    ):
                         return self._convert_string_property_to_type(
                             node, "group", f"{global_group_id}_{property_name}"
                         )
