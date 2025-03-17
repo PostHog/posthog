@@ -65,12 +65,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     current={issue.status}
                                     values={['active', 'resolved', 'suppressed']}
                                     placeholder="Mark as"
-                                    renderValue={(value) => {
-                                        return <StatusTag status={value as IssueStatus} size="small" />
-                                    }}
-                                    onChange={(value) => {
-                                        updateIssue({ status: value })
-                                    }}
+                                    renderValue={(value) => <StatusTag status={value as IssueStatus} size="small" />}
+                                    onChange={(value) => updateIssue({ status: value })}
                                 />
                             )}
                         </div>
