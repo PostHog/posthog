@@ -22,7 +22,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
         const nodeLogic = dataNodeLogic({ key, query })
         return {
             values: [nodeLogic, ['response']],
-            actions: [nodeLogic, ['setResponse', 'clearResponse', 'loadData'], errorTrackingLogic, ['refreshCacheKey']],
+            actions: [nodeLogic, ['setResponse', 'loadData'], errorTrackingLogic, ['refreshCacheKey']],
         }
     }),
 
@@ -73,56 +73,56 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
             }
         },
         resolveIssues: async ({ ids }) => {
-            // const { results } = values
+            const { results } = values
 
             // optimistically update local results
-            // actions.setResponse({
-            //     ...values.response,
-            //     // remove resolved issues
-            //     results: results.map((issue) => {
-            //         if (ids.includes(issue.id)) {
-            //             return { ...issue, status: 'resolved' }
-            //         }
-            //         return issue
-            //     }),
-            // })
+            actions.setResponse({
+                ...values.response,
+                // remove resolved issues
+                results: results.map((issue) => {
+                    if (ids.includes(issue.id)) {
+                        return { ...issue, status: 'resolved' }
+                    }
+                    return issue
+                }),
+            })
             posthog.capture('error_tracking_issue_bulk_resolve')
             await api.errorTracking.bulkMarkStatus(ids, 'resolved')
             actions.reloadData()
         },
         suppressIssues: async ({ ids }) => {
-            // const { results } = values
+            const { results } = values
 
             // optimistically update local results
-            // actions.setResponse({
-            //     ...values.response,
-            //     // remove suppressed issues
-            //     results: results.map((issue) => {
-            //         if (ids.includes(issue.id)) {
-            //             return { ...issue, status: 'suppressed' }
-            //         }
-            //         return issue
-            //     }),
-            // })
+            actions.setResponse({
+                ...values.response,
+                // remove suppressed issues
+                results: results.map((issue) => {
+                    if (ids.includes(issue.id)) {
+                        return { ...issue, status: 'suppressed' }
+                    }
+                    return issue
+                }),
+            })
 
             posthog.capture('error_tracking_issue_bulk_suppress')
             await api.errorTracking.bulkMarkStatus(ids, 'suppressed')
             actions.reloadData()
         },
         activateIssues: async ({ ids }) => {
-            // const { results } = values
+            const { results } = values
 
             // optimistically update local results
-            // actions.setResponse({
-            //     ...values.response,
-            //     // remove suppressed issues
-            //     results: results.map((issue) => {
-            //         if (ids.includes(issue.id)) {
-            //             return { ...issue, status: 'active' }
-            //         }
-            //         return issue
-            //     }),
-            // })
+            actions.setResponse({
+                ...values.response,
+                // remove suppressed issues
+                results: results.map((issue) => {
+                    if (ids.includes(issue.id)) {
+                        return { ...issue, status: 'active' }
+                    }
+                    return issue
+                }),
+            })
 
             posthog.capture('error_tracking_issue_bulk_activate')
             await api.errorTracking.bulkMarkStatus(ids, 'active')
