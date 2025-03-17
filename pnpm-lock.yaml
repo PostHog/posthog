@@ -342,7 +342,7 @@ importers:
         version: 7.0.1(monaco-editor@0.49.0)(webpack@5.88.2)
       postcss-loader:
         specifier: ^4.3.0
-        version: 4.3.0(postcss@8.5.2)(webpack@5.88.2)
+        version: 4.3.0(postcss@8.5.3)(webpack@5.88.2)
       raw-loader:
         specifier: ^4.0.2
         version: 4.0.2(webpack@5.88.2)
@@ -605,14 +605,14 @@ importers:
         specifier: workspace:*
         version: link:../products/web_analytics
       '@posthog/rrweb':
-        specifier: 0.0.8
-        version: 0.0.8
+        specifier: 0.0.13
+        version: 0.0.13
       '@posthog/rrweb-plugin-console-record':
-        specifier: 0.0.8
-        version: 0.0.8(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.8)
+        specifier: 0.0.13
+        version: 0.0.13(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.13)
       '@posthog/rrweb-types':
-        specifier: 0.0.8
-        version: 0.0.8
+        specifier: 0.0.13
+        version: 0.0.13
       '@posthog/tailwind':
         specifier: workspace:*
         version: link:../common/tailwind
@@ -4410,8 +4410,8 @@ packages:
   '@posthog/rrdom@0.0.4':
     resolution: {integrity: sha512-hUZOgnIxzB6ZWgKBbuf79oHko+7x1+sQMVtovY0k6fO67e5SwhKkLq3Y/Tn2ayIyUqEKqL8971wP1cmIeIVO+A==}
 
-  '@posthog/rrweb-plugin-console-record@0.0.8':
-    resolution: {integrity: sha512-kw+h+eXnfMjauJjiGNbwKejSf+chXK7oeIup02KG4RtVHbLYm+i0X2sX/8kfcOZghBNN+km8Y77Jcq7zBRdPMg==}
+  '@posthog/rrweb-plugin-console-record@0.0.13':
+    resolution: {integrity: sha512-Av4H0kQnlAHYpkKe3x1cDY5h02wuk1CEq6Sxp06E7TPs/wsiksnA//DHyroxdz1pg1MMmmmhB4k5sCg7Tf3Tdg==}
     peerDependencies:
       '@posthog/rrweb': '*'
       '@posthog/rrweb-utils': '*'
@@ -4419,14 +4419,17 @@ packages:
   '@posthog/rrweb-snapshot@0.0.4':
     resolution: {integrity: sha512-ifZH6T0FYjHtiCcqQOdrLn8YH9I7OOIWu2GSZMCzFd8F8oX1gtX4Tk/yX0sA6qAIWtfwDC0dKXgHWS2/EqGjgg==}
 
+  '@posthog/rrweb-types@0.0.13':
+    resolution: {integrity: sha512-DYXE4VCHvUQnLXLSF//l+c9H9btVV3aLb7Lw4TkluqiMbBtCPdg1qAcSLYrZnpJJT2aKb+8p0LFz/YpZ34qdvQ==}
+
   '@posthog/rrweb-types@0.0.8':
     resolution: {integrity: sha512-CdZkKgr6VhCNJZLRdw7TC1J4iI/H+nEt5NZSBjV8vglQ4o31kl0KUfo2g0r6EvAm3mX3p5/mGrqub+LxABwzQQ==}
 
   '@posthog/rrweb-utils@0.0.4':
     resolution: {integrity: sha512-ndkpquzqXV/i0u4paOPiESWE/wdOEPdM+Q+sFQfcn6KnvjxtkzsnNNSlOcNHSwuRh0bCk3Cgs2ixDVTSZ+Zdtg==}
 
-  '@posthog/rrweb@0.0.8':
-    resolution: {integrity: sha512-vrHcEsx7vM6eNkcn/WkxAaVB06azJ2ZJpl6WqQsOY+BLrFFBjesqtscaPvsdh4Yu4wDEPY6uXN/Bsg2FWcJHeA==}
+  '@posthog/rrweb@0.0.13':
+    resolution: {integrity: sha512-Dl6yx6ZTtX3L58hxjUXQa5K7V1BFRtYcy0Rx7V3AIG3a/cUlRniNXxjTY87b7oIINmPDmzWq1QCTaQq4QSVsDQ==}
 
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
@@ -19390,24 +19393,26 @@ snapshots:
     dependencies:
       '@posthog/rrweb-snapshot': 0.0.4
 
-  '@posthog/rrweb-plugin-console-record@0.0.8(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.8)':
+  '@posthog/rrweb-plugin-console-record@0.0.13(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.13)':
     dependencies:
-      '@posthog/rrweb': 0.0.8
+      '@posthog/rrweb': 0.0.13
       '@posthog/rrweb-utils': 0.0.4
 
   '@posthog/rrweb-snapshot@0.0.4':
     dependencies:
-      postcss: 8.5.2
+      postcss: 8.5.3
+
+  '@posthog/rrweb-types@0.0.13': {}
 
   '@posthog/rrweb-types@0.0.8': {}
 
   '@posthog/rrweb-utils@0.0.4': {}
 
-  '@posthog/rrweb@0.0.8':
+  '@posthog/rrweb@0.0.13':
     dependencies:
       '@posthog/rrdom': 0.0.4
       '@posthog/rrweb-snapshot': 0.0.4
-      '@posthog/rrweb-types': 0.0.8
+      '@posthog/rrweb-types': 0.0.13
       '@posthog/rrweb-utils': 0.0.4
       '@types/css-font-loading-module': 0.0.7
       '@xstate/fsm': 1.6.5
@@ -24337,12 +24342,12 @@ snapshots:
 
   css-loader@6.8.1(webpack@5.88.2):
     dependencies:
-      icss-utils: 5.1.0(postcss@8.5.2)
-      postcss: 8.5.2
-      postcss-modules-extract-imports: 3.0.0(postcss@8.5.2)
-      postcss-modules-local-by-default: 4.0.3(postcss@8.5.2)
-      postcss-modules-scope: 3.0.0(postcss@8.5.2)
-      postcss-modules-values: 4.0.0(postcss@8.5.2)
+      icss-utils: 5.1.0(postcss@8.5.3)
+      postcss: 8.5.3
+      postcss-modules-extract-imports: 3.0.0(postcss@8.5.3)
+      postcss-modules-local-by-default: 4.0.3(postcss@8.5.3)
+      postcss-modules-scope: 3.0.0(postcss@8.5.3)
+      postcss-modules-values: 4.0.0(postcss@8.5.3)
       postcss-value-parser: 4.2.0
       semver: 7.7.0
       webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
@@ -27066,9 +27071,9 @@ snapshots:
     dependencies:
       postcss: 7.0.39
 
-  icss-utils@5.1.0(postcss@8.5.2):
+  icss-utils@5.1.0(postcss@8.5.3):
     dependencies:
-      postcss: 8.5.2
+      postcss: 8.5.3
 
   ieee754@1.1.13: {}
 
@@ -30232,16 +30237,6 @@ snapshots:
       '@csstools/utilities': 2.0.0(postcss@8.5.2)
       postcss: 8.5.2
 
-  postcss-loader@4.3.0(postcss@8.5.2)(webpack@5.88.2):
-    dependencies:
-      cosmiconfig: 7.1.0
-      klona: 2.0.5
-      loader-utils: 2.0.4
-      postcss: 8.5.2
-      schema-utils: 3.3.0
-      semver: 7.7.0
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
-
   postcss-loader@4.3.0(postcss@8.5.3)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))):
     dependencies:
       cosmiconfig: 7.1.0
@@ -30251,6 +30246,16 @@ snapshots:
       schema-utils: 3.3.0
       semver: 7.7.0
       webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
+
+  postcss-loader@4.3.0(postcss@8.5.3)(webpack@5.88.2):
+    dependencies:
+      cosmiconfig: 7.1.0
+      klona: 2.0.5
+      loader-utils: 2.0.4
+      postcss: 8.5.3
+      schema-utils: 3.3.0
+      semver: 7.7.0
+      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
 
   postcss-logical@8.0.0(postcss@8.5.2):
     dependencies:
@@ -30347,9 +30352,9 @@ snapshots:
     dependencies:
       postcss: 7.0.39
 
-  postcss-modules-extract-imports@3.0.0(postcss@8.5.2):
+  postcss-modules-extract-imports@3.0.0(postcss@8.5.3):
     dependencies:
-      postcss: 8.5.2
+      postcss: 8.5.3
 
   postcss-modules-local-by-default@3.0.3:
     dependencies:
@@ -30358,10 +30363,10 @@ snapshots:
       postcss-selector-parser: 6.1.2
       postcss-value-parser: 4.2.0
 
-  postcss-modules-local-by-default@4.0.3(postcss@8.5.2):
+  postcss-modules-local-by-default@4.0.3(postcss@8.5.3):
     dependencies:
-      icss-utils: 5.1.0(postcss@8.5.2)
-      postcss: 8.5.2
+      icss-utils: 5.1.0(postcss@8.5.3)
+      postcss: 8.5.3
       postcss-selector-parser: 6.1.2
       postcss-value-parser: 4.2.0
 
@@ -30370,9 +30375,9 @@ snapshots:
       postcss: 7.0.39
       postcss-selector-parser: 6.1.2
 
-  postcss-modules-scope@3.0.0(postcss@8.5.2):
+  postcss-modules-scope@3.0.0(postcss@8.5.3):
     dependencies:
-      postcss: 8.5.2
+      postcss: 8.5.3
       postcss-selector-parser: 6.1.2
 
   postcss-modules-values@3.0.0:
@@ -30380,10 +30385,10 @@ snapshots:
       icss-utils: 4.1.1
       postcss: 7.0.39
 
-  postcss-modules-values@4.0.0(postcss@8.5.2):
+  postcss-modules-values@4.0.0(postcss@8.5.3):
     dependencies:
-      icss-utils: 5.1.0(postcss@8.5.2)
-      postcss: 8.5.2
+      icss-utils: 5.1.0(postcss@8.5.3)
+      postcss: 8.5.3
 
   postcss-nesting@13.0.1(postcss@8.5.2):
     dependencies:
