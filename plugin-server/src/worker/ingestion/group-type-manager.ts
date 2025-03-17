@@ -1,4 +1,4 @@
-import { LazyLoader } from '~/src/utils/lazy-loader'
+import { LazyLoader } from '../../utils/lazy-loader'
 
 import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
