@@ -549,6 +549,7 @@ export interface EntityNode extends Node {
     math?: MathType
     math_property?: string
     math_property_type?: string
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
     math_hogql?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Properties configurable in the interface */

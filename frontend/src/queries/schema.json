@@ -44,6 +44,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
                 "math_property_type": {
                     "type": "string"
                 },
@@ -1590,6 +1593,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
                 "math_property_type": {
                     "type": "string"
                 },
@@ -1694,6 +1700,9 @@
                 },
                 "math_property": {
                     "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
                 },
                 "math_property_type": {
                     "type": "string"
@@ -6291,6 +6300,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
                 "math_property_type": {
                     "type": "string"
                 },
@@ -6833,6 +6845,9 @@
                 },
                 "math_property": {
                     "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
                 },
                 "math_property_type": {
                     "type": "string"
@@ -7381,6 +7396,9 @@
                 },
                 "math_property": {
                     "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
                 },
                 "math_property_type": {
                     "type": "string"
@@ -8499,6 +8517,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
                 "math_property_type": {
                     "type": "string"
                 },
@@ -8561,6 +8582,9 @@
                 },
                 "math_property": {
                     "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
                 },
                 "math_property_type": {
                     "type": "string"
