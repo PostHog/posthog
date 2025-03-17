@@ -282,8 +282,7 @@ describe('CookielessManager', () => {
                 if (!actual?.properties) {
                     throw new Error('no event or properties')
                 }
-                expect(actual.distinct_id).not.toEqual(COOKIELESS_SENT
-                INEL_VALUE)
+                expect(actual.distinct_id).not.toEqual(COOKIELESS_SENTINEL_VALUE)
                 expect(actual.distinct_id.startsWith('cookieless_')).toBe(true)
                 expect(actual.properties.$session_id).toBeDefined()
             })
