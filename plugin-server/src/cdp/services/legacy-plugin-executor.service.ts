@@ -6,7 +6,7 @@ import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { Response, trackedFetch } from '../../utils/fetch'
 import { parseJSON } from '../../utils/json-parse'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
 import { firstTimeEventTrackerPlugin } from '../legacy-plugins/_transformations/first-time-event-tracker/template'
@@ -132,7 +132,7 @@ export class LegacyPluginExecutorService {
             })
         }
 
-        const logger: LegacyPluginLogger = {
+        const pluginLogger: LegacyPluginLogger = {
             debug: (...args: any[]) => addLog('debug', ...args),
             warn: (...args: any[]) => addLog('warn', ...args),
             log: (...args: any[]) => addLog('info', ...args),
@@ -169,7 +169,7 @@ export class LegacyPluginExecutorService {
                 const meta: LegacyTransformationPluginMeta = {
                     config: invocation.globals.inputs,
                     global: {},
-                    logger: logger,
+                    logger: pluginLogger,
                     geoip: {
                         locate: (ipAddress: string): Record<string, any> | null => {
                             try {
@@ -274,7 +274,7 @@ export class LegacyPluginExecutorService {
                 await plugin.onEvent?.(processedEvent, {
                     ...state.meta,
                     // NOTE: We override logger and fetch here so we can track the calls
-                    logger,
+                    logger: pluginLogger,
                     fetch,
                     storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                 })
@@ -287,7 +287,7 @@ export class LegacyPluginExecutorService {
                         event as PluginEvent,
                         {
                             ...state.meta,
-                            logger,
+                            logger: pluginLogger,
                         },
                         this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId)
                     )
@@ -296,7 +296,7 @@ export class LegacyPluginExecutorService {
                     // Transformation style
                     const transformedEvent = plugin.processEvent(event as PluginEvent, {
                         ...state.meta,
-                        logger,
+                        logger: pluginLogger,
                     })
                     result.execResult = transformedEvent
                 }
@@ -308,7 +308,7 @@ export class LegacyPluginExecutorService {
                 // NOTE: Schedule as a retry to cyclotron?
             }
 
-            status.error('💩', 'Plugin errored', {
+            logger.error('💩', 'Plugin errored', {
                 error: e.message,
                 pluginId,
                 invocationId: invocation.id,

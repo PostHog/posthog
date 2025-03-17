@@ -2,9 +2,9 @@ import { Hub, Team } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { LazyLoader } from '../../utils/lazy-loader'
+import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { PubSub } from '../../utils/pubsub'
-import { status } from '../../utils/status'
 import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../types'
 
 const HOG_FUNCTION_FIELDS = [
@@ -237,7 +237,7 @@ export class HogFunctionManagerLazyService {
                     }
                 } catch (error) {
                     if (encryptedInputs) {
-                        status.warn('🍿', 'Could not parse encrypted inputs - preserving original value', {
+                        logger.warn('🍿', 'Could not parse encrypted inputs - preserving original value', {
                             error: error instanceof Error ? error.message : 'Unknown error',
                         })
                         captureException(error)
@@ -249,7 +249,7 @@ export class HogFunctionManagerLazyService {
     }
 
     public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
-        status.info('🍿', 'Enriching with integrations', { functionCount: items.length })
+        logger.info('🍿', 'Enriching with integrations', { functionCount: items.length })
         const integrationIds: number[] = []
 
         items.forEach((item) => {
@@ -267,11 +267,11 @@ export class HogFunctionManagerLazyService {
         })
 
         if (!integrationIds.length) {
-            status.info('🍿', 'No integrations to enrich with')
+            logger.info('🍿', 'No integrations to enrich with')
             return
         }
 
-        status.info('🍿', 'Fetching integrations', { integrationCount: integrationIds.length })
+        logger.info('🍿', 'Fetching integrations', { integrationCount: integrationIds.length })
 
         const integrations: IntegrationType[] = (
             await this.hub.postgres.query(
@@ -284,7 +284,7 @@ export class HogFunctionManagerLazyService {
             )
         ).rows
 
-        status.info('🍿', 'Decrypting integrations', { integrationCount: integrations.length })
+        logger.info('🍿', 'Decrypting integrations', { integrationCount: integrations.length })
 
         const integrationConfigsByTeamAndId: Record<string, Record<string, any>> = integrations.reduce(
             (acc, integration) => {
@@ -302,7 +302,7 @@ export class HogFunctionManagerLazyService {
             },
             {}
         )
-        status.info('🍿', 'Enriching hog functions', { functionCount: items.length })
+        logger.info('🍿', 'Enriching hog functions', { functionCount: items.length })
 
         let updatedValuesCount = 0
         items.forEach((item) => {
@@ -321,6 +321,6 @@ export class HogFunctionManagerLazyService {
                 }
             })
         })
-        status.info('🍿', 'Enriched hog functions', { functionCount: items.length, updatedValuesCount })
+        logger.info('🍿', 'Enriched hog functions', { functionCount: items.length, updatedValuesCount })
     }
 }
