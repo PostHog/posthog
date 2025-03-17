@@ -59,7 +59,9 @@ class InsightRagContextNode(AssistantNode):
         if not isinstance(response, CachedVectorSearchQueryResponse):
             return ""
 
-        actions = Action.objects.filter(team=self._team, id__in=[row.id for row in response.results])
+        actions = Action.objects.filter(
+            team__project_id=self._team.project_id, id__in=[row.id for row in response.results]
+        )
 
         root = ET.Element("defined_actions")
         for action in actions:
