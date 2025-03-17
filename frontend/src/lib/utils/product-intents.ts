@@ -17,6 +17,9 @@ export enum ProductIntentContext {
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',
 
+    // Session Replay
+    SESSION_REPLAY_SET_FILTERS = 'session_replay_set_filters',
+
     // Cross Sells
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
     WEB_ANALYTICS_INSIGHT = 'web_analytics_insight',

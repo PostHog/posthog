@@ -11,6 +11,7 @@ from posthog.models.product_intent.product_intent import (
     ProductIntent,
     calculate_product_activation,
 )
+from ...session_recordings.models.session_recording import SessionRecording
 from posthog.test.base import BaseTest
 
 
@@ -26,6 +27,20 @@ class TestProductIntent(BaseTest):
         # Test that we can't create duplicate product intents for same team/product
         with pytest.raises(Exception):
             ProductIntent.objects.create(team=self.team, product_type="data_warehouse")
+
+    def test_can_create_intent_with_register(self):
+        ProductIntent.register(self.team, "session_replay", "test", self.user)
+
+        intent = ProductIntent.objects.filter(team=self.team, product_type="session_replay").first()
+        assert intent is not None
+        assert intent.contexts == {"test": 1}
+
+        ProductIntent.register(self.team, "session_replay", "test", self.user)
+
+        intent.refresh_from_db()
+
+        assert intent is not None
+        assert intent.contexts == {"test": 2}
 
     @freeze_time("2024-06-15T12:00:00Z")
     def test_has_activated_data_warehouse_with_valid_query(self):
@@ -170,3 +185,80 @@ class TestProductIntent(BaseTest):
         Survey.objects.create(team=self.team, name="Survey Test", targeting_flag=survey_flag)
 
         self.assertFalse(self.product_intent.has_activated_feature_flags())
+
+    @freeze_time("2024-06-15T12:00:00Z")
+    def test_has_activated_session_replay_with_five_recordings_viewed_and_filters_set(self):
+        # Create 5 recordings and mark them as viewed
+        for i in range(5):
+            recording = SessionRecording.objects.create(
+                team=self.team,
+                session_id=f"session-{i}",
+            )
+
+            recording.check_viewed_for_user(self.user, save_viewed=True)
+
+        # Create a product intent with the filters set
+        ProductIntent.objects.create(
+            team=self.team, product_type="session_replay", contexts={"session_replay_set_filters": 1}
+        )
+
+        self.assertTrue(self.product_intent.has_activated_session_replay())
+
+    @freeze_time("2024-06-15T12:00:00Z")
+    def test_has_not_activated_session_replay_with_less_than_five_recordings(self):
+        # Create a product intent with the filters set
+        ProductIntent.objects.create(
+            team=self.team, product_type="session_replay", contexts={"session_replay_set_filters": 1}
+        )
+
+        # Create only 4 recordings and mark them as viewed
+        for i in range(4):
+            recording = SessionRecording.objects.create(
+                team=self.team,
+                session_id=f"session-{i}",
+            )
+
+            recording.check_viewed_for_user(self.user, save_viewed=True)
+
+        assert self.product_intent.has_activated_session_replay() is False
+
+    @freeze_time("2024-06-15T12:00:00Z")
+    def test_has_not_activated_session_replay_with_unviewed_recordings(self):
+        # Create a product intent with the filters set
+        ProductIntent.objects.create(
+            team=self.team, product_type="session_replay", contexts={"session_replay_set_filters": 1}
+        )
+
+        for i in range(3):
+            recording = SessionRecording.objects.create(
+                team=self.team,
+                session_id=f"session-{i}",
+            )
+
+            recording.check_viewed_for_user(self.user, save_viewed=True)
+
+        for i in range(4, 6):
+            recording = SessionRecording.objects.create(
+                team=self.team,
+                session_id=f"session-{i}",
+            )
+
+            recording.check_viewed_for_user(self.user, save_viewed=False)
+
+        assert self.product_intent.has_activated_session_replay() is False
+
+    def test_has_not_activated_session_replay_without_filters_set(self):
+        ProductIntent.objects.create(team=self.team, product_type="session_replay")
+
+        assert self.product_intent.has_activated_session_replay() is False
+
+        # Create 5 recordings and mark them as viewed
+        for i in range(5):
+            recording = SessionRecording.objects.create(
+                team=self.team,
+                session_id=f"session-{i}",
+            )
+
+            recording.check_viewed_for_user(self.user, save_viewed=True)
+
+        assert self.product_intent.has_activated_session_replay() is False
