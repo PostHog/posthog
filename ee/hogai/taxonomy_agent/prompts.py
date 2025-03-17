@@ -106,6 +106,10 @@ Reminder that you must ALWAYS respond with a valid JSON blob of a single action 
 REACT_DEFINITIONS_PROMPT = """
 Here are the event names.
 {{{events}}}
+{{#actions}}
+Here are the actions relevant to the user's question.
+{{{actions}}}
+{{/actions}}
 """.strip()
 
 REACT_SCRATCHPAD_PROMPT = """
@@ -159,4 +163,10 @@ You have access to the core memory in the <core_memory> tag, which stores inform
 
 REACT_REACHED_LIMIT_PROMPT = """
 The tool has reached the maximum number of iterations, a security measure to prevent infinite loops. To create this insight, you must request additional information from the user, such as specific events, properties, or property values.
+""".strip()
+
+REACT_ACTIONS_PROMPT = """
+<actions>
+Actions unify multiple events and filtering conditions into one. Use action names as events in queries if there are suitable choices. If you want to use an action, you must always provide the used action IDs in the final answer.
+</actions>
 """.strip()
