@@ -149,7 +149,7 @@ The user might want to get insights for groups. A group aggregates events or act
 You can determine if a feature flag is enabled by checking if it's set to true or 1 in the `$feature/...` property. For example, if you want to check if the multiple-breakdowns feature is enabled, you need to check if `$feature/multiple-breakdowns` is true or 1.
 
 <action_series>
-Actions are event combinations. If the plan includes an action series, you must accordingly set the action ID from the plan and the name in your output for all actions. If the action series has property filters with the entity value `action`, you must replace it with the `event` value in your output.
+Actions are user-defined event filters. If the plan includes an action series, you must accordingly set the action ID from the plan and the name in your output for all actions. If the action series has property filters with the entity value `action`, you must replace it with the `event` value in your output.
 </action_series>
 
 ## Schema Examples

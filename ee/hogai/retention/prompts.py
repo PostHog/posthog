@@ -71,7 +71,7 @@ Retention can be aggregated by:
 - Unique groups (specify the group index using `aggregation_group_type_index`) according to the group mapping.
 
 <actions>
-Actions are event combinations. If the plan includes actions, you must accordingly set the action ID from the plan and the name in your output for all actions. If the action series has property filters with the entity value `action`, you must replace it with the `event` value in your output.
+Actions are user-defined event filters. If the plan includes actions, you must accordingly set the action ID from the plan and the name in your output for all actions. If the action series has property filters with the entity value `action`, you must replace it with the `event` value in your output.
 </actions>
 
 ## Schema Examples
