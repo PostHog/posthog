@@ -165,7 +165,7 @@ class SessionReplayEvents:
 
         return result.columns, result.results
 
-    def get_events_for_session(self, session_id: str, team: Team) -> list[dict]:
+    def get_events_for_session(self, session_id: str, team: Team, limit: int = 100) -> list[dict]:
         """Get all events for a session."""
         query = """
             SELECT event, timestamp
@@ -173,6 +173,7 @@ class SessionReplayEvents:
             WHERE team_id = %(team_id)s
             AND $session_id = %(session_id)s
             ORDER BY timestamp ASC
+            LIMIT %(limit)s
         """
 
         events = sync_execute(
@@ -180,6 +181,7 @@ class SessionReplayEvents:
             {
                 "team_id": team.pk,
                 "session_id": session_id,
+                "limit": limit,
             },
         )
         return [{"event": e[0], "timestamp": e[1]} for e in events]
@@ -205,7 +207,7 @@ class SessionReplayEvents:
             return []
 
         # Get target recording's events
-        target_events = self.get_events_for_session(session_id, team)
+        target_events = self.get_events_for_session(session_id, team, limit=100)
         if not target_events:
             return []
 

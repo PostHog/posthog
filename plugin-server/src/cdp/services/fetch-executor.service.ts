@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { PluginsServerConfig } from '../../types'
 import { trackedFetch } from '../../utils/fetch'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationResult,
@@ -17,7 +17,7 @@ export class FetchExecutorService {
 
     async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult | undefined> {
         if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
-            status.error('🦔', `[HogExecutor] Bad invocation`, { invocation })
+            logger.error('🦔', `[HogExecutor] Bad invocation`, { invocation })
             return
         }
         return await this.executeLocally(invocation)
@@ -78,7 +78,7 @@ export class FetchExecutorService {
 
             resParams.body = responseBody
         } catch (err) {
-            status.error('🦔', `[HogExecutor] Error during fetch`, { error: String(err) })
+            logger.error('🦔', `[HogExecutor] Error during fetch`, { error: String(err) })
             resParams.error = 'Something went wrong with the fetch request.'
         }
 

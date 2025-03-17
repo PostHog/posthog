@@ -75,6 +75,7 @@ export enum NodeKind {
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
+    RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
 
     // Interface nodes
@@ -121,6 +122,7 @@ export enum NodeKind {
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
+    VectorSearchQuery = 'VectorSearchQuery',
 }
 
 export type AnyDataNode =
@@ -144,11 +146,13 @@ export type AnyDataNode =
     | WebVitalsPathBreakdownQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
+    | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | RecordingsQuery
     | TracesQuery
+    | VectorSearchQuery
 
 /**
  * @discriminator kind
@@ -170,6 +174,7 @@ export type QuerySchema =
     | HogQLAutocomplete
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
+    | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -208,6 +213,7 @@ export type QuerySchema =
     | EventTaxonomyQuery
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
+    | VectorSearchQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -263,6 +269,7 @@ export interface HogQLQueryModifiers {
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     bounceRateDurationSeconds?: number
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
+    sessionsV2JoinMode?: 'string' | 'uuid'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
@@ -677,6 +684,7 @@ export interface DataTableNode
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | RevenueExampleEventsQuery
+                    | RevenueExampleDataWarehouseTablesQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
@@ -701,6 +709,7 @@ export interface DataTableNode
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -1721,6 +1730,24 @@ export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryRespons
 }
 export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<RevenueExampleEventsQueryResponse>
 
+export interface RevenueExampleDataWarehouseTablesQuery
+    extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
+    kind: NodeKind.RevenueExampleDataWarehouseTablesQuery
+    revenueTrackingConfig: RevenueTrackingConfig
+    limit?: integer
+    offset?: integer
+}
+
+export interface RevenueExampleDataWarehouseTablesQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    types?: unknown[]
+    columns?: unknown[]
+}
+export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
+    CachedQueryResponse<RevenueExampleDataWarehouseTablesQueryResponse>
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
@@ -2382,7 +2409,8 @@ export type EventTaxonomyResponse = EventTaxonomyItem[]
 
 export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse> {
     kind: NodeKind.EventTaxonomyQuery
-    event: string
+    event?: string
+    actionId?: integer
     properties?: string[]
     maxPropertyValues?: integer
 }
@@ -2408,6 +2436,22 @@ export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxo
 export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
+
+export interface VectorSearchResponseItem {
+    id: string
+    distance: number
+}
+
+export type VectorSearchResponse = VectorSearchResponseItem[]
+
+export interface VectorSearchQuery extends DataNode<VectorSearchQueryResponse> {
+    kind: NodeKind.VectorSearchQuery
+    embedding: number[]
+}
+
+export type VectorSearchQueryResponse = AnalyticsQueryResponseBase<VectorSearchResponse>
+
+export type CachedVectorSearchQueryResponse = CachedQueryResponse<VectorSearchQueryResponse>
 
 export enum CustomChannelField {
     UTMSource = 'utm_source',
@@ -2515,12 +2559,6 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
 }
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
-
-export interface RevenueTrackingEventItem {
-    eventName: string
-    revenueProperty: string
-    revenueCurrencyProperty: string | undefined
-}
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
@@ -2679,7 +2717,45 @@ export enum CurrencyCode {
     ZMW = 'ZMW',
 }
 
+export type RevenueCurrencyPropertyConfig = {
+    property?: string
+    static?: CurrencyCode
+}
+
+export interface RevenueTrackingEventItem {
+    eventName: string
+    revenueProperty: string
+
+    /**
+     * @default {"static": "USD"}
+     */
+    revenueCurrencyProperty: RevenueCurrencyPropertyConfig
+}
+
+export interface RevenueTrackingDataWarehouseTable {
+    tableName: string
+    timestampColumn: string
+    revenueColumn: string
+
+    /**
+     * @default {"static": "USD"}
+     */
+    revenueCurrencyColumn: RevenueCurrencyPropertyConfig
+}
+
 export interface RevenueTrackingConfig {
-    baseCurrency?: CurrencyCode
+    /**
+     * @default 'USD'
+     */
+    baseCurrency: CurrencyCode
+
+    /**
+     * @default []
+     */
     events: RevenueTrackingEventItem[]
+
+    /**
+     * @default []
+     */
+    dataWarehouseTables: RevenueTrackingDataWarehouseTable[]
 }
