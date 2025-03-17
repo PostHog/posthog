@@ -48,7 +48,7 @@ class ProductIntent(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     product_type = models.CharField(max_length=255)
     onboarding_completed_at = models.DateTimeField(null=True, blank=True)
-    contexts = models.JSONField(default=dict)
+    contexts = models.JSONField(default=dict, blank=True, null=True)
     activated_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -125,7 +125,9 @@ class ProductIntent(UUIDModel):
         if not intent:
             return False
 
-        set_filters_count = intent.contexts.get("session_replay_set_filters", 0)
+        contexts = intent.contexts or {}
+
+        set_filters_count = contexts.get("session_replay_set_filters", 0)
 
         if set_filters_count >= 1 and has_viewed_five_recordings:
             return True
@@ -170,7 +172,12 @@ class ProductIntent(UUIDModel):
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
 
-        product_intent.contexts = {**product_intent.contexts, context: product_intent.contexts.get(context, 0) + 1}
+        contexts = product_intent.contexts or {}
+
+        product_intent.contexts = {
+            **contexts,
+            context: contexts.get(context, 0) + 1,
+        }
         product_intent.save()
 
         if created:
