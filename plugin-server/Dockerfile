@@ -1,4 +1,3 @@
-
 #
 # ---------------------------------------------------------
 #
@@ -80,8 +79,7 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: v1.32 is running bullseye, v1.33 is running bookworm
-FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.82-node_18.19.1
+FROM node:18.19.1-bookworm
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -96,7 +94,7 @@ RUN apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # Install and use a non-root user.
-RUN groupadd -g 1000 posthog && \
+RUN groupadd -g 9999 posthog && \
     useradd -r -g posthog posthog && \
     chown posthog:posthog /code
 USER posthog
