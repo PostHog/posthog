@@ -1,7 +1,6 @@
-import { parseJSON } from '~/src/utils/json-parse'
-
 import { Hub, Team } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
+import { parseJSON } from '../../utils/json-parse'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { captureException } from '../../utils/posthog'
 import { PubSub } from '../../utils/pubsub'
