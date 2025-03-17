@@ -7222,7 +7222,7 @@
         "EventTaxonomyQuery": {
             "additionalProperties": false,
             "properties": {
-                "action": {
+                "actionId": {
                     "$ref": "#/definitions/integer"
                 },
                 "event": {

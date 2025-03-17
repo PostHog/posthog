@@ -340,7 +340,7 @@ class TaxonomyAgentToolkit(ABC):
             query = EventTaxonomyQuery(event=event_name_or_action_id, maxPropertyValues=25)
             verbose_name = f"event {event_name_or_action_id}"
         else:
-            query = EventTaxonomyQuery(action=event_name_or_action_id, maxPropertyValues=25)
+            query = EventTaxonomyQuery(actionId=event_name_or_action_id, maxPropertyValues=25)
             verbose_name = f"action with ID {event_name_or_action_id}"
         runner = EventTaxonomyQueryRunner(query, self._team)
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)

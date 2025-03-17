@@ -7256,7 +7256,7 @@ class EventTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    action: Optional[int] = None
+    actionId: Optional[int] = None
     event: Optional[str] = None
     kind: Literal["EventTaxonomyQuery"] = "EventTaxonomyQuery"
     maxPropertyValues: Optional[int] = None

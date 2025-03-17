@@ -1,10 +1,10 @@
 from datetime import datetime
 from textwrap import dedent
 
-from django.test import override_settings
 from freezegun import freeze_time
 
 from ee.hogai.taxonomy_agent.toolkit import FinalAnswerTool, TaxonomyAgentToolkit, ToolkitTool
+from posthog.models import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
@@ -16,8 +16,11 @@ class DummyToolkit(TaxonomyAgentToolkit):
         return self._default_tools
 
 
-@override_settings(IN_UNIT_TESTING=True)
 class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.action = Action.objects.create(team=self.team, name="action1", steps_json=[{"event": "event1"}])
+
     def _create_taxonomy(self):
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.EVENT, name="$browser", property_type=PropertyType.String
@@ -228,42 +231,43 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             "Properties do not exist in the taxonomy for the event event1.",
         )
 
-    def test_retrieve_event_properties(self):
+    def test_retrieve_event_or_action_properties(self):
         self._create_taxonomy()
         toolkit = DummyToolkit(self.team)
-        prompt = toolkit.retrieve_event_or_action_properties("event1")
+        for item in ("event1", self.action.id):
+            prompt = toolkit.retrieve_event_or_action_properties(item)
+            self.assertIn(
+                "<Numeric><prop><name>id</name></prop></Numeric>",
+                prompt,
+            )
+            self.assertIn(
+                "<String><prop><name>$browser</name><description>Name of the browser the user has used.</description></prop></String>",
+                prompt,
+            )
+            self.assertIn(
+                "<DateTime><prop><name>date</name></prop></DateTime>",
+                prompt,
+            )
+            self.assertIn(
+                "<Boolean><prop><name>bool</name></prop></Boolean>",
+                prompt,
+            )
 
-        self.assertIn(
-            "<Numeric><prop><name>id</name></prop></Numeric>",
-            prompt,
-        )
-        self.assertIn(
-            "<String><prop><name>$browser</name><description>Name of the browser the user has used.</description></prop></String>",
-            prompt,
-        )
-        self.assertIn(
-            "<DateTime><prop><name>date</name></prop></DateTime>",
-            prompt,
-        )
-        self.assertIn(
-            "<Boolean><prop><name>bool</name></prop></Boolean>",
-            prompt,
-        )
-
-    def test_retrieve_event_property_values(self):
+    def test_retrieve_event_or_action_property_values(self):
         self._create_taxonomy()
         toolkit = DummyToolkit(self.team)
 
-        self.assertIn('"Chrome"', toolkit.retrieve_event_or_action_property_values("event1", "$browser"))
-        self.assertIn('"Firefox"', toolkit.retrieve_event_or_action_property_values("event1", "$browser"))
-        self.assertEqual(toolkit.retrieve_event_or_action_property_values("event1", "bool"), "true")
-        self.assertEqual(
-            toolkit.retrieve_event_or_action_property_values("event1", "id"),
-            "9, 8, 7, 6, 5, 4, 3, 2, 1, 0",
-        )
-        self.assertEqual(
-            toolkit.retrieve_event_or_action_property_values("event1", "date"), f'"{datetime(2024, 1, 1).isoformat()}"'
-        )
+        for item in ("event1", self.action.id):
+            self.assertIn('"Chrome"', toolkit.retrieve_event_or_action_property_values(item, "$browser"))
+            self.assertIn('"Firefox"', toolkit.retrieve_event_or_action_property_values(item, "$browser"))
+            self.assertEqual(toolkit.retrieve_event_or_action_property_values(item, "bool"), "true")
+            self.assertEqual(
+                toolkit.retrieve_event_or_action_property_values(item, "id"),
+                "9, 8, 7, 6, 5, 4, 3, 2, 1, 0",
+            )
+            self.assertEqual(
+                toolkit.retrieve_event_or_action_property_values(item, "date"), f'"{datetime(2024, 1, 1).isoformat()}"'
+            )
 
     def test_enrich_props_with_descriptions(self):
         toolkit = DummyToolkit(self.team)
