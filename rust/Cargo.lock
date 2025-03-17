@@ -1391,16 +1391,12 @@ dependencies = [
 name = "common-cookieless"
 version = "0.0.1"
 dependencies = [
- "async-trait",
- "axum 0.7.5",
  "base64 0.22.0",
  "chrono",
  "chrono-tz",
  "common-metrics",
  "common-redis",
- "futures",
  "itoa",
- "metrics",
  "moka",
  "public-suffix",
  "rand",

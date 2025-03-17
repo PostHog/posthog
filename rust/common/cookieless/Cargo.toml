@@ -10,16 +10,12 @@ workspace = true
 examples = []
 
 [dependencies]
-async-trait = { workspace = true }
-axum = { workspace = true, optional = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
 common-metrics = { path = "../metrics" }
 common-redis = { path = "../redis" }
-futures = { workspace = true }
 itoa = { workspace = true }
-metrics = { workspace = true }
 moka = { workspace = true, features = ["sync"] }
 public-suffix = "0.1.2"
 rand = { workspace = true }
