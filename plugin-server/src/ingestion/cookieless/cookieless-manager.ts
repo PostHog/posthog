@@ -708,8 +708,12 @@ export function extractRootDomain(input: string): string {
     if (isIPv6(input)) {
         // Usually we would expect URLS, which would need to wrap literal ipv6 addresses in square brackets per RFC 2732.
         // Handle raw ipv6 addresses just in case, and return them normalized with square brackets.
-        const ip = parse(input)
-        return `[${ip.toString()}]`
+        try {
+            const ip = parse(input)
+            return `[${ip.toString()}]`
+        } catch {
+            return input
+        }
     }
 
     if (!input.includes('://')) {
