@@ -25,7 +25,7 @@ export function PageHeader({ caption, buttons, tabbedPage }: PageHeaderProps): J
         <>
             {buttons &&
                 actionsContainer &&
-                !withinSidePanel &&
+                !withinSidePanel && // Do not interfere with the main scene if we're only in a side panel here
                 createPortal(
                     <WithinPageHeaderContext.Provider value={true}>{buttons}</WithinPageHeaderContext.Provider>,
                     actionsContainer
