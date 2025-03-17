@@ -40,8 +40,6 @@ export type LazyLoaderOptions<T> = {
     refreshNullAge?: number
     /** How much jitter to add to the refresh time */
     refreshJitterMs?: number
-    /** How long to keep the value in the cache after it's loaded */
-    dropAge?: number
     /** Whether to throw an error if the loader function throws an error */
     throwOnLoadError?: boolean
 }
@@ -123,11 +121,10 @@ export class LazyLoader<T> {
             loaded = {}
         }
         for (const key of keysToLoad) {
-            this.cache[key] = loaded[key] ?? null
+            results[key] = this.cache[key] = loaded[key] ?? null
             this.cacheUntil[key] =
                 now + (loaded[key] === null ? refreshNullAge : refreshAge) + Math.floor(Math.random() * refreshJitterMs)
             this.lastUsed[key] = now
-            results[key] = this.cache[key]
         }
 
         return results
