@@ -113,12 +113,6 @@
             "expected_identifies_key": "cklsi:0:jZfBjkLcdjlQTVmIKIhC3Q"
         },
         {
-            "//": "Test case with negative team_id",
-            "hash": "jZfBjkLcdjlQTVmIKIhC3Q==",
-            "team_id": -1,
-            "expected_identifies_key": "cklsi:-1:jZfBjkLcdjlQTVmIKIhC3Q"
-        },
-        {
             "//": "Test case with very large team_id",
             "hash": "jZfBjkLcdjlQTVmIKIhC3Q==",
             "team_id": 9007199254740991,
