@@ -55,11 +55,9 @@ from posthog.session_recordings.realtime_snapshots import (
     publish_subscription,
 )
 from posthog.storage import object_storage
-from posthog.session_recordings.ai_data.ai_filter_schema import AiFilterSchema
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
-from posthog.session_recordings.ai_data.ai_filter_prompts import AI_FILTER_INITIAL_PROMPT, AI_FILTER_PROPERTIES_PROMPT
-from posthog.settings.session_replay import SESSION_REPLAY_AI_DEFAULT_MODEL, SESSION_REPLAY_AI_REGEX_MODEL
+from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionSystemMessageParam,
@@ -1008,64 +1006,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             return response
         else:
             raise exceptions.ValidationError(f"Invalid version: {version}")
-
-    @extend_schema(
-        description="Generate session recording filters using AI. This is in development and likely to change, you should not depend on this API."
-    )
-    @action(methods=["POST"], detail=False, url_path="ai/filters")
-    def ai_filters(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not request.user.is_authenticated:
-            raise exceptions.NotAuthenticated()
-
-        try:
-            # Validate request data against schema
-            request_data = AiFilterRequest(messages=[ChatMessage(**msg) for msg in request.data.get("messages", [])])
-        except ValidationError:
-            raise exceptions.ValidationError(
-                "Invalid message format. Messages must be a list of objects with 'role' (either 'user' or 'assistant') and 'content' fields."
-            )
-
-        # Create system prompt by combining the initial and properties prompts
-        system_message = ChatCompletionSystemMessageParam(
-            role="system", content=clean_prompt_whitespace(AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT)
-        )
-
-        # Convert messages to OpenAI format and combine with system message
-        messages: list[ChatCompletionMessageParam] = [system_message]
-        for msg in request_data.messages:
-            if msg.role == "user":
-                messages.append(
-                    ChatCompletionUserMessageParam(role="user", content=clean_prompt_whitespace(msg.content))
-                )
-            else:
-                messages.append(
-                    ChatCompletionAssistantMessageParam(role="assistant", content=clean_prompt_whitespace(msg.content))
-                )
-
-        client = _get_openai_client()
-
-        completion = client.beta.chat.completions.parse(
-            model=SESSION_REPLAY_AI_DEFAULT_MODEL,
-            messages=messages,
-            response_format=AiFilterSchema,
-            # need to type ignore before, this will be a WrappedParse
-            # but the type detection can't figure that out
-            posthog_distinct_id=self._distinct_id_from_request(request),  # type: ignore
-            posthog_properties={
-                "ai_product": "session_replay",
-                "ai_feature": "ai_filters",
-            },
-        )
-
-        if not completion.choices or not completion.choices[0].message.content:
-            raise exceptions.ValidationError("Invalid response from OpenAI")
-
-        try:
-            response_data = json.loads(completion.choices[0].message.content)
-        except JSONDecodeError:
-            raise exceptions.ValidationError("Invalid JSON response from OpenAI")
-
-        return Response(response_data)
 
     @extend_schema(
         description="Generate regex patterns using AI. This is in development and likely to change, you should not depend on this API."
