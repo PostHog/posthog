@@ -38,17 +38,83 @@ export type LazyLoaderOptions<T> = {
     refreshNullAge?: number
     /** How much jitter to add to the refresh time */
     refreshJitterMs?: number
+    /** How long to buffer loads for */
+    bufferMs?: number
 }
 
+type LazyLoaderMap<T> = Record<string, T | null | undefined>
+
 export class LazyLoader<T> {
-    private cache: Record<string, T | null | undefined>
+    public readonly cache: LazyLoaderMap<T>
     private lastUsed: Record<string, number | undefined>
     private cacheUntil: Record<string, number | undefined>
+    private pendingLoads: Record<string, Promise<T | null> | undefined>
+
+    private buffer:
+        | {
+              keys: Set<string>
+              promise: Promise<LazyLoaderMap<T>>
+          }
+        | undefined
 
     constructor(private readonly options: LazyLoaderOptions<T>) {
         this.cache = {}
         this.lastUsed = {}
         this.cacheUntil = {}
+        this.pendingLoads = {}
+    }
+
+    /**
+     * Schedules the keys to be loaded with a buffer to allow batching multiple keys
+     * This is somewhat complex but simplifies the usage around the codebase as you can safely do multiple gets without worrying about firing off duplicate DB requests
+     */
+    private async scheduleLoad(keys: string[]): Promise<LazyLoaderMap<T>> {
+        const bufferMs = this.options.bufferMs ?? 100
+        const keyPromises: Promise<T | null>[] = []
+
+        for (const key of keys) {
+            if (this.pendingLoads[key]) {
+                // If we already have a scheduled loader for this key we just add it to the list
+                keyPromises.push(this.pendingLoads[key])
+                continue
+            }
+
+            if (!this.buffer) {
+                // If we don't have a buffer then we create one
+                // The buffer is a combination of a set of keys and a promise that will resolve after a setTimeout to then call the loader for those keys
+                this.buffer = {
+                    keys: new Set(),
+                    promise: new Promise<string[]>((resolve) => {
+                        setTimeout(() => {
+                            const keys = Array.from(this.buffer!.keys)
+                            this.buffer = undefined
+                            resolve(keys)
+                        }, bufferMs)
+                    }).then((keys) => {
+                        // Pull out the keys to load and clear the buffer
+                        return this.options.loader(keys)
+                    }),
+                }
+            }
+
+            // Add the key to the buffer and add a pendingLoad that waits for the buffer to resolve
+            // and then picks out its value
+            this.buffer.keys.add(key)
+            this.pendingLoads[key] = this.buffer.promise
+                .then((map) => map[key] ?? null)
+                .finally(() => {
+                    delete this.pendingLoads[key]
+                })
+
+            keyPromises.push(this.pendingLoads[key])
+        }
+
+        const results = await Promise.all(keyPromises)
+
+        return keys.reduce((acc, key, index) => {
+            acc[key] = results[index] ?? null
+            return acc
+        }, {} as LazyLoaderMap<T>)
     }
 
     /**
@@ -62,7 +128,6 @@ export class LazyLoader<T> {
         const results: Record<string, T | null> = {}
 
         const {
-            loader,
             refreshAge = REFRESH_AGE,
             refreshNullAge = REFRESH_AGE,
             refreshJitterMs = REFRESH_JITTER_MS,
@@ -101,7 +166,9 @@ export class LazyLoader<T> {
 
         lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
 
-        const loaded = await loader(Array.from(keysToLoad))
+        // We have something to load so we schedule it and then await all of them
+
+        const loaded = await this.scheduleLoad(Array.from(keysToLoad))
 
         for (const key of keysToLoad) {
             results[key] = this.cache[key] = loaded[key] ?? null
