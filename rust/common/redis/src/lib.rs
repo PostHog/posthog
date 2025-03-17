@@ -142,7 +142,7 @@ impl Client for RedisClient {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct MockRedisClient {
     zrangebyscore_ret: HashMap<String, Vec<String>>,
     hincrby_ret: HashMap<String, Result<(), CustomRedisError>>,
@@ -153,30 +153,35 @@ pub struct MockRedisClient {
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
 }
 
-#[derive(Clone)]
-pub enum MockRedisValue {
-    None,
-    Error(CustomRedisError),
-    String(String),
-    VecString(Vec<String>),
-    I32(i32),
-    I64(i64),
-    MinMax(String, String),
-}
-
-#[derive(Clone)]
-#[allow(dead_code)]
-pub struct MockRedisCall {
-    op: String,
-    key: String,
-    value: MockRedisValue,
-}
-
 impl MockRedisClient {
     pub fn new() -> Self {
         Self::default()
     }
 
+    // Helper method to safely lock the calls mutex
+    fn lock_calls(&self) -> std::sync::MutexGuard<Vec<MockRedisCall>> {
+        match self.calls.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+}
+
+impl Default for MockRedisClient {
+    fn default() -> Self {
+        Self {
+            zrangebyscore_ret: HashMap::new(),
+            hincrby_ret: HashMap::new(),
+            get_ret: HashMap::new(),
+            set_ret: HashMap::new(),
+            del_ret: HashMap::new(),
+            hget_ret: HashMap::new(),
+            calls: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+impl MockRedisClient {
     pub fn zrangebyscore_ret(&mut self, key: &str, ret: Vec<String>) -> Self {
         self.zrangebyscore_ret.insert(key.to_owned(), ret);
         self.clone()
@@ -209,8 +214,7 @@ impl MockRedisClient {
     }
 
     pub fn get_calls(&self) -> Vec<MockRedisCall> {
-        let locked_calls = self.calls.lock().unwrap();
-        locked_calls.clone()
+        self.lock_calls().clone()
     }
 }
 
@@ -223,7 +227,7 @@ impl Client for MockRedisClient {
         max: String,
     ) -> Result<Vec<String>, CustomRedisError> {
         // Record the call
-        let mut calls = self.calls.lock().unwrap();
+        let mut calls = self.lock_calls();
         calls.push(MockRedisCall {
             op: "zrangebyscore".to_string(),
             key: key.clone(),
@@ -243,7 +247,7 @@ impl Client for MockRedisClient {
         count: Option<i32>,
     ) -> Result<(), CustomRedisError> {
         // Record the call
-        let mut calls = self.calls.lock().unwrap();
+        let mut calls = self.lock_calls();
         calls.push(MockRedisCall {
             op: "hincrby".to_string(),
             key: format!("{}:{}", key, field),
@@ -261,7 +265,7 @@ impl Client for MockRedisClient {
 
     async fn get(&self, key: String) -> Result<String, CustomRedisError> {
         // Record the call
-        let mut calls = self.calls.lock().unwrap();
+        let mut calls = self.lock_calls();
         calls.push(MockRedisCall {
             op: "get".to_string(),
             key: key.clone(),
@@ -276,7 +280,7 @@ impl Client for MockRedisClient {
 
     async fn set(&self, key: String, value: String) -> Result<(), CustomRedisError> {
         // Record the call
-        let mut calls = self.calls.lock().unwrap();
+        let mut calls = self.lock_calls();
         calls.push(MockRedisCall {
             op: "set".to_string(),
             key: key.clone(),
@@ -291,7 +295,7 @@ impl Client for MockRedisClient {
 
     async fn del(&self, key: String) -> Result<(), CustomRedisError> {
         // Record the call
-        let mut calls = self.calls.lock().unwrap();
+        let mut calls = self.lock_calls();
         calls.push(MockRedisCall {
             op: "del".to_string(),
             key: key.clone(),
@@ -306,7 +310,7 @@ impl Client for MockRedisClient {
 
     async fn hget(&self, key: String, field: String) -> Result<String, CustomRedisError> {
         // Record the call
-        let mut calls = self.calls.lock().unwrap();
+        let mut calls = self.lock_calls();
         calls.push(MockRedisCall {
             op: "hget".to_string(),
             key: format!("{}:{}", key, field),
@@ -318,4 +322,23 @@ impl Client for MockRedisClient {
             None => Err(CustomRedisError::NotFound),
         }
     }
+}
+
+#[derive(Clone)]
+pub enum MockRedisValue {
+    None,
+    Error(CustomRedisError),
+    String(String),
+    VecString(Vec<String>),
+    I32(i32),
+    I64(i64),
+    MinMax(String, String),
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct MockRedisCall {
+    op: String,
+    key: String,
+    value: MockRedisValue,
 }
