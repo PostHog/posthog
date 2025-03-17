@@ -1,7 +1,5 @@
 import { Counter } from 'prom-client'
 
-import { status } from './status'
-
 const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
 const REFRESH_JITTER_MS = 1000 * 60 // 1 minute
 
