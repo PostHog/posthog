@@ -58,7 +58,7 @@ export class HogTransformerService {
     constructor(hub: Hub) {
         this.hub = hub
         this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
+        this.hogExecutor = new HogExecutorService(hub)
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
     }
