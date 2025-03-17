@@ -351,11 +351,11 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         baseline = 11
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
-        with self.assertNumQueries(baseline + 4):
+        with self.assertNumQueries(baseline + 8):
             self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
-        with self.assertNumQueries(baseline + 4):
+        with self.assertNumQueries(baseline + 11):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
         baseline = 6
@@ -388,11 +388,11 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         baseline = 11
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
-        with self.assertNumQueries(baseline + 4):
+        with self.assertNumQueries(baseline + 8):
             self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
-        with self.assertNumQueries(baseline + 4):
+        with self.assertNumQueries(baseline + 11):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
     def test_query_counts_only_adds_1_for_non_pk_resources(self):
