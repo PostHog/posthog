@@ -159,27 +159,19 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 if not token:
                     continue
 
-                or_exprs: list[ast.Expr] = []
-
-                props_to_search = [
-                    "$exception_list",
-                    "$exception_type",
-                    "$exception_message",
-                ]
-                for prop in props_to_search:
-                    or_exprs.append(
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Gt,
-                            left=ast.Call(
-                                name="position",
-                                args=[
-                                    ast.Call(name="lower", args=[ast.Field(chain=["properties", prop])]),
-                                    ast.Call(name="lower", args=[ast.Constant(value=token)]),
-                                ],
-                            ),
-                            right=ast.Constant(value=0),
-                        )
+                or_exprs: list[ast.Expr] = [
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Gt,
+                        left=ast.Call(
+                            name="position",
+                            args=[
+                                ast.Call(name="lower", args=[ast.Field(chain=["properties", "$exception_list"])]),
+                                ast.Call(name="lower", args=[ast.Constant(value=token)]),
+                            ],
+                        ),
+                        right=ast.Constant(value=0),
                     )
+                ]
 
                 and_exprs.append(
                     ast.Or(
@@ -258,11 +250,13 @@ class ErrorTrackingQueryRunner(QueryRunner):
             [
                 ast.OrderExpr(
                     expr=ast.Field(chain=[self.query.orderBy]),
-                    order=self.query.orderDirection.value
-                    if self.query.orderDirection
-                    else "ASC"
-                    if self.query.orderBy == "first_seen"
-                    else "DESC",
+                    order=(
+                        self.query.orderDirection.value
+                        if self.query.orderDirection
+                        else "ASC"
+                        if self.query.orderBy == "first_seen"
+                        else "DESC"
+                    ),
                 )
             ]
             if self.query.orderBy

@@ -1,4 +1,5 @@
 import { kea, path, props, selectors } from 'kea'
+import { ERROR_TRACKING_LOGIC_KEY } from 'scenes/error-tracking/utils'
 import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -52,5 +53,11 @@ export const scene: SceneExport = {
 
 export function ErrorTrackingAlertScene({ id }: Partial<ErrorTrackingAlertSceneLogicProps> = {}): JSX.Element {
     const props = id && ERROR_TRACKING_TEMPLATE_IDS.includes(id) ? { id: null, templateId: id } : { id }
-    return <HogFunctionConfiguration {...props} displayOptions={{ canEditSource: true }} logicKey="errorTracking" />
+    return (
+        <HogFunctionConfiguration
+            {...props}
+            displayOptions={{ canEditSource: true }}
+            logicKey={ERROR_TRACKING_LOGIC_KEY}
+        />
+    )
 }

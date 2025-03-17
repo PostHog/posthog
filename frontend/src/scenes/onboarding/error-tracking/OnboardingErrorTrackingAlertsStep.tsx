@@ -1,8 +1,7 @@
-import { LemonButton, LemonButtonProps, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import api from 'lib/api'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { HogFunctionIcon } from 'scenes/pipeline/hogfunctions/HogFunctionIcon'
@@ -14,19 +13,21 @@ import { OnboardingStep } from '../OnboardingStep'
 import {
     ErrorTrackingAlertIntegrationType,
     onboardingErrorTrackingAlertsLogic,
-} from './onboardingErrorTrackingAlertsStepLogic'
+} from './onboardingErrorTrackingAlertsLogic'
 
 export function OnboardingErrorTrackingAlertsStep({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element {
-    const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
-    const { integration } = useValues(onboardingErrorTrackingAlertsLogic)
+    const { integration, slackIntegrations, slackAvailable, connectionConfig, isConnectionConfigSubmitting } =
+        useValues(onboardingErrorTrackingAlertsLogic)
     const { setIntegration } = useActions(onboardingErrorTrackingAlertsLogic)
+
+    const selectedSlackIntegration = (slackIntegrations || []).find((i) => i.id === connectionConfig.slackWorkspaceId)
 
     const dataSource = [
         {
-            key: 'teams',
+            key: 'microsoft-teams',
             name: 'Microsoft Teams',
             icon: '/static/services/microsoft-teams.png',
-            action: <ConnectButton onClick={() => setIntegration('teams')} />,
+            action: <ConnectButton onClick={() => setIntegration('microsoft-teams')} />,
         },
         {
             key: 'discord',
@@ -57,7 +58,7 @@ export function OnboardingErrorTrackingAlertsStep({ stepKey }: { stepKey: Onboar
 
     return (
         <OnboardingStep title="Configure alerts" stepKey={stepKey} continueOverride={<></>} showSkip={!integration}>
-            <p>Choose a destination for new issues to be sent</p>
+            <p>Get notified when a new issue occurs. Don't worry this can always be reconfigured later.</p>
             {integration === null ? (
                 <LemonTable
                     showHeader={false}
@@ -83,22 +84,26 @@ export function OnboardingErrorTrackingAlertsStep({ stepKey }: { stepKey: Onboar
                     dataSource={dataSource}
                 />
             ) : (
-                <div className="flex flex-col gap-2">
-                    <Form enableFormOnSubmit logic={onboardingErrorTrackingAlertsLogic} formKey="connectionConfig">
-                        <FormFields
-                            integration={integration}
-                            slackIntegration={slackIntegrations ? slackIntegrations[0] : undefined}
-                        />
-                        <div className="flex justify-end gap-2">
-                            <LemonButton center type="secondary" onClick={() => setIntegration(null)}>
-                                Back
-                            </LemonButton>
-                            <LemonButton type="primary" center htmlType="submit">
-                                Next
-                            </LemonButton>
-                        </div>
-                    </Form>
-                </div>
+                <Form
+                    enableFormOnSubmit
+                    logic={onboardingErrorTrackingAlertsLogic}
+                    formKey="connectionConfig"
+                    className="flex flex-col gap-2"
+                >
+                    <FormFields
+                        integration={integration}
+                        slackIntegrations={slackIntegrations}
+                        selectedSlackIntegration={selectedSlackIntegration}
+                    />
+                    <div className="flex justify-end gap-2">
+                        <LemonButton center type="secondary" onClick={() => setIntegration(null)}>
+                            Back
+                        </LemonButton>
+                        <LemonButton type="primary" center htmlType="submit" loading={isConnectionConfigSubmitting}>
+                            Next
+                        </LemonButton>
+                    </div>
+                </Form>
             )}
         </OnboardingStep>
     )
@@ -106,10 +111,12 @@ export function OnboardingErrorTrackingAlertsStep({ stepKey }: { stepKey: Onboar
 
 const FormFields = ({
     integration,
-    slackIntegration,
+    slackIntegrations,
+    selectedSlackIntegration,
 }: {
     integration: ErrorTrackingAlertIntegrationType
-    slackIntegration?: IntegrationType
+    slackIntegrations?: IntegrationType[]
+    selectedSlackIntegration?: IntegrationType
 }): JSX.Element | null => {
     return integration === 'discord' ? (
         <LemonField
@@ -126,9 +133,9 @@ const FormFields = ({
         >
             <LemonInput />
         </LemonField>
-    ) : integration === 'teams' ? (
+    ) : integration === 'microsoft-teams' ? (
         <LemonField
-            name="teamsWebhookUrl"
+            name="microsoftTeamsWebhookUrl"
             label="Webhook URL"
             help={
                 <p className="text-secondary text-xs">
@@ -141,10 +148,31 @@ const FormFields = ({
         >
             <LemonInput />
         </LemonField>
-    ) : integration === 'slack' && slackIntegration ? (
-        <LemonField name="slackChannelId" label="Channel">
-            <SlackChannelPicker integration={slackIntegration} />
-        </LemonField>
+    ) : integration === 'slack' && slackIntegrations ? (
+        <>
+            <LemonField name="slackWorkspaceId" label="Workspace">
+                <LemonSelect
+                    options={slackIntegrations.map((integration) => ({
+                        label: integration.display_name,
+                        value: integration.id,
+                    }))}
+                />
+            </LemonField>
+            {selectedSlackIntegration && (
+                <LemonField name="slackChannelId" label="Channel">
+                    {({ value, onChange }) => (
+                        <SlackChannelPicker
+                            value={value}
+                            onChange={(v) => {
+                                debugger
+                                onChange(v)
+                            }}
+                            integration={selectedSlackIntegration}
+                        />
+                    )}
+                </LemonField>
+            )}
+        </>
     ) : null
 }
 
