@@ -12057,13 +12057,13 @@ packages:
   nanohtml@1.10.0:
     resolution: {integrity: sha512-r/3AQl+jxAxUIJRiKExUjBtFcE1cm4yTOsTIdVqqlxPNtBxJh522ANrcQYzdNHhPzbPgb7j6qujq6eGehBX0kg==}
 
-  nanoid@3.3.8:
-    resolution: {integrity: sha512-WNLf5Sd8oZxOm+TzppcYk8gVOgP+l58xNy58D0nbUnOxOWRWvlcCV4kUF7ltmI6PsrLl/BgKEyS4mqsGChFN0w==}
+  nanoid@3.3.10:
+    resolution: {integrity: sha512-vSJJTG+t/dIKAUhUDw/dLdZ9s//5OxcHqLaDWWrW4Cdq7o6tdLIczUkMXt2MBNmk6sJRZBZRXVixs7URY1CmIg==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  nanoid@3.3.9:
-    resolution: {integrity: sha512-SppoicMGpZvbF1l3z4x7No3OlIjP7QJvC9XR7AhZr1kL133KHnKPztkKDc+Ir4aJ/1VhTySrtKhrsycmrMQfvg==}
+  nanoid@3.3.8:
+    resolution: {integrity: sha512-WNLf5Sd8oZxOm+TzppcYk8gVOgP+l58xNy58D0nbUnOxOWRWvlcCV4kUF7ltmI6PsrLl/BgKEyS4mqsGChFN0w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -29233,9 +29233,9 @@ snapshots:
       through2: 2.0.5
       transform-ast: 2.4.4
 
-  nanoid@3.3.8: {}
+  nanoid@3.3.10: {}
 
-  nanoid@3.3.9: {}
+  nanoid@3.3.8: {}
 
   native-request@1.1.2:
     optional: true
@@ -30705,7 +30705,7 @@ snapshots:
 
   postcss@8.5.3:
     dependencies:
-      nanoid: 3.3.9
+      nanoid: 3.3.10
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
