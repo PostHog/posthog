@@ -55,7 +55,7 @@ impl AppContext {
         let transactional_producer = TransactionalProducer::with_context(
             &config.kafka,
             &Uuid::now_v7().to_string(),
-            Duration::from_secs(30),
+            Duration::from_secs(10),
             KafkaContext::from(kafka_transactional_liveness),
         )?;
 

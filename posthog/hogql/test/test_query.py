@@ -1591,7 +1591,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), len(SUPPORTED_CURRENCY_CODES))
 
     def test_currency_conversion(self):
-        query = "SELECT convertCurrency('USD', 'EUR', 100, DATE('2024-01-01'))"
+        query = "SELECT convertCurrency('USD', 'EUR', 100, _toDate('2024-01-01'))"
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("90.49"),)])
 
@@ -1605,12 +1605,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_currency_conversion_with_bogus_currency_from(self):
-        query = "SELECT convertCurrency('BOGUS', 'EUR', 100, DATE('2024-01-01'))"
+        query = "SELECT convertCurrency('BOGUS', 'EUR', 100, _toDate('2024-01-01'))"
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("0"),)])
 
     def test_currency_conversion_with_bogus_currency_to(self):
-        query = "SELECT convertCurrency('USD', 'BOGUS', 100, DATE('2024-01-01'))"
+        query = "SELECT convertCurrency('USD', 'BOGUS', 100, _toDate('2024-01-01'))"
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("0"),)])
 
@@ -1623,7 +1623,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [(Decimal("96.21"),)])
 
     def test_currency_conversion_nested(self):
-        query = "SELECT convertCurrency('EUR', 'USD', convertCurrency('USD', 'EUR', 100, DATE('2020-03-15')), DATE('2020-03-15'))"
+        query = "SELECT convertCurrency('EUR', 'USD', convertCurrency('USD', 'EUR', 100, _toDate('2020-03-15')), _toDate('2020-03-15'))"
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("100.00"),)])
 
@@ -1642,7 +1642,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     ), {date}
                 ), {date}
             )
-        """.format(amount=amount, date="DATE('2020-03-15')")
+        """.format(amount=amount, date="_toDate('2020-03-15')")
 
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal(amount),)])
