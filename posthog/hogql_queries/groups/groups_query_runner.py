@@ -96,11 +96,12 @@ class GroupsQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=self.modifiers,
         )
+        results = response.results[: self.paginator.limit] if self.paginator.limit is not None else response.results
         return GroupsQueryResponse(
             kind="GroupsQuery",
             types=[t for _, t in response.types] if response.types else None,
             columns=self.columns,
-            results=response.results,
+            results=results,
             hogql=response.hogql,
             **self.paginator.response_params(),
         )
