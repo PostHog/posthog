@@ -1194,6 +1194,11 @@ class SessionTableVersion(StrEnum):
     V2 = "v2"
 
 
+class SessionsV2JoinMode(StrEnum):
+    STRING = "string"
+    UUID = "uuid"
+
+
 class HogQLVariable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2649,6 +2654,7 @@ class HogQLQueryModifiers(BaseModel):
     propertyGroupsMode: Optional[PropertyGroupsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
+    sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
     useMaterializedViews: Optional[bool] = None
 
 
