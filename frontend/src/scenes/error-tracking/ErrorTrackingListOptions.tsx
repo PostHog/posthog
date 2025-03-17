@@ -1,10 +1,16 @@
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
+import { BulkActions } from './issue/BulkActions'
+import { GenericSelect } from './issue/StatusSelect'
+import { IndicatorTag, StatusTag } from './issue/StatusTag'
 
 export const ErrorTrackingListOptions = (): JSX.Element => {
     const { assignee } = useValues(errorTrackingLogic)
@@ -15,101 +21,45 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
 
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-    const { mergeIssues, assignIssues, resolveIssues, suppressIssues } = useActions(errorTrackingDataNodeLogic)
-
+    const { mergeIssues, assignIssues, resolveIssues, suppressIssues, activateIssues } =
+        useActions(errorTrackingDataNodeLogic)
+    const selectedIssues = useMemo(
+        () => results.filter((issue) => selectedIssueIds.includes(issue.id)),
+        [results, selectedIssueIds]
+    )
     return (
         <>
             <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary flex justify-between">
                 <div className="flex deprecated-space-x-2">
-                    {selectedIssueIds.length > 0 ? (
-                        <>
-                            <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>
-                                Unselect all
-                            </LemonButton>
-                            <LemonButton
-                                disabledReason={
-                                    selectedIssueIds.length < 2 ? 'Select at least two issues to merge' : null
-                                }
-                                type="secondary"
-                                size="small"
-                                onClick={() => {
-                                    mergeIssues(selectedIssueIds)
-                                    setSelectedIssueIds([])
-                                }}
-                            >
-                                Merge
-                            </LemonButton>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={() => {
-                                    resolveIssues(selectedIssueIds)
-                                    setSelectedIssueIds([])
-                                }}
-                            >
-                                Resolve
-                            </LemonButton>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                status="danger"
-                                tooltip="Stop capturing these errors"
-                                onClick={() => {
-                                    suppressIssues(selectedIssueIds)
-                                    setSelectedIssueIds([])
-                                }}
-                            >
-                                Suppress
-                            </LemonButton>
-                            <AssigneeSelect
-                                type="secondary"
-                                size="small"
-                                showName
-                                showIcon={false}
-                                unassignedLabel="Assign"
-                                assignee={null}
-                                onChange={(assignee) => assignIssues(selectedIssueIds, assignee)}
-                            />
-                        </>
-                    ) : (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => setSelectedIssueIds(results.map((issue) => issue.id))}
-                        >
-                            Select all
-                        </LemonButton>
-                    )}
+                    <BulkActions
+                        onMerge={mergeIssues}
+                        onAssign={assignIssues}
+                        onSuppress={suppressIssues}
+                        onActivate={activateIssues}
+                        onResolve={resolveIssues}
+                        issueSelection={selectedIssues}
+                        onSelectAll={() => setSelectedIssueIds(results.map((issue) => issue.id))}
+                        onClearSelection={() => setSelectedIssueIds([])}
+                    />
                 </div>
                 {selectedIssueIds.length < 1 && (
                     <span className="flex deprecated-space-x-2">
-                        <div className="flex items-center gap-1">
-                            <span>Status:</span>
-                            <LemonSelect
-                                onSelect={setStatus}
-                                onChange={setStatus}
-                                value={status}
-                                options={[
-                                    {
-                                        value: 'all',
-                                        label: 'All',
-                                    },
-                                    {
-                                        value: 'active',
-                                        label: 'Active',
-                                    },
-                                    {
-                                        value: 'resolved',
-                                        label: 'Resolved',
-                                    },
-                                    {
-                                        value: 'suppressed',
-                                        label: 'Suppressed',
-                                    },
-                                ]}
-                                size="small"
-                            />
-                        </div>
+                        <GenericSelect<ErrorTrackingIssue['status'] | 'all' | null>
+                            values={['all', 'active', 'resolved', 'suppressed']}
+                            current={status || null}
+                            renderValue={(key) => {
+                                switch (key) {
+                                    case 'all':
+                                    case null:
+                                        return <IndicatorTag intent="key" label="All" size="small" />
+                                    default:
+                                        return <StatusTag status={key} size="small" />
+                                }
+                            }}
+                            placeholder="Select status"
+                            onChange={(value) => setStatus(value || undefined)}
+                            size="small"
+                        />
                         <div className="flex items-center gap-1">
                             <span>Sort by:</span>
                             <LemonSelect

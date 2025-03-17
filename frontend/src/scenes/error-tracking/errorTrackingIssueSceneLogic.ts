@@ -33,7 +33,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     key((props) => props.id),
 
     connect({
-        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'customSparklineConfig']],
+        values: [
+            errorTrackingLogic,
+            ['dateRange', 'filterTestAccounts', 'filterGroup', 'customSparklineConfig', 'cacheKey'],
+        ],
         actions: [errorTrackingLogic, ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup']],
     }),
 
@@ -77,6 +80,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                                 date_to: lastSeen.toISOString(),
                             },
                             customVolume: values.customSparklineConfig,
+                            cacheKey: values.cacheKey,
                         }),
                         {},
                         undefined,

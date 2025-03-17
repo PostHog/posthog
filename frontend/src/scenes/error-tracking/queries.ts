@@ -11,6 +11,7 @@ import {
 import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 export const errorTrackingQuery = ({
+    cacheKey,
     orderBy,
     status,
     dateRange,
@@ -24,7 +25,15 @@ export const errorTrackingQuery = ({
     limit = 50,
 }: Pick<
     ErrorTrackingQuery,
-    'orderBy' | 'status' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery' | 'orderDirection'
+    | 'cacheKey'
+    | 'orderBy'
+    | 'status'
+    | 'dateRange'
+    | 'assignee'
+    | 'filterTestAccounts'
+    | 'limit'
+    | 'searchQuery'
+    | 'orderDirection'
 > & {
     filterGroup: UniversalFiltersGroup
     customVolume?: ErrorTrackingSparklineConfig | null
@@ -43,6 +52,7 @@ export const errorTrackingQuery = ({
             filterTestAccounts: filterTestAccounts,
             searchQuery: searchQuery,
             limit: limit,
+            cacheKey,
             orderDirection,
         },
         showActions: false,
@@ -55,10 +65,12 @@ export const errorTrackingIssueQuery = ({
     issueId,
     dateRange,
     customVolume,
+    cacheKey,
 }: {
     issueId: string
     dateRange: DateRange
     customVolume?: ErrorTrackingSparklineConfig | null
+    cacheKey?: string
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
@@ -66,6 +78,7 @@ export const errorTrackingIssueQuery = ({
         dateRange,
         filterTestAccounts: false,
         customVolume,
+        cacheKey,
     }
 }
 

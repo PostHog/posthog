@@ -1,6 +1,6 @@
 import './ErrorTracking.scss'
 
-import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
@@ -13,6 +13,8 @@ import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { Metadata } from './issue/Metadata'
+import { GenericSelect } from './issue/StatusSelect'
+import { IssueStatus, StatusTag } from './issue/StatusTag'
 import { EventsTab } from './issue/tabs/EventsTab'
 import { DetailsWidget } from './issue/widgets/DetailsWidget'
 import { StacktraceWidget } from './issue/widgets/StacktraceWidget'
@@ -48,48 +50,30 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <>
                 <PageHeader
                     buttons={
-                        issue ? (
-                            issue.status === 'active' ? (
-                                <div className="flex divide-x gap-x-2">
-                                    <AssigneeSelect
-                                        assignee={issue.assignee}
-                                        onChange={assignIssue}
-                                        type="secondary"
-                                        showName
-                                    />
-                                    <div className="flex pl-2 gap-x-2">
-                                        <LemonButton
-                                            type="secondary"
-                                            onClick={() => updateIssue({ status: 'archived' })}
-                                        >
-                                            Archive
-                                        </LemonButton>
-                                        <LemonButton type="primary" onClick={() => updateIssue({ status: 'resolved' })}>
-                                            Resolve
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="secondary"
-                                            status="danger"
-                                            tooltip="Stop capturing these errors"
-                                            onClick={() => updateIssue({ status: 'suppressed' })}
-                                        >
-                                            Suppress
-                                        </LemonButton>
-                                    </div>
-                                </div>
-                            ) : (
-                                <LemonButton
+                        <div className="flex divide-x gap-x-2">
+                            {issue && issue.status == 'active' && (
+                                <AssigneeSelect
+                                    assignee={issue.assignee}
+                                    onChange={assignIssue}
                                     type="secondary"
-                                    className="upcasefirst-letter:uppercase"
-                                    onClick={() => updateIssue({ status: 'active' })}
-                                    tooltip="Mark as active"
-                                >
-                                    {STATUS_LABEL[issue.status]}
-                                </LemonButton>
-                            )
-                        ) : (
-                            false
-                        )
+                                    showName
+                                />
+                            )}
+                            {issue && (
+                                <GenericSelect
+                                    size="small"
+                                    current={issue.status}
+                                    values={['active', 'resolved', 'suppressed']}
+                                    placeholder="Mark as"
+                                    renderValue={(value) => {
+                                        return <StatusTag status={value as IssueStatus} size="small" />
+                                    }}
+                                    onChange={(value) => {
+                                        updateIssue({ status: value })
+                                    }}
+                                />
+                            )}
+                        </div>
                     }
                 />
                 {issue ? (

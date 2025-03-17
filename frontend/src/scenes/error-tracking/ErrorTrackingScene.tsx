@@ -6,7 +6,6 @@ import {
     LemonDivider,
     LemonSegmentedButton,
     LemonSkeleton,
-    LemonTag,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -30,12 +29,12 @@ import { InsightLogicProps } from '~/types'
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
-import { STATUS_LABEL } from './ErrorTrackingIssueScene'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
+import { StatusTag } from './issue/StatusTag'
 import { sparklineLabels, sparklineLabelsDay, sparklineLabelsMonth } from './utils'
 
 export const scene: SceneExport = {
@@ -132,9 +131,7 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-
     const record = props.record as ErrorTrackingIssue
-
     const checked = selectedIssueIds.includes(record.id)
 
     return (
@@ -165,6 +162,8 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     </div>
                     <div className="line-clamp-1 text-gray-600">{record.description}</div>
                     <div className="flex gap-1 items-center text-gray-500">
+                        <StatusTag size="xsmall" status={record.status} />
+                        <span>|</span>
                         <TZLabel time={record.first_seen} className="border-dotted border-b text-xs" delayMs={750} />
                         <span>|</span>
                         {record.last_seen ? (
@@ -172,12 +171,6 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         ) : (
                             <LemonSkeleton />
                         )}
-                        <span>|</span>
-                        <span>
-                            <LemonTag size="small" className="bg-blue-100">
-                                {STATUS_LABEL[record.status]}
-                            </LemonTag>
-                        </span>
                     </div>
                 </div>
             </Link>

@@ -7166,6 +7166,9 @@
                         }
                     ]
                 },
+                "cacheKey": {
+                    "type": "string"
+                },
                 "customVolume": {
                     "anyOf": [
                         {

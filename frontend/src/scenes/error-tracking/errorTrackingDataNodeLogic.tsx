@@ -6,6 +6,7 @@ import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/data
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import type { errorTrackingDataNodeLogicType } from './errorTrackingDataNodeLogicType'
+import { errorTrackingLogic } from './errorTrackingLogic'
 import { mergeIssues } from './utils'
 
 export interface ErrorTrackingDataNodeLogicProps {
@@ -17,17 +18,22 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingDataNodeLogic']),
     props({} as ErrorTrackingDataNodeLogicProps),
 
-    connect(({ key, query }: ErrorTrackingDataNodeLogicProps) => ({
-        values: [dataNodeLogic({ key, query }), ['response']],
-        actions: [dataNodeLogic({ key, query }), ['setResponse', 'loadData']],
-    })),
+    connect(({ key, query }: ErrorTrackingDataNodeLogicProps) => {
+        const nodeLogic = dataNodeLogic({ key, query })
+        return {
+            values: [nodeLogic, ['response']],
+            actions: [nodeLogic, ['setResponse', 'clearResponse', 'loadData'], errorTrackingLogic, ['refreshCacheKey']],
+        }
+    }),
 
     actions({
         mergeIssues: (ids: string[]) => ({ ids }),
         resolveIssues: (ids: string[]) => ({ ids }),
         suppressIssues: (ids: string[]) => ({ ids }),
+        activateIssues: (ids: string[]) => ({ ids }),
         assignIssues: (ids: string[], assignee: ErrorTrackingIssue['assignee']) => ({ ids, assignee }),
         assignIssue: (id: string, assignee: ErrorTrackingIssue['assignee']) => ({ id, assignee }),
+        reloadData: () => ({}),
     }),
 
     selectors({
@@ -35,6 +41,10 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
     }),
 
     listeners(({ values, actions }) => ({
+        reloadData: async () => {
+            actions.refreshCacheKey()
+            actions.loadData(true)
+        },
         mergeIssues: async ({ ids }) => {
             const { results } = values
 
@@ -56,36 +66,67 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                             mergedIssue.id === issue.id ? mergedIssue : issue
                         ),
                 })
+
                 posthog.capture('error_tracking_issue_merged', { primary: primaryIssue.id })
                 await api.errorTracking.mergeInto(primaryIssue.id, mergingIds)
-                actions.loadData(true)
+                actions.reloadData()
             }
         },
         resolveIssues: async ({ ids }) => {
-            const { results } = values
+            // const { results } = values
 
             // optimistically update local results
-            actions.setResponse({
-                ...values.response,
-                // remove resolved issues
-                results: results.filter(({ id }) => !ids.includes(id)),
-            })
+            // actions.setResponse({
+            //     ...values.response,
+            //     // remove resolved issues
+            //     results: results.map((issue) => {
+            //         if (ids.includes(issue.id)) {
+            //             return { ...issue, status: 'resolved' }
+            //         }
+            //         return issue
+            //     }),
+            // })
             posthog.capture('error_tracking_issue_bulk_resolve')
-            await api.errorTracking.bulkResolve(ids)
-            actions.loadData(true)
+            await api.errorTracking.bulkMarkStatus(ids, 'resolved')
+            actions.reloadData()
         },
         suppressIssues: async ({ ids }) => {
-            const { results } = values
+            // const { results } = values
 
             // optimistically update local results
-            actions.setResponse({
-                ...values.response,
-                // remove suppressed issues
-                results: results.filter(({ id }) => !ids.includes(id)),
-            })
+            // actions.setResponse({
+            //     ...values.response,
+            //     // remove suppressed issues
+            //     results: results.map((issue) => {
+            //         if (ids.includes(issue.id)) {
+            //             return { ...issue, status: 'suppressed' }
+            //         }
+            //         return issue
+            //     }),
+            // })
+
             posthog.capture('error_tracking_issue_bulk_suppress')
-            await api.errorTracking.bulkSuppress(ids)
-            actions.loadData(true)
+            await api.errorTracking.bulkMarkStatus(ids, 'suppressed')
+            actions.reloadData()
+        },
+        activateIssues: async ({ ids }) => {
+            // const { results } = values
+
+            // optimistically update local results
+            // actions.setResponse({
+            //     ...values.response,
+            //     // remove suppressed issues
+            //     results: results.map((issue) => {
+            //         if (ids.includes(issue.id)) {
+            //             return { ...issue, status: 'active' }
+            //         }
+            //         return issue
+            //     }),
+            // })
+
+            posthog.capture('error_tracking_issue_bulk_activate')
+            await api.errorTracking.bulkMarkStatus(ids, 'active')
+            actions.reloadData()
         },
 
         assignIssues: async ({ ids, assignee }) => {
@@ -102,7 +143,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
             })
             posthog.capture('error_tracking_issue_bulk_assign')
             await api.errorTracking.bulkAssign(ids, assignee)
-            actions.loadData(true)
+            actions.reloadData()
         },
         assignIssue: async ({ id, assignee }) => {
             const response = values.response
@@ -115,7 +156,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                     // optimistically update local results
                     actions.setResponse({ ...response, results: results })
                     await api.errorTracking.assignIssue(issue.id, assignee)
-                    actions.loadData(true)
+                    actions.reloadData()
                 }
             }
         },

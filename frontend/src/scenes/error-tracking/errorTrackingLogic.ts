@@ -5,6 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import md5 from 'md5'
 
 import {
     DateRange,
@@ -79,6 +80,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         setSparklineSelectedPeriod: (period: string | null) => ({ period }),
+        refreshCacheKey: () => ({}),
     }),
     reducers({
         dateRange: [
@@ -99,6 +101,13 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             { persist: true },
             {
                 setFilterGroup: (_, { filterGroup }) => filterGroup,
+            },
+        ],
+        cacheKey: [
+            '',
+            { persist: false },
+            {
+                refreshCacheKey: () => md5(new Date().getTime().toString()),
             },
         ],
         filterTestAccounts: [
