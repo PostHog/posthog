@@ -73,7 +73,7 @@ impl MixpanelEvent {
                 uuid: Some(event_uuid),
                 event: map_event_names(mx.event),
                 properties,
-                // We send timestamps in iso 1806 format
+                // We send timestamps in iso 8601 format
                 timestamp: Some(timestamp.to_rfc3339()),
                 set: None,
                 set_once: None,
