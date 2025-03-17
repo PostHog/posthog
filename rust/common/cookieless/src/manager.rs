@@ -40,6 +40,12 @@ pub enum CookielessManagerError {
 
     #[error("Timezone error: {0}")]
     TimezoneError(String),
+
+    #[error("Invalid identify count: {0}")]
+    InvalidIdentifyCount(String),
+
+    #[error("Redis error: {0}")]
+    RedisError(String),
 }
 
 /// Configuration for the CookielessManager
@@ -122,14 +128,20 @@ pub struct CookielessManager {
     pub config: CookielessConfig,
     /// Salt cache for retrieving and storing salts
     salt_cache: SaltCache,
+    /// Redis client for direct access
+    redis_client: Arc<dyn RedisClient + Send + Sync>,
 }
 
 impl CookielessManager {
     /// Create a new CookielessManager
     pub fn new(config: CookielessConfig, redis_client: Arc<dyn RedisClient + Send + Sync>) -> Self {
-        let salt_cache = SaltCache::new(redis_client, Some(config.salt_ttl_seconds));
+        let salt_cache = SaltCache::new(redis_client.clone(), Some(config.salt_ttl_seconds));
 
-        Self { config, salt_cache }
+        Self { 
+            config, 
+            salt_cache,
+            redis_client,
+        }
     }
 
     /// Get the salt for a specific day (YYYY-MM-DD format)
@@ -169,7 +181,7 @@ impl CookielessManager {
         // Get the team timezone or use UTC as fallback
         let team_time_zone = event_data.team_time_zone.unwrap_or(TIMEZONE_FALLBACK);
 
-        // Create hash parameters
+        // First, compute the hash with n=0 to get the base hash
         let hash_params = HashParams {
             timestamp_ms: event_data.timestamp_ms,
             event_time_zone: event_data.event_time_zone,
@@ -178,15 +190,37 @@ impl CookielessManager {
             ip: event_data.ip,
             host: event_data.host,
             user_agent: event_data.user_agent,
-            n: 0, // For now, we don't support identify events, so n is always 0
+            n: 0,
             hash_extra: event_data.hash_extra.unwrap_or(""),
         };
 
-        // Compute the hash
-        let hash = self.do_hash_for_day(hash_params).await?;
+        // Compute the base hash
+        let base_hash = self.do_hash_for_day(hash_params.clone()).await?;
+
+        // If we're in stateless mode, use the base hash directly
+        if self.config.force_stateless_mode {
+            return Ok(Self::hash_to_distinct_id(&base_hash));
+        }
+
+        // Get the number of identify events for this hash
+        let n = self.get_identify_count(&base_hash).await?;
+
+        // If n is 0, we can use the base hash
+        if n == 0 {
+            return Ok(Self::hash_to_distinct_id(&base_hash));
+        }
+
+        // Otherwise, recompute the hash with the correct n value
+        let hash_params_with_n = HashParams {
+            n,
+            ..hash_params
+        };
+
+        // Compute the final hash
+        let final_hash = self.do_hash_for_day(hash_params_with_n).await?;
 
         // Convert the hash to a distinct ID
-        Ok(Self::hash_to_distinct_id(&hash))
+        Ok(Self::hash_to_distinct_id(&final_hash))
     }
 
     /// Compute a hash for a specific day
@@ -223,6 +257,37 @@ impl CookielessManager {
             COOKIELESS_SENTINEL_VALUE,
             general_purpose::STANDARD.encode(hash)
         )
+    }
+
+    /// Get the number of identify events for a specific hash
+    /// This is used to ensure that a user that logs in and out doesn't collide with themselves
+    pub async fn get_identify_count(&self, hash: &[u8]) -> Result<u64, CookielessManagerError> {
+        // If we're in stateless mode, always return 0
+        if self.config.force_stateless_mode {
+            return Ok(0);
+        }
+
+        // Convert the hash to a base64 string for use as a Redis key
+        let hash_base64 = general_purpose::STANDARD.encode(hash);
+        let redis_key = format!("cookieless_identifies:{hash_base64}");
+
+        // Try to get the count from Redis
+        match self.redis_client.get(redis_key).await {
+            Ok(count_str) => {
+                // Parse the count string to a u64
+                count_str.parse::<u64>().map_err(|e| {
+                    CookielessManagerError::InvalidIdentifyCount(e.to_string())
+                })
+            }
+            Err(common_redis::CustomRedisError::NotFound) => {
+                // If the key doesn't exist, the count is 0
+                Ok(0)
+            }
+            Err(e) => {
+                // If there's a Redis error, propagate it
+                Err(CookielessManagerError::RedisError(e.to_string()))
+            }
+        }
     }
 }
 
@@ -553,5 +618,165 @@ mod tests {
             result,
             Err(CookielessManagerError::MissingProperty(s)) if s == "user_agent"
         ));
+    }
+
+    #[tokio::test]
+    async fn test_get_identify_count() {
+        // Create a mock Redis client
+        let mut mock_redis = MockRedisClient::new();
+        let hash = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let hash_base64 = general_purpose::STANDARD.encode(&hash);
+        let redis_key = format!("cookieless_identifies:{hash_base64}");
+
+        // Set up the mock to return a count of 3
+        mock_redis = mock_redis.get_ret(&redis_key, Ok("3".to_string()));
+        let redis_client = Arc::new(mock_redis);
+
+        // Create a CookielessManager
+        let config = CookielessConfig::default();
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Get the identify count
+        let count = manager.get_identify_count(&hash).await.unwrap();
+        assert_eq!(count, 3);
+    }
+
+    #[tokio::test]
+    async fn test_get_identify_count_not_found() {
+        // Create a mock Redis client
+        let mut mock_redis = MockRedisClient::new();
+        let hash = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let hash_base64 = general_purpose::STANDARD.encode(&hash);
+        let redis_key = format!("cookieless_identifies:{hash_base64}");
+
+        // Set up the mock to return NotFound
+        mock_redis = mock_redis.get_ret(&redis_key, Err(common_redis::CustomRedisError::NotFound));
+        let redis_client = Arc::new(mock_redis);
+
+        // Create a CookielessManager
+        let config = CookielessConfig::default();
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Get the identify count
+        let count = manager.get_identify_count(&hash).await.unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_identify_count_stateless_mode() {
+        // Create a mock Redis client
+        let redis_client = Arc::new(MockRedisClient::new());
+
+        // Create a CookielessManager with force_stateless_mode=true
+        let config = CookielessConfig {
+            force_stateless_mode: true,
+            ..CookielessConfig::default()
+        };
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Get the identify count
+        let hash = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let count = manager.get_identify_count(&hash).await.unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_compute_cookieless_distinct_id_with_identifies() {
+        // Create a mock Redis client
+        let mut mock_redis = MockRedisClient::new();
+        let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let redis_key = format!("cookieless_salt:{}", today);
+        mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
+
+        // Create an event
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            team_id: 1,
+            team_time_zone: Some("UTC"),
+        };
+
+        // Compute the base hash
+        let config = CookielessConfig::default();
+        let temp_manager = CookielessManager::new(config.clone(), Arc::new(mock_redis.clone()));
+        let hash_params = HashParams {
+            timestamp_ms: event_data.timestamp_ms,
+            event_time_zone: event_data.event_time_zone,
+            team_time_zone: event_data.team_time_zone.unwrap_or(TIMEZONE_FALLBACK),
+            team_id: event_data.team_id,
+            ip: event_data.ip,
+            host: event_data.host,
+            user_agent: event_data.user_agent,
+            n: 0,
+            hash_extra: event_data.hash_extra.unwrap_or(""),
+        };
+        let base_hash = temp_manager.do_hash_for_day(hash_params.clone()).await.unwrap();
+        let base_hash_base64 = general_purpose::STANDARD.encode(&base_hash);
+        let identifies_key = format!("cookieless_identifies:{base_hash_base64}");
+
+        // Set up the mock to return a count of 2
+        mock_redis = mock_redis.get_ret(&identifies_key, Ok("2".to_string()));
+        let redis_client = Arc::new(mock_redis);
+
+        // Create a CookielessManager
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Process the event
+        let result = manager.compute_cookieless_distinct_id(event_data).await.unwrap();
+
+        // Check that we got a distinct ID
+        assert!(result.starts_with(COOKIELESS_SENTINEL_VALUE));
+
+        // Compute what the result should be with n=2
+        let hash_params_with_n = HashParams {
+            n: 2,
+            ..hash_params
+        };
+        let expected_hash = temp_manager.do_hash_for_day(hash_params_with_n).await.unwrap();
+        let expected_distinct_id = CookielessManager::hash_to_distinct_id(&expected_hash);
+
+        // Check that the result matches the expected distinct ID
+        assert_eq!(result, expected_distinct_id);
+    }
+
+    #[tokio::test]
+    async fn test_compute_cookieless_distinct_id_stateless_mode() {
+        // Create a mock Redis client
+        let mut mock_redis = MockRedisClient::new();
+        let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let redis_key = format!("cookieless_salt:{}", today);
+        mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
+        let redis_client = Arc::new(mock_redis);
+
+        // Create a CookielessManager with force_stateless_mode=true
+        let config = CookielessConfig {
+            force_stateless_mode: true,
+            ..CookielessConfig::default()
+        };
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Create an event
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            team_id: 1,
+            team_time_zone: Some("UTC"),
+        };
+
+        // Process the event
+        let result = manager.compute_cookieless_distinct_id(event_data).await.unwrap();
+
+        // Check that we got a distinct ID
+        assert!(result.starts_with(COOKIELESS_SENTINEL_VALUE));
     }
 }
