@@ -44,7 +44,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             return None
 
 
-_client = UnavailableSessionRecordingV2ObjectStorage()
+_client: SessionRecordingV2ObjectStorageBase = UnavailableSessionRecordingV2ObjectStorage()
 
 
 def client() -> SessionRecordingV2ObjectStorageBase:
@@ -66,9 +66,9 @@ def client() -> SessionRecordingV2ObjectStorageBase:
                 aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                 aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
                 config=Config(
-                    signature_version="s3v4",
-                    connect_timeout=1,
-                    retries={"max_attempts": 1},
+                    signature_version="s3v4",  # type: ignore[attr-defined]
+                    connect_timeout=1,  # type: ignore[attr-defined]
+                    retries={"max_attempts": 1},  # type: ignore[attr-defined]
                 ),
                 region_name=settings.SESSION_RECORDING_V2_S3_REGION,
             ),
