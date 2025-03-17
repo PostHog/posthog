@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
+import { parseJSON } from '../../../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData } from '../kafka/types'
 import { SnapshotEvent } from '../kafka/types'
@@ -219,7 +220,7 @@ describe('SessionBatchRecorder', () => {
             .trim()
             .split('\n')
             .map((line) => {
-                const [windowId, event] = JSON.parse(line)
+                const [windowId, event] = parseJSON(line)
                 return [windowId, event]
             })
     }
