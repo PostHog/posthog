@@ -70,6 +70,7 @@ export type RootAssistantMessage =
     | AssistantMessage
     | HumanMessage
     | FailureMessage
+    | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
 
 export enum AssistantEventType {
     Status = 'status',
@@ -88,6 +89,10 @@ export interface AssistantGenerationStatusEvent {
 
 export interface AssistantToolCallMessage extends BaseAssistantMessage {
     type: AssistantMessageType.ToolCall
+    /** Payload passed through to the frontend - specifically for calls of contextual tool. */
+    ui_payload?: Record<string, any>
     content: string
     tool_call_id: string
 }
+
+export type AssistantContextualTool = 'search_session_recordings' | 'navigate_to_page'

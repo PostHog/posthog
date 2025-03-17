@@ -574,6 +574,10 @@
             },
             "type": "object"
         },
+        "AssistantContextualTool": {
+            "enum": ["search_session_recordings", "navigate_to_page"],
+            "type": "string"
+        },
         "AssistantDateRange": {
             "additionalProperties": false,
             "description": "This filter only works with absolute dates.",
@@ -1439,6 +1443,10 @@
                 "type": {
                     "const": "tool",
                     "type": "string"
+                },
+                "ui_payload": {
+                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool.",
+                    "type": "object"
                 }
             },
             "required": ["type", "content", "tool_call_id"],
@@ -14453,6 +14461,30 @@
                 },
                 {
                     "$ref": "#/definitions/FailureMessage"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "content": {
+                            "type": "string"
+                        },
+                        "id": {
+                            "type": "string"
+                        },
+                        "tool_call_id": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "const": "tool",
+                            "type": "string"
+                        },
+                        "ui_payload": {
+                            "description": "Payload passed through to the frontend - specifically for calls of contextual tool.",
+                            "type": "object"
+                        }
+                    },
+                    "required": ["content", "tool_call_id", "type"],
+                    "type": "object"
                 }
             ]
         },

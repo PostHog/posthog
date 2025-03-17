@@ -25,9 +25,15 @@ from ee.hogai.root.prompts import (
 )
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
+from posthog.schema import (
+    AssistantContextualTool,
+    AssistantMessage,
+    AssistantToolCall,
+    AssistantToolCallMessage,
+    HumanMessage,
+)
 
-RouteName = Literal["trends", "funnel", "retention", "root", "end", "docs"]
+RouteName = Literal["trends", "funnel", "retention", "root", "end", "docs", "session_recordings_filters"]
 
 
 # Lower casing matters here. Do not change it.
@@ -51,8 +57,35 @@ class search_documentation(BaseModel):
     """
 
 
-RootToolCall = create_and_query_insight | search_documentation
-root_tools_parser = PydanticToolsParser(tools=[create_and_query_insight, search_documentation])
+class search_session_recordings(BaseModel):
+    """
+    Update session recordings filters on this page, in order to search for session recordings by any criteria.
+    """
+
+
+class navigate_to_page(BaseModel):
+    """
+    Navigate to a specific page in the PostHog app, in order to achieve something on that page.
+    """
+
+    page_name: Literal["replay", "insights"] = Field(
+        description="""
+        The name of the page to navigate to.
+        - `replay`: Navigate to the session replay page, which shows recordings.
+        - `insights`: Navigate to the insights page, which shows saved product analytics queries such as saved trends or funnels.
+    """
+    )
+
+
+CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL = {
+    AssistantContextualTool.SEARCH_SESSION_RECORDINGS: search_session_recordings,
+    AssistantContextualTool.NAVIGATE_TO_PAGE: navigate_to_page,
+}
+CONTEXTUAL_TOOL_MODELS = tuple(CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL.values())
+
+
+RootToolCall = create_and_query_insight | search_documentation | search_session_recordings | navigate_to_page
+root_tools_parser = PydanticToolsParser(tools=[create_and_query_insight, search_documentation, *CONTEXTUAL_TOOL_MODELS])
 
 RootMessageUnion = HumanMessage | AssistantMessage | AssistantToolCallMessage
 
@@ -70,7 +103,7 @@ class RootNode(AssistantNode):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        history, new_window_id = self._construct_and_update_messages_window(state)
+        history, new_window_id = self._construct_and_update_messages_window(state, config)
 
         prompt = (
             ChatPromptTemplate.from_messages(
@@ -81,7 +114,7 @@ class RootNode(AssistantNode):
             )
             + history
         )
-        chain = prompt | self._get_model(state)
+        chain = prompt | self._get_model(state, config)
 
         utc_now = datetime.datetime.now(datetime.UTC)
         project_now = utc_now.astimezone(self._team.timezone_info)
@@ -111,7 +144,7 @@ class RootNode(AssistantNode):
             ],
         )
 
-    def _get_model(self, state: AssistantState):
+    def _get_model(self, state: AssistantState, config: RunnableConfig):
         # Research suggests temperature is not _massively_ correlated with creativity, hence even in this very
         # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
         base_model = ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True)
@@ -124,6 +157,10 @@ class RootNode(AssistantNode):
         available_tools: list[type[BaseModel]] = [create_and_query_insight]
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
+        for tool_name in config["configurable"].get("contextual_tools", {}).keys():
+            if tool_name not in CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL:
+                continue  # Possibly a deployment mismatch
+            available_tools.append(CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL[tool_name])
 
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
@@ -170,7 +207,9 @@ class RootNode(AssistantNode):
 
         return history
 
-    def _construct_and_update_messages_window(self, state: AssistantState) -> tuple[list[BaseMessage], str | None]:
+    def _construct_and_update_messages_window(
+        self, state: AssistantState, config: RunnableConfig
+    ) -> tuple[list[BaseMessage], str | None]:
         """
         Retrieves the current conversation window, finds a new window if necessary, and enforces the tool call limit.
         """
@@ -178,7 +217,7 @@ class RootNode(AssistantNode):
         history = self._construct_messages(state)
 
         # Find a new window id and trim the history to it.
-        new_window_id = self._find_new_window_id(state, history)
+        new_window_id = self._find_new_window_id(state, config, history)
         if new_window_id is not None:
             history = self._get_conversation_window(history, new_window_id)
 
@@ -191,13 +230,15 @@ class RootNode(AssistantNode):
     def _is_hard_limit_reached(self, state: AssistantState) -> bool:
         return state.root_tool_calls_count is not None and state.root_tool_calls_count >= self.MAX_TOOL_CALLS
 
-    def _find_new_window_id(self, state: AssistantState, window: list[BaseMessage]) -> str | None:
+    def _find_new_window_id(
+        self, state: AssistantState, config: RunnableConfig, window: list[BaseMessage]
+    ) -> str | None:
         """
         If we simply trim the conversation on N tokens, the cache will be invalidated for every new message after that
         limit leading to increased latency. Instead, when we hit the limit, we trim the conversation to N/2 tokens, so
         the cache invalidates only for the next generation.
         """
-        model = self._get_model(state)
+        model = self._get_model(state, config)
 
         if model.get_num_tokens_from_messages(window) > self.CONVERSATION_WINDOW_SIZE:
             trimmed_window: list[BaseMessage] = trim_messages(
@@ -269,6 +310,29 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_type=None,  # No insight type for docs search
                 root_tool_calls_count=tool_call_count + 1,
             )
+        elif isinstance(tool_call, navigate_to_page):
+            return PartialAssistantState(
+                messages=[
+                    AssistantToolCallMessage(
+                        content=f"➡️ Navigated to {tool_call.page_name} page.",
+                        id=str(uuid4()),
+                        tool_call_id=langchain_msg.tool_calls[-1]["id"],
+                        ui_payload={
+                            "navigate_to_page": tool_call.page_name,
+                        },
+                    )
+                ],
+                root_tool_call_id="",
+                root_tool_insight_plan=None,
+                root_tool_insight_type=None,
+            )
+        elif isinstance(tool_call, CONTEXTUAL_TOOL_MODELS):
+            return PartialAssistantState(
+                root_tool_call_id=langchain_msg.tool_calls[-1]["id"],
+                root_tool_insight_plan=type(tool_call).__name__,
+                root_tool_insight_type=None,
+                root_tool_calls_count=tool_call_count + 1,
+            )
         else:
             raise ValueError(f"Unsupported tool call: {type(tool_call)}")
 
@@ -279,7 +343,9 @@ class RootNodeTools(AssistantNode):
         if state.root_tool_call_id:
             if state.root_tool_insight_type:
                 return cast(RouteName, state.root_tool_insight_type)
-            # If no insight type is set but we have a tool call ID, it must be a docs search
+            # If no insight type is set but we have a tool call ID, it must be a docs search or session recordings filters
+            if state.root_tool_insight_plan == "search_session_recordings":
+                return "session_recordings_filters"  # TODO: Solve routing properly
             return "docs"
         return "end"
 

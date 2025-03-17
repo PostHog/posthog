@@ -60,6 +60,11 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
     property: str = Field(..., description="Property name from the plan to break down by.")
 
 
+class AssistantContextualTool(StrEnum):
+    SEARCH_SESSION_RECORDINGS = "search_session_recordings"
+    NAVIGATE_TO_PAGE = "navigate_to_page"
+
+
 class AssistantDateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -208,6 +213,9 @@ class AssistantToolCallMessage(BaseModel):
     id: Optional[str] = None
     tool_call_id: str
     type: Literal["tool"] = "tool"
+    ui_payload: Optional[dict[str, Any]] = Field(
+        default=None, description="Payload passed through to the frontend - specifically for calls of contextual tool."
+    )
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -1638,6 +1646,19 @@ class RevenueTrackingEventItem(BaseModel):
         default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
     )
     revenueProperty: str
+
+
+class RootAssistantMessage1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    tool_call_id: str
+    type: Literal["tool"] = "tool"
+    ui_payload: Optional[dict[str, Any]] = Field(
+        default=None, description="Payload passed through to the frontend - specifically for calls of contextual tool."
+    )
 
 
 class SamplingRate(BaseModel):
@@ -7898,9 +7919,20 @@ class RetentionQuery(BaseModel):
 
 
 class RootAssistantMessage(
-    RootModel[Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]]
+    RootModel[
+        Union[
+            VisualizationMessage,
+            ReasoningMessage,
+            AssistantMessage,
+            HumanMessage,
+            FailureMessage,
+            RootAssistantMessage1,
+        ]
+    ]
 ):
-    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]
+    root: Union[
+        VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RootAssistantMessage1
+    ]
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):

@@ -2965,7 +2965,12 @@ const api = {
 
     conversations: {
         async stream(
-            data: { content: string; conversation?: string | null; trace_id: string },
+            data: {
+                content: string
+                contextual_tools?: Record<string, any>
+                conversation?: string | null
+                trace_id: string
+            },
             options?: ApiMethodOptions
         ): Promise<Response> {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data, options)

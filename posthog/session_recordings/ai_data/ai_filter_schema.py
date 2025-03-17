@@ -1,4 +1,6 @@
 from enum import Enum
+from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -79,10 +81,10 @@ class OuterFilterGroup(BaseModel):
 
 
 class FilterData(BaseModel):
-    question: str
-    date_from: str
-    date_to: str
-    filter_group: OuterFilterGroup
+    question: Optional[str] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    filter_group: Optional[OuterFilterGroup] = None
 
     class Config:
         extra = "forbid"

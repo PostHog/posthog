@@ -1,0 +1,4 @@
+from posthog.session_recordings.ai_data.ai_filter_prompts import AI_FILTER_INITIAL_PROMPT, AI_FILTER_PROPERTIES_PROMPT
+from posthog.session_recordings.utils import clean_prompt_whitespace
+
+SESSION_RECORDINGS_FILTERS_PROMPT = clean_prompt_whitespace(AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT)
