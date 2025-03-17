@@ -290,25 +290,25 @@ export class HogTransformerService {
                 globals: filterGlobals,
             })
 
-            // If there was an error evaluating the filters, skip the transformation
+            // If there was an error evaluating the filters, still apply the transformation
             if (filterResult.error) {
-                status.error('🔍', 'Error evaluating filters for transformation - skipping', {
+                status.error('🔍', 'Error evaluating filters for transformation - applying anyway', {
                     error: filterResult.error.message,
                     transformation_id: hogFunction.id,
                     transformation_name: hogFunction.name,
                 })
-                return false
+                return true
             }
 
             // The filter result is a boolean indicating whether to apply the transformation
             return typeof filterResult.result === 'boolean' && filterResult.result
         } catch (error) {
-            status.error('🔍', 'Exception evaluating filters for transformation - skipping', {
+            status.error('🔍', 'Exception evaluating filters for transformation - applying anyway', {
                 error: error.message,
                 transformation_id: hogFunction.id,
                 transformation_name: hogFunction.name,
             })
-            return false
+            return true
         }
     }
 }

@@ -850,6 +850,48 @@ describe('HogTransformer', () => {
             hub.FILTER_TRANSFORMATIONS_ENABLED = true
         })
 
+        it('should skip transformation when filter does not match', async () => {
+            const filterTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Filter Template',
+                description: 'A template that should be skipped when filter does not match',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.should_not_be_set := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: filterTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(filterTemplate.hog),
+                filters: {
+                    bytecode: await compileHog(`
+                        return event = 'match-me'
+                    `),
+                },
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event = createPluginEvent({ event: 'does-not-match-me' }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Verify transformation was skipped
+            expect(result.event?.properties?.should_not_be_set).toBeUndefined()
+            expect(result.event?.properties?.$transformations_succeeded).toBeUndefined()
+            expect(result.event?.properties?.$transformations_failed).toBeUndefined()
+        })
+
         it('should apply transformation when filter matches', async () => {
             const filterMatchingTemplate = {
                 free: true,
@@ -953,7 +995,7 @@ describe('HogTransformer', () => {
                 category: ['Custom'],
                 hog: `
                     let returnEvent := event
-                    returnEvent.properties.error_property := 'should_not_be_set'
+                    returnEvent.properties.error_filter_property := 'should_be_set'
                     return returnEvent
                 `,
                 inputs_schema: [],
@@ -1004,9 +1046,12 @@ describe('HogTransformer', () => {
             const event = createPluginEvent({ event: 'test-event' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify error transformation was skipped but working one was applied
-            expect(result.event?.properties?.error_property).toBeUndefined()
+            // Verify both transformations were applied
+            expect(result.event?.properties?.error_filter_property).toBe('should_be_set')
             expect(result.event?.properties?.working_property).toBe('working')
+            expect(result.event?.properties?.$transformations_succeeded).toContain(
+                `${errorFunction.name} (${errorFunction.id})`
+            )
             expect(result.event?.properties?.$transformations_succeeded).toContain(
                 `${workingFunction.name} (${workingFunction.id})`
             )
