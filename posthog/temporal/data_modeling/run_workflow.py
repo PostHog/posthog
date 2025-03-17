@@ -417,7 +417,7 @@ async def materialize_model(
     key, delta_table = tables.popitem()
 
     # Count rows and update both DataWarehouseTable and DataModelingJob
-    row_count = await asyncio.to_thread(count_delta_table_rows, delta_table)
+    row_count = count_pipeline_rows(pipeline)
     await update_table_row_count(saved_query, row_count)
 
     # Update the job record with the row count and completed status
@@ -437,23 +437,13 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str) -> None:
     await database_sync_to_async(job.save)()
 
 
-def count_delta_table_rows(delta_table: DeltaTable) -> int | None:
+def count_pipeline_rows(pipeline: dlt.Pipeline) -> int:
     """
-    Count the number of rows in a Delta table by finding the most recent WRITE operation.
-    The VACUUM operation is appearing in the history as well, so we need to skip over it
-    to find the most recent WRITE operation.
+    Count the number of rows written in a dlt pipeline
     """
-    try:
-        history = delta_table.history(5)
-        for operation in history:
-            if operation["operation"] == "WRITE":
-                return int(operation["operationMetrics"].get("num_added_rows", 0))
-
-        logger.exception("No WRITE operation found in recent Delta table history")
-        return None
-    except Exception as e:
-        logger.exception("Failed to count rows in Delta table: %s", str(e))
-        return None
+    row_counts = pipeline.last_trace.last_normalize_info.row_counts
+    filtered_rows = dict(filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items()))
+    return sum(filtered_rows.values())
 
 
 async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count: int) -> None:
