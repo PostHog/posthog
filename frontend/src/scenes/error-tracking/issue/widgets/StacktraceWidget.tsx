@@ -1,5 +1,5 @@
 import { IconFilter, IconSort } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonWidget } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ChainedStackTraces } from 'lib/components/Errors/StackTraces'
@@ -7,7 +7,6 @@ import { ErrorTrackingException } from 'lib/components/Errors/types'
 
 import { errorTrackingIssueSceneLogic } from '../../errorTrackingIssueSceneLogic'
 import { getExceptionAttributes, hasAnyInAppFrames } from '../../utils'
-import { Widget } from './Widget'
 
 export function StacktraceWidget(): JSX.Element {
     const { issueProperties } = useValues(errorTrackingIssueSceneLogic)
@@ -20,8 +19,9 @@ export function StacktraceWidget(): JSX.Element {
     const orderedExceptions = applyFrameOrder(exceptionList, frameOrderReversed)
 
     return (
-        <Widget.Root>
-            <Widget.Header title="Stacktrace">
+        <LemonWidget
+            title="Stacktrace"
+            actions={
                 <div className="flex gap-2">
                     <LemonButton
                         className="space-x-2"
@@ -44,14 +44,15 @@ export function StacktraceWidget(): JSX.Element {
                         </LemonButton>
                     )}
                 </div>
-            </Widget.Header>
-            <Widget.Body>
+            }
+        >
+            <div className="p-2">
                 <ChainedStackTraces
                     showAllFrames={hasAnyInApp ? showAllFrames : true}
                     exceptionList={orderedExceptions}
                 />
-            </Widget.Body>
-        </Widget.Root>
+            </div>
+        </LemonWidget>
     )
 }
 
