@@ -381,18 +381,8 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
 
 
 def enqueue_recordings_that_match_playlist_filters() -> None:
-    if not settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID or not isinstance(
-        settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID, int
-    ):
-        raise Exception("PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID is not set")
-
-    if settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID == 0:
-        # If we're not processing any teams, we don't need to enqueue anything
-        return
-
     all_playlists = (
         SessionRecordingPlaylist.objects.filter(
-            team_id__lte=int(settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID),
             deleted=False,
             filters__isnull=False,
         )
