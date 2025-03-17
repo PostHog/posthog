@@ -56,11 +56,13 @@ export const LemonColorPicker = ({ hideDropdown = false, ...props }: LemonColorP
             overlay={<LemonColorPickerOverlay {...props} />}
             onClickOutside={() => setIsOpen(false)}
         >
-            <LemonColorButton
-                type="secondary"
-                onClick={() => setIsOpen(!isOpen)}
-                sideIcon={hideDropdown ? null : undefined}
-            />
+            <div className="relative">
+                <LemonColorButton
+                    type="secondary"
+                    onClick={() => setIsOpen(!isOpen)}
+                    sideIcon={hideDropdown ? null : undefined}
+                />
+            </div>
         </Popover>
     )
 }
