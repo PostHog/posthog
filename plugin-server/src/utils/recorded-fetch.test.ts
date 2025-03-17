@@ -1,6 +1,7 @@
 import { Response } from 'node-fetch'
 
 import { trackedFetch } from './fetch'
+import { parseJSON } from './json-parse'
 import { globalHttpCallRecorder, recordedFetch, RecordedHttpCall } from './recorded-fetch'
 
 // Mock the trackedFetch function
@@ -467,7 +468,7 @@ describe('recordedFetch', () => {
         expect(calls[0].request.body).toBe('plain text body')
         expect(calls[1].request.body).toBe('{"key":"value"}')
         // The third call should have automatically stringified the object
-        expect(JSON.parse(calls[2].request.body!)).toEqual({ key: 'value', nested: { prop: true } })
+        expect(parseJSON(calls[2].request.body!)).toEqual({ key: 'value', nested: { prop: true } })
         expect(calls[3].request.body).toBe('key=value')
     })
 
@@ -530,7 +531,7 @@ describe('recordedFetch', () => {
             },
             clone: jest.fn().mockReturnThis(),
             text: jest.fn().mockResolvedValue(userResponseBody),
-            json: jest.fn().mockResolvedValue(JSON.parse(userResponseBody)),
+            json: jest.fn().mockResolvedValue(parseJSON(userResponseBody)),
         } as unknown as Response
 
         // Mock analytics API response
@@ -551,7 +552,7 @@ describe('recordedFetch', () => {
             },
             clone: jest.fn().mockReturnThis(),
             text: jest.fn().mockResolvedValue(analyticsResponseBody),
-            json: jest.fn().mockResolvedValue(JSON.parse(analyticsResponseBody)),
+            json: jest.fn().mockResolvedValue(parseJSON(analyticsResponseBody)),
         } as unknown as Response
 
         // First mock the user API response
@@ -599,7 +600,7 @@ describe('recordedFetch', () => {
         expect(calls[1].response.body).toBe(analyticsResponseBody)
 
         // Verify the second request body contains data from the first response
-        const requestBody = JSON.parse(calls[1].request.body!)
+        const requestBody = parseJSON(calls[1].request.body!)
         expect(requestBody.userId).toBe(123)
         expect(requestBody.userName).toBe('Test User')
         expect(requestBody.userEmail).toBe('test@example.com')

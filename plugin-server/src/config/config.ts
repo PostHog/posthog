@@ -137,6 +137,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
         USE_SIMD_JSON_PARSE: isProdEnv() ? false : true, // TODO: Set true once done testing
+        USE_SIMD_JSON_PARSE_FOR_COMPARISON: false,
 
         // posthog
         POSTHOG_API_KEY: '',

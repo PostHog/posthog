@@ -4,7 +4,6 @@ import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
 import { Hub, RawClickHouseEvent } from '~/src/types'
-import { parseJSON } from '~/src/utils/json-parse'
 
 import {
     convertToHogFunctionInvocationGlobals,
@@ -13,6 +12,7 @@ import {
 } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
+import { parseJSON } from '../../utils/json-parse'
 import { status } from '../../utils/status'
 import { HogWatcherState } from '../services/hog-watcher.service'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'

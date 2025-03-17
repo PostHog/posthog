@@ -26,6 +26,7 @@ import {
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
+import { parseJSON } from '../../src/utils/json-parse'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
@@ -332,7 +333,7 @@ test('capture new person', async () => {
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
     const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
     expect(chPeople.length).toEqual(1)
-    expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
+    expect(parseJSON(chPeople[0].properties)).toEqual(expectedProps)
     expect(chPeople[0].created_at).toEqual(now.toFormat('yyyy-MM-dd HH:mm:ss.000'))
 
     let events = await hub.db.fetchEvents()
@@ -435,10 +436,10 @@ test('capture new person', async () => {
     const chPeople2 = await delayUntilEventIngested(async () =>
         (
             await hub.db.fetchPersons(Database.ClickHouse)
-        ).filter((p) => p && JSON.parse(p.properties).utm_medium == 'instagram')
+        ).filter((p) => p && parseJSON(p.properties).utm_medium == 'instagram')
     )
     expect(chPeople2.length).toEqual(1)
-    expect(JSON.parse(chPeople2[0].properties)).toEqual(expectedProps)
+    expect(parseJSON(chPeople2[0].properties)).toEqual(expectedProps)
 
     expect(events[1].properties.$set).toEqual({
         x: 123,
@@ -521,7 +522,7 @@ test('capture new person', async () => {
 
     const chPeople3 = await hub.db.fetchPersons(Database.ClickHouse)
     expect(chPeople3.length).toEqual(1)
-    expect(JSON.parse(chPeople3[0].properties)).toEqual(expectedProps)
+    expect(parseJSON(chPeople3[0].properties)).toEqual(expectedProps)
 
     team = await getFirstTeam(hub)
 })
