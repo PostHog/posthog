@@ -75,6 +75,7 @@ export enum NodeKind {
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
+    RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
 
     // Interface nodes
@@ -144,6 +145,7 @@ export type AnyDataNode =
     | WebVitalsPathBreakdownQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
+    | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -170,6 +172,7 @@ export type QuerySchema =
     | HogQLAutocomplete
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
+    | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -263,6 +266,7 @@ export interface HogQLQueryModifiers {
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     bounceRateDurationSeconds?: number
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
+    sessionsV2JoinMode?: 'string' | 'uuid'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
@@ -604,6 +608,8 @@ export interface EventsQueryPersonColumn {
 
 export interface EventsQuery extends DataNode<EventsQueryResponse> {
     kind: NodeKind.EventsQuery
+    /** source for querying events for insights */
+    source?: InsightActorsQuery
     /** Return a limited set of data. Required. */
     select: HogQLExpression[]
     /** HogQL filters to apply on returned data */
@@ -675,6 +681,7 @@ export interface DataTableNode
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | RevenueExampleEventsQuery
+                    | RevenueExampleDataWarehouseTablesQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
@@ -699,6 +706,7 @@ export interface DataTableNode
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -1719,10 +1727,29 @@ export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryRespons
 }
 export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<RevenueExampleEventsQueryResponse>
 
+export interface RevenueExampleDataWarehouseTablesQuery
+    extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
+    kind: NodeKind.RevenueExampleDataWarehouseTablesQuery
+    revenueTrackingConfig: RevenueTrackingConfig
+    limit?: integer
+    offset?: integer
+}
+
+export interface RevenueExampleDataWarehouseTablesQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    types?: unknown[]
+    columns?: unknown[]
+}
+export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
+    CachedQueryResponse<RevenueExampleDataWarehouseTablesQueryResponse>
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
     orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    orderDirection?: 'ASC' | 'DESC'
     dateRange: DateRange
     status?: ErrorTrackingIssue['status'] | 'all'
     assignee?: ErrorTrackingIssueAssignee | null
@@ -1778,31 +1805,13 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
-export type FileSystemType =
-    | 'aichat'
-    | 'broadcast'
-    | 'dashboard'
-    | 'destination'
-    | 'experiment'
-    | 'feature_flag'
-    | 'feature'
-    | 'folder'
-    | 'insight'
-    | 'notebook'
-    | 'repl'
-    | 'site_app'
-    | 'source'
-    | 'sql'
-    | 'survey'
-    | 'transformation'
-
 export interface FileSystemEntry {
     /** Unique UUID for tree entry */
     id?: string
     /** Object's name and folder */
     path: string
     /** Type of object, used for icon, e.g. feature_flag, insight, etc */
-    type?: FileSystemType
+    type?: string
     /** Object's ID or other unique reference */
     ref?: string
     /** Object's URL */
@@ -1811,6 +1820,12 @@ export interface FileSystemEntry {
     meta?: Record<string, any>
     /** Timestamp when file was added. Used to check persistence */
     created_at?: string
+}
+
+export interface FileSystemImport extends Omit<FileSystemEntry, 'href'> {
+    icon?: any // Setting as "any" to keep Python schema.py in check
+    flag?: string
+    href: (ref?: string) => string
 }
 
 export type InsightQueryNode =
@@ -2525,12 +2540,6 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 
-export interface RevenueTrackingEventItem {
-    eventName: string
-    revenueProperty: string
-    revenueCurrencyProperty: string | undefined
-}
-
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
 export enum CurrencyCode {
@@ -2688,7 +2697,45 @@ export enum CurrencyCode {
     ZMW = 'ZMW',
 }
 
+export type RevenueCurrencyPropertyConfig = {
+    property?: string
+    static?: CurrencyCode
+}
+
+export interface RevenueTrackingEventItem {
+    eventName: string
+    revenueProperty: string
+
+    /**
+     * @default {"static": "USD"}
+     */
+    revenueCurrencyProperty: RevenueCurrencyPropertyConfig
+}
+
+export interface RevenueTrackingDataWarehouseTable {
+    tableName: string
+    timestampColumn: string
+    revenueColumn: string
+
+    /**
+     * @default {"static": "USD"}
+     */
+    revenueCurrencyColumn: RevenueCurrencyPropertyConfig
+}
+
 export interface RevenueTrackingConfig {
-    baseCurrency?: CurrencyCode
+    /**
+     * @default 'USD'
+     */
+    baseCurrency: CurrencyCode
+
+    /**
+     * @default []
+     */
     events: RevenueTrackingEventItem[]
+
+    /**
+     * @default []
+     */
+    dataWarehouseTables: RevenueTrackingDataWarehouseTable[]
 }

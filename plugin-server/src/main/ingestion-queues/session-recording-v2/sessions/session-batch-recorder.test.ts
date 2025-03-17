@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
+import { parseJSON } from '../../../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData } from '../kafka/types'
 import { SnapshotEvent } from '../kafka/types'
@@ -219,7 +220,7 @@ describe('SessionBatchRecorder', () => {
             .trim()
             .split('\n')
             .map((line) => {
-                const [windowId, event] = JSON.parse(line)
+                const [windowId, event] = parseJSON(line)
                 return [windowId, event]
             })
     }
@@ -1342,6 +1343,91 @@ describe('SessionBatchRecorder', () => {
 
             const batchId = mockMetadataStore.storeSessionBlocks.mock.calls[0][0][0].batchId
             expect(uuidValidate(batchId)).toBe(true)
+        })
+
+        it('should store event counts from session block recorders', async () => {
+            const messages = [
+                createMessage('session1', [
+                    {
+                        type: EventType.FullSnapshot,
+                        timestamp: 1000,
+                        data: { source: 1 },
+                    },
+                    {
+                        type: EventType.IncrementalSnapshot,
+                        timestamp: 2000,
+                        data: { source: 2 },
+                    },
+                ]),
+                createMessage('session2', [
+                    {
+                        type: EventType.Meta,
+                        timestamp: 1500,
+                        data: { href: 'https://example.com' },
+                    },
+                ]),
+            ]
+
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+            await recorder.flush()
+
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        sessionId: 'session1',
+                        eventCount: 2,
+                    }),
+                    expect.objectContaining({
+                        sessionId: 'session2',
+                        eventCount: 1,
+                    }),
+                ])
+            )
+        })
+
+        it('should reset event counts after flush', async () => {
+            const message1 = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 2000,
+                    data: { source: 2 },
+                },
+            ])
+
+            await recorder.record(message1)
+            await recorder.flush()
+
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenLastCalledWith([
+                expect.objectContaining({
+                    sessionId: 'session1',
+                    eventCount: 2,
+                }),
+            ])
+
+            const message2 = createMessage('session1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 3000,
+                    data: { href: 'https://example.com' },
+                },
+            ])
+
+            await recorder.record(message2)
+            await recorder.flush()
+
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenLastCalledWith([
+                expect.objectContaining({
+                    sessionId: 'session1',
+                    eventCount: 1,
+                }),
+            ])
         })
     })
 

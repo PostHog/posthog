@@ -340,7 +340,7 @@ numpy==1.23.3
     #   langchain-community
     #   pandas
     #   ragas
-openai==1.56.2
+openai==1.66.3
     # via
     #   -c requirements.txt
     #   langchain-openai

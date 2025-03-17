@@ -1,6 +1,6 @@
 import { AdminClient, CODES, GlobalConfig, IAdminClient, LibrdKafkaError } from 'node-rdkafka'
 
-import { status } from '../utils/status'
+import { logger } from '../utils/logger'
 
 export const ensureTopicExists = async (adminClient: IAdminClient, topic: string, timeout: number) => {
     // Ensures that a topic exists. If it doesn't, it will be created. If it
@@ -18,11 +18,11 @@ export const ensureTopicExists = async (adminClient: IAdminClient, topic: string
                         // to error.
                         resolve(adminClient)
                     } else {
-                        status.error('🔥', 'Failed to create topic', { topic, error })
+                        logger.error('🔥', 'Failed to create topic', { topic, error })
                         reject(error)
                     }
                 } else {
-                    status.info('🔁', 'Created topic', { topic })
+                    logger.info('🔁', 'Created topic', { topic })
                     resolve(adminClient)
                 }
             }

@@ -13,6 +13,7 @@ use crate::metrics::metrics_consts::{
 use crate::metrics::metrics_utils::parse_exception_for_prometheus_label;
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::{OperatorType, PropertyFilter};
+use crate::team::team_models::{ProjectId, TeamId};
 use anyhow::Result;
 use common_metrics::inc;
 use petgraph::algo::{is_cyclic_directed, toposort};
@@ -29,8 +30,6 @@ use std::{
 use tokio::time::{sleep, timeout};
 use tracing::{error, info};
 
-pub type TeamId = i32;
-pub type ProjectId = i32;
 pub type PersonId = i32;
 pub type GroupTypeIndex = i32;
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
@@ -211,6 +210,7 @@ pub struct PropertiesCache {
 pub struct FeatureFlagMatcher {
     pub distinct_id: String,
     pub team_id: TeamId,
+    pub project_id: ProjectId,
     pub reader: PostgresReader,
     pub writer: PostgresWriter,
     pub cohort_cache: Arc<CohortCacheManager>,
@@ -222,9 +222,11 @@ pub struct FeatureFlagMatcher {
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
 impl FeatureFlagMatcher {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         distinct_id: String,
         team_id: TeamId,
+        project_id: ProjectId,
         reader: PostgresReader,
         writer: PostgresWriter,
         cohort_cache: Arc<CohortCacheManager>,
@@ -234,11 +236,12 @@ impl FeatureFlagMatcher {
         FeatureFlagMatcher {
             distinct_id,
             team_id,
+            project_id,
             reader: reader.clone(),
             writer: writer.clone(),
             cohort_cache,
             group_type_mapping_cache: group_type_mapping_cache
-                .unwrap_or_else(|| GroupTypeMappingCache::new(team_id, reader.clone())),
+                .unwrap_or_else(|| GroupTypeMappingCache::new(project_id, reader.clone())),
             groups: groups.unwrap_or_default(),
             properties_cache: PropertiesCache::default(),
         }
@@ -337,6 +340,7 @@ impl FeatureFlagMatcher {
             self.reader.clone(),
             self.team_id,
             self.distinct_id.clone(),
+            self.project_id,
             hash_key.clone(),
         )
         .await
@@ -365,6 +369,7 @@ impl FeatureFlagMatcher {
                 self.writer.clone(),
                 self.team_id,
                 target_distinct_ids.clone(),
+                self.project_id,
                 hash_key.clone(),
             )
             .await
@@ -1009,10 +1014,10 @@ impl FeatureFlagMatcher {
         target_properties: &HashMap<String, Value>,
         person_id: PersonId,
     ) -> Result<bool, FlagError> {
-        // At the start of the request, fetch all of the cohorts for the team from the cache
-        // This method also caches any cohorts for a given team in memory for the duration of the application, so we don't need to fetch from
+        // At the start of the request, fetch all of the cohorts for the project from the cache
+        // This method also caches any cohorts for a given project in memory for the duration of the application, so we don't need to fetch from
         // the database again until we restart the application.  See the CohortCacheManager for more details.
-        let cohorts = self.cohort_cache.get_cohorts(self.team_id).await?;
+        let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
 
         // Split the cohorts into static and dynamic, since the dynamic ones have property filters
         // and we need to evaluate them based on the target properties, whereas the static ones are
@@ -1854,6 +1859,7 @@ async fn set_feature_flag_hash_key_overrides(
     writer: PostgresWriter,
     team_id: TeamId,
     distinct_ids: Vec<String>,
+    project_id: ProjectId,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
     const MAX_RETRIES: u32 = 2;
@@ -1873,11 +1879,16 @@ async fn set_feature_flag_hash_key_overrides(
                 WHERE team_id = $1 AND person_id IN (SELECT person_id FROM target_person_ids)
             ),
             flags_to_override AS (
-                SELECT key FROM posthog_featureflag WHERE team_id = $1 AND ensure_experience_continuity = TRUE AND active = TRUE AND deleted = FALSE
-                AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+                SELECT flag.key FROM posthog_featureflag flag
+                JOIN posthog_team team ON flag.team_id = team.id
+                WHERE team.project_id = $3 
+                AND flag.ensure_experience_continuity = TRUE 
+                AND flag.active = TRUE 
+                AND flag.deleted = FALSE
+                AND flag.key NOT IN (SELECT feature_flag_key FROM existing_overrides)
             )
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-                SELECT team_id, person_id, key, $3
+                SELECT team_id, person_id, key, $4
                 FROM flags_to_override, target_person_ids
                 WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = $1)
             ON CONFLICT DO NOTHING
@@ -1886,6 +1897,7 @@ async fn set_feature_flag_hash_key_overrides(
         let result: Result<PgQueryResult, sqlx::Error> = sqlx::query(query)
             .bind(team_id)
             .bind(&distinct_ids)
+            .bind(project_id)
             .bind(&hash_key_override)
             .execute(&mut *transaction)
             .await;
@@ -1930,6 +1942,7 @@ async fn should_write_hash_key_override(
     reader: PostgresReader,
     team_id: TeamId,
     distinct_id: String,
+    project_id: ProjectId,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
     const QUERY_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -1949,12 +1962,10 @@ async fn should_write_hash_key_override(
             FROM posthog_featureflaghashkeyoverride
             WHERE team_id = $1 AND person_id IN (SELECT person_id FROM target_person_ids)
         )
-        SELECT key 
-        FROM posthog_featureflag 
-        WHERE team_id = $1 
-            AND ensure_experience_continuity = TRUE 
-            AND active = TRUE 
-            AND deleted = FALSE
+        SELECT key FROM posthog_featureflag flag
+        JOIN posthog_team team ON flag.team_id = team.id
+        WHERE team.project_id = $3
+            AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
             AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
     "#;
 
@@ -1967,6 +1978,7 @@ async fn should_write_hash_key_override(
             let rows = sqlx::query(query)
                 .bind(team_id)
                 .bind(&distinct_ids)
+                .bind(project_id)
                 .fetch_all(&mut *conn)
                 .await
                 .map_err(|e| FlagError::DatabaseError(format!("Query execution failed: {}", e)))?;
@@ -2107,6 +2119,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -2121,6 +2134,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             not_matching_distinct_id.clone(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -2135,6 +2149,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "other_distinct_id".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -2187,6 +2202,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader,
             writer,
             cohort_cache,
@@ -2242,7 +2258,8 @@ mod tests {
             None,
         );
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id, reader.clone());
+        let mut group_type_mapping_cache =
+            GroupTypeMappingCache::new(team.project_id, reader.clone());
         let group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
         group_type_mapping_cache.group_types_to_indexes = group_types_to_indexes;
         group_type_mapping_cache.group_indexes_to_types =
@@ -2261,6 +2278,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -2301,6 +2319,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             1,
+            1,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -2327,6 +2346,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -2373,6 +2393,7 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            1,
             1,
             reader,
             writer,
@@ -2470,6 +2491,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -2560,6 +2582,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -2602,6 +2625,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id,
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -2645,6 +2669,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -2678,6 +2703,7 @@ mod tests {
         let mut new_matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -2804,6 +2830,7 @@ mod tests {
                 let mut matcher = FeatureFlagMatcher::new(
                     format!("test_user_{}", i),
                     team.id,
+                    team.project_id,
                     reader_clone,
                     writer_clone,
                     cohort_cache_clone,
@@ -2881,6 +2908,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -2919,8 +2947,16 @@ mod tests {
             None,
         );
 
-        let mut matcher =
-            FeatureFlagMatcher::new("".to_string(), 1, reader, writer, cohort_cache, None, None);
+        let mut matcher = FeatureFlagMatcher::new(
+            "".to_string(),
+            1,
+            1,
+            reader,
+            writer,
+            cohort_cache,
+            None,
+            None,
+        );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
 
@@ -2955,6 +2991,7 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            1,
             1,
             reader,
             writer,
@@ -3006,6 +3043,7 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            1,
             1,
             reader,
             writer,
@@ -3080,6 +3118,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache,
@@ -3140,6 +3179,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache,
@@ -3215,6 +3255,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache,
@@ -3258,6 +3299,7 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            1,
             1,
             reader.clone(),
             writer.clone(),
@@ -3336,6 +3378,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache,
@@ -3433,6 +3476,7 @@ mod tests {
         let mut matcher_test_id = FeatureFlagMatcher::new(
             "test_id".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -3443,6 +3487,7 @@ mod tests {
         let mut matcher_example_id = FeatureFlagMatcher::new(
             "lil_id".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -3453,6 +3498,7 @@ mod tests {
         let mut matcher_another_id = FeatureFlagMatcher::new(
             "another_id".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -3555,6 +3601,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_id".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -3654,6 +3701,7 @@ mod tests {
         let mut matcher_test_id = FeatureFlagMatcher::new(
             "test_id".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -3664,6 +3712,7 @@ mod tests {
         let mut matcher_example_id = FeatureFlagMatcher::new(
             "lil_id".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -3674,6 +3723,7 @@ mod tests {
         let mut matcher_another_id = FeatureFlagMatcher::new(
             "another_id".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -3787,6 +3837,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -3873,6 +3924,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -3959,6 +4011,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -4071,6 +4124,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -4157,6 +4211,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -4241,6 +4296,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -4319,6 +4375,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -4397,6 +4454,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -4483,6 +4541,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -4550,6 +4609,7 @@ mod tests {
             writer.clone(),
             team.id,
             vec![distinct_id.clone()],
+            team.project_id,
             "hash_key_2".to_string(),
         )
         .await
@@ -4620,6 +4680,7 @@ mod tests {
             writer.clone(),
             team.id,
             vec![distinct_id.clone()],
+            team.project_id,
             "hash_key_2".to_string(),
         )
         .await
@@ -4690,6 +4751,7 @@ mod tests {
             writer.clone(),
             team.id,
             vec![distinct_id.clone()],
+            team.project_id,
             "hash_key_continuity".to_string(),
         )
         .await
@@ -4702,6 +4764,7 @@ mod tests {
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -4775,6 +4838,7 @@ mod tests {
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -4875,6 +4939,7 @@ mod tests {
             writer.clone(),
             team.id,
             vec![distinct_id.clone()],
+            team.project_id,
             "hash_key_mixed".to_string(),
         )
         .await
@@ -4887,6 +4952,7 @@ mod tests {
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),
@@ -4985,6 +5051,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
+            team.project_id,
             reader.clone(),
             writer.clone(),
             cohort_cache.clone(),

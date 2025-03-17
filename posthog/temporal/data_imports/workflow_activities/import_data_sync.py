@@ -524,6 +524,9 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             client_email = model.pipeline.job_inputs.get("client_email")
             token_uri = model.pipeline.job_inputs.get("token_uri")
 
+            if not private_key:
+                raise ValueError(f"Missing private key for BigQuery: '{model.id}'")
+
             temporary_dataset_id = model.pipeline.job_inputs.get("temporary_dataset_id")
             using_temporary_dataset = (
                 model.pipeline.job_inputs.get("using_temporary_dataset", False) and temporary_dataset_id is not None

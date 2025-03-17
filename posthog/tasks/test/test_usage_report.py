@@ -2,6 +2,9 @@ from datetime import datetime
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 from uuid import uuid4
+import gzip
+import json
+import base64
 
 import pytest
 import structlog
@@ -42,7 +45,6 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     capture_event,
-    capture_report,
     get_instance_metadata,
     send_all_org_usage_reports,
 )
@@ -1865,18 +1867,26 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         period = get_previous_day()
         period_start, period_end = period
         all_reports = _get_all_org_reports(period_start, period_end)
+
         full_report_as_dict = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
         )
+        json_data = json.dumps(
+            {"organization_id": str(self.organization.id), "usage_report": full_report_as_dict}, separators=(",", ":")
+        )
+        compressed_bytes = gzip.compress(json_data.encode("utf-8"))
+        compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
+
         send_all_org_usage_reports(dry_run=False)
         license = License.objects.first()
         assert license
 
         mock_producer.send_message.assert_called_once_with(
-            message_body={
-                "organization_id": str(self.organization.id),
-                "usage_report": full_report_as_dict,
-            }
+            message_attributes={
+                "content_encoding": "gzip",
+                "content_type": "application/json",
+            },
+            message_body=compressed_b64,
         )
 
         # mock_posthog.capture.assert_any_call(
@@ -1904,21 +1914,27 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             period = get_previous_day()
             period_start, period_end = period
             all_reports = _get_all_org_reports(period_start, period_end)
+
             full_report_as_dict = _get_full_org_usage_report_as_dict(
-                _get_full_org_usage_report(
-                    all_reports[str(self.organization.id)],
-                    get_instance_metadata(period),
-                )
+                _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
             )
+            json_data = json.dumps(
+                {"organization_id": str(self.organization.id), "usage_report": full_report_as_dict},
+                separators=(",", ":"),
+            )
+            compressed_bytes = gzip.compress(json_data.encode("utf-8"))
+            compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
+
             send_all_org_usage_reports(dry_run=False)
             license = License.objects.first()
             assert license
 
             mock_producer.send_message.assert_called_once_with(
-                message_body={
-                    "organization_id": str(self.organization.id),
-                    "usage_report": full_report_as_dict,
-                }
+                message_attributes={
+                    "content_encoding": "gzip",
+                    "content_type": "application/json",
+                },
+                message_body=compressed_b64,
             )
 
             # mock_posthog.capture.assert_any_call(
@@ -1968,52 +1984,6 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             timestamp="2021-10-10T23:01:00.00Z",
         )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
-
-    @patch("posthog.tasks.usage_report.get_ph_client")
-    def test_capture_report_transforms_team_id_to_org_id(self, mock_client: MagicMock) -> None:
-        mock_posthog = MagicMock()
-        mock_client.return_value = mock_posthog
-
-        # Create a second team in the same organization to verify the mapping
-        team2 = Team.objects.create(organization=self.organization)
-
-        # Create a report with team-level data
-        report = {
-            "organization_name": "Test Org",
-            "date": "2024-01-01",
-        }
-
-        with self.is_cloud(True):
-            # Call capture_report
-            capture_report(capture_event_name="test event", team_id=team2.id, full_report_dict=report)
-
-        # Verify the capture call was made with the organization ID
-        mock_posthog.capture.assert_called_once_with(
-            self.user.distinct_id,
-            "test event",
-            {**report, "scope": "user"},
-            groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
-            timestamp=None,
-        )
-
-        # now check with send_for_all_members=True
-        mock_posthog.reset_mock()
-
-        with self.is_cloud(True):
-            capture_report(
-                capture_event_name="test event",
-                team_id=self.team.id,
-                full_report_dict=report,
-                send_for_all_members=True,
-            )
-
-        mock_posthog.capture.assert_called_once_with(
-            self.user.distinct_id,
-            "test event",
-            {**report, "scope": "user"},
-            groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
-            timestamp=None,
-        )
 
 
 class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
