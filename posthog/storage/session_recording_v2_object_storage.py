@@ -63,8 +63,8 @@ def client() -> SessionRecordingV2ObjectStorageBase:
             boto3_client(
                 "s3",
                 endpoint_url=settings.SESSION_RECORDING_V2_S3_ENDPOINT,
-                aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                aws_access_key_id=settings.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
                 config=Config(
                     signature_version="s3v4",  # type: ignore[attr-defined]
                     connect_timeout=1,  # type: ignore[attr-defined]
