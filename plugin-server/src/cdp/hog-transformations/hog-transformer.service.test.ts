@@ -1086,7 +1086,7 @@ describe('HogTransformer', () => {
                 filters: {
                     bytecode: await compileHog(`
                         // Filter that would normally prevent application
-                        return false
+                    return event = 'match-me'
                     `),
                 },
             })
@@ -1094,7 +1094,7 @@ describe('HogTransformer', () => {
             await insertHogFunction(hub.db.postgres, teamId, hogFunction)
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
-            const event = createPluginEvent({ event: 'test-event' }, teamId)
+            const event = createPluginEvent({ event: 'match-me' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             // Verify transformation was applied despite filter
