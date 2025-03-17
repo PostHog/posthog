@@ -159,7 +159,7 @@ export class HogTransformerService {
                         const shouldApplyTransformation = this.checkEventAgainstFilters(hogFunction, filterGlobals)
 
                         if (!shouldApplyTransformation) {
-                            status.info('🔍', 'Skipping transformation due to filter mismatch', {
+                            logger.info('🔍', 'Skipping transformation due to filter mismatch', {
                                 event_id: event.uuid,
                                 transformation_id: hogFunction.id,
                                 transformation_name: hogFunction.name,
@@ -310,7 +310,7 @@ export class HogTransformerService {
 
             // If there was an error evaluating the filters, still apply the transformation
             if (filterResult.error) {
-                status.error('🔍', 'Error evaluating filters for transformation - applying anyway', {
+                logger.error('🔍', 'Error evaluating filters for transformation - applying anyway', {
                     error: filterResult.error.message,
                     transformation_id: hogFunction.id,
                     transformation_name: hogFunction.name,
@@ -321,7 +321,7 @@ export class HogTransformerService {
             // The filter result is a boolean indicating whether to apply the transformation
             return typeof filterResult.result === 'boolean' && filterResult.result
         } catch (error) {
-            status.error('🔍', 'Exception evaluating filters for transformation - applying anyway', {
+            logger.error('🔍', 'Exception evaluating filters for transformation - applying anyway', {
                 error: error.message,
                 transformation_id: hogFunction.id,
                 transformation_name: hogFunction.name,
