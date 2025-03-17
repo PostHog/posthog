@@ -103,6 +103,9 @@ USER posthog
 ARG COMMIT_HASH
 RUN echo $COMMIT_HASH > /code/commit.txt
 
+# Copy needed files
+COPY --chown=posthog:posthog common/hogvm common/hogvm/
+
 # Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
 COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/package.json /code/rust/cyclotron-node/package.json
@@ -120,6 +123,8 @@ COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/pack
 
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
+
+COPY ./bin/plugin-server /code/bin/plugin-server
 
 # Setup ENV.
 ENV NODE_ENV=production
