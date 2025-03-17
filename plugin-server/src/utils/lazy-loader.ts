@@ -33,7 +33,7 @@ const lazyLoaderFullCacheHits = new Counter({
 export type LazyLoaderOptions<T> = {
     name: string
     /** Function to load the values */
-    loader: (key: string[]) => Promise<Record<string, T | undefined>>
+    loader: (key: string[]) => Promise<Record<string, T | null | undefined>>
     /** How long to cache the value */
     refreshAge?: number
     /** How long to cache null values */
@@ -106,7 +106,7 @@ export class LazyLoader<T> {
 
         lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
 
-        let loaded: Record<string, T | undefined>
+        let loaded: Record<string, T | null | undefined>
         try {
             loaded = await loader(Array.from(keysToLoad))
         } catch (error) {
@@ -132,10 +132,10 @@ export class LazyLoader<T> {
         return results
     }
 
-    public async get(key: string): Promise<T | null | undefined> {
+    public async get(key: string): Promise<T | null> {
         const loaded = await this.load([key])
 
-        return loaded[key]
+        return loaded[key] ?? null
     }
 
     public async getMany(keys: string[]): Promise<Record<string, T | null>> {
