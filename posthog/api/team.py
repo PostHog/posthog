@@ -721,49 +721,25 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         product_type = request.data.get("product_type")
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
-        should_report_product_intent = False
         metadata = request.data.get("metadata", {})
+        context = request.data.get("intent_context")
 
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
 
+        if not context:
+            return response.Response({"error": "intent_context is required"}, status=400)
+
         if not isinstance(metadata, dict):
             return response.Response({"error": "'metadata' must be a dictionary"}, status=400)
 
-        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
-
-        if created:
-            # For new intents, check activation immediately but skip reporting
-            was_already_activated = product_intent.check_and_update_activation(skip_reporting=True)
-            # Only report the action if they haven't already activated
-            if isinstance(user, User) and not was_already_activated:
-                should_report_product_intent = True
-        else:
-            if not product_intent.activated_at:
-                is_activated = product_intent.check_and_update_activation()
-                if not is_activated:
-                    should_report_product_intent = True
-            product_intent.updated_at = datetime.now(tz=UTC)
-            product_intent.save()
-
-        if should_report_product_intent and isinstance(user, User):
-            report_user_action(
-                user,
-                "user showed product intent",
-                {
-                    **metadata,
-                    "product_key": product_type,
-                    "$set_once": {"first_onboarding_product_selected": product_type},
-                    "$current_url": current_url,
-                    "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
-                    "is_first_intent_for_product": created,
-                    "intent_created_at": product_intent.created_at,
-                    "intent_updated_at": product_intent.updated_at,
-                    "realm": get_instance_realm(),
-                },
-                team=team,
-            )
+        ProductIntent.register(
+            team=team,
+            product_type=product_type,
+            context=context,
+            user=cast(User, user),
+            metadata={**metadata, "$current_url": current_url, "$session_id": session_id},
+        )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
 
