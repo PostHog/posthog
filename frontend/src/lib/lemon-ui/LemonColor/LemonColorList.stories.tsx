@@ -1,13 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { DataColorToken } from 'lib/colors'
 
-import { LemonColorGlyph as LemonColorGlyphComponent } from './LemonColorGlyph'
-import { LemonColorList as LemonColorListComponent } from './LemonColorList'
+import { LemonColorList } from './LemonColorList'
 
-type Story = StoryObj<typeof LemonColorGlyphComponent>
-const meta: Meta<typeof LemonColorGlyphComponent> = {
+type Story = StoryObj<typeof LemonColorList>
+const meta: Meta<typeof LemonColorList> = {
     title: 'Lemon UI/Lemon Color/Lemon Color List',
-    component: LemonColorGlyphComponent,
+    component: LemonColorList,
     tags: ['autodocs'],
 }
 export default meta
@@ -15,22 +14,22 @@ export default meta
 const colorTokens: DataColorToken[] = Array.from({ length: 15 }, (_, i) => `preset-${i + 1}` as DataColorToken)
 
 export const Default: Story = {
-    render: () => (
-        <>
-            <LemonColorListComponent
+    render: () => {
+        return (
+            <LemonColorList
                 colorTokens={colorTokens}
                 selectedColorToken={colorTokens[3]}
                 onClick={(colorToken) => {
                     alert(colorToken)
                 }}
             />
-        </>
-    ),
+        )
+    },
 }
 
 export const CustomColors: Story = {
     render: () => (
-        <LemonColorListComponent
+        <LemonColorList
             colors={['#ff0000', '#00ff00', '#0000ff']}
             selectedColor="#00ff00"
             onClick={(color) => {
@@ -41,5 +40,14 @@ export const CustomColors: Story = {
 }
 
 export const CustomTheme: Story = {
-    render: () => <LemonColorListComponent colorTokens={colorTokens} selectedColor={colorTokens[3]} themeId={2} />,
+    render: () => (
+        <LemonColorList
+            colorTokens={colorTokens}
+            selectedColor={colorTokens[3]}
+            themeId={2}
+            onClick={(color) => {
+                alert(color)
+            }}
+        />
+    ),
 }
