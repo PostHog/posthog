@@ -163,6 +163,116 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    @freeze_time("2021-05-02")
+    def test_update_group_property_success(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": "org:5",
+                "group_properties": {"industry": "technology", "name": "Mr. Krabs"},
+                "group_type_index": 0,
+            },
+        )
+
+    @freeze_time("2021-05-02")
+    def test_update_group_property_missing_key(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"value": "technology"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @freeze_time("2021-05-02")
+    def test_update_group_property_invalid_group_key(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:0&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    @freeze_time("2021-05-02")
+    def test_delete_group_property_success(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
+            {"$unset": "industry"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": "org:5",
+                "group_properties": {"name": "Mr. Krabs"},
+                "group_type_index": 0,
+            },
+        )
+
+    @freeze_time("2021-05-02")
+    def test_delete_group_property_missing_key(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
+            {},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @freeze_time("2021-05-02")
+    def test_delete_group_property_invalid_group_key(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:0&group_type_index=0",
+            {"$unset": "industry"},
+        )
+        self.assertEqual(response.status_code, 404)
+
     @freeze_time("2021-05-10")
     @snapshot_clickhouse_queries
     def test_related_groups(self):

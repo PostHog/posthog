@@ -144,6 +144,80 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                 required=True,
             ),
             OpenApiParameter(
+                "group_key",
+                OpenApiTypes.STR,
+                description="Specify the key of the group to find",
+                required=True,
+            ),
+        ]
+    )
+    @action(methods=["POST"], detail=False)
+    def update_property(self, request: request.Request, **kw) -> response.Response:
+        try:
+            group = self.get_queryset().get(group_key=request.GET["group_key"])
+            for key in ["value", "key"]:
+                if request.data.get(key) is None:
+                    return response.Response(
+                        {
+                            "attr": key,
+                            "code": "This field is required.",
+                            "detail": "required",
+                            "type": "validation_error",
+                        },
+                        status=400,
+                    )
+            group.group_properties[request.data["key"]] = request.data["value"]
+            group.save()
+            return response.Response(self.get_serializer(group).data)
+        except Group.DoesNotExist:
+            raise NotFound()
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "group_type_index",
+                OpenApiTypes.INT,
+                description="Specify the group type to find",
+                required=True,
+            ),
+            OpenApiParameter(
+                "group_key",
+                OpenApiTypes.STR,
+                description="Specify the key of the group to find",
+                required=True,
+            ),
+        ]
+    )
+    @action(methods=["POST"], detail=False)
+    def delete_property(self, request: request.Request, **kw) -> response.Response:
+        try:
+            group = self.get_queryset().get(group_key=request.GET["group_key"])
+            for key in ["$unset"]:
+                if request.data.get(key) is None:
+                    return response.Response(
+                        {
+                            "attr": key,
+                            "code": "This field is required.",
+                            "detail": "required",
+                            "type": "validation_error",
+                        },
+                        status=400,
+                    )
+            del group.group_properties[request.data["$unset"]]
+            group.save()
+            return response.Response(self.get_serializer(group).data)
+        except Group.DoesNotExist:
+            raise NotFound()
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "group_type_index",
+                OpenApiTypes.INT,
+                description="Specify the group type to find",
+                required=True,
+            ),
+            OpenApiParameter(
                 "id",
                 OpenApiTypes.STR,
                 description="Specify the id of the user to find groups for",

@@ -86,7 +86,7 @@ export function Group(): JSX.Element {
         showCustomerSuccessDashboards,
     } = useValues(groupLogic)
     const { groupKey, groupTypeIndex } = logicProps
-    const { setGroupEventsQuery } = useActions(groupLogic)
+    const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(groupLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -125,6 +125,8 @@ export function Group(): JSX.Element {
                                 type={PropertyDefinitionType.Group}
                                 properties={groupData.group_properties || {}}
                                 embedded={false}
+                                onEdit={editProperty}
+                                onDelete={(key) => deleteProperty(key)}
                                 searchable
                             />
                         ),
