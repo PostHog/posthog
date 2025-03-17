@@ -500,27 +500,28 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         runQuery: ({ queryOverride, switchTab }) => {
             const query = queryOverride || values.queryInput
 
+            const newSource = {
+                ...values.sourceQuery.source,
+                query,
+                variables: Object.fromEntries(
+                    Object.entries(values.sourceQuery.source.variables ?? {}).filter(([_, variable]) =>
+                        query.includes(`{variables.${variable.code_name}}`)
+                    )
+                ),
+            }
+
             actions.setSourceQuery({
                 ...values.sourceQuery,
-                source: {
-                    ...values.sourceQuery.source,
-                    query,
-                },
+                source: newSource,
             })
             dataNodeLogic({
                 key: values.activeModelUri?.uri.path ?? dataNodeKey,
-                query: {
-                    ...values.sourceQuery.source,
-                    query,
-                },
+                query: newSource,
             }).mount()
 
             dataNodeLogic({
                 key: values.activeModelUri?.uri.path ?? dataNodeKey,
-                query: {
-                    ...values.sourceQuery.source,
-                    query,
-                },
+                query: newSource,
             }).actions.loadData(!switchTab)
         },
         saveAsView: async () => {
