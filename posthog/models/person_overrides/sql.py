@@ -1,5 +1,6 @@
 # XXX: The tables defined in this module are not used and are only retained for migration consistency reasons. See
-# `person_distinct_id_overrides` in `posthog.models.person.sql` for its replacement tables.
+# `person_distinct_id_overrides` in `posthog.models.person.sql` for its replacement tables, or
+# https://github.com/PostHog/posthog/pull/23616 for additional context.
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
