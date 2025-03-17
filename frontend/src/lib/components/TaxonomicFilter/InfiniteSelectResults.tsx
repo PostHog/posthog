@@ -1,5 +1,4 @@
 import { LemonTag } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
@@ -9,6 +8,9 @@ import { cn } from 'lib/utils/css-classes'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
+
+// Number of taxonomic groups after which we switch to vertical layout by default
+const VERTICAL_LAYOUT_THRESHOLD = 4
 
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
@@ -72,7 +74,9 @@ export function InfiniteSelectResults({
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
-    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: activeTab })
+
+    const openTab = activeTab || taxonomicGroups[0].type
+    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: openTab })
 
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
 
@@ -80,7 +84,6 @@ export function InfiniteSelectResults({
 
     const RenderComponent = activeTaxonomicGroup?.render
 
-    const openTab = activeTab || taxonomicGroups[0].type
     const hasMultipleGroups = taxonomicGroupTypes.length > 1
 
     const listComponent = RenderComponent ? (
@@ -103,7 +106,9 @@ export function InfiniteSelectResults({
     const showEmptyState = totalListCount === 0 && taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
 
     const useVerticalLayout =
-        useVerticalLayoutProp !== undefined ? useVerticalLayoutProp : taxonomicGroupTypes.length > 4
+        useVerticalLayoutProp !== undefined
+            ? useVerticalLayoutProp
+            : taxonomicGroupTypes.length > VERTICAL_LAYOUT_THRESHOLD
 
     return (
         <div className={cn('flex h-full', useVerticalLayout ? 'flex-row' : 'flex-col')}>
@@ -116,7 +121,7 @@ export function InfiniteSelectResults({
                 >
                     <div className="taxonomic-group-title">Categories</div>
                     <div
-                        className={clsx(
+                        className={cn(
                             'taxonomic-pills flex',
                             useVerticalLayout ? 'flex-col gap-1' : 'gap-0.5 flex-wrap'
                         )}
