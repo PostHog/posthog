@@ -1,156 +1,268 @@
 [
     {
-        "model": "sonar-reasoning-pro",
+        "model": "gemma-3-4b-it:free",
         "cost": {
-            "prompt_token": 0.000002,
-            "completion_token": 0.000008
+            "prompt_token": 0,
+            "completion_token": 0
         }
     },
     {
-        "model": "sonar-pro",
+        "model": "gemma-3-12b-it:free",
         "cost": {
-            "prompt_token": 0.000003,
-            "completion_token": 0.000015
+            "prompt_token": 0,
+            "completion_token": 0
         }
     },
     {
-        "model": "sonar-deep-research",
+        "model": "gemma-3-27b-it:free",
         "cost": {
-            "prompt_token": 0.000002,
-            "completion_token": 0.000008
+            "prompt_token": 0,
+            "completion_token": 0
         }
     },
     {
-        "model": "r1-1776",
+        "model": "gemma-3-27b-it",
         "cost": {
-            "prompt_token": 0.000002,
-            "completion_token": 0.000008
+            "prompt_token": 3e-7,
+            "completion_token": 5e-7
         }
     },
     {
-        "model": "sonar-reasoning",
+        "model": "gemini-2.0-flash-lite-001",
         "cost": {
-            "prompt_token": 0.000001,
+            "prompt_token": 7.5e-8,
+            "completion_token": 3e-7
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-001",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 4e-7
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-lite-preview-02-05:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemini-2.0-pro-exp-02-05:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-thinking-exp:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-thinking-exp-1219:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-exp:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemini-exp-1206:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "learnlm-1.5-pro-experimental:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemini-flash-1.5-8b",
+        "cost": {
+            "prompt_token": 3.75e-8,
+            "completion_token": 1.5e-7
+        }
+    },
+    {
+        "model": "gemini-flash-1.5-8b-exp",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-2-27b-it",
+        "cost": {
+            "prompt_token": 2.7e-7,
+            "completion_token": 2.7e-7
+        }
+    },
+    {
+        "model": "gemma-2-9b-it:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-2-9b-it",
+        "cost": {
+            "prompt_token": 3e-8,
+            "completion_token": 6e-8
+        }
+    },
+    {
+        "model": "gemini-flash-1.5",
+        "cost": {
+            "prompt_token": 7.5e-8,
+            "completion_token": 3e-7
+        }
+    },
+    {
+        "model": "gemini-pro-1.5",
+        "cost": {
+            "prompt_token": 0.00000125,
             "completion_token": 0.000005
         }
     },
     {
-        "model": "sonar",
-        "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000001
-        }
-    },
-    {
-        "model": "llama-3.1-sonar-small-128k-chat",
-        "cost": {
-            "prompt_token": 2e-7,
-            "completion_token": 2e-7
-        }
-    },
-    {
-        "model": "llama-3.1-sonar-large-128k-chat",
-        "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000001
-        }
-    },
-    {
-        "model": "llama-3.1-sonar-large-128k-online",
-        "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000001
-        }
-    },
-    {
-        "model": "llama-3.1-sonar-small-128k-online",
-        "cost": {
-            "prompt_token": 2e-7,
-            "completion_token": 2e-7
-        }
-    },
-    {
-        "model": "deepseek-r1-zero:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "deepseek-r1-distill-llama-8b",
-        "cost": {
-            "prompt_token": 4e-8,
-            "completion_token": 4e-8
-        }
-    },
-    {
-        "model": "deepseek-r1-distill-qwen-1.5b",
-        "cost": {
-            "prompt_token": 1.8e-7,
-            "completion_token": 1.8e-7
-        }
-    },
-    {
-        "model": "deepseek-r1-distill-qwen-32b:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "deepseek-r1-distill-qwen-32b",
-        "cost": {
-            "prompt_token": 1.2e-7,
-            "completion_token": 1.8e-7
-        }
-    },
-    {
-        "model": "deepseek-r1-distill-qwen-14b",
+        "model": "gemma-7b-it",
         "cost": {
             "prompt_token": 1.5e-7,
             "completion_token": 1.5e-7
         }
     },
     {
-        "model": "deepseek-r1-distill-llama-70b:free",
+        "model": "gemini-pro-vision",
         "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
+            "prompt_token": 5e-7,
+            "completion_token": 0.0000015
         }
     },
     {
-        "model": "deepseek-r1-distill-llama-70b",
+        "model": "gemini-pro",
         "cost": {
-            "prompt_token": 2.3e-7,
-            "completion_token": 6.9e-7
+            "prompt_token": 5e-7,
+            "completion_token": 0.0000015
         }
     },
     {
-        "model": "deepseek-r1:free",
+        "model": "palm-2-chat-bison-32k",
         "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
+            "prompt_token": 0.000001,
+            "completion_token": 0.000002
         }
     },
     {
-        "model": "deepseek-r1",
+        "model": "palm-2-codechat-bison-32k",
         "cost": {
-            "prompt_token": 7e-7,
-            "completion_token": 0.0000025
+            "prompt_token": 0.000001,
+            "completion_token": 0.000002
         }
     },
     {
-        "model": "deepseek-chat:free",
+        "model": "palm-2-chat-bison",
         "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
+            "prompt_token": 0.000001,
+            "completion_token": 0.000002
         }
     },
     {
-        "model": "deepseek-chat",
+        "model": "palm-2-codechat-bison",
         "cost": {
-            "prompt_token": 4e-7,
-            "completion_token": 0.0000013
+            "prompt_token": 0.000001,
+            "completion_token": 0.000002
+        }
+    },
+    {
+        "model": "command-a-03-2025",
+        "cost": {
+            "prompt_token": 0.0000025,
+            "completion_token": 0.00001
+        }
+    },
+    {
+        "model": "command-r7b-12-2024",
+        "cost": {
+            "prompt_token": 3.75e-8,
+            "completion_token": 1.5e-7
+        }
+    },
+    {
+        "model": "command-r-08-2024",
+        "cost": {
+            "prompt_token": 1.425e-7,
+            "completion_token": 5.7e-7
+        }
+    },
+    {
+        "model": "command-r-plus-08-2024",
+        "cost": {
+            "prompt_token": 0.000002375,
+            "completion_token": 0.0000095
+        }
+    },
+    {
+        "model": "command-r-plus",
+        "cost": {
+            "prompt_token": 0.00000285,
+            "completion_token": 0.00001425
+        }
+    },
+    {
+        "model": "command-r-plus-04-2024",
+        "cost": {
+            "prompt_token": 0.00000285,
+            "completion_token": 0.00001425
+        }
+    },
+    {
+        "model": "command",
+        "cost": {
+            "prompt_token": 9.5e-7,
+            "completion_token": 0.0000019
+        }
+    },
+    {
+        "model": "command-r",
+        "cost": {
+            "prompt_token": 4.75e-7,
+            "completion_token": 0.000001425
+        }
+    },
+    {
+        "model": "command-r-03-2024",
+        "cost": {
+            "prompt_token": 4.75e-7,
+            "completion_token": 0.000001425
+        }
+    },
+    {
+        "model": "gpt-4o-mini-search-preview",
+        "cost": {
+            "prompt_token": 1.5e-7,
+            "completion_token": 6e-7
+        }
+    },
+    {
+        "model": "gpt-4o-search-preview",
+        "cost": {
+            "prompt_token": 0.0000025,
+            "completion_token": 0.00001
         }
     },
     {
@@ -357,164 +469,164 @@
         }
     },
     {
-        "model": "gemini-2.0-flash-lite-001",
+        "model": "sonar-reasoning-pro",
         "cost": {
-            "prompt_token": 7.5e-8,
-            "completion_token": 3e-7
+            "prompt_token": 0.000002,
+            "completion_token": 0.000008
         }
     },
     {
-        "model": "gemini-2.0-flash-001",
+        "model": "sonar-pro",
         "cost": {
-            "prompt_token": 1e-7,
-            "completion_token": 4e-7
+            "prompt_token": 0.000003,
+            "completion_token": 0.000015
         }
     },
     {
-        "model": "gemini-2.0-flash-lite-preview-02-05:free",
+        "model": "sonar-deep-research",
         "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
+            "prompt_token": 0.000002,
+            "completion_token": 0.000008
         }
     },
     {
-        "model": "gemini-2.0-pro-exp-02-05:free",
+        "model": "r1-1776",
         "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
+            "prompt_token": 0.000002,
+            "completion_token": 0.000008
         }
     },
     {
-        "model": "gemini-2.0-flash-thinking-exp:free",
+        "model": "sonar-reasoning",
         "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-2.0-flash-thinking-exp-1219:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-2.0-flash-exp:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-exp-1206:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "learnlm-1.5-pro-experimental:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-flash-1.5-8b",
-        "cost": {
-            "prompt_token": 3.75e-8,
-            "completion_token": 1.5e-7
-        }
-    },
-    {
-        "model": "gemini-flash-1.5-8b-exp",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-2-27b-it",
-        "cost": {
-            "prompt_token": 2.7e-7,
-            "completion_token": 2.7e-7
-        }
-    },
-    {
-        "model": "gemma-2-9b-it:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-2-9b-it",
-        "cost": {
-            "prompt_token": 3e-8,
-            "completion_token": 6e-8
-        }
-    },
-    {
-        "model": "gemini-flash-1.5",
-        "cost": {
-            "prompt_token": 7.5e-8,
-            "completion_token": 3e-7
-        }
-    },
-    {
-        "model": "gemini-pro-1.5",
-        "cost": {
-            "prompt_token": 0.00000125,
+            "prompt_token": 0.000001,
             "completion_token": 0.000005
         }
     },
     {
-        "model": "gemma-7b-it",
+        "model": "sonar",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000001
+        }
+    },
+    {
+        "model": "llama-3.1-sonar-small-128k-chat",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 2e-7
+        }
+    },
+    {
+        "model": "llama-3.1-sonar-large-128k-chat",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000001
+        }
+    },
+    {
+        "model": "llama-3.1-sonar-large-128k-online",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000001
+        }
+    },
+    {
+        "model": "llama-3.1-sonar-small-128k-online",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 2e-7
+        }
+    },
+    {
+        "model": "deepseek-r1-zero:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-llama-8b",
+        "cost": {
+            "prompt_token": 4e-8,
+            "completion_token": 4e-8
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-qwen-1.5b",
+        "cost": {
+            "prompt_token": 1.8e-7,
+            "completion_token": 1.8e-7
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-qwen-32b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-qwen-32b",
+        "cost": {
+            "prompt_token": 1.2e-7,
+            "completion_token": 1.8e-7
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-qwen-14b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-qwen-14b",
         "cost": {
             "prompt_token": 1.5e-7,
             "completion_token": 1.5e-7
         }
     },
     {
-        "model": "gemini-pro-vision",
+        "model": "deepseek-r1-distill-llama-70b:free",
         "cost": {
-            "prompt_token": 5e-7,
-            "completion_token": 0.0000015
+            "prompt_token": 0,
+            "completion_token": 0
         }
     },
     {
-        "model": "gemini-pro",
+        "model": "deepseek-r1-distill-llama-70b",
         "cost": {
-            "prompt_token": 5e-7,
-            "completion_token": 0.0000015
+            "prompt_token": 2.3e-7,
+            "completion_token": 6.9e-7
         }
     },
     {
-        "model": "palm-2-chat-bison-32k",
+        "model": "deepseek-r1:free",
         "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000002
+            "prompt_token": 0,
+            "completion_token": 0
         }
     },
     {
-        "model": "palm-2-codechat-bison-32k",
+        "model": "deepseek-r1",
         "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000002
+            "prompt_token": 7e-7,
+            "completion_token": 0.0000025
         }
     },
     {
-        "model": "palm-2-chat-bison",
+        "model": "deepseek-chat:free",
         "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000002
+            "prompt_token": 0,
+            "completion_token": 0
         }
     },
     {
-        "model": "palm-2-codechat-bison",
+        "model": "deepseek-chat",
         "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000002
+            "prompt_token": 4e-7,
+            "completion_token": 0.0000013
         }
     },
     {
@@ -826,6 +938,13 @@
         }
     },
     {
+        "model": "mistral-7b-instruct-v0.2",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 2e-7
+        }
+    },
+    {
         "model": "mixtral-8x7b",
         "cost": {
             "prompt_token": 6e-7,
@@ -850,7 +969,7 @@
         "model": "llama-guard-3-8b",
         "cost": {
             "prompt_token": 2e-7,
-            "completion_token": 2e-7
+            "completion_token": 1.998e-7
         }
     },
     {
@@ -991,62 +1110,6 @@
         "cost": {
             "prompt_token": 9e-7,
             "completion_token": 9e-7
-        }
-    },
-    {
-        "model": "command-r7b-12-2024",
-        "cost": {
-            "prompt_token": 3.75e-8,
-            "completion_token": 1.5e-7
-        }
-    },
-    {
-        "model": "command-r-08-2024",
-        "cost": {
-            "prompt_token": 1.425e-7,
-            "completion_token": 5.7e-7
-        }
-    },
-    {
-        "model": "command-r-plus-08-2024",
-        "cost": {
-            "prompt_token": 0.000002375,
-            "completion_token": 0.0000095
-        }
-    },
-    {
-        "model": "command-r-plus",
-        "cost": {
-            "prompt_token": 0.00000285,
-            "completion_token": 0.00001425
-        }
-    },
-    {
-        "model": "command-r-plus-04-2024",
-        "cost": {
-            "prompt_token": 0.00000285,
-            "completion_token": 0.00001425
-        }
-    },
-    {
-        "model": "command",
-        "cost": {
-            "prompt_token": 9.5e-7,
-            "completion_token": 0.0000019
-        }
-    },
-    {
-        "model": "command-r",
-        "cost": {
-            "prompt_token": 4.75e-7,
-            "completion_token": 0.000001425
-        }
-    },
-    {
-        "model": "command-r-03-2024",
-        "cost": {
-            "prompt_token": 4.75e-7,
-            "completion_token": 0.000001425
         }
     }
 ]

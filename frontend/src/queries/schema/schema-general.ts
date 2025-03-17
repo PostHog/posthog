@@ -75,6 +75,7 @@ export enum NodeKind {
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
+    RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
 
     // Interface nodes
@@ -144,6 +145,7 @@ export type AnyDataNode =
     | WebVitalsPathBreakdownQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
+    | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -170,6 +172,7 @@ export type QuerySchema =
     | HogQLAutocomplete
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
+    | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -678,6 +681,7 @@ export interface DataTableNode
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | RevenueExampleEventsQuery
+                    | RevenueExampleDataWarehouseTablesQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
@@ -702,6 +706,7 @@ export interface DataTableNode
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -1722,6 +1727,24 @@ export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryRespons
 }
 export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<RevenueExampleEventsQueryResponse>
 
+export interface RevenueExampleDataWarehouseTablesQuery
+    extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
+    kind: NodeKind.RevenueExampleDataWarehouseTablesQuery
+    revenueTrackingConfig: RevenueTrackingConfig
+    limit?: integer
+    offset?: integer
+}
+
+export interface RevenueExampleDataWarehouseTablesQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    types?: unknown[]
+    columns?: unknown[]
+}
+export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
+    CachedQueryResponse<RevenueExampleDataWarehouseTablesQueryResponse>
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
@@ -2517,12 +2540,6 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 
-export interface RevenueTrackingEventItem {
-    eventName: string
-    revenueProperty: string
-    revenueCurrencyProperty: string | undefined
-}
-
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
 export enum CurrencyCode {
@@ -2680,7 +2697,45 @@ export enum CurrencyCode {
     ZMW = 'ZMW',
 }
 
+export type RevenueCurrencyPropertyConfig = {
+    property?: string
+    static?: CurrencyCode
+}
+
+export interface RevenueTrackingEventItem {
+    eventName: string
+    revenueProperty: string
+
+    /**
+     * @default {"static": "USD"}
+     */
+    revenueCurrencyProperty: RevenueCurrencyPropertyConfig
+}
+
+export interface RevenueTrackingDataWarehouseTable {
+    tableName: string
+    timestampColumn: string
+    revenueColumn: string
+
+    /**
+     * @default {"static": "USD"}
+     */
+    revenueCurrencyColumn: RevenueCurrencyPropertyConfig
+}
+
 export interface RevenueTrackingConfig {
-    baseCurrency?: CurrencyCode
+    /**
+     * @default 'USD'
+     */
+    baseCurrency: CurrencyCode
+
+    /**
+     * @default []
+     */
     events: RevenueTrackingEventItem[]
+
+    /**
+     * @default []
+     */
+    dataWarehouseTables: RevenueTrackingDataWarehouseTable[]
 }
