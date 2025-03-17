@@ -6,6 +6,7 @@ import RE2 from 're2'
 
 import { buildIntegerMatcher } from '../../config/config'
 import { Hub, ValueMatcher } from '../../types'
+import { parseJSON } from '../../utils/json-parse'
 import { status } from '../../utils/status'
 import { UUIDT } from '../../utils/utils'
 import {
@@ -409,7 +410,7 @@ export class HogExecutorService {
 
                 if (typeof body === 'string') {
                     try {
-                        body = JSON.parse(body)
+                        body = parseJSON(body)
                     } catch (e) {
                         // pass - if it isn't json we just pass it on
                     }

@@ -4,6 +4,7 @@ import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
 import { Hub, RawClickHouseEvent } from '~/src/types'
+import { parseJSON } from '~/src/utils/json-parse'
 
 import {
     convertToHogFunctionInvocationGlobals,
@@ -162,7 +163,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                     await Promise.all(
                         messages.map(async (message) => {
                             try {
-                                const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+                                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
                                 if (!this.hogFunctionManager.teamHasHogDestinations(clickHouseEvent.team_id)) {
                                     // No need to continue if the team doesn't have any functions
