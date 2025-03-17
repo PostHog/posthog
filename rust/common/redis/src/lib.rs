@@ -56,6 +56,7 @@ pub trait Client {
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError>;
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError>;
+    async fn set_nx_ex(&self, k: String, v: String, seconds: u64) -> Result<bool, CustomRedisError>;
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
 }
@@ -122,6 +123,30 @@ impl Client for RedisClient {
         Ok(fut?)
     }
 
+    async fn set_nx_ex(&self, k: String, v: String, seconds: u64) -> Result<bool, CustomRedisError> {
+        let bytes = serde_pickle::to_vec(&v, Default::default())?;
+        let mut conn = self.client.get_async_connection().await?;
+        let seconds_usize = seconds as usize;
+        
+        // Use SET with both NX and EX options
+        let result: Result<Option<String>, RedisError> = timeout(
+            Duration::from_millis(REDIS_TIMEOUT_MILLISECS),
+            redis::cmd("SET")
+                .arg(&k)
+                .arg(&bytes)
+                .arg("EX")
+                .arg(seconds_usize)
+                .arg("NX")
+                .query_async(&mut conn)
+        ).await?;
+        
+        match result {
+            Ok(Some(_)) => Ok(true),   // Key was set successfully
+            Ok(None) => Ok(false),     // Key already existed
+            Err(e) => Err(CustomRedisError::Other(e.to_string())),
+        }
+    }
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         let mut conn = self.client.get_async_connection().await?;
         let results = conn.del(k);
@@ -148,6 +173,7 @@ pub struct MockRedisClient {
     hincrby_ret: HashMap<String, Result<(), CustomRedisError>>,
     get_ret: HashMap<String, Result<String, CustomRedisError>>,
     set_ret: HashMap<String, Result<(), CustomRedisError>>,
+    set_nx_ex_ret: HashMap<String, Result<bool, CustomRedisError>>,
     del_ret: HashMap<String, Result<(), CustomRedisError>>,
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
@@ -174,6 +200,7 @@ impl Default for MockRedisClient {
             hincrby_ret: HashMap::new(),
             get_ret: HashMap::new(),
             set_ret: HashMap::new(),
+            set_nx_ex_ret: HashMap::new(),
             del_ret: HashMap::new(),
             hget_ret: HashMap::new(),
             calls: Arc::new(Mutex::new(Vec::new())),
@@ -215,6 +242,11 @@ impl MockRedisClient {
 
     pub fn get_calls(&self) -> Vec<MockRedisCall> {
         self.lock_calls().clone()
+    }
+
+    pub fn set_nx_ex_ret(&mut self, key: &str, ret: Result<bool, CustomRedisError>) -> Self {
+        self.set_nx_ex_ret.insert(key.to_owned(), ret);
+        self.clone()
     }
 }
 
@@ -293,6 +325,21 @@ impl Client for MockRedisClient {
         }
     }
 
+    async fn set_nx_ex(&self, key: String, value: String, seconds: u64) -> Result<bool, CustomRedisError> {
+        // Record the call
+        let mut calls = self.lock_calls();
+        calls.push(MockRedisCall {
+            op: "set_nx_ex".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::StringWithTTL(value.clone(), seconds),
+        });
+
+        match self.set_nx_ex_ret.get(&key) {
+            Some(result) => result.clone(),
+            None => Ok(true), // Default to success
+        }
+    }
+
     async fn del(&self, key: String) -> Result<(), CustomRedisError> {
         // Record the call
         let mut calls = self.lock_calls();
@@ -329,6 +376,7 @@ pub enum MockRedisValue {
     None,
     Error(CustomRedisError),
     String(String),
+    StringWithTTL(String, u64),
     VecString(Vec<String>),
     I32(i32),
     I64(i64),

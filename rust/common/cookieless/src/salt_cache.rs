@@ -141,34 +141,16 @@ impl SaltCache {
         rand::thread_rng().fill_bytes(&mut new_salt);
         let new_salt_base64 = general_purpose::STANDARD.encode(&new_salt);
 
-        // Try to set it in Redis with NX (only if it doesn't exist)
-        // Note: This is a simplified version as the Redis client doesn't have setnx
-        // In a real implementation, you'd want to use a Redis transaction or Lua script
-        match self
-            .redis_client
-            .set(format!("{redis_key}:nx"), new_salt_base64.clone())
-            .await
-        {
-            Ok(_) => {
-                // Set the actual key with TTL
-                if let Err(e) = self.redis_client.set(redis_key, new_salt_base64).await {
-                    inc(
-                        COOKIELESS_REDIS_ERROR_COUNTER,
-                        &[
-                            ("operation".to_string(), "set_salt".to_string()),
-                            ("day".to_string(), yyyymmdd.to_string()),
-                        ],
-                        1,
-                    );
-                    return Err(SaltCacheError::RedisError(e.to_string()));
-                }
-
+        // Try to set it in Redis with NX (only if it doesn't exist) and with TTL in a single operation
+        match self.redis_client.set_nx_ex(redis_key.clone(), new_salt_base64.clone(), SALT_TTL_SECONDS).await {
+            Ok(true) => {
+                // Successfully set the key with NX and TTL
                 // Store it in the cache
                 self.cache.insert(yyyymmdd.to_string(), new_salt.clone());
 
                 Ok(new_salt)
             }
-            Err(_) => {
+            Ok(false) => {
                 // Someone else set it, try to get it again
                 let salt_base64_retry = match self.redis_client.get(redis_key).await {
                     Ok(value) => value,
@@ -204,6 +186,17 @@ impl SaltCache {
                 self.cache.insert(yyyymmdd.to_string(), salt.clone());
 
                 Ok(salt)
+            }
+            Err(e) => {
+                inc(
+                    COOKIELESS_REDIS_ERROR_COUNTER,
+                    &[
+                        ("operation".to_string(), "set_salt_nx_ex".to_string()),
+                        ("day".to_string(), yyyymmdd.to_string()),
+                    ],
+                    1,
+                );
+                Err(SaltCacheError::RedisError(e.to_string()))
             }
         }
     }
