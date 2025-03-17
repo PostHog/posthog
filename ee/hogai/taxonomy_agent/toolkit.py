@@ -502,4 +502,8 @@ class TaxonomyAgentToolkit(ABC):
         )
 
     def handle_incorrect_response(self, response: str) -> str:
+        """
+        No-op tool. Take a parsing error and return a response that the LLM can use to correct itself.
+        Used to control a number of retries.
+        """
         return response

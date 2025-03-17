@@ -16,7 +16,7 @@ from django.db.models import F, Q
 from openai import APIError as OpenAIAPIError
 
 from ee.hogai.summarizers.chains import abatch_summarize_actions
-from ee.hogai.utils.embeddings import get_async_cohere_client
+from ee.hogai.utils.embeddings import aembed_documents, get_async_cohere_client
 from posthog.models import Action
 from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
 from posthog.temporal.common.base import PostHogWorkflow
@@ -158,12 +158,7 @@ async def batch_embed_actions(
         for i in range(0, len(actions), batch_size)
     ]
     embedding_requests = [
-        cohere_client.embed(
-            texts=[cast(str, action["summary"]) for action in action_batch],
-            model="embed-english-v3.0",
-            input_type="search_document",
-            embedding_types=["float"],
-        )
+        aembed_documents(cohere_client, [cast(str, action["summary"]) for action in action_batch])
         for action_batch in filtered_batches
     ]
     responses = await asyncio.gather(*embedding_requests, return_exceptions=True)

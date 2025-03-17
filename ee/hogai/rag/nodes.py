@@ -6,7 +6,7 @@ import posthoganalytics
 from cohere.core.api_error import ApiError as BaseCohereApiError
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.embeddings import get_cohere_client
+from ee.hogai.utils.embeddings import embed_search_query, get_cohere_client
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -36,20 +36,12 @@ class ProductAnalyticsRetriever(AssistantNode):
         self._prewarm_queries()
 
         try:
-            response = get_cohere_client().embed(
-                texts=[plan],
-                input_type="search_query",
-                model="embed-english-v3.0",
-                embedding_types=["float"],
-            )
-        except BaseCohereApiError:
-            return None
-        if not response.embeddings.float_:
+            client = get_cohere_client()
+            vector = embed_search_query(client, plan)
+        except (BaseCohereApiError, ValueError):
             return None
         return PartialAssistantState(
-            rag_context=self._retrieve_actions(
-                response.embeddings.float_[0], trace_id=trace_id, distinct_id=distinct_id
-            )
+            rag_context=self._retrieve_actions(vector, trace_id=trace_id, distinct_id=distinct_id)
         )
 
     def router(self, state: AssistantState) -> NextRagNode:
