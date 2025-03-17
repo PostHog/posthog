@@ -1,5 +1,5 @@
 from dataclasses import is_dataclass
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import structlog
 from posthoganalytics import api_key, capture_exception
@@ -16,15 +16,17 @@ from temporalio.worker import (
 logger = structlog.get_logger()
 
 
-async def _add_inputs_to_properties(properties: dict[str, Any], input: ExecuteActivityInput | ExecuteWorkflowInput):
+async def _add_inputs_to_properties(
+    properties: dict[str, Any],
+    input: ExecuteActivityInput | ExecuteWorkflowInput,
+    execution_type: Literal["activity", "workflow"],
+):
     if len(input.args) == 1 and is_dataclass(input.args[0]) and hasattr(input.args[0], "properties_to_log"):
         try:
-            inputs = {
-                k: getattr(input.args[0], k) for k in input.args[0].properties_to_log() if hasattr(input.args[0], k)
-            }
-            properties.update(inputs)
+            properties.update(input.args[0].properties_to_log)
         except Exception as e:
             await logger.awarning("Failed to get safe properties for %s", input.args[0], exc_info=e)
+            capture_exception(e)
 
 
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
@@ -45,7 +47,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                 "temporal.workflow.run_id": activity_info.workflow_run_id,
                 "temporal.workflow.type": activity_info.workflow_type,
             }
-            await _add_inputs_to_properties(properties, input)
+            await _add_inputs_to_properties(properties, input, "activity")
             if api_key:
                 try:
                     capture_exception(e, properties=properties)
@@ -69,7 +71,7 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 "temporal.workflow.type": workflow_info.workflow_type,
                 "temporal.workflow.id": workflow_info.workflow_id,
             }
-            await _add_inputs_to_properties(properties, input)
+            await _add_inputs_to_properties(properties, input, "workflow")
             if api_key and not workflow.unsafe.is_replaying():
                 with workflow.unsafe.sandbox_unrestricted():
                     try:
