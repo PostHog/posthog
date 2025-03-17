@@ -29,8 +29,7 @@ class InsightRagContextNode(AssistantNode):
         distinct_id = configurable.get("distinct_id")
 
         plan = state.root_tool_insight_plan
-        if not plan:
-            return None
+        assert plan is not None
 
         # Kick off retrieval of the event taxonomy.
         self._prewarm_queries()

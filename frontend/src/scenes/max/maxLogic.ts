@@ -56,6 +56,7 @@ export const maxLogic = kea<maxLogicType>([
             ['dataProcessingAccepted'],
             maxSettingsLogic,
             ['coreMemory'],
+            // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
             actionsModel({ params: 'include_count=1' }),
             ['actions'],
         ],
