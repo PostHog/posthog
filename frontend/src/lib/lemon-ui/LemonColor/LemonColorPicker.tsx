@@ -1,5 +1,6 @@
 import { LemonColorGlyph, LemonInput, LemonLabel, Popover } from '@posthog/lemon-ui'
-import { useState } from 'react'
+import { DataColorToken } from 'lib/colors'
+import { useEffect, useState } from 'react'
 
 import { LemonColorButton } from './LemonColorButton'
 import { LemonColorList } from './LemonColorList'
@@ -7,39 +8,50 @@ import { LemonColorList } from './LemonColorList'
 const colorTokens = Array.from({ length: 15 }, (_, i) => `preset-${i + 1}`)
 
 type LemonColorPickerProps = {
-    onColorChange: (color: string) => void
+    themeId?: number
+    // colors?: string[]
+    // colorTokens?: DataColorToken[]
+    // selectedColor?: string | null
+    // selectedColorToken?: DataColorToken | null
+    onClick: {
+        (color: string): void
+        (colorToken: DataColorToken): void
+    }
     showCustomColor?: boolean
     hideDropdown?: boolean
 }
 
 export const LemonColorPickerOverlay = ({
-    showCustomColor: allowCustomColor = false,
+    onClick,
+    themeId,
+    showCustomColor = false,
 }: Omit<LemonColorPickerProps, 'hideDropdown'>): JSX.Element => {
     const [color, setColor] = useState('#ff0000')
+    const [lastValidColor, setLastValidColor] = useState<string>('#000000')
+
+    useEffect(() => {
+        // allow only 6-digit hex colors
+        // other color formats are not supported everywhere e.g. insight visualizations
+        if (color != null && /^#[0-9A-Fa-f]{6}$/.test(color)) {
+            setLastValidColor(color)
+        }
+    }, [color])
 
     return (
         <div className="w-52 flex flex-col p-2">
             <LemonLabel className="mt-1 mb-0.5">Preset colors</LemonLabel>
             <LemonColorList
+                themeId={themeId}
                 colorTokens={colorTokens.slice(0, 11)}
                 selectedColorToken={colorTokens[3]}
-                onClick={(colorToken) => {
-                    alert(colorToken)
-                }}
+                onClick={onClick}
             />
-            {allowCustomColor && (
+            {showCustomColor && (
                 <div>
                     <LemonLabel className="mt-2 mb-0.5">Custom color</LemonLabel>
                     <div className="flex items-center gap-2">
-                        <LemonColorGlyph color="#ff0000" className="ml-1.5" />
-                        <LemonInput
-                            className="mt-1 font-mono"
-                            // label="Color"
-                            size="small"
-                            value={color}
-                            onChange={(e) => setColor(e.target.value)}
-                            // prefix={}
-                        />
+                        <LemonColorGlyph color={lastValidColor} className="ml-1.5" />
+                        <LemonInput className="mt-1 font-mono" size="small" value={color} onChange={setColor} />
                     </div>
                 </div>
             )}
