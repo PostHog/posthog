@@ -973,6 +973,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               kind: NodeKind.EventsNode,
                               custom_name: e.eventName,
                               math_property: e.revenueProperty,
+                              math_property_revenue_currency: e.revenueCurrencyProperty,
                           }))
                         : []
 
