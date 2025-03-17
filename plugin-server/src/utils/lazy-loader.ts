@@ -65,7 +65,6 @@ export class LazyLoader<T> {
     public async load(keys: string[]): Promise<Record<string, T | null>> {
         const results: Record<string, T | null> = {}
 
-        const now = Date.now()
         const {
             loader,
             refreshAge = REFRESH_AGE,
@@ -82,11 +81,11 @@ export class LazyLoader<T> {
             if (cached !== undefined) {
                 results[key] = cached
                 // Always update the lastUsed time
-                this.lastUsed[key] = now
+                this.lastUsed[key] = Date.now()
 
                 const cacheUntil = this.cacheUntil[key] ?? 0
 
-                if (now > cacheUntil) {
+                if (Date.now() > cacheUntil) {
                     keysToLoad.add(key)
                     lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
                     continue
@@ -120,10 +119,13 @@ export class LazyLoader<T> {
             )
             loaded = {}
         }
+
         for (const key of keysToLoad) {
             results[key] = this.cache[key] = loaded[key] ?? null
             this.cacheUntil[key] =
-                now + (loaded[key] === null ? refreshNullAge : refreshAge) + Math.floor(Math.random() * refreshJitterMs)
+                Date.now() +
+                (loaded[key] === null ? refreshNullAge : refreshAge) +
+                Math.floor(Math.random() * refreshJitterMs)
             this.lastUsed[key] = now
         }
 
