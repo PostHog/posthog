@@ -79,6 +79,43 @@ jobs:
                   echo "digest=${{ steps.docker_build.outputs.digest }}" >> $GITHUB_OUTPUT
                   cat $GITHUB_OUTPUT
 
+    test:
+        # Runs the docker image locally using enough valid vars to get a healthy plugin server
+        name: test
+        runs-on: ubuntu-24.04
+        needs: build
+        steps:
+            - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run
+              run: |
+                  cat <<EOT >> .env
+                  SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
+                  REDIS_URL=redis://localhost
+                  DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+                  KAFKA_HOSTS=kafka:9092
+                  DISABLE_SECURE_SSL_REDIRECT=1
+                  SECURE_COOKIES=0
+                  OPT_OUT_CAPTURE=0
+                  E2E_TESTING=1
+                  SKIP_SERVICE_VERSION_REQUIREMENTS=1
+                  EMAIL_HOST=email.test.posthog.net
+                  SITE_URL=http://localhost:8000
+                  NO_RESTART_LOOP=1
+                  CLICKHOUSE_SECURE=0
+                  OBJECT_STORAGE_ENABLED=1
+                  OBJECT_STORAGE_ENDPOINT=http://localhost:19000
+                  OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
+                  OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
+                  GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  CELERY_METRICS_PORT=8999
+                  CLOUD_DEPLOYMENT=E2E
+                  ENCRYPTION_SALT_KEYS=00beef0000beef0000beef0000beef00
+                  EOT
+
+            - name: Run docker image
+              run: |
+                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --add-host clickhouse:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
+                  $DOCKER_RUN ./bin/plugin-server
+
     deploy:
         name: deploy ${{ matrix.release }}
         runs-on: ubuntu-24.04
@@ -92,7 +129,7 @@ jobs:
                   app_id: ${{ secrets.DEPLOYER_APP_ID }}
                   private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
 
-            - name: trigger nodedeployment
+            - name: Trigger Node deployment
               uses: peter-evans/repository-dispatch@v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -100,10 +137,14 @@ jobs:
                   event-type: commit_state_update
                   client-payload: |
                       {
-                        "values": ${{ toJson(matrix.values) }},
-                        "release": "${{ matrix.release }}",
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "node",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "labels": [],
+                        "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
