@@ -1,6 +1,6 @@
 import { performance } from 'perf_hooks'
 import { Summary } from 'prom-client'
-import { parse as simdjson_parse } from 'simdjson'
+import { parse as simdParse } from 'simdjson'
 
 import { defaultConfig } from '../config/config'
 
@@ -16,7 +16,7 @@ export function parseJSON(json: string) {
     let result
 
     if (defaultConfig.USE_SIMD_JSON_PARSE) {
-        result = simdjson_parse(json)
+        result = simdParse(json)
         jsonParseDurationMsSummary.labels('simd').observe(performance.now() - startTime)
         return result
     }
@@ -27,7 +27,7 @@ export function parseJSON(json: string) {
     // Compare both methods when flag is enabled
     if (defaultConfig.USE_SIMD_JSON_PARSE_FOR_COMPARISON) {
         const simdStartTime = performance.now()
-        simdjson_parse(json)
+        simdParse(json)
         jsonParseDurationMsSummary.labels('simd').observe(performance.now() - simdStartTime)
     }
 
