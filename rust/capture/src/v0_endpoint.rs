@@ -9,12 +9,12 @@ use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
 use common_types::{CapturedEvent, RawEvent};
+use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json::json;
 use serde_json::Value;
 use tracing::instrument;
 
-use crate::limiters::token_dropper::TokenDropper;
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
     Compression, DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,

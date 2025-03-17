@@ -6,11 +6,13 @@ import {
     SurveyMatchType,
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
+    SurveySchedule,
     SurveyType,
 } from '~/types'
 
 export const SURVEY_EVENT_NAME = 'survey sent'
 export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
+export const SURVEY_PAGE_SIZE = 100
 
 export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.Open]: 'Freeform text',
@@ -151,6 +153,7 @@ export interface NewSurvey
         | 'response_sampling_interval_type'
         | 'response_sampling_interval'
         | 'response_sampling_limit'
+        | 'schedule'
     > {
     id: 'new'
     linked_flag_id: number | null
@@ -160,6 +163,7 @@ export const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',
+    schedule: SurveySchedule.Once,
     questions: [
         {
             type: SurveyQuestionType.Open,
@@ -310,13 +314,18 @@ export const defaultSurveyTemplates = [
 ]
 
 export const WEB_SAFE_FONTS = [
-    'system-ui',
-    'Arial',
-    'Verdana',
-    'Tahoma',
-    'Trebuchet MS',
-    'Helvetica',
-    'Times New Roman',
-    'Georgia',
-    'Courier New',
+    { value: 'system-ui', label: 'system-ui (default)' },
+    { value: 'inherit', label: 'inherit (uses the font family of your website)' },
+    { value: 'Arial', label: 'Arial' },
+    { value: 'Verdana', label: 'Verdana' },
+    { value: 'Tahoma', label: 'Tahoma' },
+    { value: 'Trebuchet MS', label: 'Trebuchet MS' },
+    { value: 'Helvetica', label: 'Helvetica' },
+    { value: 'Times New Roman', label: 'Times New Roman' },
+    { value: 'Georgia', label: 'Georgia' },
+    { value: 'Courier New', label: 'Courier New' },
 ] as const
+
+export const NPS_DETRACTOR_LABEL = 'Detractors'
+export const NPS_PASSIVE_LABEL = 'Passives'
+export const NPS_PROMOTER_LABEL = 'Promoters'

@@ -17,7 +17,7 @@ export const scene: SceneExport = {
 
 export function NotebooksScene(): JSX.Element {
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <PageHeader
                 buttons={
                     <>

@@ -3,6 +3,7 @@ import { LemonButton, LemonDialog, LemonInput, LemonLabel, Spinner } from '@post
 import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { tagsModel } from '~/models/tagsModel'
@@ -27,6 +28,7 @@ export function SharedMetric(): JSX.Element {
     const { setSharedMetric, createSharedMetric, updateSharedMetric, deleteSharedMetric } =
         useActions(sharedMetricLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const { tags: allExistingTags } = useValues(tagsModel)
 
@@ -46,7 +48,7 @@ export function SharedMetric(): JSX.Element {
                         className={`flex-1 cursor-pointer p-4 rounded border ${
                             sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery
                                 ? 'border-accent-primary bg-accent-primary-highlight'
-                                : 'border-border'
+                                : 'border-primary'
                         }`}
                         onClick={() => {
                             setSharedMetric({
@@ -68,7 +70,7 @@ export function SharedMetric(): JSX.Element {
                         className={`flex-1 cursor-pointer p-4 rounded border ${
                             sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery
                                 ? 'border-accent-primary bg-accent-primary-highlight'
-                                : 'border-border'
+                                : 'border-primary'
                         }`}
                         onClick={() => {
                             setSharedMetric({
@@ -90,7 +92,7 @@ export function SharedMetric(): JSX.Element {
             )}
             <div className={`border rounded ${isDarkModeOn ? 'bg-light' : 'bg-white'} p-4`}>
                 <div className="mb-4">
-                    <LemonLabel>Name</LemonLabel>
+                    <LemonLabel className="mb-1">Name</LemonLabel>
                     <LemonInput
                         value={sharedMetric.name}
                         onChange={(newName) => {
@@ -101,7 +103,7 @@ export function SharedMetric(): JSX.Element {
                     />
                 </div>
                 <div className="mb-4">
-                    <LemonLabel>Description (optional)</LemonLabel>
+                    <LemonLabel className="mb-1">Description (optional)</LemonLabel>
                     <LemonInput
                         value={sharedMetric.description}
                         onChange={(newDescription) => {
@@ -136,6 +138,7 @@ export function SharedMetric(): JSX.Element {
                                 query: newMetric,
                             })
                         }}
+                        filterTestAccounts={currentTeam?.test_account_filters?.length ? true : false}
                     />
                 ) : sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
                     <LegacySharedTrendsMetricForm />

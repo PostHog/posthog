@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
+from pydantic import ValidationError
 from typing import Any, Optional, cast
 from uuid import UUID
 
@@ -8,10 +9,11 @@ from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
+from posthog.cloud_utils import get_api_host
+from posthog.api.wizard import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -45,14 +47,17 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     get_organization_from_view,
 )
+from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.schema import RevenueTrackingConfig
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
     get_ip_address,
     get_week_start_for_country_code,
 )
+from django.core.cache import cache
 
 
 class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
@@ -132,6 +137,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_recording_masking_config",
             "session_recording_url_trigger_config",
             "session_recording_url_blocklist_config",
             "session_recording_event_trigger_config",
@@ -147,6 +153,80 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+TEAM_CONFIG_FIELDS = (
+    "app_urls",
+    "slack_incoming_webhook",
+    "anonymize_ips",
+    "completed_snippet_onboarding",
+    "test_account_filters",
+    "test_account_filters_default_checked",
+    "path_cleaning_filters",
+    "is_demo",
+    "timezone",
+    "data_attributes",
+    "person_display_name_properties",
+    "correlation_config",
+    "autocapture_opt_out",
+    "autocapture_exceptions_opt_in",
+    "autocapture_web_vitals_opt_in",
+    "autocapture_web_vitals_allowed_metrics",
+    "autocapture_exceptions_errors_to_ignore",
+    "capture_console_log_opt_in",
+    "capture_performance_opt_in",
+    "session_recording_opt_in",
+    "session_recording_sample_rate",
+    "session_recording_minimum_duration_milliseconds",
+    "session_recording_linked_flag",
+    "session_recording_network_payload_capture_config",
+    "session_recording_masking_config",
+    "session_recording_url_trigger_config",
+    "session_recording_url_blocklist_config",
+    "session_recording_event_trigger_config",
+    "session_replay_config",
+    "survey_config",
+    "week_start_day",
+    "primary_dashboard",
+    "live_events_columns",
+    "recording_domains",
+    "cookieless_server_hash_mode",
+    "human_friendly_comparison_periods",
+    "inject_web_apps",
+    "extra_settings",
+    "modifiers",
+    "has_completed_onboarding_for",
+    "surveys_opt_in",
+    "heatmaps_opt_in",
+    "flags_persistence_default",
+    "capture_dead_clicks",
+    "default_data_theme",
+    "revenue_tracking_config",
+    "onboarding_tasks",
+)
+
+TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
+
+
+class RevenueTrackingConfigSerializer(serializers.Field):
+    def to_representation(self, value):
+        # When reading, access the revenue_config from the team model
+        if value is None:
+            return None
+        # Get the instance (Team) that has this field
+        team = self.parent.instance
+        if team and hasattr(team, "revenue_config"):
+            return team.revenue_config.model_dump() if team.revenue_config else None
+        return None
+
+    def to_internal_value(self, data):
+        if data is None:
+            return None
+
+        try:
+            return RevenueTrackingConfig.model_validate(data).model_dump()
+        except ValidationError as e:
+            raise serializers.ValidationError(str(e))
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Optional[Team]
 
@@ -155,75 +235,34 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
+    revenue_tracking_config = RevenueTrackingConfigSerializer(required=False)
 
     class Meta:
         model = Team
         fields = (
             "id",
             "uuid",
+            "name",
+            "access_control",
             "organization",
             "project_id",
             "api_token",
-            "app_urls",
-            "name",
-            "slack_incoming_webhook",
             "created_at",
             "updated_at",
-            "anonymize_ips",
-            "completed_snippet_onboarding",
             "ingested_event",
-            "test_account_filters",
-            "test_account_filters_default_checked",
-            "path_cleaning_filters",
-            "is_demo",
-            "timezone",
-            "data_attributes",
-            "person_display_name_properties",
-            "correlation_config",
-            "autocapture_opt_out",
-            "autocapture_exceptions_opt_in",
-            "autocapture_web_vitals_opt_in",
-            "autocapture_web_vitals_allowed_metrics",
-            "autocapture_exceptions_errors_to_ignore",
-            "capture_console_log_opt_in",
-            "capture_performance_opt_in",
-            "session_recording_opt_in",
-            "session_recording_sample_rate",
-            "session_recording_minimum_duration_milliseconds",
-            "session_recording_linked_flag",
-            "session_recording_network_payload_capture_config",
-            "session_recording_url_trigger_config",
-            "session_recording_url_blocklist_config",
-            "session_recording_event_trigger_config",
-            "session_replay_config",
-            "survey_config",
-            "effective_membership_level",
-            "access_control",
-            "week_start_day",
-            "has_group_types",
-            "primary_dashboard",
-            "live_events_columns",
-            "recording_domains",
-            "cookieless_server_hash_mode",
-            "human_friendly_comparison_periods",
-            "person_on_events_querying_enabled",
-            "inject_web_apps",
-            "extra_settings",
-            "modifiers",
             "default_modifiers",
-            "has_completed_onboarding_for",
-            "surveys_opt_in",
-            "heatmaps_opt_in",
-            "flags_persistence_default",
+            "person_on_events_querying_enabled",
+            "user_access_level",
+            # Config fields
+            *TEAM_CONFIG_FIELDS,
+            # Computed fields
+            "effective_membership_level",
+            "has_group_types",
             "live_events_token",
             "product_intents",
-            "capture_dead_clicks",
-            "user_access_level",
-            "default_data_theme",
-            "revenue_tracking_config",
             "access_control_version",
-            "onboarding_tasks",
         )
+
         read_only_fields = (
             "id",
             "uuid",
@@ -239,6 +278,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "person_on_events_querying_enabled",
             "live_events_token",
             "user_access_level",
+            "product_intents",
             "access_control_version",
         )
 
@@ -249,6 +289,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             representation["default_data_theme"] = (
                 DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
             )
+
         return representation
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
@@ -308,6 +349,35 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(
                 "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys."
             )
+
+        return value
+
+    @staticmethod
+    def validate_session_recording_masking_config(value) -> dict | None:
+        if value is None:
+            return None
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        allowed_keys = {"maskAllInputs", "maskTextSelector", "blockSelector"}
+
+        if not all(key in allowed_keys for key in value.keys()):
+            raise exceptions.ValidationError(
+                f"Must provide a dictionary with only known keys: {', '.join(allowed_keys)}."
+            )
+
+        if "maskAllInputs" in value:
+            if not isinstance(value["maskAllInputs"], bool):
+                raise exceptions.ValidationError("maskAllInputs must be a boolean.")
+
+        if "maskTextSelector" in value:
+            if not isinstance(value["maskTextSelector"], str):
+                raise exceptions.ValidationError("maskTextSelector must be a string.")
+
+        if "blockSelector" in value:
+            if not isinstance(value["blockSelector"], str):
+                raise exceptions.ValidationError("blockSelector must be a string.")
 
         return value
 
@@ -505,6 +575,18 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if self.action == "list":
             return TeamBasicSerializer
         return super().get_serializer_class()
+
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        # If the request only contains config fields, require read:team scope
+        # Otherwise, require write:team scope (handled by APIScopePermission)
+        if self.action == "partial_update":
+            request_fields = set(request.data.keys())
+            non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
+            if not non_team_config_fields:
+                return ["team:read"]
+
+        # Fall back to the default behavior
+        return None
 
     # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
     def dangerously_get_permissions(self) -> list:
@@ -739,6 +821,34 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="authenticate_wizard",
+        throttle_classes=[SetupWizardAuthenticationRateThrottle],
+    )
+    def authenticate_wizard(self, request, **kwargs):
+        hash = request.data.get("hash")
+
+        if not hash:
+            raise serializers.ValidationError({"hash": ["This field is required."]}, code="required")
+
+        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
+        wizard_data = cache.get(cache_key)
+
+        if wizard_data is None:
+            raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
+
+        wizard_data = {
+            "project_api_key": request.user.team.api_token,
+            "host": get_api_host(),
+            "user_distinct_id": request.user.distinct_id,
+        }
+
+        cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
+
+        return response.Response({"success": True}, status=200)
 
     @cached_property
     def user_permissions(self):

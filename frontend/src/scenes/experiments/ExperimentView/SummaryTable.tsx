@@ -42,7 +42,7 @@ export function SummaryTable({
         metricResults,
         secondaryMetricResults,
         tabularExperimentResults,
-        getMetricType,
+        getInsightType,
         exposureCountDataForVariant,
         conversionRateForVariant,
         experimentMathAggregationForTrends,
@@ -51,7 +51,7 @@ export function SummaryTable({
         credibleIntervalForVariant,
         featureFlags,
     } = useValues(experimentLogic)
-    const metricType = getMetricType(metric)
+    const insightType = getInsightType(metric)
     const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
     if (!result) {
         return <></>
@@ -73,7 +73,7 @@ export function SummaryTable({
         },
     ]
 
-    if (metricType === InsightType.TRENDS) {
+    if (insightType === InsightType.TRENDS) {
         columns.push({
             key: 'counts',
             title: (
@@ -96,7 +96,7 @@ export function SummaryTable({
         columns.push({
             key: 'exposure',
             title: (
-                <div className="inline-flex items-center space-x-1">
+                <div className="inline-flex items-center deprecated-space-x-1">
                     <div className="">Exposure</div>
                     <Tooltip
                         title={
@@ -135,7 +135,7 @@ export function SummaryTable({
         columns.push({
             key: 'delta',
             title: (
-                <div className="inline-flex items-center space-x-1">
+                <div className="inline-flex items-center deprecated-space-x-1">
                     <div className="">Delta %</div>
                     <Tooltip title="Delta % indicates the percentage change in the mean between the control and the test variant.">
                         <IconInfo className="text-secondary text-base" />
@@ -177,7 +177,7 @@ export function SummaryTable({
         columns.push({
             key: 'credibleInterval',
             title: (
-                <div className="inline-flex items-center space-x-1">
+                <div className="inline-flex items-center deprecated-space-x-1">
                     <div className="">Credible interval (95%)</div>
                     <Tooltip title="A credible interval estimates the percentage change in the mean, indicating with 95% probability how much higher or lower the test variant's mean is compared to the control.">
                         <IconInfo className="text-secondary text-base" />
@@ -190,7 +190,7 @@ export function SummaryTable({
                     return <em>Baseline</em>
                 }
 
-                const credibleInterval = credibleIntervalForVariant(result || null, variant.key, metricType)
+                const credibleInterval = credibleIntervalForVariant(result || null, variant.key, insightType)
                 if (!credibleInterval) {
                     return <>—</>
                 }
@@ -205,7 +205,7 @@ export function SummaryTable({
         })
     }
 
-    if (metricType === InsightType.FUNNELS) {
+    if (insightType === InsightType.FUNNELS) {
         columns.push({
             key: 'conversionRate',
             title: 'Conversion rate',
@@ -221,7 +221,7 @@ export function SummaryTable({
             columns.push({
                 key: 'delta',
                 title: (
-                    <div className="inline-flex items-center space-x-1">
+                    <div className="inline-flex items-center deprecated-space-x-1">
                         <div className="">Delta %</div>
                         <Tooltip title="Delta % indicates the percentage change in the conversion rate between the control and the test variant.">
                             <IconInfo className="text-secondary text-base" />
@@ -252,7 +252,7 @@ export function SummaryTable({
             columns.push({
                 key: 'credibleInterval',
                 title: (
-                    <div className="inline-flex items-center space-x-1">
+                    <div className="inline-flex items-center deprecated-space-x-1">
                         <div className="">Credible interval (95%)</div>
                         <Tooltip title="A credible interval estimates the percentage change in the conversion rate, indicating with 95% probability how much higher or lower the test variant's conversion rate is compared to the control.">
                             <IconInfo className="text-secondary text-base" />
@@ -264,7 +264,7 @@ export function SummaryTable({
                         return <em>Baseline</em>
                     }
 
-                    const credibleInterval = credibleIntervalForVariant(result || null, item.key, metricType)
+                    const credibleInterval = credibleIntervalForVariant(result || null, item.key, insightType)
                     if (!credibleInterval) {
                         return <>—</>
                     }
@@ -291,7 +291,7 @@ export function SummaryTable({
                 return (
                     <>
                         {pValue != undefined ? (
-                            <span className="inline-flex items-center w-52 space-x-4">
+                            <span className="inline-flex items-center w-52 deprecated-space-x-4">
                                 <span className="w-1/4 font-semibold">
                                     {pValue < 0.001 ? '< 0.001' : pValue.toFixed(3)}
                                 </span>
@@ -325,8 +325,8 @@ export function SummaryTable({
 
             return (
                 <>
-                    {percentage && (metricType === InsightType.FUNNELS ? hasValidConversionRate : true) ? (
-                        <span className="inline-flex items-center w-52 space-x-4">
+                    {percentage && (insightType === InsightType.FUNNELS ? hasValidConversionRate : true) ? (
+                        <span className="inline-flex items-center w-52 deprecated-space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
                             <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>
                                 {percentage.toFixed(2)}%

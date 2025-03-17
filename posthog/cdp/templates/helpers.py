@@ -16,6 +16,7 @@ from posthog.models.utils import uuid7
 from posthog.test.base import BaseTest, APIBaseTest
 
 
+# TODO this test class only tests part of the template. The hog code is tested, the default mappings are not
 class BaseHogFunctionTemplateTest(BaseTest):
     template: HogFunctionTemplate
     compiled_hog: Any
@@ -105,6 +106,11 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
     template: HogFunctionTemplate
     track_fn: str
     inputs: dict
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [{"name": "data_pipelines", "key": "data_pipelines"}]
+        self.organization.save()
 
     @functools.lru_cache
     def _get_transpiled(self, edit_payload: Optional[Callable[[dict], dict]] = None):

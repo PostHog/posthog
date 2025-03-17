@@ -16,6 +16,7 @@ import {
     PluginsAccessLevel,
     PROPERTY_MATCH_TYPE,
     RETENTION_FIRST_TIME,
+    RETENTION_MEAN_NONE,
     RETENTION_RECURRING,
     ShownAsValue,
     TeamMembershipLevel,
@@ -28,15 +29,17 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { Scene } from 'scenes/sceneTypes'
+import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import type {
     DashboardFilter,
     DatabaseSchemaField,
+    ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
+    FileSystemImport,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
@@ -519,6 +522,14 @@ export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
 }
 
+export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-love'
+
+export interface SessionRecordingMaskingConfig {
+    maskAllInputs?: boolean
+    maskTextSelector?: string
+    blockSelector?: string
+}
+
 export enum ActivationTaskStatus {
     COMPLETED = 'completed',
     SKIPPED = 'skipped',
@@ -545,6 +556,7 @@ export interface TeamType extends TeamBasicType {
         | { recordHeaders?: boolean; recordBody?: boolean }
         | undefined
         | null
+    session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
@@ -764,6 +776,7 @@ export enum PipelineStage {
 export enum PipelineNodeTab {
     Backfills = 'backfills',
     Configuration = 'configuration',
+    Testing = 'testing',
     Runs = 'runs',
     Logs = 'logs',
     Metrics = 'metrics',
@@ -962,6 +975,7 @@ export const SnapshotSourceType = {
     blob: 'blob',
     realtime: 'realtime',
     file: 'file',
+    blob_v2: 'blob_v2',
 } as const
 
 export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
@@ -976,6 +990,10 @@ export interface SessionRecordingSnapshotSource {
 export type SessionRecordingSnapshotParams =
     | {
           source: 'blob'
+          blob_key?: string
+      }
+    | {
+          source: 'blob_v2'
           blob_key?: string
       }
     | {
@@ -1031,6 +1049,7 @@ export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
+    NETWORK_WATERFALL = 'network-waterfall',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -1426,6 +1445,23 @@ export interface RecordingEventType
     fullyLoaded: boolean
 }
 
+export interface PlaylistCollectionCount {
+    count: number
+    watched_count: number
+}
+
+export interface PlaylistSavedFiltersCount {
+    count: number
+    watched_count: number
+    has_more?: boolean
+    increased?: boolean
+}
+
+export interface PlaylistRecordingsCounts {
+    saved_filters?: PlaylistSavedFiltersCount
+    collection: PlaylistCollectionCount
+}
+
 export interface SessionRecordingPlaylistType {
     /** The primary key in the database, used as well in API endpoints */
     id: number
@@ -1440,6 +1476,12 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: LegacyRecordingFilters
+    /**
+     * the count of recordings matching filters, calculated periodically
+     * and pinned recordings which is calculated in real-time
+     * marked as has more if the filters count onoy matched one page and there are more available
+     */
+    recordings_counts?: PlaylistRecordingsCounts
 }
 
 export interface SessionRecordingSegmentType {
@@ -1451,8 +1493,10 @@ export interface SessionRecordingSegmentType {
 
 export interface SessionRecordingType {
     id: string
-    /** Whether this recording has been viewed already. */
+    /** Whether this recording has been viewed by you already. */
     viewed: boolean
+    /** user ids of other users who have viewed this recording */
+    viewers: string[]
     /** Length of recording in seconds. */
     recording_duration: number
     active_seconds?: number
@@ -1742,6 +1786,8 @@ export interface BillingType {
     deactivated?: boolean
     current_total_amount_usd?: string
     current_total_amount_usd_after_discount?: string
+    projected_total_amount_usd?: string
+    projected_total_amount_usd_after_discount?: string
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
@@ -2434,6 +2480,12 @@ export interface RetentionEntity {
     properties?: AnyPropertyFilter[]
 }
 
+export enum RetentionDashboardDisplayType {
+    TableOnly = 'table_only',
+    GraphOnly = 'graph_only',
+    All = 'all',
+}
+
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     /** Whether retention is with regard to initial cohort size, or that of the previous period. */
@@ -2448,7 +2500,8 @@ export interface RetentionFilterType extends FilterType {
     cumulative?: boolean
 
     //frontend only
-    show_mean?: boolean
+    show_mean?: boolean // deprecated
+    mean_retention_calculation?: 'simple' | 'weighted' | typeof RETENTION_MEAN_NONE
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -2773,12 +2826,19 @@ export interface SetInsightOptions {
     fromPersistentApi?: boolean
 }
 
+export enum SurveySchedule {
+    Once = 'once',
+    Recurring = 'recurring',
+    Always = 'always',
+}
+
 export interface Survey {
     /** UUID */
     id: string
     name: string
     type: SurveyType
     description: string
+    schedule?: SurveySchedule | null
     linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
@@ -2869,11 +2929,13 @@ export interface SurveyAppearance {
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
-    fontFamily?: (typeof WEB_SAFE_FONTS)[number]
+    fontFamily?: (typeof WEB_SAFE_FONTS)[number]['value']
+    disabledButtonOpacity?: string
 }
 
 export interface SurveyQuestionBase {
     question: string
+    id?: string
     description?: string | null
     descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean
@@ -2996,6 +3058,8 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     id: number | null
     created_by: UserBasicType | null
     created_at: string | null
+    version: number | null
+    last_modified_by: UserBasicType | null
     is_simple_flag: boolean
     rollout_percentage: number | null
     experiment_set: number[] | null
@@ -3266,6 +3330,7 @@ export interface EventDefinition {
     verified_at?: string
     verified_by?: string
     is_action?: boolean
+    hidden?: boolean
 }
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
@@ -3306,6 +3371,7 @@ export interface PropertyDefinition {
     verified?: boolean
     verified_at?: string
     verified_by?: string
+    hidden?: boolean
 }
 
 export enum PropertyDefinitionState {
@@ -3315,6 +3381,7 @@ export enum PropertyDefinitionState {
     Error = 'error',
 }
 
+export type PropertyDefinitionVerificationStatus = 'verified' | 'hidden' | 'visible'
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {
@@ -3349,6 +3416,7 @@ export interface Experiment {
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
     exposure_cohort?: number
+    exposure_criteria?: ExperimentExposureCriteria
     filters: TrendsFilterType | FunnelsFilterType
     metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metrics_secondary: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
@@ -3468,6 +3536,7 @@ export interface AppContext {
     year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
+    livestream_host?: string
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3665,6 +3734,11 @@ export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
 
+export enum ExperimentMetricMathType {
+    TotalCount = 'total',
+    Sum = 'sum',
+}
+
 export enum ActorGroupType {
     Person = 'person',
     GroupPrefix = 'group',
@@ -3767,6 +3841,7 @@ export type IntegrationKind =
     | 'google-ads'
     | 'linkedin-ads'
     | 'snapchat'
+    | 'intercom'
 
 export interface IntegrationType {
     id: number
@@ -3891,13 +3966,14 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'early_access_feature'
+    | 'error_tracking'
     | 'event_definition'
     | 'experiment'
     | 'export'
     | 'feature_flag'
     | 'group'
+    | 'hog_function'
     | 'insight'
-    | 'query'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -3905,6 +3981,7 @@ export type APIScopeObject =
     | 'plugin'
     | 'project'
     | 'property_definition'
+    | 'query'
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
@@ -4018,6 +4095,7 @@ export enum ActivityScope {
     COMMENT = 'Comment',
     COHORT = 'Cohort',
     TEAM = 'Team',
+    ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
 }
 
 export type CommentType = {
@@ -4027,7 +4105,7 @@ export type CommentType = {
     created_at: string
     created_by: UserBasicType | null
     source_comment?: string | null
-    scope: ActivityScope
+    scope: ActivityScope | string
     item_id?: string
     item_context: Record<string, any> | null
 }
@@ -4113,6 +4191,7 @@ export interface DataWarehouseSavedQuery {
     last_run_at?: string
     sync_frequency: string
     status?: string
+    latest_error: string | null
 }
 
 export interface DataWarehouseViewLink {
@@ -4128,6 +4207,11 @@ export interface DataWarehouseViewLink {
         experiments_optimized?: boolean
         experiments_timestamp_key?: string | null
     }
+}
+
+export interface QueryTabState {
+    id: string
+    state: Record<string, any>
 }
 
 export enum DataWarehouseSettingsTab {
@@ -4193,6 +4277,7 @@ export interface ExternalDataSourceSyncSchema {
     table: string
     rows?: number | null
     should_sync: boolean
+    sync_time_of_day: string | null
     incremental_field: string | null
     incremental_field_type: string | null
     sync_type: 'full_refresh' | 'incremental' | null
@@ -4204,6 +4289,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     table?: SimpleDataWarehouseTable
     incremental: boolean
     sync_type: 'incremental' | 'full_refresh' | null
+    sync_time_of_day: string | null
     status?: string
     latest_error: string | null
     incremental_field: string | null
@@ -4211,10 +4297,17 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     sync_frequency: DataWarehouseSyncInterval
 }
 
+export enum ExternalDataJobStatus {
+    Running = 'Running',
+    Completed = 'Completed',
+    Failed = 'Failed',
+    BillingLimits = 'Billing limits',
+}
+
 export interface ExternalDataJob {
     id: string
     created_at: string
-    status: 'Running' | 'Failed' | 'Completed' | 'Billing limits'
+    status: ExternalDataJobStatus
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
     latest_error: string
@@ -4366,6 +4459,23 @@ export type BatchExportConfiguration = {
     latest_runs?: BatchExportRun[]
 }
 
+export type BatchExportConfigurationTestStepStatus = 'Passed' | 'Failed'
+
+export type BatchExportConfigurationTestStepResult = {
+    status: BatchExportConfigurationTestStepStatus
+    message: string
+}
+
+export type BatchExportConfigurationTestStep = {
+    name: string
+    description: string
+    result: BatchExportConfigurationTestStepResult | null
+}
+
+export type BatchExportConfigurationTest = {
+    steps: BatchExportConfigurationTestStep[]
+}
+
 export type RawBatchExportRun = {
     id: string
     status:
@@ -4459,7 +4569,7 @@ export type SDK = {
     name: string
     key: string
     recommended?: boolean
-    tags: string[]
+    tags: SDKTag[]
     image:
         | string
         | JSX.Element
@@ -4515,12 +4625,12 @@ export enum SDKKey {
 }
 
 export enum SDKTag {
+    RECOMMENDED = 'Recommended',
     WEB = 'Web',
     MOBILE = 'Mobile',
     SERVER = 'Server',
-    INTEGRATION = 'Integration',
-    RECOMMENDED = 'Recommended',
     LLM = 'LLM',
+    INTEGRATION = 'Integration',
     OTHER = 'Other',
 }
 
@@ -4613,6 +4723,7 @@ export interface SourceConfig {
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     oauthPayload?: string[]
+    existingSource?: boolean
 }
 
 export interface ProductPricingTierSubrows {
@@ -4705,14 +4816,13 @@ export interface HogFunctionFilterActions extends HogFunctionFilterBase {
     type: 'actions'
 }
 
-export type HogFunctionFilterPropertyFilter = (
+export type HogFunctionFilterPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
-)[]
 
 export interface HogFunctionFiltersType {
     events?: HogFunctionFilterEvents[]
@@ -4974,4 +5084,19 @@ export type UserGroup = {
 export interface CoreMemory {
     id: string
     text: string
+}
+
+export interface FileSystemType {
+    icon?: JSX.Element
+    href?: (ref: string) => string
+}
+
+export interface ProductManifest {
+    name: string
+    scenes?: Record<string, SceneConfig>
+    routes?: Record<string, [string /** Scene */, string /** Scene Key (unique for layout tabs) */]>
+    redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
+    urls?: Record<string, string | ((...args: any[]) => string)>
+    fileSystemTypes?: Record<string, FileSystemType>
+    treeItems?: FileSystemImport[]
 }

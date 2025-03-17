@@ -7,7 +7,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     type="destination",
     id="template-slack",
     name="Slack",
-    description="Sends a message to a slack channel",
+    description="Sends a message to a Slack channel",
     icon_url="/static/services/slack.png",
     category=["Customer Success"],
     hog="""
@@ -208,15 +208,15 @@ if (res.status != 200 or res.body.ok == false) {
             },
         ),
         HogFunctionSubTemplate(
-            id="error-tracking-issue-created",
             name="Post to Slack on issue created",
             description="",
-            filters={"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
-            type="internal_destination",
+            id=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].id,
+            type=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].type,
+            filters=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].filters,
             input_schema_overrides={
                 "blocks": {
                     "default": [
-                        {"type": "header", "text": {"type": "plain_text", "text": "{event.properties.name}"}},
+                        {"type": "header", "text": {"type": "plain_text", "text": "🔴 {event.properties.name}"}},
                         {"type": "section", "text": {"type": "plain_text", "text": "New issue created"}},
                         {"type": "section", "text": {"type": "mrkdwn", "text": "```{event.properties.description}```"}},
                         {
@@ -231,7 +231,7 @@ if (res.status != 200 or res.body.ok == false) {
                             "type": "actions",
                             "elements": [
                                 {
-                                    "url": "{project.url}/error-tracking/{event.distinct_id}",
+                                    "url": "{project.url}/error_tracking/{event.distinct_id}",
                                     "text": {"text": "View Issue", "type": "plain_text"},
                                     "type": "button",
                                 }
@@ -241,6 +241,44 @@ if (res.status != 200 or res.body.ok == false) {
                 },
                 "text": {
                     "default": "New issue created: {event.properties.name}",
+                    "hidden": True,
+                },
+            },
+        ),
+        HogFunctionSubTemplate(
+            name="Post to Slack on issue reopened",
+            description="",
+            id=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].id,
+            type=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].type,
+            filters=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].filters,
+            input_schema_overrides={
+                "blocks": {
+                    "default": [
+                        {"type": "header", "text": {"type": "plain_text", "text": "🔄 {event.properties.name}"}},
+                        {"type": "section", "text": {"type": "plain_text", "text": "Issue reopened"}},
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "```{event.properties.description}```"}},
+                        {
+                            "type": "context",
+                            "elements": [
+                                {"type": "mrkdwn", "text": "Project: <{project.url}|{project.name}>"},
+                                {"type": "mrkdwn", "text": "Alert: <{source.url}|{source.name}>"},
+                            ],
+                        },
+                        {"type": "divider"},
+                        {
+                            "type": "actions",
+                            "elements": [
+                                {
+                                    "url": "{project.url}/error_tracking/{event.distinct_id}",
+                                    "text": {"text": "View Issue", "type": "plain_text"},
+                                    "type": "button",
+                                }
+                            ],
+                        },
+                    ]
+                },
+                "text": {
+                    "default": "Issue reopened: {event.properties.name}",
                     "hidden": True,
                 },
             },

@@ -71,6 +71,11 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                     <div className="flex flex-row items-center gap-2">
                         <h3 className="mb-0">Materialization</h3>
                         <LemonTag type="warning">BETA</LemonTag>
+                        {savedQuery?.latest_error && savedQuery.status === 'Failed' && (
+                            <Tooltip title={savedQuery.latest_error}>
+                                <LemonTag type="danger">Error</LemonTag>
+                            </Tooltip>
+                        )}
                     </div>
                     <div>
                         {savedQuery?.sync_frequency || savedQuery?.last_run_at ? (
@@ -110,6 +115,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                                                     id: editingView.id,
                                                     sync_frequency: newValue,
                                                     types: [[]],
+                                                    lifecycle: 'update',
                                                 })
                                             }
                                         }}
@@ -125,14 +131,17 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                                     you to run queries faster and more efficiently.
                                 </p>
                                 <LemonButton
-                                    onClick={() =>
-                                        editingView &&
-                                        updateDataWarehouseSavedQuery({
-                                            id: editingView.id,
-                                            sync_frequency: '24hour',
-                                            types: [[]],
-                                        })
-                                    }
+                                    onClick={() => {
+                                        return (
+                                            editingView &&
+                                            updateDataWarehouseSavedQuery({
+                                                id: editingView.id,
+                                                sync_frequency: '24hour',
+                                                types: [[]],
+                                                lifecycle: 'create',
+                                            })
+                                        )
+                                    }}
                                     type="primary"
                                     disabledReason={editingView ? undefined : 'You must save the view first'}
                                     loading={updatingDataWarehouseSavedQuery}

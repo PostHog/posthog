@@ -8,12 +8,14 @@ from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 
+from posthog.errors import InternalCHQueryError
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests, pretty_print_response_in_tests
 from posthog.models import Cohort
+from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import (
@@ -28,6 +30,8 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
 )
+from unittest.mock import patch
+from decimal import Decimal
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -1390,7 +1394,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             FROM
                 events
             WHERE
-                and(equals(event, '$exception'), isNotNull(issue_id), and(1, greaterOrEquals(timestamp, toDateTime('2025-02-10 23:53:03.175952'))))
+                and(
+                    equals(event, '$exception'),
+                    isNotNull(issue_id),
+                    or(
+                        and(greater(timestamp, toDateTime('2025-02-10 23:53:03.175952+02:30')), less(timestamp, toDateTime('2025-02-11 23:53'))),
+                        and(greater(timestamp, toDateTime('2025-02-12 23:53:03')), less(timestamp, toDateTime('2025-02-13 23:53:03.175952')))
+                    )
+                )
             GROUP BY
                 issue_id
             ORDER BY
@@ -1564,3 +1575,74 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             (session_id, 600),
             (session_id, 600),
         ]
+
+    def test_db_created_once(self):
+        # This test will start failing when we cache the DB creation - that's fine, just delete or change it.
+        # In the ideal future, most queries will not need to create the DB.
+        # In the present (your past), this test was added because we were creating it twice per query.
+        query = "SELECT 1"
+        with patch("posthog.hogql.printer.create_hogql_database") as printer_create_hogql_database_mock:
+            execute_hogql_query(query, team=self.team)
+            printer_create_hogql_database_mock.assert_called_once()
+
+    def test_exchange_rate_table(self):
+        query = "SELECT DISTINCT currency FROM exchange_rate LIMIT 500"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(len(response.results), len(SUPPORTED_CURRENCY_CODES))
+
+    def test_currency_conversion(self):
+        query = "SELECT convertCurrency('USD', 'EUR', 100, _toDate('2024-01-01'))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("90.49"),)])
+
+    def test_currency_conversion_with_string_date(self):
+        query = "SELECT convertCurrency('USD', 'EUR', 100, '2024-01-01')"
+        with self.assertRaises(InternalCHQueryError) as e:
+            execute_hogql_query(query, team=self.team)
+        assert (
+            "Illegal type String of fourth argument of function dictGetOrDefault must be convertible to Int64"
+            in str(e.exception)
+        )
+
+    def test_currency_conversion_with_bogus_currency_from(self):
+        query = "SELECT convertCurrency('BOGUS', 'EUR', 100, _toDate('2024-01-01'))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("0"),)])
+
+    def test_currency_conversion_with_bogus_currency_to(self):
+        query = "SELECT convertCurrency('USD', 'BOGUS', 100, _toDate('2024-01-01'))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("0"),)])
+
+    # Returns today's date if no date is provided
+    # which will simply use the latest rate from `historical.csv`
+    # from 2024-12-31
+    def test_currency_conversion_without_date(self):
+        query = "SELECT convertCurrency('USD', 'EUR', 100)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("96.21"),)])
+
+    def test_currency_conversion_nested(self):
+        query = "SELECT convertCurrency('EUR', 'USD', convertCurrency('USD', 'EUR', 100, _toDate('2020-03-15')), _toDate('2020-03-15'))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("100.00"),)])
+
+    def test_currency_conversion_super_nested(self):
+        amount = "2123.4308"
+        query = """
+            SELECT convertCurrency(
+                'JPY', 'USD',
+                convertCurrency(
+                    'GBP', 'JPY',
+                    convertCurrency(
+                        'EUR', 'GBP',
+                        convertCurrency(
+                            'USD', 'EUR', {amount}, {date}
+                        ), {date}
+                    ), {date}
+                ), {date}
+            )
+        """.format(amount=amount, date="_toDate('2020-03-15')")
+
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal(amount),)])

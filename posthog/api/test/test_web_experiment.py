@@ -53,6 +53,8 @@ class TestWebExperiment(APIBaseTest):
 
         assert web_experiment.created_by == self.user
 
+        assert web_experiment.get_stats_config("version") == 2
+
         assert web_experiment.variants is not None
         assert web_experiment.type == "web"
         assert web_experiment.variants.get("control") is not None

@@ -6,6 +6,7 @@ import { CookielessServerHashMode, Hook, Hub } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { PostgresUse } from '../../../../src/utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../../src/utils/event'
+import { parseJSON } from '../../../../src/utils/json-parse'
 import { UUIDT } from '../../../../src/utils/utils'
 import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
@@ -20,7 +21,7 @@ import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../h
 import { commonUserId } from '../../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
-jest.mock('../../../../src/utils/status')
+jest.mock('../../../../src/utils/logger')
 
 describe('Event Pipeline integration test', () => {
     let hub: Hub
@@ -46,7 +47,7 @@ describe('Event Pipeline integration test', () => {
 
         actionManager = new ActionManager(hub.db.postgres, hub)
         await actionManager.start()
-        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager, hub.teamManager)
+        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
         hookCannon = new HookCommander(
             hub.db.postgres,
             hub.teamManager,
@@ -235,8 +236,7 @@ describe('Event Pipeline integration test', () => {
         // and use expect.any for a few payload properties, which wouldn't be possible in a simpler way
         expect(jest.mocked(fetch).mock.calls[0][0]).toBe('https://example.com/')
         const secondArg = jest.mocked(fetch).mock.calls[0][1]
-        expect(JSON.parse(secondArg!.body as unknown as string)).toStrictEqual(expectedPayload)
-        expect(JSON.parse(secondArg!.body as unknown as string)).toStrictEqual(expectedPayload)
+        expect(parseJSON(secondArg!.body as unknown as string)).toEqual(expectedPayload)
         expect(secondArg!.headers).toStrictEqual({ 'Content-Type': 'application/json' })
         expect(secondArg!.method).toBe('POST')
     })

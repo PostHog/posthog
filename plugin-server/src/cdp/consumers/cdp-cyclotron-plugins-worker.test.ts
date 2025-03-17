@@ -1,16 +1,16 @@
 import { DateTime } from 'luxon'
 
-import {
-    createHogExecutionGlobals,
-    createInvocation,
-    insertHogFunction as _insertHogFunction,
-} from '~/tests/cdp/fixtures'
-import { getProducedKafkaMessages, getProducedKafkaMessagesForTopic } from '~/tests/helpers/mocks/producer.mock'
+import { getProducedKafkaMessages } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import {
+    createHogExecutionGlobals,
+    createInvocation,
+    insertHogFunction as _insertHogFunction,
+} from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorkerPlugins } from './cdp-cyclotron-plugins-worker.consumer'
@@ -125,17 +125,11 @@ describe('CdpCyclotronWorkerPlugins', () => {
             expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(intercomPlugin.onEvent!).mock.calls[0][0])).toMatchInlineSnapshot(`
                 {
+                  "$set": undefined,
+                  "$set_once": undefined,
                   "distinct_id": "distinct_id",
                   "event": "mycustomevent",
-                  "person": {
-                    "created_at": "",
-                    "properties": {
-                      "email": "test@posthog.com",
-                      "first_name": "Pumpkin",
-                    },
-                    "team_id": 2,
-                    "uuid": "uuid",
-                  },
+                  "ip": null,
                   "properties": {
                     "email": "test@posthog.com",
                   },
@@ -181,33 +175,6 @@ describe('CdpCyclotronWorkerPlugins', () => {
                     "<REPLACED-UUID-0>",
                     "completed",
                   ],
-                ]
-            `)
-        })
-
-        it('should mock out fetch if it is a test function', async () => {
-            jest.spyOn(intercomPlugin as any, 'onEvent')
-
-            const invocation = createInvocation(fn, globals)
-            invocation.hogFunction.name = 'My function [CDP-TEST-HIDDEN]'
-            invocation.globals.event.event = 'mycustomevent'
-            invocation.globals.event.properties = {
-                email: 'test@posthog.com',
-            }
-
-            await processor.processBatch([invocation])
-
-            expect(mockFetch).toHaveBeenCalledTimes(0)
-
-            expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
-
-            expect(forSnapshot(getProducedKafkaMessagesForTopic('log_entries_test').map((m) => m.value.message)))
-                .toMatchInlineSnapshot(`
-                [
-                  "Executing plugin plugin-posthog-intercom-plugin",
-                  "Fetch called but mocked due to test function",
-                  "Contact test@posthog.com in Intercom not found",
-                  "Execution successful",
                 ]
             `)
         })

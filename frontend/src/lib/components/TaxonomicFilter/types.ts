@@ -18,6 +18,8 @@ export interface SimpleOption {
     propertyFilterType?: PropertyFilterType
 }
 
+export type ExcludedProperties = { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
+
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
@@ -34,7 +36,7 @@ export interface TaxonomicFilterProps {
     popoverEnabled?: boolean
     selectFirstItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
-    excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
+    excludedProperties?: ExcludedProperties
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] } // only return properties in this list, currently only working for EventProperties and PersonProperties
     metadataSource?: AnyDataNode
     hideBehavioralCohorts?: boolean
@@ -45,8 +47,10 @@ export interface TaxonomicFilterProps {
 export interface DataWarehousePopoverField {
     key: string
     label: string
+    description?: string
     allowHogQL?: boolean
     hogQLOnly?: boolean
+    optional?: boolean
     tableName?: string
 }
 

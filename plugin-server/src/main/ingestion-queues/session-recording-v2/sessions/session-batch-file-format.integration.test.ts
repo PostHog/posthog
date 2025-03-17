@@ -27,11 +27,13 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { parseJSON } from '../../../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionBlockMetadata } from './session-block-metadata'
+import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionMetadataStore } from './session-metadata-store'
 
 const enum EventType {
@@ -46,17 +48,21 @@ describe('session recording integration', () => {
     let mockStorage: jest.Mocked<SessionBatchFileStorage>
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
-    let batchBuffer: Buffer
+    let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
+    let batchBuffer: Uint8Array
     let currentOffset: number
 
     beforeEach(() => {
         currentOffset = 0
-        batchBuffer = Buffer.alloc(0)
+        batchBuffer = new Uint8Array()
 
         mockWriter = {
             writeSession: jest.fn().mockImplementation(async (buffer: Buffer) => {
                 const startOffset = currentOffset
-                batchBuffer = Buffer.concat([batchBuffer, buffer])
+                const newBuffer = new Uint8Array(batchBuffer.length + buffer.length)
+                newBuffer.set(batchBuffer)
+                newBuffer.set(new Uint8Array(buffer), batchBuffer.length)
+                batchBuffer = newBuffer
                 currentOffset += buffer.length
                 return Promise.resolve({
                     bytesWritten: buffer.length,
@@ -68,6 +74,7 @@ describe('session recording integration', () => {
 
         mockStorage = {
             newBatch: jest.fn().mockReturnValue(mockWriter),
+            checkHealth: jest.fn().mockResolvedValue(true),
         } as jest.Mocked<SessionBatchFileStorage>
 
         mockOffsetManager = {
@@ -80,7 +87,12 @@ describe('session recording integration', () => {
             storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionMetadataStore>
 
-        recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore)
+        mockConsoleLogStore = {
+            storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
+            flush: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionConsoleLogStore>
+
+        recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore, mockConsoleLogStore)
     })
 
     const createMessage = (
@@ -116,6 +128,8 @@ describe('session recording integration', () => {
                 timestamp: 0,
                 rawSize: 0,
             },
+            snapshot_source: null,
+            snapshot_library: null,
         },
     })
 
@@ -128,13 +142,13 @@ describe('session recording integration', () => {
         const startOffset = parseInt(match[1])
         const endOffset = parseInt(match[2])
 
-        const sessionBuffer = batchBuffer.subarray(startOffset, endOffset + 1)
+        const sessionBuffer = Buffer.from(batchBuffer.subarray(startOffset, endOffset + 1))
         const decompressed = await snappy.uncompress(sessionBuffer)
         return decompressed
             .toString()
             .trim()
             .split('\n')
-            .map((line) => JSON.parse(line))
+            .map((line) => parseJSON(line))
     }
 
     it('should correctly record and read back multiple sessions', async () => {

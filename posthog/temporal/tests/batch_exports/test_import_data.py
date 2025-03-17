@@ -1,8 +1,10 @@
 from typing import Any
 from unittest import mock
+
 import pytest
+
 from posthog.models.team.team import Team
-from posthog.temporal.data_imports import import_data_activity_sync
+from posthog.temporal.data_imports.settings import import_data_activity_sync
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import ImportDataActivityInputs
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.external_data_job import ExternalDataJob

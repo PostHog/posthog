@@ -1,33 +1,23 @@
 import { Message } from 'node-rdkafka'
-import { Counter, Gauge, Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
-import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../../main/utils'
-import { AppMetric2Type, Hub, PluginServerService, TeamId, TimestampFormat } from '../../types'
-import { safeClickhouseString } from '../../utils/db/utils'
-import { status } from '../../utils/status'
-import { castTimestampOrNow, UUIDT } from '../../utils/utils'
+import { Hub, PluginServerService, TeamId } from '../../types'
+import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
 import { FetchExecutorService } from '../services/fetch-executor.service'
 import { GroupsManagerService } from '../services/groups-manager.service'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
+import { HogFunctionManagerLazyService } from '../services/hog-function-manager-lazy.service'
+import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/hog-masker.service'
 import { HogWatcherService } from '../services/hog-watcher.service'
-import {
-    HogFunctionAppMetric,
-    HogFunctionInvocationResult,
-    HogFunctionLogEntrySerialized,
-    HogFunctionMessageToProduce,
-    HogFunctionType,
-    HogFunctionTypeType,
-} from '../types'
-import { fixLogDeduplication } from '../utils'
-import { convertToCaptureEvent } from '../utils'
+import { HogFunctionTypeType } from '../types'
 
 // Metrics that were at the top of the file
 export const histogramKafkaBatchSize = new Histogram({
@@ -42,28 +32,10 @@ export const histogramKafkaBatchSizeKb = new Histogram({
     buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
 })
 
-export const counterFunctionInvocation = new Counter({
-    name: 'cdp_function_invocation',
-    help: 'A function invocation was evaluated with an outcome',
-    labelNames: ['outcome'], // One of 'failed', 'succeeded', 'overflowed', 'disabled', 'filtered'
-})
-
 export const counterParseError = new Counter({
     name: 'cdp_function_parse_error',
     help: 'A function invocation was parsed with an error',
     labelNames: ['error'],
-})
-
-export const gaugeBatchUtilization = new Gauge({
-    name: 'cdp_cyclotron_batch_utilization',
-    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
-    labelNames: ['queue'],
-})
-
-export const counterJobsProcessed = new Counter({
-    name: 'cdp_cyclotron_jobs_processed',
-    help: 'The number of jobs we are managing to process',
-    labelNames: ['queue'],
 })
 
 export interface TeamIDWithConfig {
@@ -74,13 +46,14 @@ export interface TeamIDWithConfig {
 export abstract class CdpConsumerBase {
     batchConsumer?: BatchConsumer
     hogFunctionManager: HogFunctionManagerService
+    hogFunctionManagerLazy: HogFunctionManagerLazyService
     fetchExecutor: FetchExecutorService
     hogExecutor: HogExecutorService
     hogWatcher: HogWatcherService
     hogMasker: HogMaskerService
     groupsManager: GroupsManagerService
     isStopping = false
-    messagesToProduce: HogFunctionMessageToProduce[] = []
+    hogFunctionMonitoringService: HogFunctionMonitoringService
     redis: CdpRedis
 
     protected hogTypes: HogFunctionTypeType[] = []
@@ -92,11 +65,13 @@ export abstract class CdpConsumerBase {
     constructor(protected hub: Hub) {
         this.redis = createCdpRedisPool(hub)
         this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFunctionManagerLazy = new HogFunctionManagerLazyService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
-        this.hogExecutor = new HogExecutorService(this.hub, this.hogFunctionManager)
+        this.hogExecutor = new HogExecutorService(this.hub)
         this.fetchExecutor = new FetchExecutorService(this.hub)
         this.groupsManager = new GroupsManagerService(this.hub)
+        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(this.hub)
     }
 
     public get service(): PluginServerService {
@@ -106,6 +81,10 @@ export abstract class CdpConsumerBase {
             healthcheck: () => this.isHealthy() ?? false,
             batchConsumer: this.batchConsumer,
         }
+    }
+
+    protected runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
+        return runInstrumentedFunction<T>({ statsKey: `cdpConsumer.${name}`, func })
     }
 
     protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
@@ -125,123 +104,6 @@ export abstract class CdpConsumerBase {
             results.push(await this.runWithHeartbeat(() => func(item)))
         }
         return results
-    }
-
-    protected async produceQueuedMessages() {
-        const messages = [...this.messagesToProduce]
-        this.messagesToProduce = []
-
-        await this.kafkaProducer!.queueMessages(
-            messages.map((x) => ({
-                topic: x.topic,
-                messages: [
-                    {
-                        value: safeClickhouseString(JSON.stringify(x.value)),
-                        key: x.key,
-                    },
-                ],
-            }))
-        ).catch((reason) => {
-            status.error('⚠️', `failed to produce message: ${reason}`)
-        })
-    }
-
-    protected produceAppMetric(metric: HogFunctionAppMetric) {
-        const appMetric: AppMetric2Type = {
-            app_source: 'hog_function',
-            ...metric,
-            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-        }
-
-        this.messagesToProduce.push({
-            topic: KAFKA_APP_METRICS_2,
-            value: appMetric,
-            key: appMetric.app_source_id,
-        })
-
-        counterFunctionInvocation.inc({ outcome: appMetric.metric_name }, appMetric.count)
-    }
-
-    protected produceLogs(result: HogFunctionInvocationResult) {
-        const logs = fixLogDeduplication(
-            result.logs.map((logEntry) => ({
-                ...logEntry,
-                team_id: result.invocation.hogFunction.team_id,
-                log_source: 'hog_function',
-                log_source_id: result.invocation.hogFunction.id,
-                instance_id: result.invocation.id,
-            }))
-        )
-
-        logs.forEach((logEntry) => {
-            this.messagesToProduce.push({
-                topic: KAFKA_LOG_ENTRIES,
-                value: logEntry,
-                key: logEntry.instance_id,
-            })
-        })
-    }
-
-    protected logFilteringError(item: HogFunctionType, error: string) {
-        const logEntry: HogFunctionLogEntrySerialized = {
-            team_id: item.team_id,
-            log_source: 'hog_function',
-            log_source_id: item.id,
-            instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
-            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-            level: 'error',
-            message: error,
-        }
-
-        this.messagesToProduce.push({
-            topic: KAFKA_LOG_ENTRIES,
-            value: logEntry,
-            key: logEntry.instance_id,
-        })
-    }
-
-    protected async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
-        return await runInstrumentedFunction({
-            statsKey: `cdpConsumer.handleEachBatch.produceResults`,
-            func: async () => {
-                await this.hogWatcher.observeResults(results)
-
-                await Promise.all(
-                    results.map(async (result) => {
-                        if (result.finished || result.error) {
-                            this.produceAppMetric({
-                                team_id: result.invocation.teamId,
-                                app_source_id: result.invocation.hogFunction.id,
-                                metric_kind: result.error ? 'failure' : 'success',
-                                metric_name: result.error ? 'failed' : 'succeeded',
-                                count: 1,
-                            })
-                        }
-
-                        this.produceLogs(result)
-
-                        // Clear the logs so we don't pass them on to the next invocation
-                        result.logs = []
-
-                        // PostHog capture events
-                        const capturedEvents = result.capturedPostHogEvents
-                        delete result.capturedPostHogEvents
-
-                        for (const event of capturedEvents ?? []) {
-                            const team = await this.hub.teamManager.fetchTeam(event.team_id)
-                            if (!team) {
-                                continue
-                            }
-                            this.messagesToProduce.push({
-                                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
-                                value: convertToCaptureEvent(event, team),
-                                key: `${team!.api_token}:${event.distinct_id}`,
-                            })
-                        }
-                    })
-                )
-            },
-        })
     }
 
     protected async startKafkaConsumer(options: {
@@ -269,7 +131,7 @@ export abstract class CdpConsumerBase {
             topicCreationTimeoutMs: this.hub.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             topicMetadataRefreshInterval: this.hub.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
             eachBatch: async (messages, { heartbeat }) => {
-                status.info('🔁', `${this.name} - handling batch`, {
+                logger.info('🔁', `${this.name} - handling batch`, {
                     size: messages.length,
                 })
 
@@ -278,12 +140,8 @@ export abstract class CdpConsumerBase {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                return await runInstrumentedFunction({
-                    statsKey: `cdpConsumer.handleEachBatch`,
-                    sendTimeoutGuardToSentry: false,
-                    func: async () => {
-                        await options.handleBatch(messages)
-                    },
+                return await this.runInstrumented('handleEachBatch', async () => {
+                    await options.handleBatch(messages)
                 })
             },
             callEachBatchWhenEmpty: false,
@@ -292,12 +150,12 @@ export abstract class CdpConsumerBase {
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('disconnected', async (err) => {
-            if (!this.isStopping) {
+            if (this.isStopping) {
                 return
             }
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
-            status.info('🔁', `${this.name} batch consumer disconnected, cleaning up`, { err })
+            logger.info('🔁', `${this.name} batch consumer disconnected, cleaning up`, { err })
             await this.stop()
         })
     }
@@ -314,18 +172,18 @@ export abstract class CdpConsumerBase {
     }
 
     public async stop(): Promise<void> {
-        status.info('🔁', `${this.name} - stopping`)
+        logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
 
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
-        status.info('🔁', `${this.name} - stopping batch consumer`)
+        logger.info('🔁', `${this.name} - stopping batch consumer`)
         await this.batchConsumer?.stop()
-        status.info('🔁', `${this.name} - stopping kafka producer`)
+        logger.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
-        status.info('🔁', `${this.name} - stopping hog function manager and hog watcher`)
+        logger.info('🔁', `${this.name} - stopping hog function manager and hog watcher`)
         await Promise.all([this.hogFunctionManager.stop()])
 
-        status.info('👍', `${this.name} - stopped!`)
+        logger.info('👍', `${this.name} - stopped!`)
     }
 
     public isHealthy() {

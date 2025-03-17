@@ -25,6 +25,40 @@ class SalseforceAuth(BearerTokenAuth):
         self.token_expiry = pendulum.now().add(hours=1)
 
 
+class SalesforceAuthRequestError(Exception):
+    """Exception to capture errors when an auth request fails."""
+
+    def __init__(self, error_message: str, response: requests.Response):
+        self.response = response
+        super().__init__(error_message)
+
+    @classmethod
+    def raise_from_response(cls, response: requests.Response) -> None:
+        """Raise a `SalesforceAuthRequestError` from a failed response.
+
+        If the response did not fail, nothing is raised or returned.
+        """
+        if 400 <= response.status_code < 500:
+            error_message = f"{response.status_code} Client Error: {response.reason}: "
+
+        elif 500 <= response.status_code < 600:
+            error_message = f"{response.status_code} Server Error: {response.reason}: "
+        else:
+            return
+
+        try:
+            error_description = response.json()["error_description"]
+        except requests.exceptions.JSONDecodeError:
+            if response.text:
+                error_message += response.text
+            else:
+                error_message += "No additional error details"
+        else:
+            error_message += error_description
+
+        raise cls(error_message, response=response)
+
+
 def salesforce_refresh_access_token(refresh_token: str) -> str:
     res = requests.post(
         "https://login.salesforce.com/services/oauth2/token",
@@ -36,9 +70,7 @@ def salesforce_refresh_access_token(refresh_token: str) -> str:
         },
     )
 
-    if res.status_code != 200:
-        err_message = res.json()["error_description"]
-        raise Exception(err_message)
+    SalesforceAuthRequestError.raise_from_response(res)
 
     return res.json()["access_token"]
 
@@ -55,9 +87,7 @@ def get_salesforce_access_token_from_code(code: str, redirect_uri: str) -> tuple
         },
     )
 
-    if res.status_code != 200:
-        err_message = res.json()["error_description"]
-        raise Exception(err_message)
+    SalesforceAuthRequestError.raise_from_response(res)
 
     payload = res.json()
 

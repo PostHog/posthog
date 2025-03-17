@@ -1,97 +1,105 @@
-import { IconTrash } from '@posthog/icons'
-import { useActions, useValues } from 'kea'
+import { IconPlus } from '@posthog/icons'
+import { LemonTabs } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { useCallback, useRef } from 'react'
-import { revenueEventsSettingsLogic } from 'scenes/data-management/revenue/revenueEventsSettingsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useRef, useState } from 'react'
 
-import { RevenueTrackingEventItem } from '~/queries/schema/schema-general'
+import { BaseCurrency } from './BaseCurrency'
+import { DataWarehouseTablesConfiguration } from './DataWarehouseTablesConfiguration'
+import { EventConfiguration } from './EventConfiguration'
+import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
+import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
+import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
 
-const ADD_EVENT_BUTTON_ID = 'data-management-revenue-settings-add-event'
+type Tab = 'events' | 'data-warehouse'
 
 export function RevenueEventsSettings(): JSX.Element {
-    const { saveDisabledReason, events } = useValues(revenueEventsSettingsLogic)
-    const { addEvent, deleteEvent, updatePropertyName, save } = useActions(revenueEventsSettingsLogic)
+    const [activeTab, setActiveTab] = useState<Tab>('events')
 
-    const renderPropertyColumn = useCallback(
-        (_, item: RevenueTrackingEventItem) => {
-            return (
-                <TaxonomicPopover
-                    groupType={TaxonomicFilterGroupType.EventProperties}
-                    onChange={(newPropertyName) => updatePropertyName(item.eventName, newPropertyName)}
-                    value={item.revenueProperty}
-                    placeholder="Choose event property"
-                    excludedProperties={{}}
-                    showNumericalPropsOnly={true}
-                    disabledReason={
-                        item.eventName === '$pageview' || item.eventName === '$autocapture'
-                            ? 'Built-in events must use revenue'
-                            : undefined
-                    }
-                />
-            )
-        },
-        [updatePropertyName]
-    )
+    const { events, dataWarehouseTables } = useValues(revenueEventsSettingsLogic)
 
-    const buttonRef = useRef<HTMLButtonElement | null>(null)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const eventsButtonRef = useRef<HTMLButtonElement>(null)
+    const dataWarehouseTablesButtonRef = useRef<HTMLButtonElement>(null)
+
+    let introductionDescription =
+        'Revenue events are used to track revenue in Web analytics. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event.'
+    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS]) {
+        introductionDescription += ' You can also import revenue data from your PostHog data warehouse tables.'
+    }
 
     return (
-        <div className="space-y-4">
+        <div className="flex flex-col gap-8">
             <ProductIntroduction
                 productName="Revenue tracking"
                 thingName="revenue event"
-                description="Revenue events are used to track revenue in Web analytics. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event."
-                isEmpty={events.length === 0}
-                action={() => buttonRef.current?.click()}
-            />
-            <LemonTable<RevenueTrackingEventItem>
-                columns={[
-                    { key: 'eventName', title: 'Event name', dataIndex: 'eventName' },
-                    {
-                        key: 'revenueProperty',
-                        title: 'Revenue property',
-                        dataIndex: 'revenueProperty',
-                        render: renderPropertyColumn,
-                    },
-                    {
-                        key: 'delete',
-                        title: '',
-                        render: (_, item) => (
+                description={introductionDescription}
+                isEmpty={events.length === 0 && dataWarehouseTables.length === 0}
+                actionElementOverride={
+                    <>
+                        <div className="flex flex-col gap-2">
                             <LemonButton
-                                type="secondary"
-                                onClick={() => deleteEvent(item.eventName)}
-                                icon={<IconTrash />}
+                                type="primary"
+                                icon={<IconPlus />}
+                                onClick={() => {
+                                    eventsButtonRef.current?.scrollIntoView({ behavior: 'smooth' })
+                                    eventsButtonRef.current?.click()
+                                }}
+                                data-attr="create-revenue-event"
                             >
-                                Delete
+                                Create revenue event
                             </LemonButton>
-                        ),
-                    },
-                ]}
-                dataSource={events}
-                rowKey={(item) => item.eventName}
+
+                            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS] && (
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    onClick={() => {
+                                        dataWarehouseTablesButtonRef.current?.scrollIntoView({ behavior: 'smooth' })
+                                        dataWarehouseTablesButtonRef.current?.click()
+                                    }}
+                                    data-attr="import-revenue-data-warehouse-tables"
+                                >
+                                    Import revenue data from data warehouse
+                                </LemonButton>
+                            )}
+                        </div>
+                    </>
+                }
             />
 
-            <TaxonomicPopover
-                type="primary"
-                groupType={TaxonomicFilterGroupType.CustomEvents}
-                onChange={addEvent}
-                value={undefined}
-                placeholder="Create revenue event"
-                excludedProperties={{
-                    [TaxonomicFilterGroupType.CustomEvents]: [null, ...events.map((item) => item.eventName)],
-                }}
-                id={ADD_EVENT_BUTTON_ID}
-                ref={buttonRef}
-            />
-            <div className="mt-4">
-                <LemonButton type="primary" onClick={save} disabledReason={saveDisabledReason}>
-                    Save
-                </LemonButton>
-            </div>
+            <BaseCurrency />
+
+            <EventConfiguration buttonRef={eventsButtonRef} />
+
+            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS] && (
+                <DataWarehouseTablesConfiguration buttonRef={dataWarehouseTablesButtonRef} />
+            )}
+
+            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS] ? (
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={(key) => setActiveTab(key as Tab)}
+                    tabs={[
+                        {
+                            key: 'events',
+                            label: 'Revenue events',
+                            content: <RevenueExampleEventsTable />,
+                        },
+                        {
+                            key: 'data-warehouse',
+                            label: 'Data Warehouse tables',
+                            content: <RevenueExampleDataWarehouseTablesData />,
+                        },
+                    ]}
+                />
+            ) : (
+                <RevenueExampleEventsTable />
+            )}
         </div>
     )
 }

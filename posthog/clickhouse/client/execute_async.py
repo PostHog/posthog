@@ -19,6 +19,7 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 from posthog.tasks.tasks import process_query_task
 
+
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
@@ -222,6 +223,7 @@ def enqueue_process_query_task(
     refresh_requested: bool = False,
     force: bool = False,
     _test_only_bypass_celery: bool = False,
+    api_query_personal_key: bool = False,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -245,7 +247,9 @@ def enqueue_process_query_task(
     )
     manager.store_query_status(query_status)
 
-    task_signature = process_query_task.si(team.id, user_id, query_id, query_json, LimitContext.QUERY_ASYNC)
+    task_signature = process_query_task.si(
+        team.id, user_id, query_id, query_json, api_query_personal_key, LimitContext.QUERY_ASYNC
+    )
 
     if _test_only_bypass_celery:
         task_signature()
@@ -263,14 +267,23 @@ def get_query_status(team_id: int, query_id: str, show_progress: bool = False) -
     return manager.get_query_status(show_progress=show_progress)
 
 
-def cancel_query(team_id: int, query_id: str):
+def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> str:
+    """
+    Cancel a query.
+    First tries to see if the query is queued in celery and revokes it.
+    If the query is not queued, it will be cancelled on clickhouse.
+
+    If dequeue_only is True, only tries to revoke the task, not cancel the query on clickhouse.
+    Useful as we don't want to overwhelm clickhouse with KILL queries.
+    """
     manager = QueryStatusManager(query_id, team_id)
+    message = "Query task revoked"
 
     try:
         query_status = manager.get_query_status()
 
         if query_status.complete:
-            return
+            return "Query already complete"
 
         if query_status.task_id:
             logger.info("Got task id %s, attempting to revoke", query_status.task_id)
@@ -281,8 +294,14 @@ def cancel_query(team_id: int, query_id: str):
         # Continue, to attempt to cancel the query even if it's not a task
         pass
 
-    from posthog.clickhouse.cancel import cancel_query_on_cluster
+    if dequeue_only:
+        message = "Only tried to dequeue, not cancelling query on clickhouse"
+    else:
+        from posthog.clickhouse.cancel import cancel_query_on_cluster
 
-    cancel_query_on_cluster(team_id, query_id)
+        cancel_query_on_cluster(team_id, query_id)
+        message = "Cancelled query on clickhouse"
 
     manager.delete_query_status()
+
+    return message

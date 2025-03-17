@@ -1,10 +1,9 @@
 import './Playlist.scss'
 
-import { IconAIText, IconX } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconX } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
@@ -14,6 +13,8 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 import { AiFilter } from 'scenes/session-recordings/components/AiFilter/AiFilter'
 
 import { SessionRecordingType } from '~/types'
+
+import { playlistLogic } from './playlistLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -88,7 +89,8 @@ export function Playlist({
         750: 'medium',
     })
 
-    const [isExpanded, setIsExpanded] = useState(false)
+    const { isExpanded } = useValues(playlistLogic)
+    const { setIsExpanded } = useActions(playlistLogic)
 
     const onChangeActiveItem = (item: SessionRecordingType): void => {
         setControlledActiveItemId(item.id)
@@ -162,26 +164,11 @@ export function Playlist({
                     'xl:flex-row': true,
                 })}
             >
-                <div className="flex flex-col gap-2 xl:max-w-80">
-                    {!isExpanded && (
-                        <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
-                            <div className="flex justify-center">
-                                <LemonButton
-                                    fullWidth
-                                    type="secondary"
-                                    icon={<IconAIText />}
-                                    onClick={() => {
-                                        setIsExpanded(true)
-                                        posthog.capture('ai_filter_open')
-                                    }}
-                                >
-                                    Ask Max AI about recordings{' '}
-                                    <LemonTag type="completion" className="ml-2">
-                                        ALPHA
-                                    </LemonTag>
-                                </LemonButton>
-                            </div>
-                        </FlaggedFeature>
+                <div className="flex flex-col xl:max-w-80">
+                    {filterActions && (
+                        <DraggableToNotebook className="mb-2" href={notebooksHref}>
+                            {filterActions}
+                        </DraggableToNotebook>
                     )}
                     <div
                         ref={playlistRef}
@@ -195,8 +182,6 @@ export function Playlist({
                             ref={playlistListRef}
                             className="Playlist__list flex flex-col relative overflow-hidden h-full w-full"
                         >
-                            <DraggableToNotebook href={notebooksHref}>{filterActions}</DraggableToNotebook>
-
                             <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
                                 <DraggableToNotebook href={notebooksHref}>
                                     <div className="flex flex-col gap-1">
@@ -353,7 +338,7 @@ const LoadingState = (): JSX.Element => {
     return (
         <>
             {range(5).map((i) => (
-                <div key={i} className="p-4 space-y-2">
+                <div key={i} className="p-4 deprecated-space-y-2">
                     <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton className="w-1/3 h-4" />
                 </div>

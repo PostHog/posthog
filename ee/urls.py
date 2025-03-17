@@ -23,7 +23,6 @@ from .api import (
     subscription,
 )
 from .api.rbac import organization_resource_access, role
-from .session_recordings import session_recording_playlist
 
 
 def extend_api_router() -> None:
@@ -33,7 +32,6 @@ def extend_api_router() -> None:
         legacy_project_dashboards_router,
         organizations_router,
         project_feature_flags_router,
-        projects_router,
         register_grandfathered_environment_nested_viewset,
         router as root_router,
     )
@@ -90,12 +88,6 @@ def extend_api_router() -> None:
 
     register_grandfathered_environment_nested_viewset(
         r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
-    )
-    projects_router.register(
-        r"session_recording_playlists",
-        session_recording_playlist.SessionRecordingPlaylistViewSet,
-        "project_session_recording_playlists",
-        ["project_id"],
     )
 
     environments_router.register(

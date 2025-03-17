@@ -29,11 +29,11 @@ from posthog.models.organization import Organization
 from posthog.schema import PersonsArgMaxVersion
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
-    "id": StringDatabaseField(name="id"),
-    "created_at": DateTimeDatabaseField(name="created_at"),
-    "team_id": IntegerDatabaseField(name="team_id"),
-    "properties": StringJSONDatabaseField(name="properties"),
-    "is_identified": BooleanDatabaseField(name="is_identified"),
+    "id": StringDatabaseField(name="id", nullable=False),
+    "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
+    "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+    "properties": StringJSONDatabaseField(name="properties", nullable=False),
+    "is_identified": BooleanDatabaseField(name="is_identified", nullable=False),
     "pdi": LazyJoin(
         from_field=["id"],
         join_table=PersonsPDITable(),
@@ -204,8 +204,8 @@ def join_with_persons_table(
 class RawPersonsTable(Table):
     fields: dict[str, FieldOrTable] = {
         **PERSONS_FIELDS,
-        "is_deleted": BooleanDatabaseField(name="is_deleted"),
-        "version": IntegerDatabaseField(name="version"),
+        "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
+        "version": IntegerDatabaseField(name="version", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):

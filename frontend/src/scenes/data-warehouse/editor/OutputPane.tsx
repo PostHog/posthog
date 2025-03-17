@@ -23,15 +23,11 @@ import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/L
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
-import { AddVariableButton } from '~/queries/nodes/DataVisualization/Components/Variables/AddVariableButton'
-import { VariablesForInsight } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
-import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
-import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { InfoTab } from './OutputPaneTabs/InfoTab'
@@ -133,17 +129,16 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
 export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
-    const { variablesForInsight } = useValues(variablesLogic)
 
-    const { editingView, sourceQuery, exportContext, isValidView, error, editorKey, metadataLoading } =
-        useValues(multitabEditorLogic)
-    const { saveAsInsight, saveAsView, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
+    const { sourceQuery, exportContext, editorKey, metadataLoading } = useValues(multitabEditorLogic)
+    const { saveAsInsight, setSourceQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
-    const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
-    const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { visualizationType, queryCancelled } = useValues(dataVisualizationLogic)
+    const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
@@ -223,13 +218,12 @@ export function OutputPane(): JSX.Element {
         setSelectedRow(args.row)
     }, [])
 
+    const setProgress = useCallback((loadId: string, progress: number) => {
+        setProgressCache((prev) => ({ ...prev, [loadId]: progress }))
+    }, [])
+
     return (
         <div className="flex flex-col w-full flex-1 bg-primary">
-            {variablesForInsight.length > 0 && (
-                <div className="py-2 px-4">
-                    <VariablesForInsight />
-                </div>
-            )}
             <div className="flex flex-row justify-between align-center py-2 px-4 w-full h-[55px]">
                 <LemonTabs
                     activeKey={activeTab}
@@ -266,9 +260,7 @@ export function OutputPane(): JSX.Element {
                     ]}
                 />
                 <div className="flex gap-2">
-                    <AddVariableButton />
-
-                    {exportContext && (
+                    {activeTab === OutputTab.Results && exportContext && (
                         <ExportButton
                             disabledReason={
                                 visualizationType != ChartDisplayType.ActionsTable &&
@@ -287,41 +279,29 @@ export function OutputPane(): JSX.Element {
                             ]}
                         />
                     )}
-
-                    {editingView ? (
+                    {activeTab === OutputTab.Visualization && (
                         <>
-                            <LemonButton
-                                loading={updatingDataWarehouseSavedQuery}
-                                type="secondary"
-                                onClick={() =>
-                                    updateDataWarehouseSavedQuery({
-                                        id: editingView.id,
-                                        query: sourceQuery.source,
-                                        types: response?.types ?? [],
-                                    })
-                                }
-                            >
-                                Update view
-                            </LemonButton>
+                            <div className="flex justify-between flex-wrap">
+                                <div className="flex items-center" />
+                                <div className="flex items-center">
+                                    <div className="flex gap-2 items-center flex-wrap">
+                                        <TableDisplay />
+
+                                        <LemonButton
+                                            type="secondary"
+                                            icon={<IconGear />}
+                                            onClick={() => toggleChartSettingsPanel()}
+                                            tooltip="Visualization settings"
+                                        />
+
+                                        <LemonButton type="primary" onClick={() => saveAsInsight()}>
+                                            Create insight
+                                        </LemonButton>
+                                    </div>
+                                </div>
+                            </div>
                         </>
-                    ) : (
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => saveAsView()}
-                            disabledReason={isValidView ? '' : 'Some fields may need an alias'}
-                        >
-                            Save as view
-                        </LemonButton>
                     )}
-                    <LemonButton
-                        disabledReason={error ? error : ''}
-                        loading={responseLoading}
-                        type="primary"
-                        onClick={() => runQuery()}
-                    >
-                        <span className="mr-1">Run</span>
-                        <KeyboardShortcut command enter />
-                    </LemonButton>
                 </div>
             </div>
             <div className="flex flex-1 relative bg-dark">
@@ -344,11 +324,13 @@ export function OutputPane(): JSX.Element {
                         pollResponse={pollResponse}
                         editorKey={editorKey}
                         onRowClick={handleRowClick}
+                        setProgress={setProgress}
+                        progress={queryId ? progressCache[queryId] : undefined}
                     />
                 </BindLogic>
             </div>
             <div className="flex justify-between px-2 border-t">
-                <div>{response ? <LoadPreviewText /> : <></>}</div>
+                <div>{response && !responseError ? <LoadPreviewText /> : <></>}</div>
                 <ElapsedTime />
             </div>
             <RowDetailsModal
@@ -364,17 +346,8 @@ export function OutputPane(): JSX.Element {
 function InternalDataTableVisualization(
     props: DataTableVisualizationProps & { onSaveInsight: () => void }
 ): JSX.Element | null {
-    const {
-        query,
-        visualizationType,
-        showEditingUI,
-        showResultControls,
-        response,
-        responseLoading,
-        isChartSettingsPanelOpen,
-    } = useValues(dataVisualizationLogic)
-
-    const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+    const { query, visualizationType, showEditingUI, response, responseLoading, isChartSettingsPanelOpen } =
+        useValues(dataVisualizationLogic)
 
     let component: JSX.Element | null = null
 
@@ -416,29 +389,6 @@ function InternalDataTableVisualization(
                     )}
                     <div className={clsx('w-full h-full flex-1 overflow-auto')}>{component}</div>
                 </div>
-                {showResultControls && (
-                    <>
-                        <div className="flex justify-between flex-wrap px-px py-2">
-                            <div className="flex items-center" />
-                            <div className="flex items-center">
-                                <div className="flex gap-2 items-center flex-wrap">
-                                    <TableDisplay />
-
-                                    <LemonButton
-                                        icon={<IconGear />}
-                                        type={isChartSettingsPanelOpen ? 'primary' : 'secondary'}
-                                        onClick={() => toggleChartSettingsPanel()}
-                                        tooltip="Visualization settings"
-                                    />
-
-                                    <LemonButton type="primary" onClick={() => props.onSaveInsight()}>
-                                        Create insight
-                                    </LemonButton>
-                                </div>
-                            </div>
-                        </div>
-                    </>
-                )}
             </div>
         </div>
     )
@@ -480,6 +430,8 @@ const Content = ({
     pollResponse,
     editorKey,
     onRowClick,
+    setProgress,
+    progress,
 }: any): JSX.Element | null => {
     if (activeTab === OutputTab.Results) {
         if (responseError) {
@@ -498,12 +450,15 @@ const Content = ({
                 <StatelessInsightLoadingState
                     queryId={queryId}
                     pollResponse={pollResponse}
-                    renderEmptyStateAsSkeleton
+                    setProgress={setProgress}
+                    progress={progress}
                 />
             </div>
         ) : !response ? (
             <div className="flex flex-1 justify-center items-center">
-                <span className="text-secondary mt-3">Query results will appear here</span>
+                <span className="text-secondary mt-3">
+                    Query results will appear here. Press <KeyboardShortcut command enter /> to run the query.
+                </span>
             </div>
         ) : (
             <TabScroller>
