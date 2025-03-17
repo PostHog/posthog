@@ -78,8 +78,6 @@ export class Logger {
     error(...args: any[]) {
         this._log(LogLevel.Error, ...args)
     }
-
-    close() {}
 }
 
 export const logger = new Logger(defaultConfig.PLUGIN_SERVER_MODE ?? 'MAIN')

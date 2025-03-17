@@ -86,10 +86,6 @@ beforeEach(() => {
     })
 })
 
-// NOTE: in testing we use the pino-pretty transport, which results in a handle
-// that we need to close to allow Jest to exit properly.
-afterAll(() => logger.close())
-
 beforeAll(() => {
     // We use procese.exit in a few places, which end up terminating tests
     // if we don't mock it.
