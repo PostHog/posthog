@@ -806,11 +806,6 @@ export class SessionRecordingIngester {
                     partition,
                 }
 
-                // status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
-                //     ...tp,
-                //     partitionBlockingSessions,
-                // })
-
                 let potentiallyBlockingSession: SessionManager | undefined
 
                 let activeSessionsOnThisPartition = 0

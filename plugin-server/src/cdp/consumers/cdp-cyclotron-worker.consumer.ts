@@ -106,7 +106,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
         if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
             const hogFunctions = await this.hogFunctionManagerLazy.getHogFunctions(hogFunctionIds)
-            status.info('🧐', `Lazy loaded ${Object.keys(hogFunctions).length} hog functions`)
+            logger.info('🧐', `Lazy loaded ${Object.keys(hogFunctions).length} hog functions`)
         }
 
         for (const job of jobs) {
