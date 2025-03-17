@@ -16,6 +16,7 @@ import {
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
     CookielessManager,
+    extractRootDomain,
     getRedisIdentifiesKey,
     hashToDistinctId,
     sessionStateToBuffer,
@@ -540,6 +541,16 @@ describe('CookielessManager', () => {
 
                     const distinctId = getRedisIdentifiesKey(hashBuf, team_id)
                     expect(distinctId).toEqual(expected_identifies_key)
+                }
+            )
+        })
+
+        describe('extractRootDomain', () => {
+            it.each(TEST_CASES.extract_root_domain_tests)(
+                'should correctly extract the root domain from $host',
+                ({ host, expected_root_domain }) => {
+                    const result = extractRootDomain(host)
+                    expect(result).toEqual(expected_root_domain)
                 }
             )
         })

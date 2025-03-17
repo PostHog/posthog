@@ -3,7 +3,9 @@ import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import { randomBytes } from 'crypto'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
+import { parse } from 'ipaddr.js'
 import { DateTime } from 'luxon'
+import { isIPv6 } from 'net'
 import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
@@ -218,7 +220,7 @@ export class CookielessManager {
     }) {
         const yyyymmdd = toYYYYMMDDInTimezoneSafe(timestampMs, eventTimeZone, teamTimeZone)
         const salt = await this.getSaltForDay(yyyymmdd, timestampMs)
-        const rootDomain = getDomain(host) || host
+        const rootDomain = extractRootDomain(host)
         return CookielessManager.doHash(salt, teamId, ip, rootDomain, userAgent, n, hashExtra)
     }
 
@@ -683,3 +685,54 @@ const cookielessCacheMissCounter = new Counter({
     help: 'Number of local cache misses for cookieless salt',
     labelNames: ['operation', 'day'],
 })
+
+/**
+ * Extract the root domain from a host string
+ *
+ * This function handles various formats including:
+ * - URLs with protocols (e.g., https://example.com)
+ * - Hosts with ports (e.g., example.com:8000)
+ * - Subdomains (e.g., sub.example.com)
+ * - IPv4 and IPv6 addresses
+ *
+ * It returns the root domain (eTLD+1) for valid domains, or the original host for
+ * special cases like IP addresses, localhost, etc.
+ * The port is preserved if present in the original host.
+ */
+export function extractRootDomain(input: string): string {
+    // If the host is empty, return it as is
+    if (!input) {
+        return input
+    }
+
+    if (isIPv6(input)) {
+        Ø
+        // Usually we would expect URLS, which would need to wrap literal ipv6 addresses in square brackets per RFC 2732.
+        // Handle raw ipv6 addresses just in case, and return them normalized with square brackets.
+        const ip = parse(input)
+        return `[${ip.toString()}]`
+    }
+
+    if (!input.includes('://')) {
+        // add a fake protocol to make URL parsing work
+        input = `http://${input}`
+    }
+
+    // Extract hostname and port
+    let hostname: string
+    let port: string | undefined
+    try {
+        const url = new URL(input)
+        hostname = url.hostname
+        port = url.port
+    } catch {
+        // If the URL parsing fails, return the original host
+        return input
+    }
+
+    // Get the root domain using tldts
+    const domain = getDomain(hostname) ?? hostname
+
+    // Add the port back if it exists
+    return port ? `${domain}:${port}` : domain
+}

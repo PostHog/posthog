@@ -295,24 +295,74 @@ impl CookielessManager {
     }
 }
 
-/// Extract the root domain from a host
-fn extract_root_domain(host: &str) -> Result<String, CookielessManagerError> {
-    // If the host contains a protocol, extract just the host part
-    let host_str = if host.contains("://") {
-        // Parse the URL to extract just the host
-        let url = Url::parse(host)?;
-        url.host_str().unwrap_or(host).to_string()
+/// Extract the root domain from a host string
+///
+/// This function handles various formats including:
+/// - URLs with protocols (e.g., https://example.com)
+/// - Hosts with ports (e.g., example.com:8000)
+/// - Subdomains (e.g., sub.example.com)
+/// - IPv4 and IPv6 addresses
+///
+/// It returns the root domain (eTLD+1) for valid domains, or the original host for
+/// special cases like IP addresses, localhost, etc.
+/// The port is preserved if present in the original host.
+pub fn extract_root_domain(host: &str) -> Result<String, CookielessManagerError> {
+    use std::net::IpAddr;
+
+    // If the host is empty, return it as is
+    if host.is_empty() {
+        return Ok(host.to_string());
+    }
+
+    // Check if it's an IPv6 address
+    if let Ok(ip_addr) = host.parse::<IpAddr>() {
+        if let IpAddr::V6(ipv6) = ip_addr {
+            // Return the normalized form of the IPv6 address in brackets
+            return Ok(format!("[{}]", ipv6));
+        }
+    }
+
+    // Split host and port for special handling of IP addresses
+    let (hostname, port) = if let Some((h, p)) = host.split_once(':') {
+        (h, Some(p))
+    } else {
+        (host, None)
+    };
+
+    // Check if the hostname is an IP address
+    if hostname.parse::<IpAddr>().is_ok() {
+        return match port {
+            Some(p) => Ok(format!("{}:{}", hostname, p)),
+            None => Ok(hostname.to_string()),
+        };
+    }
+
+    // Add a fake protocol if none exists
+    let input = if !host.contains("://") {
+        format!("http://{}", host)
     } else {
         host.to_string()
     };
 
+    // Parse the URL to extract hostname and port
+    let url = match Url::parse(&input) {
+        Ok(url) => url,
+        Err(_) => return Ok(host.to_string()),
+    };
+
+    let hostname = url.host_str().unwrap_or(host).to_string();
+    let port = url.port().map(|p| p.to_string());
+
     // Use the public-suffix list to extract the root domain (eTLD+1)
-    match DEFAULT_PROVIDER.effective_tld_plus_one(&host_str) {
-        Ok(domain) => Ok(domain.to_string()),
-        Err(_) => {
-            // If we can't parse the domain, just return the host
-            Ok(host_str)
-        }
+    let domain = match DEFAULT_PROVIDER.effective_tld_plus_one(&hostname) {
+        Ok(domain) => domain.to_string(),
+        Err(_) => hostname,
+    };
+
+    // Add the port back if it exists
+    match port {
+        Some(p) => Ok(format!("{}:{}", domain, p)),
+        None => Ok(domain),
     }
 }
 
@@ -426,37 +476,28 @@ mod tests {
 
     #[test]
     fn test_extract_root_domain() {
-        // Simple domain
-        let result = extract_root_domain("example.com").unwrap();
-        assert_eq!(result, "example.com");
+        // Read the test cases from the JSON file
+        let test_cases_json = fs::read_to_string("src/test_cases.json")
+            .expect("Failed to read test_cases.json file. Make sure you're running the test from the correct directory.");
+        let test_cases: Value = serde_json::from_str(&test_cases_json)
+            .expect("Failed to parse test_cases.json as valid JSON");
 
-        // Domain with subdomain
-        let result = extract_root_domain("sub.example.com").unwrap();
-        assert_eq!(result, "example.com");
+        // Test extract_root_domain function
+        if let Some(extract_root_domain_tests) = test_cases.get("extract_root_domain_tests") {
+            for test_case in extract_root_domain_tests.as_array().unwrap() {
+                let host = test_case["host"].as_str().unwrap();
+                let expected_root_domain = test_case["expected_root_domain"].as_str().unwrap();
 
-        // Domain with protocol
-        let result = extract_root_domain("http://example.com").unwrap();
-        assert_eq!(result, "example.com");
+                let result = extract_root_domain(host).unwrap();
+                assert_eq!(result, expected_root_domain, "Failed for host: {}", host);
+            }
+        } else {
+            panic!("extract_root_domain_tests not found in test_cases.json");
+        }
 
-        // Domain with protocol and path
-        let result = extract_root_domain("http://example.com/path").unwrap();
-        assert_eq!(result, "example.com");
-
-        // Domain with protocol, subdomain, and path
-        let result = extract_root_domain("https://sub.example.com/path").unwrap();
-        assert_eq!(result, "example.com");
-
-        // Domain with multiple subdomains
-        let result = extract_root_domain("a.b.c.example.com").unwrap();
-        assert_eq!(result, "example.com");
-
-        // Domain with a known public suffix
-        let result = extract_root_domain("example.co.uk").unwrap();
-        assert_eq!(result, "example.co.uk");
-
-        // Subdomain with a known public suffix
-        let result = extract_root_domain("sub.example.co.uk").unwrap();
-        assert_eq!(result, "example.co.uk");
+        // Additional test cases for edge cases not covered in the shared test cases
+        let result = extract_root_domain("not a url").unwrap();
+        assert_eq!(result, "not a url");
     }
 
     #[test]
@@ -855,13 +896,16 @@ mod tests {
 
         // Test hash_to_distinct_id function
         if let Some(distinct_id_tests) = test_cases.get("hash_to_distinct_id_tests") {
-            for test_case in distinct_id_tests.as_array()
-                .expect("hash_to_distinct_id_tests should be an array") {
-                let hash_base64 = test_case["hash"].as_str()
-                    .expect("hash should be a string");
-                let hash = general_purpose::STANDARD.decode(hash_base64)
+            for test_case in distinct_id_tests
+                .as_array()
+                .expect("hash_to_distinct_id_tests should be an array")
+            {
+                let hash_base64 = test_case["hash"].as_str().expect("hash should be a string");
+                let hash = general_purpose::STANDARD
+                    .decode(hash_base64)
                     .expect("hash should be valid base64");
-                let expected_distinct_id = test_case["expected_distinct_id"].as_str()
+                let expected_distinct_id = test_case["expected_distinct_id"]
+                    .as_str()
                     .expect("expected_distinct_id should be a string");
 
                 let distinct_id = CookielessManager::hash_to_distinct_id(&hash);
@@ -873,15 +917,19 @@ mod tests {
 
         // Test get_redis_identifies_key function
         if let Some(identifies_key_tests) = test_cases.get("redis_identifies_key_tests") {
-            for test_case in identifies_key_tests.as_array()
-                .expect("redis_identifies_key_tests should be an array") {
-                let hash_base64 = test_case["hash"].as_str()
-                    .expect("hash should be a string");
-                let hash = general_purpose::STANDARD.decode(hash_base64)
+            for test_case in identifies_key_tests
+                .as_array()
+                .expect("redis_identifies_key_tests should be an array")
+            {
+                let hash_base64 = test_case["hash"].as_str().expect("hash should be a string");
+                let hash = general_purpose::STANDARD
+                    .decode(hash_base64)
                     .expect("hash should be valid base64");
-                let team_id = test_case["team_id"].as_u64()
+                let team_id = test_case["team_id"]
+                    .as_u64()
                     .expect("team_id should be a non-negative integer");
-                let expected_identifies_key = test_case["expected_identifies_key"].as_str()
+                let expected_identifies_key = test_case["expected_identifies_key"]
+                    .as_str()
                     .expect("expected_identifies_key should be a string");
 
                 let identifies_key = get_redis_identifies_key(&hash, team_id);
