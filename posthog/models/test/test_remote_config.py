@@ -14,6 +14,7 @@ from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig, cache_key_for_team_token
 from posthog.test.base import BaseTest
 from django.core.cache import cache
+from django.utils import timezone
 
 CONFIG_REFRESH_QUERY_COUNT = 5
 
@@ -33,6 +34,7 @@ class _RemoteConfigBase(BaseTest):
         self.team.api_token = "phc_12345"  # Easier to test against
         self.team.recording_domains = ["https://*.example.com"]
         self.team.session_recording_opt_in = True
+        self.team.surveys_opt_in = True
         self.team.save()
 
         # There will always be a config thanks to the signal
@@ -177,6 +179,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
             description="This should not be included",
             type="popover",
             questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=timezone.now(),
         )
         linked_flag = FeatureFlag.objects.create(team=self.team, key="linked-flag", created_by=self.user)
         targeting_flag = FeatureFlag.objects.create(team=self.team, key="targeting-flag", created_by=self.user)
@@ -193,6 +196,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
             targeting_flag=targeting_flag,
             internal_targeting_flag=internal_targeting_flag,
             questions=[{"type": "open", "question": "What's a hedgehog?"}],
+            start_date=timezone.now(),
         )
 
         action = Action.objects.create(
@@ -207,6 +211,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
             name="survey with actions",
             type="popover",
             questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+            start_date=timezone.now(),
         )
         survey_with_actions.actions.set(Action.objects.filter(name="user subscribed"))
         survey_with_actions.save()
@@ -224,7 +229,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 ],
                 "appearance": None,
                 "conditions": None,
-                "start_date": None,
+                "start_date": survey_basic.start_date.isoformat().replace("+00:00", "Z"),
                 "current_iteration": None,
                 "current_iteration_start_date": None,
                 "schedule": "once",
@@ -240,7 +245,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 ],
                 "appearance": None,
                 "conditions": None,
-                "start_date": None,
+                "start_date": survey_with_flags.start_date.isoformat().replace("+00:00", "Z"),
                 "linked_flag_key": "linked-flag",
                 "current_iteration": None,
                 "targeting_flag_key": "targeting-flag",
@@ -282,7 +287,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                         ]
                     }
                 },
-                "start_date": None,
+                "start_date": survey_with_actions.start_date.isoformat().replace("+00:00", "Z"),
                 "current_iteration": None,
                 "current_iteration_start_date": None,
                 "schedule": "once",
