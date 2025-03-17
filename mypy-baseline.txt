@@ -25,7 +25,6 @@ posthog/temporal/data_imports/pipelines/sql_database/helpers.py:0: error: Unused
 posthog/temporal/data_imports/pipelines/sql_database/helpers.py:0: error: "Expression" has no attribute "combine_chunks"  [attr-defined]
 posthog/temporal/data_imports/pipelines/sql_database/helpers.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/data_imports/pipelines/sql_database/helpers.py:0: error: Unused "type: ignore" comment  [unused-ignore]
-posthog/models/file_system/file_system_dsl.py:0: error: Argument "default" to "field" has incompatible type "Callable[[Arg(Any, 'team')], QuerySet[Never, _Model]]"; expected "Callable[[Arg(Any, 'team')], QuerySet[Never, _Model]]"  [arg-type]
 posthog/utils.py:0: error: No overload variant of "asdict" matches argument type "type[DataclassInstance]"  [call-overload]
 posthog/utils.py:0: note: Possible overload variants:
 posthog/utils.py:0: note: def asdict(obj: DataclassInstance) -> dict[str, Any]
@@ -828,9 +827,6 @@ posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type:
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
-posthog/api/test/test_sharing.py:0: error: "FileSystemSyncMixin" has no attribute "pk"  [attr-defined]
-posthog/api/test/test_sharing.py:0: error: "FileSystemSyncMixin" has no attribute "pk"  [attr-defined]
-posthog/api/test/test_sharing.py:0: error: "FileSystemSyncMixin" has no attribute "pk"  [attr-defined]
 posthog/api/test/batch_exports/conftest.py:0: error: Signature of "run" incompatible with supertype "Worker"  [override]
 posthog/api/test/batch_exports/conftest.py:0: note: Superclass:
 posthog/api/test/batch_exports/conftest.py:0: note: def run(self) -> Coroutine[Any, Any, None]

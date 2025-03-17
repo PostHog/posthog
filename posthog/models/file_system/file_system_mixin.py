@@ -81,10 +81,10 @@ class FileSystemSyncMixin(models.Model):
 
             fs_data = instance.get_file_system_representation()
             if fs_data.should_delete:
-                delete_file(team=instance.team, file_type=cls.file_system_type, ref=fs_data.ref)
+                delete_file(team=instance.team, file_type=cls.file_system_type, ref=fs_data.ref)  # type: ignore
             else:
                 create_or_update_file(
-                    team=instance.team,
+                    team=instance.team,  # type: ignore
                     base_folder=fs_data.base_folder,
                     name=fs_data.name,
                     file_type=cls.file_system_type,
@@ -99,4 +99,4 @@ class FileSystemSyncMixin(models.Model):
             from posthog.models.file_system.file_system import delete_file
 
             fs_data = instance.get_file_system_representation()
-            delete_file(team=instance.team, file_type=cls.file_system_type, ref=fs_data.ref)
+            delete_file(team=instance.team, file_type=cls.file_system_type, ref=fs_data.ref)  # type: ignore
