@@ -47,6 +47,8 @@ export function IntegrationChoice({
             ? 'Google Cloud Storage'
             : kind == 'google-ads'
             ? 'Google Ads'
+            : kind == 'linkedin-ads'
+            ? 'LinkedIn Ads'
             : capitalizeFirstLetter(kind)
 
     function uploadKey(kind: string): void {
@@ -97,8 +99,8 @@ export function IntegrationChoice({
                                   disableClientSideRouting: true,
                                   onClick: beforeRedirect,
                                   label: integrationsOfKind?.length
-                                      ? `Connect to a different ${kind} integration`
-                                      : `Connect to ${kind}`,
+                                      ? `Connect to a different integration for ${kindName}`
+                                      : `Connect to ${kindName}`,
                               },
                           ],
                       },

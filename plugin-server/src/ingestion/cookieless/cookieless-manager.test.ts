@@ -8,6 +8,7 @@ import { CookielessServerHashMode, Hub } from '../../types'
 import { RedisOperationError } from '../../utils/db/error'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
+import { parseJSON } from '../../utils/json-parse'
 import { UUID7 } from '../../utils/utils'
 import {
     bufferToSessionState,
@@ -491,7 +492,7 @@ describe('CookielessManager', () => {
         // don't import, as importing from outside our package directory will change the shape of the build directory
         // instead, just find the file path and load it directly
         const testCasesPath = require.resolve('../../../../rust/common/cookieless/src/test_cases.json')
-        const doHashTestCases: any[] = JSON.parse(fs.readFileSync(testCasesPath, 'utf-8')).test_cases
+        const doHashTestCases: any[] = parseJSON(fs.readFileSync(testCasesPath, 'utf-8')).test_cases
         it.each(doHashTestCases)(
             'should hash',
             ({ salt, team_id, ip, expected, root_domain, user_agent, n, hash_extra }) => {

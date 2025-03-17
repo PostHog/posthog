@@ -266,7 +266,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
-
+    USE_SIMD_JSON_PARSE: boolean
+    USE_SIMD_JSON_PARSE_FOR_COMPARISON: boolean
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
     STARTUP_PROFILE_CPU: boolean
