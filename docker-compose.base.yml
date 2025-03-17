@@ -228,6 +228,9 @@ services:
 
     plugins:
         command: ./bin/plugin-server --no-restart-loop
+        build:
+            context: .
+            dockerfile: Dockerfile.node
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
