@@ -1085,7 +1085,6 @@ describe('HogTransformer', () => {
                 bytecode: await compileHog(filterTemplate.hog),
                 filters: {
                     bytecode: await compileHog(`
-                        // Filter that would normally prevent application
                     return event = 'match-me'
                     `),
                 },
