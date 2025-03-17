@@ -1062,7 +1062,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "reason": {
                     "code": "out_of_rollout_bound",
                     "condition_index": 0,
-                    "description": None,
+                    "description": "Out of rollout bound",
                 },
                 "metadata": {
                     "id": bf.id,
@@ -1081,7 +1081,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "reason": {
                     "code": "condition_match",  # Adjust based on actual value
                     "condition_index": 0,  # Adjust based on actual value
-                    "description": None,
+                    "description": "Matched condition set 1",
                 },
                 "metadata": {
                     "id": mvFlag.id,

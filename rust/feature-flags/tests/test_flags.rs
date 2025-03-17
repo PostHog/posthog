@@ -151,7 +151,8 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
                     "enabled": true,
                     "reason": {
                         "code": "condition_match",
-                        "condition_index": 0
+                        "condition_index": 0,
+                        "description": "Matched condition set 1"
                     },
                     "metadata": {
                         "id": 1,

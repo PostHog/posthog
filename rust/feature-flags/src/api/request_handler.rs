@@ -983,7 +983,7 @@ mod tests {
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
-                    description: None,
+                    description: Some("Matched condition set 1".to_string()),
                 },
                 metadata: FlagDetailsMetadata {
                     id: 1,
@@ -1002,7 +1002,7 @@ mod tests {
                 reason: FlagEvaluationReason {
                     code: "out_of_rollout_bound".to_string(),
                     condition_index: Some(0),
-                    description: None,
+                    description: Some("Out of rollout bound".to_string()),
                 },
                 metadata: FlagDetailsMetadata {
                     id: 2,

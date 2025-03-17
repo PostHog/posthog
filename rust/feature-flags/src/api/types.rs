@@ -1,3 +1,4 @@
+use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
 use crate::flags::flag_models::FeatureFlag;
 use serde::{Deserialize, Serialize};
@@ -123,6 +124,7 @@ pub struct FlagEvaluationReason {
 pub trait FromFeatureAndMatch {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self;
     fn create_error(flag: &FeatureFlag, error_reason: &str) -> Self;
+    fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
 }
 
 impl FromFeatureAndMatch for FlagDetails {
@@ -134,7 +136,7 @@ impl FromFeatureAndMatch for FlagDetails {
             reason: FlagEvaluationReason {
                 code: flag_match.reason.to_string(),
                 condition_index: flag_match.condition_index.map(|i| i as i32),
-                description: None,
+                description: Self::get_reason_description(&flag_match),
             },
             metadata: FlagDetailsMetadata {
                 id: flag.id,
@@ -162,5 +164,101 @@ impl FromFeatureAndMatch for FlagDetails {
                 payload: None,
             },
         }
+    }
+
+    fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String> {
+        match match_info.reason {
+            FeatureFlagMatchReason::ConditionMatch => {
+                let set_number = match_info.condition_index.unwrap_or(0) + 1;
+                Some(format!("Matched condition set {}", set_number))
+            }
+            FeatureFlagMatchReason::NoConditionMatch => {
+                Some("No matching condition set".to_string())
+            }
+            FeatureFlagMatchReason::OutOfRolloutBound => Some("Out of rollout bound".to_string()),
+            FeatureFlagMatchReason::NoGroupType => Some("No group type".to_string()),
+            FeatureFlagMatchReason::SuperConditionValue => {
+                Some("Super condition value".to_string())
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::flags::flag_match_reason::FeatureFlagMatchReason;
+    use crate::flags::flag_matching::FeatureFlagMatch;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::condition_match(
+        FeatureFlagMatch {
+            matches: true,
+            variant: None,
+            reason: FeatureFlagMatchReason::ConditionMatch,
+            condition_index: Some(0),
+            payload: None,
+        },
+        Some("Matched condition set 1".to_string())
+    )]
+    #[case::condition_match_different_set(
+        FeatureFlagMatch {
+            matches: true,
+            variant: None,
+            reason: FeatureFlagMatchReason::ConditionMatch,
+            condition_index: Some(2),
+            payload: None,
+        },
+        Some("Matched condition set 3".to_string())
+    )]
+    #[case::no_condition_match(
+        FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::NoConditionMatch,
+            condition_index: None,
+            payload: None,
+        },
+        Some("No matching condition set".to_string())
+    )]
+    #[case::out_of_rollout(
+        FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::OutOfRolloutBound,
+            condition_index: Some(2),
+            payload: None,
+        },
+        Some("Out of rollout bound".to_string())
+    )]
+    #[case::no_group_type(
+        FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::NoGroupType,
+            condition_index: None,
+            payload: None,
+        },
+        Some("No group type".to_string())
+    )]
+    #[case::super_condition(
+        FeatureFlagMatch {
+            matches: true,
+            variant: None,
+            reason: FeatureFlagMatchReason::SuperConditionValue,
+            condition_index: None,
+            payload: None,
+        },
+        Some("Super condition value".to_string())
+    )]
+    fn test_get_reason_description(
+        #[case] flag_match: FeatureFlagMatch,
+        #[case] expected_description: Option<String>,
+    ) {
+        assert_eq!(
+            FlagDetails::get_reason_description(&flag_match),
+            expected_description
+        );
     }
 }

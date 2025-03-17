@@ -29,6 +29,7 @@ from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags_with_details
 from posthog.models.feature_flag.flag_analytics import increment_request_count
+from posthog.models.feature_flag.flag_matching import FeatureFlagMatch, FeatureFlagMatchReason
 from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.utils import execute_with_timeout
@@ -459,7 +460,7 @@ def _format_feature_flag_details(flags_details: Optional[dict]) -> dict:
             "reason": {
                 "code": flag_value.match.reason.value,
                 "condition_index": flag_value.match.condition_index,
-                "description": None,  # TBD add description.
+                "description": _get_reason_description(flag_value.match),
             },
             "metadata": {
                 "id": flag_value.id,
@@ -470,6 +471,24 @@ def _format_feature_flag_details(flags_details: Optional[dict]) -> dict:
         }
 
     return flag_details
+
+
+def _get_reason_description(match: FeatureFlagMatch) -> str | None:
+    match match.reason.value:
+        case FeatureFlagMatchReason.CONDITION_MATCH:
+            return f"Matched condition set {(match.condition_index or 0) + 1}"
+        case FeatureFlagMatchReason.NO_CONDITION_MATCH:
+            return "No matching condition set"
+        case FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
+            return "Out of rollout bound"
+        case FeatureFlagMatchReason.NO_GROUP_TYPE:
+            return "No group type"
+        case FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
+            return "Super condition value"
+        case FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
+            return "Holdout condition value"
+        case _:
+            return None
 
 
 def _record_feature_flag_metrics(
