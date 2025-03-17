@@ -88,7 +88,8 @@ jobs:
 
     container:
         name: Build and cache container image
-        runs-on: ubuntu-24.04
+        # run these on 4, if they're RAM constrained the FE build will fail randomly
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 60
         needs: [changes]
         permissions:
@@ -109,6 +110,7 @@ jobs:
               with:
                   save: true
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+                  no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
 
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})

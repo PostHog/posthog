@@ -13,7 +13,7 @@ import {
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { parseJSON } from '../../utils/json-parse'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { HogWatcherState } from '../services/hog-watcher.service'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -78,8 +78,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 }
             }
         } catch (e) {
-            status.error('⚠️', 'Error creating cyclotron jobs', e)
-            status.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
+            logger.error('⚠️', 'Error creating cyclotron jobs', e)
+            logger.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
             throw e
         }
 
@@ -106,7 +106,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
                 lazyLoadedTeams = await this.hogFunctionManagerLazy.getHogFunctionsForTeams(teamsToLoad, this.hogTypes)
 
-                status.info('🧐', `Lazy loaded ${Object.keys(lazyLoadedTeams).length} teams`)
+                logger.info('🧐', `Lazy loaded ${Object.keys(lazyLoadedTeams).length} teams`)
             }
             const hogFunctionsByTeam = teamsToLoad.reduce((acc, teamId) => {
                 acc[teamId] = this.hogFunctionManager.getTeamHogFunctions(teamId)
@@ -119,7 +119,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
                     if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && lazyLoadedTeams) {
                         const lazyLoadedTeamHogFunctions = lazyLoadedTeams?.[globals.project.id]
-                        status.info(
+                        logger.info(
                             '🧐',
                             `Lazy loaded ${lazyLoadedTeamHogFunctions?.length} functions in comparison to ${teamHogFunctions.length}`
                         )
@@ -210,7 +210,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                                     )
                                 )
                             } catch (e) {
-                                status.error('Error parsing message', e)
+                                logger.error('Error parsing message', e)
                             }
                         })
                     )

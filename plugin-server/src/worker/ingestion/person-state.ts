@@ -9,9 +9,9 @@ import { InternalPerson, Person, PropertyUpdateOperation, Team } from '../../typ
 import { DB } from '../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
+import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { promiseRetry } from '../../utils/retries'
-import { status } from '../../utils/status'
 import { uuidFromDistinctId } from './person-uuid'
 import { captureIngestionWarning } from './utils'
 
@@ -195,7 +195,7 @@ export class PersonState {
                 return [updatedPerson, Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
             } catch (error) {
                 // shortcut didn't work, swallow the error and try normal retry loop below
-                status.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
+                logger.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
             }
         }
 
@@ -385,7 +385,7 @@ export class PersonState {
         unsetProperties.forEach((propertyKey) => {
             if (propertyKey in personProperties) {
                 if (typeof propertyKey !== 'string') {
-                    status.warn('🔔', 'unset_property_key_not_string', { propertyKey, unsetProperties })
+                    logger.warn('🔔', 'unset_property_key_not_string', { propertyKey, unsetProperties })
                     return
                 }
                 updated = true
@@ -668,7 +668,7 @@ export class PersonState {
                 },
                 { alwaysSend: true }
             )
-            status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
+            logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
             return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
         }
 
