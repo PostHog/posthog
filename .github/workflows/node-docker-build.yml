@@ -7,7 +7,7 @@ on:
             - 'plugin-server/**'
             - 'common/hogvm/**'
             - 'common/plugin_transpiler/**'
-            - '.github/workflows/ci-node-docker-build.yml'
+            - '.github/workflows/node-docker-build.yml'
         branches:
             - 'master'
 
