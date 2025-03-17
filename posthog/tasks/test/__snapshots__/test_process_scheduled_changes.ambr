@@ -269,7 +269,7 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."path" = 'Unfiled/Feature Flags/Flag'
          AND "posthog_filesystem"."team_id" = 99999
-         AND NOT ("posthog_filesystem"."id" = '018c8b9a62807becbaf69d8be4317a79'::uuid))
+         AND NOT ("posthog_filesystem"."id" = '00000000000000000000000000000000'::uuid))
   LIMIT 1
   '''
 # ---
@@ -1275,7 +1275,7 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."path" = 'Unfiled/Feature Flags/Flag'
          AND "posthog_filesystem"."team_id" = 99999
-         AND NOT ("posthog_filesystem"."id" = '018c8b9a62807becbaf69d8be4317a79'::uuid))
+         AND NOT ("posthog_filesystem"."id" = '00000000000000000000000000000000'::uuid))
   LIMIT 1
   '''
 # ---
