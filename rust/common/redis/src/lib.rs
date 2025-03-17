@@ -348,7 +348,7 @@ impl Client for MockRedisClient {
 
         match self.set_nx_ex_ret.get(&key) {
             Some(result) => result.clone(),
-            None => Ok(true), // Default to success
+            None => Err(CustomRedisError::NotFound),
         }
     }
 
