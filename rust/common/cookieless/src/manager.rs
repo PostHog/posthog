@@ -891,50 +891,5 @@ mod tests {
                 assert_eq!(identifies_key, expected_identifies_key);
             }
         }
-
-        // Test hash_to_distinct_id function
-        if let Some(distinct_id_tests) = test_cases.get("hash_to_distinct_id_tests") {
-            for test_case in distinct_id_tests
-                .as_array()
-                .expect("hash_to_distinct_id_tests should be an array")
-            {
-                let hash_base64 = test_case["hash"].as_str().expect("hash should be a string");
-                let hash = general_purpose::STANDARD
-                    .decode(hash_base64)
-                    .expect("hash should be valid base64");
-                let expected_distinct_id = test_case["expected_distinct_id"]
-                    .as_str()
-                    .expect("expected_distinct_id should be a string");
-
-                let distinct_id = CookielessManager::hash_to_distinct_id(&hash);
-                assert_eq!(distinct_id, expected_distinct_id);
-            }
-        } else {
-            panic!("hash_to_distinct_id_tests not found in test_cases.json");
-        }
-
-        // Test get_redis_identifies_key function
-        if let Some(identifies_key_tests) = test_cases.get("redis_identifies_key_tests") {
-            for test_case in identifies_key_tests
-                .as_array()
-                .expect("redis_identifies_key_tests should be an array")
-            {
-                let hash_base64 = test_case["hash"].as_str().expect("hash should be a string");
-                let hash = general_purpose::STANDARD
-                    .decode(hash_base64)
-                    .expect("hash should be valid base64");
-                let team_id = test_case["team_id"]
-                    .as_u64()
-                    .expect("team_id should be a non-negative integer");
-                let expected_identifies_key = test_case["expected_identifies_key"]
-                    .as_str()
-                    .expect("expected_identifies_key should be a string");
-
-                let identifies_key = get_redis_identifies_key(&hash, team_id);
-                assert_eq!(identifies_key, expected_identifies_key);
-            }
-        } else {
-            panic!("redis_identifies_key_tests not found in test_cases.json");
-        }
     }
 }
