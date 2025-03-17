@@ -40,8 +40,6 @@ export type LazyLoaderOptions<T> = {
     refreshNullAge?: number
     /** How much jitter to add to the refresh time */
     refreshJitterMs?: number
-    /** Whether to throw an error if the loader function throws an error */
-    throwOnLoadError?: boolean
 }
 
 export class LazyLoader<T> {
@@ -70,7 +68,6 @@ export class LazyLoader<T> {
             refreshAge = REFRESH_AGE,
             refreshNullAge = REFRESH_AGE,
             refreshJitterMs = REFRESH_JITTER_MS,
-            throwOnLoadError = true,
         } = this.options
         const keysToLoad = new Set<string>()
 
@@ -106,19 +103,7 @@ export class LazyLoader<T> {
 
         lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
 
-        let loaded: Record<string, T | null | undefined>
-        try {
-            loaded = await loader(Array.from(keysToLoad))
-        } catch (error) {
-            if (throwOnLoadError) {
-                throw error
-            }
-            status.error(
-                '🍿',
-                `[LazyLoader](${this.options.name}) Error loading values but silently ignoring: ${error}`
-            )
-            loaded = {}
-        }
+        const loaded = await loader(Array.from(keysToLoad))
 
         for (const key of keysToLoad) {
             results[key] = this.cache[key] = loaded[key] ?? null

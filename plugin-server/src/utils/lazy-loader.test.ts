@@ -135,19 +135,6 @@ describe('LazyLoader', () => {
 
             await expect(lazyLoader.get('key1')).rejects.toThrow('Test error')
         })
-
-        it('handles errors silently when throwOnLoadError is false', async () => {
-            const silentLoader = new LazyLoader({
-                name: 'test',
-                loader,
-                throwOnLoadError: false,
-            })
-
-            loader.mockRejectedValue(new Error('Test error'))
-
-            const result = await silentLoader.get('key1')
-            expect(result).toBeNull()
-        })
     })
 
     describe('markForRefresh', () => {
