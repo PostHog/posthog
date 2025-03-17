@@ -16,7 +16,7 @@ describe('CDP Internal Events Consumer', () => {
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
         // Trigger the reload that django would do
-        await processor.hogFunctionManager.reloadAllHogFunctions()
+        processor['hogFunctionManager']['onHogFunctionsReloaded'](team.id, [item.id])
         return item
     }
 

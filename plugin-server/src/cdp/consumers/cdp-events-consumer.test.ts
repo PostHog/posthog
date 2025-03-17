@@ -82,7 +82,7 @@ describe.each([
             type: hogType,
         })
         // Trigger the reload that django would do
-        await processor.hogFunctionManager.reloadAllHogFunctions()
+        processor['hogFunctionManager']['onHogFunctionsReloaded'](team.id, [item.id])
         return item
     }
 

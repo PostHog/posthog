@@ -27,10 +27,10 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
                             // This is the input stream from elsewhere so we want to do some proper validation
                             const event = CdpInternalEventSchema.parse(kafkaEvent)
 
-                            if (!this.hogFunctionManager.teamHasHogDestinations(event.team_id)) {
-                                // No need to continue if the team doesn't have any functions
-                                return
-                            }
+                            // if (!this.hogFunctionManager.teamHasHogDestinations(event.team_id)) {
+                            //     // No need to continue if the team doesn't have any functions
+                            //     return
+                            // }
 
                             const team = await this.hub.teamManager.fetchTeam(event.team_id)
                             if (!team) {

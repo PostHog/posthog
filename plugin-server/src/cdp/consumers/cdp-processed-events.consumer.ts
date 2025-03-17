@@ -3,7 +3,7 @@ import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
-import { Hub, RawClickHouseEvent, TeamId } from '~/src/types'
+import { Hub, RawClickHouseEvent } from '~/src/types'
 
 import {
     convertToHogFunctionInvocationGlobals,
@@ -15,7 +15,7 @@ import { runInstrumentedFunction } from '../../main/utils'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { HogWatcherState } from '../services/hog-watcher.service'
-import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
+import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
 export const histogramCyclotronJobsCreated = new Histogram({
@@ -100,30 +100,11 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             await this.groupsManager.enrichGroups(invocationGlobals)
 
             const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
-
-            let lazyLoadedTeams: Record<TeamId, HogFunctionType[] | undefined> | undefined
-
-            if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
-                lazyLoadedTeams = await this.hogFunctionManagerLazy.getHogFunctionsForTeams(teamsToLoad, this.hogTypes)
-
-                logger.info('🧐', `Lazy loaded ${Object.keys(lazyLoadedTeams).length} teams`)
-            }
-            const hogFunctionsByTeam = teamsToLoad.reduce((acc, teamId) => {
-                acc[teamId] = this.hogFunctionManager.getTeamHogFunctions(teamId)
-                return acc
-            }, {} as Record<TeamId, HogFunctionType[]>)
+            const hogFunctionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes)
 
             const possibleInvocations = (
                 await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
                     const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
-
-                    if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && lazyLoadedTeams) {
-                        const lazyLoadedTeamHogFunctions = lazyLoadedTeams?.[globals.project.id]
-                        logger.info(
-                            '🧐',
-                            `Lazy loaded ${lazyLoadedTeamHogFunctions?.length} functions in comparison to ${teamHogFunctions.length}`
-                        )
-                    }
 
                     const { invocations, metrics, logs } = this.hogExecutor.buildHogFunctionInvocations(
                         teamHogFunctions,
@@ -193,10 +174,10 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                             try {
                                 const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                                if (!this.hogFunctionManager.teamHasHogDestinations(clickHouseEvent.team_id)) {
-                                    // No need to continue if the team doesn't have any functions
-                                    return
-                                }
+                                // if (!this.hogFunctionManager.getHogFunctionListForTeams([clickHouseEvent.team_id], ['destination'])) {
+                                //     // No need to continue if the team doesn't have any functions
+                                //     return
+                                // }
 
                                 const team = await this.hub.teamManager.fetchTeam(clickHouseEvent.team_id)
                                 if (!team) {

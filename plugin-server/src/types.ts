@@ -115,7 +115,6 @@ export type CdpConfig = {
     CDP_REDIS_PASSWORD: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
-    CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED: boolean
 }
 
 export type IngestionConsumerConfig = {

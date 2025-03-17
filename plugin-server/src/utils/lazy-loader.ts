@@ -41,7 +41,7 @@ export type LazyLoaderOptions<T> = {
 }
 
 export class LazyLoader<T> {
-    private cache: Record<string, T | null | undefined>
+    public readonly cache: Record<string, T | null | undefined>
     private lastUsed: Record<string, number | undefined>
     private cacheUntil: Record<string, number | undefined>
 
