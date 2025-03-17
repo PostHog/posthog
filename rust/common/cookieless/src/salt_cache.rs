@@ -252,7 +252,7 @@ pub fn is_calendar_date_valid(yyyymmdd: &str) -> bool {
     // Current time in UTC milliseconds
     let now_utc = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
+        .unwrap_or_else(|_| Duration::from_secs(0))
         .as_millis() as i64;
 
     // Define the range of the calendar day in UTC
