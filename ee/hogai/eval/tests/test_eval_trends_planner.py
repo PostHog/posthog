@@ -208,7 +208,7 @@ def test_trends_for_unique_sessions(metric, call_node):
     test_case = LLMTestCase(
         input=query,
         expected_output="""
-        Series:
+        Events:
         - $pageview
             - math operation: unique sessions
 
