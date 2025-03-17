@@ -371,6 +371,7 @@ class FeatureFlagSerializer(
         validated_data["created_by"] = request.user
         validated_data["last_modified_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
+        validated_data["version"] = 1  # This is the first version of the feature flag
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         creation_context = validated_data.pop(
             "creation_context", "feature_flags"

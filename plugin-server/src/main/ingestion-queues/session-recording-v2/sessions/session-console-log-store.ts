@@ -1,12 +1,13 @@
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
-import { ClickHouseTimestamp, LogLevel } from '../../../../types'
-import { status } from '../../../../utils/status'
+import { ClickHouseTimestamp } from '../../../../types'
+import { logger } from '../../../../utils/logger'
+import { ConsoleLogLevel } from '../rrweb-types'
 import { SessionBatchMetrics } from './metrics'
 
 export type ConsoleLogEntry = {
     team_id: number
     message: string
-    level: LogLevel
+    level: ConsoleLogLevel
     log_source: 'session_replay'
     log_source_id: string
     instance_id: string | null
@@ -16,9 +17,9 @@ export type ConsoleLogEntry = {
 
 export class SessionConsoleLogStore {
     constructor(private readonly producer: KafkaProducerWrapper, private readonly topic: string) {
-        status.debug('🔍', 'session_console_log_store_created')
+        logger.debug('🔍', 'session_console_log_store_created')
         if (!this.topic) {
-            status.warn('⚠️', 'session_console_log_store_no_topic_configured')
+            logger.warn('⚠️', 'session_console_log_store_no_topic_configured')
         }
     }
 

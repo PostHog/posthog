@@ -99,14 +99,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             createEmptyListStorage('', true),
             {
                 loadRemoteItems: async ({ offset, limit }, breakpoint) => {
-                    // avoid the 150ms delay on first load
-                    if (!values.remoteItems.first) {
-                        await breakpoint(500)
-                    } else {
-                        // These connected values below might be read before they are available due to circular logic mounting.
-                        // Adding a slight delay (breakpoint) fixes this.
-                        await breakpoint(1)
-                    }
+                    await breakpoint(1)
 
                     const {
                         isExpanded,
@@ -335,7 +328,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                 return {
                     results,
-                    count: results.length,
+                    count: localItems.count + remoteItems.count,
                     searchQuery: localItems.searchQuery,
                     expandedCount: remoteItems.expandedCount,
                     queryChanged: remoteItems.queryChanged,

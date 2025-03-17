@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { KafkaProducerWrapper, TopicMessage } from '../../../../kafka/producer'
+import { parseJSON } from '../../../../utils/json-parse'
 import { SessionMetadataStore } from './session-metadata-store'
 
 describe('SessionMetadataStore', () => {
@@ -98,7 +99,7 @@ describe('SessionMetadataStore', () => {
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
         expect(queuedMessage.topic).toBe('clickhouse_session_replay_events_v2_test_test')
         const queuedMessages = queuedMessage.messages
-        const parsedEvents = queuedMessages.map((msg) => JSON.parse(msg.value as string))
+        const parsedEvents = queuedMessages.map((msg) => parseJSON(msg.value as string))
 
         expect(parsedEvents).toMatchObject([
             {
@@ -261,7 +262,7 @@ describe('SessionMetadataStore', () => {
         await store.storeSessionBlocks(blocks)
 
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-        const parsedEvent = JSON.parse(queuedMessage.messages[0].value as string)
+        const parsedEvent = parseJSON(queuedMessage.messages[0].value as string)
         expect(parsedEvent.event_count).toBe(8)
         expect(parsedEvent.block_url).toBeNull()
         expect(parsedEvent.distinct_id).toBe('user1')
@@ -336,7 +337,7 @@ describe('SessionMetadataStore', () => {
         await store.storeSessionBlocks(blocks)
 
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-        const parsedEvents = queuedMessage.messages.map((msg) => JSON.parse(msg.value as string))
+        const parsedEvents = queuedMessage.messages.map((msg) => parseJSON(msg.value as string))
 
         expect(parsedEvents[0].batch_id).toBe('batch1')
         expect(parsedEvents[1].batch_id).toBe('batch2')

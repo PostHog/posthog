@@ -138,6 +138,8 @@ export function OutputPane(): JSX.Element {
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const [progressCache, setProgressCache] = useState<Record<string, number>>({})
+
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
     const columns = useMemo(() => {
@@ -214,6 +216,10 @@ export function OutputPane(): JSX.Element {
 
     const handleRowClick = useCallback((args: CellClickArgs<any, any>) => {
         setSelectedRow(args.row)
+    }, [])
+
+    const setProgress = useCallback((loadId: string, progress: number) => {
+        setProgressCache((prev) => ({ ...prev, [loadId]: progress }))
     }, [])
 
     return (
@@ -318,6 +324,8 @@ export function OutputPane(): JSX.Element {
                         pollResponse={pollResponse}
                         editorKey={editorKey}
                         onRowClick={handleRowClick}
+                        setProgress={setProgress}
+                        progress={queryId ? progressCache[queryId] : undefined}
                     />
                 </BindLogic>
             </div>
@@ -422,6 +430,8 @@ const Content = ({
     pollResponse,
     editorKey,
     onRowClick,
+    setProgress,
+    progress,
 }: any): JSX.Element | null => {
     if (activeTab === OutputTab.Results) {
         if (responseError) {
@@ -437,7 +447,12 @@ const Content = ({
 
         return responseLoading ? (
             <div className="flex flex-1 p-2 w-full justify-center items-center">
-                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
+                <StatelessInsightLoadingState
+                    queryId={queryId}
+                    pollResponse={pollResponse}
+                    setProgress={setProgress}
+                    progress={progress}
+                />
             </div>
         ) : !response ? (
             <div className="flex flex-1 justify-center items-center">

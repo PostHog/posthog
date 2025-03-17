@@ -4,7 +4,9 @@ const { join } = require('path')
 
 import fetch from 'node-fetch'
 
-import { status } from './src/utils/status'
+import { logger } from './src/utils/logger'
+
+// Setup spies on the logger for all tests to use
 
 jest.mock('node-fetch', () => ({
     __esModule: true,
@@ -13,6 +15,16 @@ jest.mock('node-fetch', () => ({
 }))
 
 beforeEach(() => {
+    jest.spyOn(logger, 'info')
+    jest.spyOn(logger, 'warn')
+    jest.spyOn(logger, 'debug')
+    jest.spyOn(logger, 'error')
+
+    jest.mocked(logger.info).mockClear()
+    jest.mocked(logger.warn).mockClear()
+    jest.mocked(logger.debug).mockClear()
+    jest.mocked(logger.error).mockClear()
+
     const responsesToUrls = {
         'https://google.com/results.json?query=fetched': { count: 2, query: 'bla', results: [true, true] },
         'https://mmdbcdn.posthog.net/': readFileSync(join(__dirname, 'tests', 'assets', 'GeoLite2-City-Test.mmdb.br')),
@@ -73,10 +85,6 @@ beforeEach(() => {
         return Promise.resolve(createMockResponse(url, options))
     })
 })
-
-// NOTE: in testing we use the pino-pretty transport, which results in a handle
-// that we need to close to allow Jest to exit properly.
-afterAll(() => status.close())
 
 beforeAll(() => {
     // We use procese.exit in a few places, which end up terminating tests
