@@ -1097,7 +1097,6 @@ describe('HogTransformer', () => {
             const event = createPluginEvent({ event: 'match-me' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify transformation was applied despite filter
             expect(result.event?.properties?.always_apply).toBe('applied')
             expect(result.event?.properties?.$transformations_succeeded).toContain(
                 `${hogFunction.name} (${hogFunction.id})`
