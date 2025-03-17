@@ -1,3 +1,5 @@
+import { parseJSON } from '~/src/utils/json-parse'
+
 import { Hub, Team } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { LazyLoader } from '../../utils/lazy-loader'
@@ -70,14 +72,14 @@ export class HogFunctionManagerLazyService {
 
         this.pubSub = new PubSub(this.hub, {
             'reload-integrations': () => {
-                // const { integrationIds, teamId } = JSON.parse(message) as {
+                // const { integrationIds, teamId } = parseJSON(message) as {
                 //     integrationIds: IntegrationType['id'][]
                 //     teamId: Team['id']
                 // }
                 // TODO: Decide if we want to reload integrations here or just let the lazy loader handle it
             },
             'reload-hog-functions': (message) => {
-                const { teamId, hogFunctionIds } = JSON.parse(message) as {
+                const { teamId, hogFunctionIds } = parseJSON(message) as {
                     teamId: Team['id']
                     hogFunctionIds: HogFunctionType['id'][]
                 }
@@ -232,7 +234,7 @@ export class HogFunctionManagerLazyService {
                 try {
                     const decrypted = this.hub.encryptedFields.decrypt(encryptedInputs)
                     if (decrypted) {
-                        item.encrypted_inputs = JSON.parse(decrypted)
+                        item.encrypted_inputs = parseJSON(decrypted)
                     }
                 } catch (error) {
                     if (encryptedInputs) {
