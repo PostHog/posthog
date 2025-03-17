@@ -1,8 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { urls } from 'scenes/urls'
 
 import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
 
@@ -32,19 +30,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     }),
     reducers({
         toolMap: [
-            {
-                navigate_to_page: {
-                    name: 'navigate_to_page',
-                    displayName: 'Navigate',
-                    context: {},
-                    callback: (toolOutput: string) => {
-                        const urlFunc = urls[toolOutput as keyof typeof urls]
-                        if (urlFunc) {
-                            router.actions.push(urlFunc())
-                        }
-                    },
-                },
-            } as Record<string, ToolDefinition>,
+            {} as Record<string, ToolDefinition>,
             {
                 registerTool: (state, { tool }) => ({
                     ...state,

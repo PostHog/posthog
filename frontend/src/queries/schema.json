@@ -575,7 +575,7 @@
             "type": "object"
         },
         "AssistantContextualTool": {
-            "enum": ["search_session_recordings", "navigate_to_page"],
+            "enum": ["search_session_recordings", "_"],
             "type": "string"
         },
         "AssistantDateRange": {

@@ -95,4 +95,4 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     tool_call_id: string
 }
 
-export type AssistantContextualTool = 'search_session_recordings' | 'navigate_to_page'
+export type AssistantContextualTool = 'search_session_recordings' | '_' // _ is a placeholder to get a union here

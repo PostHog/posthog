@@ -63,28 +63,13 @@ class search_session_recordings(BaseModel):
     """
 
 
-class navigate_to_page(BaseModel):
-    """
-    Navigate to a specific page in the PostHog app, in order to achieve something on that page.
-    """
-
-    page_name: Literal["replay", "insights"] = Field(
-        description="""
-        The name of the page to navigate to.
-        - `replay`: Navigate to the session replay page, which shows recordings.
-        - `insights`: Navigate to the insights page, which shows saved product analytics queries such as saved trends or funnels.
-    """
-    )
-
-
 CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL = {
     AssistantContextualTool.SEARCH_SESSION_RECORDINGS: search_session_recordings,
-    AssistantContextualTool.NAVIGATE_TO_PAGE: navigate_to_page,
 }
 CONTEXTUAL_TOOL_MODELS = tuple(CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL.values())
 
 
-RootToolCall = create_and_query_insight | search_documentation | search_session_recordings | navigate_to_page
+RootToolCall = create_and_query_insight | search_documentation | search_session_recordings
 root_tools_parser = PydanticToolsParser(tools=[create_and_query_insight, search_documentation, *CONTEXTUAL_TOOL_MODELS])
 
 RootMessageUnion = HumanMessage | AssistantMessage | AssistantToolCallMessage
@@ -309,22 +294,6 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_plan=None,  # No insight plan for docs search
                 root_tool_insight_type=None,  # No insight type for docs search
                 root_tool_calls_count=tool_call_count + 1,
-            )
-        elif isinstance(tool_call, navigate_to_page):
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=f"➡️ Navigated to {tool_call.page_name} page.",
-                        id=str(uuid4()),
-                        tool_call_id=langchain_msg.tool_calls[-1]["id"],
-                        ui_payload={
-                            "navigate_to_page": tool_call.page_name,
-                        },
-                    )
-                ],
-                root_tool_call_id="",
-                root_tool_insight_plan=None,
-                root_tool_insight_type=None,
             )
         elif isinstance(tool_call, CONTEXTUAL_TOOL_MODELS):
             return PartialAssistantState(

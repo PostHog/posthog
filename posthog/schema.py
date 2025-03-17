@@ -62,7 +62,7 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
 
 class AssistantContextualTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
-    NAVIGATE_TO_PAGE = "navigate_to_page"
+    FIELD_ = "_"
 
 
 class AssistantDateRange(BaseModel):
