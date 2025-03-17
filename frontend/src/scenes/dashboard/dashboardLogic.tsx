@@ -264,11 +264,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
         updateFiltersAndLayoutsAndVariables: true,
-        overrideVariableValue: (variableId: string, value: any, editMode?: boolean) => ({
+        overrideVariableValue: (variableId: string, value: any, isNull: boolean) => ({
             variableId,
             value,
             allVariables: values.variables,
-            editMode: editMode ?? true,
+            isNull,
         }),
 
         resetVariables: () => ({ variables: values.insightVariables }),
@@ -508,7 +508,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         temporaryVariables: [
             {} as Record<string, HogQLVariable>,
             {
-                overrideVariableValue: (state, { variableId, value, allVariables }) => {
+                overrideVariableValue: (state, { variableId, value, allVariables, isNull }) => {
                     const foundExistingVar = allVariables.find((n) => n.id === variableId)
                     if (!foundExistingVar) {
                         return state
@@ -516,7 +516,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     return {
                         ...state,
-                        [variableId]: { code_name: foundExistingVar.code_name, variableId: foundExistingVar.id, value },
+                        [variableId]: {
+                            code_name: foundExistingVar.code_name,
+                            variableId: foundExistingVar.id,
+                            value,
+                            isNull,
+                        },
                     }
                 },
                 resetVariables: (_, { variables }) => ({ ...variables }),
@@ -877,11 +882,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
 
                         const overridenValue = temporaryVariables[v.variableId]?.value
-
+                        const overridenIsNull = temporaryVariables[v.variableId]?.isNull
                         // Overwrite the variable `value` from the insight
                         const resultVar: Variable = {
                             ...foundVar,
                             value: overridenValue ?? v.value ?? foundVar.value,
+                            isNull: overridenIsNull ?? v.isNull ?? foundVar.isNull,
                         }
 
                         return resultVar
@@ -1580,10 +1586,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: 'preview' })
             }
         },
-        overrideVariableValue: ({ editMode }) => {
-            if (editMode) {
-                actions.setDashboardMode(DashboardMode.Edit, null)
-            }
+        overrideVariableValue: () => {
             actions.loadDashboard({ action: 'preview' })
         },
     })),
@@ -1596,7 +1599,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             for (const [key, value] of Object.entries(urlVariables)) {
                 const variable = variables.find((variable: HogQLVariable) => variable.code_name === key)
                 if (variable) {
-                    actions.overrideVariableValue(variable.id, value, false)
+                    actions.overrideVariableValue(variable.id, value, variable.isNull)
                 }
             }
         },
