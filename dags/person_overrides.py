@@ -2,17 +2,19 @@ import datetime
 import time
 import uuid
 from dataclasses import dataclass
-from functools import partial, reduce
+from functools import partial
 
 import dagster
 import pydantic
 from clickhouse_driver import Client
 
+from dags.common import JobOwners
 from posthog import settings
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
-    Mutation,
-    MutationRunner,
+    MutationWaiter,
+    AlterTableMutationRunner,
+    LightweightDeleteMutationRunner,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
@@ -168,26 +170,21 @@ class PersonOverridesSnapshotDictionary:
         return checksum
 
     @property
-    def person_id_update_mutation_runner(self) -> MutationRunner:
-        return MutationRunner(
+    def person_id_update_mutation_runner(self) -> AlterTableMutationRunner:
+        return AlterTableMutationRunner(
             EVENTS_DATA_TABLE(),
-            f"""
-            UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id))
-            WHERE dictHas(%(name)s, (team_id, distinct_id))
-            """,
-            {"name": self.qualified_name},
+            {
+                "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
+            },
+            parameters={"name": self.qualified_name},
         )
 
     @property
-    def overrides_delete_mutation_runner(self) -> MutationRunner:
-        return MutationRunner(
+    def overrides_delete_mutation_runner(self) -> LightweightDeleteMutationRunner:
+        return LightweightDeleteMutationRunner(
             PERSON_DISTINCT_ID_OVERRIDES_TABLE,
-            f"""
-            DELETE FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE} WHERE
-                isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version)
-                AND snapshot_version >= version
-            """,
-            {"name": self.qualified_name},
+            "isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version) AND snapshot_version >= version",
+            parameters={"name": self.qualified_name},
         )
 
 
@@ -284,6 +281,23 @@ def create_snapshot_dictionary(
     return dictionary
 
 
+class GetExistingDictionaryConfig(dagster.Config):
+    id: str = pydantic.Field(description="The run ID of the original run that created the dictionary.")
+
+
+@dagster.op
+def get_existing_dictionary_for_run_id(
+    config: GetExistingDictionaryConfig,
+) -> PersonOverridesSnapshotDictionary:
+    """
+    Provides a handle to a snapshot dictionary based on the original run ID.
+
+    This does not create the dictionary or ensure that it or any of its dependencies exist.
+    """
+    table = PersonOverridesSnapshotTable(uuid.UUID(config.id))
+    return PersonOverridesSnapshotDictionary(table)
+
+
 @dagster.op
 def load_and_verify_snapshot_dictionary(
     cluster: dagster.ResourceParam[ClickhouseCluster],
@@ -300,35 +314,13 @@ def load_and_verify_snapshot_dictionary(
 
 # Mutation Management
 
-ShardMutations = dict[int, Mutation]
-
 
 @dagster.op
-def start_person_id_update_mutations(
+def run_person_id_update_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
-) -> tuple[PersonOverridesSnapshotDictionary, ShardMutations]:
-    """Start the mutation to update `sharded_events.person_id` with the snapshot data on all shards."""
-    shard_mutations = {
-        host.shard_num: mutation
-        for host, mutation in (
-            cluster.map_one_host_per_shard(dictionary.person_id_update_mutation_runner.enqueue).result().items()
-        )
-    }
-    return (dictionary, shard_mutations)
-
-
-@dagster.op
-def wait_for_person_id_update_mutations(
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-    inputs: tuple[PersonOverridesSnapshotDictionary, ShardMutations],
 ) -> PersonOverridesSnapshotDictionary:
-    """Wait for all hosts to complete the `sharded_events.person_id` update mutation."""
-    [dictionary, shard_mutations] = inputs
-    reduce(
-        lambda x, y: x.merge(y),
-        [cluster.map_all_hosts_in_shard(shard, mutation.wait) for shard, mutation in shard_mutations.items()],
-    ).result()
+    dictionary.person_id_update_mutation_runner.run_on_shards(cluster)
     return dictionary
 
 
@@ -336,16 +328,16 @@ def wait_for_person_id_update_mutations(
 def start_overrides_delete_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
-) -> tuple[PersonOverridesSnapshotDictionary, Mutation]:
+) -> tuple[PersonOverridesSnapshotDictionary, MutationWaiter]:
     """Start the mutation to remove overrides contained within the snapshot from the overrides table."""
-    mutation = cluster.any_host(dictionary.overrides_delete_mutation_runner.enqueue).result()
+    mutation = cluster.any_host(dictionary.overrides_delete_mutation_runner).result()
     return (dictionary, mutation)
 
 
 @dagster.op
 def wait_for_overrides_delete_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    inputs: tuple[PersonOverridesSnapshotDictionary, Mutation],
+    inputs: tuple[PersonOverridesSnapshotDictionary, MutationWaiter],
 ) -> PersonOverridesSnapshotDictionary:
     """Wait for all hosts to complete the mutation to remove overrides contained within the snapshot from the overrides table."""
     [dictionary, mutation] = inputs
@@ -375,17 +367,43 @@ def drop_snapshot_table(
     cluster.map_all_hosts(table.drop).result()
 
 
+def cleanup_snapshot_resources(dictionary: PersonOverridesSnapshotDictionary) -> None:
+    return drop_snapshot_table(drop_snapshot_dictionary(dictionary))
+
+
 # Job Definition
 
 
-@dagster.job
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def squash_person_overrides():
     prepared_snapshot_table = wait_for_snapshot_table_replication(populate_snapshot_table(create_snapshot_table()))
     prepared_dictionary = load_and_verify_snapshot_dictionary(create_snapshot_dictionary(prepared_snapshot_table))
-    dictionary_after_person_id_update_mutations = wait_for_person_id_update_mutations(
-        start_person_id_update_mutations(prepared_dictionary)
-    )
+    dictionary_after_person_id_update_mutations = run_person_id_update_mutations(prepared_dictionary)
     dictionary_after_override_delete_mutations = wait_for_overrides_delete_mutations(
         start_overrides_delete_mutations(dictionary_after_person_id_update_mutations)
     )
-    drop_snapshot_table(drop_snapshot_dictionary(dictionary_after_override_delete_mutations))
+    cleanup_snapshot_resources(dictionary_after_override_delete_mutations)
+
+
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+def cleanup_orphaned_person_overrides_snapshot():
+    """
+    Cleans up overrides snapshot resources after an irrecoverable job failure. This should only be run manually when the
+    resources are guaranteed to no longer be in use (i.e. no mutations are in progress, and the specified job is no
+    longer running and will not be retried.)
+
+    Typically, these resources are automatically cleaned up after the job successfully completes. However, there are
+    cases in which the job can fail and leave orphaned resources dangling around that can no longer be used and need to
+    be manually removed from the cluster. This job can be used to perform the cleanup of those resources.
+    """
+    dictionary = get_existing_dictionary_for_run_id()
+    cleanup_snapshot_resources(dictionary)
+
+
+# Schedule to run squash at 10 PM on Saturdays
+squash_schedule = dagster.ScheduleDefinition(
+    job=squash_person_overrides,
+    cron_schedule="0 22 * * 6",  # At 22:00 (10 PM) on Saturday
+    execution_timezone="UTC",
+    name="squash_person_overrides_schedule",
+)

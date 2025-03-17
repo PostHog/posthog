@@ -990,6 +990,94 @@ export function IconInternetExplorer(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconBlackberry(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                fill="currentColor"
+                d="M18.13 11.8c-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27 0 .8-.51 1.65-2.32 1.65zm1.46 2.51c0 .8-.51 1.65-2.32 1.65-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27zM12.76 9.18c-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.21 0c1.44 0 1.78.71 1.78 1.27 0 .8-.51 1.65-2.31 1.65zm1.52 2.75c0 .8-.51 1.65-2.32 1.65-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27zm-.86 4.58c0 .8-.51 1.65-2.31 1.65-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27zM6.59 9.18c-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27 0 .8-.52 1.65-2.32 1.65zm1.52 2.75c0 .8-.52 1.65-2.32 1.65-1.11 0-2.31 0-2.31 0l.63-2.92s1.63 0 2.22 0c1.44 0 1.78.71 1.78 1.27z"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconUCBrowser(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <circle
+                cx="9.79"
+                cy="17.63"
+                r="3.62"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <path
+                d="M14.69 19.29s2.99-.55 2.99 1.96H8.27c-3.09 0-5.6-2.51-5.6-5.6 0-1.45.55-2.77 1.46-3.77 1.75-1.92 2.55-2.6 2.55-4.19s-1.98-2.56-4.01-1.32c1.74-3.03 3.12-3.62 5.95-3.62s4.15 2.36 4.15 4.42c0 4.09-6.6 4.45-6.6 10.46"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <path
+                d="M14.69 19.29c.39-.67.61-1.45.61-2.28 0-2.52-2.04-4.57-4.57-4.57-1.61 0-3.02.83-3.83 2.08M9.07 12.76c2.64-1.85 6.29-1.12 8.61 1.09 2.68-.47 3.65 1.18 3.65 1.18-1.14-.09-2.52.33-3.43.67-.59.22-1.25.07-1.67-.39-1.8-1.98-4.57-3.79-7.17-2.55z"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <path
+                d="M11.49 11.79s1.39-1.43 4.49-3.09c-.12-1.5-.04-2.07.71-2.53 1.33.34 1.59 1.91 1.59 1.91 2.44.82 3.42 4.15 2.5 4.62s-3.87.13-5.68-.49"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <circle
+                cx="9.79"
+                cy="17.63"
+                r="1.31"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconSamsungInternet(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.5"
+                d="M8 18.93c3.83 2.21 8.72.9 10.93-2.93 2.21-3.83.9-8.72-2.93-10.93-3.83-2.21-8.72-.9-10.93 2.93-2.21 3.83-.9 8.72 2.93 10.93z"
+            />
+            <path
+                fill="currentColor"
+                fillRule="evenodd"
+                d="M7.83 5.48c-2.72-.62-4.85-.36-5.57.9-1.24 2.15 2.11 6.41 7.49 9.52 5.38 3.11 10.75 3.88 12 1.73.71-1.24-.1-3.17-1.93-5.18l-.54 1.68.02.03c.61.77.96 1.44 1.12 1.94.15.51.07.72.03.78-.04.07-.18.24-.69.37-.52.12-1.27.15-2.24 0-1.94-.27-4.45-1.16-7.01-2.65-2.57-1.48-4.6-3.2-5.8-4.74-.61-.78-.97-1.44-1.12-1.95-.15-.5-.07-.71-.03-.78.04-.06.18-.24.69-.36.49-.12 1.2-.15 2.11-.03l-2.53-1.26z"
+                clipRule="evenodd"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconFacebook(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                fill="currentColor"
+                d="M17 3.5a.5.5 0 00-.5-.5H14a4.77 4.77 0 00-5 4.5v2.7H6.5a.5.5 0 00-.5.5v2.6a.5.5 0 00.5.5H9v6.7a.5.5 0 00.5.5h3a.5.5 0 00.5-.5v-6.7h2.62a.5.5 0 00.49-.37l.72-2.6a.5.5 0 00-.48-.63H13V7.5a1 1 0 011-.9h2.5a.5.5 0 00.5-.5V3.5z"
+            />
+        </LemonIconBase>
+    )
+}
+
 /** Material Web icon. */
 export function IconWeb(props: LemonIconProps): JSX.Element {
     return (

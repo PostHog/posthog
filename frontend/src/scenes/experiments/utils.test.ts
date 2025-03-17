@@ -1,4 +1,4 @@
-import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
 import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
@@ -8,6 +8,8 @@ import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_met
 import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
 import {
     ExperimentActionMetricConfig,
+    ExperimentDataWarehouseMetricConfig,
+    ExperimentEventExposureConfig,
     ExperimentEventMetricConfig,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -18,6 +20,7 @@ import {
 import {
     ChartDisplayType,
     EntityType,
+    ExperimentMetricMathType,
     FeatureFlagFilters,
     FeatureFlagType,
     InsightType,
@@ -28,7 +31,9 @@ import {
 
 import { getNiceTickValues } from './MetricsView/MetricsView'
 import {
+    exposureConfigToFilter,
     featureFlagEligibleForExperiment,
+    filterToExposureConfig,
     filterToMetricConfig,
     getMinimumDetectableEffect,
     getViewRecordingFilters,
@@ -492,6 +497,8 @@ describe('checkFeatureFlagEligibility', () => {
         user_access_level: 'admin',
         status: 'ACTIVE',
         has_encrypted_payloads: false,
+        version: 0,
+        last_modified_by: null,
     }
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }
@@ -554,6 +561,76 @@ describe('checkFeatureFlagEligibility', () => {
     })
 })
 
+describe('exposureConfigToFilter', () => {
+    it('returns the correct filter for an exposure config', () => {
+        const exposureConfig = {
+            kind: NodeKind.ExperimentEventExposureConfig,
+            event: '$feature_flag_called',
+            properties: [
+                {
+                    key: '$feature_flag_response',
+                    value: ['test'],
+                    operator: 'exact',
+                    type: 'event',
+                },
+            ],
+        } as ExperimentEventExposureConfig
+        const filter = exposureConfigToFilter(exposureConfig)
+        expect(filter).toEqual({
+            events: [
+                {
+                    id: '$feature_flag_called',
+                    name: '$feature_flag_called',
+                    kind: 'EventsNode',
+                    type: 'events',
+                    properties: [
+                        {
+                            key: '$feature_flag_response',
+                            value: ['test'],
+                            operator: 'exact',
+                            type: 'event',
+                        },
+                    ],
+                },
+            ],
+            actions: [],
+            data_warehouse: [],
+        })
+    })
+})
+
+describe('filterToExposureConfig', () => {
+    it('returns the correct exposure config for an event', () => {
+        const event = {
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            kind: 'EventsNode',
+            type: 'events',
+            properties: [
+                {
+                    key: '$feature_flag_response',
+                    value: ['test'],
+                    operator: 'exact',
+                    type: 'event',
+                },
+            ],
+        }
+        const exposureConfig = filterToExposureConfig(event)
+        expect(exposureConfig).toEqual({
+            kind: NodeKind.ExperimentEventExposureConfig,
+            event: '$feature_flag_called',
+            properties: [
+                {
+                    key: '$feature_flag_response',
+                    value: ['test'],
+                    operator: 'exact',
+                    type: 'event',
+                },
+            ],
+        })
+    })
+})
+
 describe('metricConfigToFilter', () => {
     it('returns the correct filter for an event', () => {
         const metricConfig = {
@@ -580,6 +657,7 @@ describe('metricConfigToFilter', () => {
                 },
             ],
             actions: [],
+            data_warehouse: [],
         })
     })
     it('returns the correct filter for an action', () => {
@@ -605,6 +683,39 @@ describe('metricConfigToFilter', () => {
                     math_hogql: undefined,
                     properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
                     kind: NodeKind.EventsNode,
+                },
+            ],
+            data_warehouse: [],
+        })
+    })
+    it('returns the correct filter for a data warehouse metric', () => {
+        const metricConfig = {
+            kind: NodeKind.ExperimentDataWarehouseMetricConfig,
+            table_name: 'mysql_payments',
+            name: 'mysql_payments',
+            timestamp_field: 'timestamp',
+            events_join_key: 'person.properties.email',
+            data_warehouse_join_key: 'customer.email',
+            math: ExperimentMetricMathType.TotalCount,
+            math_property: undefined,
+            math_hogql: undefined,
+        } as ExperimentDataWarehouseMetricConfig
+        const filter = metricConfigToFilter(metricConfig)
+        expect(filter).toEqual({
+            events: [],
+            actions: [],
+            data_warehouse: [
+                {
+                    kind: NodeKind.EventsNode,
+                    id: 'mysql_payments',
+                    name: 'mysql_payments',
+                    type: 'data_warehouse',
+                    timestamp_field: 'timestamp',
+                    events_join_key: 'person.properties.email',
+                    data_warehouse_join_key: 'customer.email',
+                    math: ExperimentMetricMathType.TotalCount,
+                    math_property: undefined,
+                    math_hogql: undefined,
                 },
             ],
         })
@@ -676,22 +787,79 @@ describe('filterToMetricConfig', () => {
             properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
         })
     })
+    it('returns the correct metric config for a data warehouse metric', () => {
+        const dataWarehouse = {
+            kind: NodeKind.EventsNode,
+            id: 'mysql_payments',
+            name: 'mysql_payments',
+            type: 'data_warehouse',
+            timestamp_field: 'timestamp',
+            events_join_key: 'person.properties.email',
+            data_warehouse_join_key: 'customer.email',
+        } as Record<string, any>
+        const metricConfig = filterToMetricConfig(dataWarehouse)
+        expect(metricConfig).toEqual({
+            kind: NodeKind.ExperimentDataWarehouseMetricConfig,
+            table_name: 'mysql_payments',
+            name: 'mysql_payments',
+            timestamp_field: 'timestamp',
+            events_join_key: 'person.properties.email',
+            data_warehouse_join_key: 'customer.email',
+            math: 'total',
+            math_property: undefined,
+            math_hogql: undefined,
+        })
+    })
 })
 
 describe('metricToQuery', () => {
+    it('returns the correct query for a funnel metric', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            metric_config: {
+                kind: NodeKind.ExperimentEventMetricConfig,
+                event: 'purchase',
+            },
+        }
+
+        const query = metricToQuery(metric, false)
+        expect(query).toEqual({
+            kind: NodeKind.FunnelsQuery,
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            funnelsFilter: {
+                layout: FunnelLayout.horizontal,
+            },
+            filterTestAccounts: false,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$feature_flag_called',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                },
+            ],
+        })
+    })
+
     it('returns the correct query for a count metric', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.COUNT,
+            metric_type: ExperimentMetricType.MEAN,
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 event: '$pageview',
                 name: '$pageview',
             },
-            filterTestAccounts: true,
         }
 
-        const query = metricToQuery(metric)
+        const query = metricToQuery(metric, false)
         expect(query).toEqual({
             kind: NodeKind.TrendsQuery,
             interval: 'day',
@@ -703,7 +871,7 @@ describe('metricToQuery', () => {
             trendsFilter: {
                 display: ChartDisplayType.ActionsLineGraph,
             },
-            filterTestAccounts: true,
+            filterTestAccounts: false,
             series: [
                 {
                     kind: NodeKind.EventsNode,
@@ -714,21 +882,20 @@ describe('metricToQuery', () => {
         })
     })
 
-    it('returns the correct query for a continuous metric', () => {
+    it('returns the correct query for a mean metric with sum math type', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.CONTINUOUS,
+            metric_type: ExperimentMetricType.MEAN,
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 event: '$pageview',
                 name: '$pageview',
-                math: 'sum',
+                math: ExperimentMetricMathType.Sum,
                 math_property: 'property_value',
             },
-            filterTestAccounts: false,
         }
 
-        const query = metricToQuery(metric)
+        const query = metricToQuery(metric, true)
         expect(query).toEqual({
             kind: NodeKind.TrendsQuery,
             interval: 'day',
@@ -740,7 +907,7 @@ describe('metricToQuery', () => {
             trendsFilter: {
                 display: ChartDisplayType.ActionsLineGraph,
             },
-            filterTestAccounts: false,
+            filterTestAccounts: true,
             series: [
                 {
                     kind: NodeKind.EventsNode,
@@ -762,10 +929,9 @@ describe('metricToQuery', () => {
                 event: '$pageview',
                 name: '$pageview',
             },
-            filterTestAccounts: false,
         }
 
-        const query = metricToQuery(metric)
+        const query = metricToQuery(metric, false)
         expect(query).toBeUndefined()
     })
 })

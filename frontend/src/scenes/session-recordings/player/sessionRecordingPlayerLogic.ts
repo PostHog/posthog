@@ -19,6 +19,8 @@ import {
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
@@ -37,7 +39,13 @@ import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sess
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
+import {
+    AvailableFeature,
+    RecordingSegment,
+    SessionPlayerData,
+    SessionPlayerState,
+    SessionRecordingType,
+} from '~/types'
 
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -202,6 +210,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
         setPlayNextAnimationInterrupted: (interrupted: boolean) => ({ interrupted }),
         setMaskWindow: (shouldMaskWindow: boolean) => ({ shouldMaskWindow }),
+        loadSimilarRecordings: true,
+        loadSimilarRecordingsSuccess: (count: number) => ({ count }),
+        showNextRecordingConfirmation: true,
+        hideNextRecordingConfirmation: true,
+        confirmNextRecording: true,
+        loadRecordingMeta: true,
+        setSimilarRecordings: (results: string[]) => ({ results }),
     }),
     reducers(() => ({
         maskingWindow: [
@@ -429,6 +444,26 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             {
                 setDebugSnapshotTypes: (s, { types }) => ({ ...s, types }),
                 setDebugSnapshotIncrementalSources: (s, { incrementalSources }) => ({ ...s, incrementalSources }),
+            },
+        ],
+        showingNextRecordingConfirmation: [
+            false,
+            {
+                showNextRecordingConfirmation: () => true,
+                hideNextRecordingConfirmation: () => false,
+                confirmNextRecording: () => false,
+            },
+        ],
+        similarRecordingsCount: [
+            0,
+            {
+                loadSimilarRecordingsSuccess: (_, { count }) => count,
+            },
+        ],
+        similarRecordings: [
+            [] as string[],
+            {
+                setSimilarRecordings: (_, { results }) => results,
             },
         ],
     })),
@@ -804,6 +839,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMetaSuccess: () => {
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.syncSnapshotsWithPlayer()
+            actions.loadSimilarRecordings()
             if (props.autoPlay) {
                 // Autoplay assumes we are playing immediately so lets go ahead and load more data
                 actions.setPlay()
@@ -879,12 +915,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 currentSegment: values.currentSegment,
             })
         },
-        setEndReached: ({ reached }) => {
+        setEndReached: async ({ reached }) => {
             if (reached) {
                 actions.setPause()
                 // TODO: this will be time-gated so won't happen immediately, but we need it to
                 if (!values.wasMarkedViewed) {
                     actions.markViewed(0)
+                }
+                if (values.similarRecordingsCount > 0) {
+                    actions.showNextRecordingConfirmation()
                 }
             }
         },
@@ -1177,6 +1216,52 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             } else if (document.fullscreenElement === props.playerRef?.current) {
                 await document.exitFullscreen()
             }
+        },
+        showNextRecordingConfirmation: () => {
+            if (props.playlistLogic) {
+                props.playlistLogic.actions.loadNext()
+            }
+        },
+        confirmNextRecording: async () => {
+            // Mark all similar recordings as viewed
+            await Promise.all(
+                values.similarRecordings.map((recordingId: SessionRecordingType['id']) =>
+                    api.recordings.update(recordingId, {
+                        viewed: true,
+                    })
+                )
+            )
+            actions.hideNextRecordingConfirmation()
+            if (props.playlistLogic) {
+                props.playlistLogic.actions.loadNext()
+            }
+        },
+        loadSimilarRecordings: async () => {
+            if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_SIMILAR_RECORDINGS]) {
+                const response = await api.recordings.getSimilarRecordings(values.sessionRecordingId)
+                actions.loadSimilarRecordingsSuccess(response.count)
+                actions.setSimilarRecordings(response.results)
+            }
+        },
+        maybeLoadRecordingMeta: async (_, breakpoint) => {
+            if (!values.sessionRecordingId) {
+                return
+            }
+
+            breakpoint()
+
+            try {
+                actions.loadSimilarRecordings()
+            } catch (e) {
+                console.error('Failed to load recording meta', e)
+                actions.setPlayerError('Failed to load recording meta')
+            }
+        },
+        loadRecordingMeta: async () => {
+            if (!values.sessionRecordingId) {
+                return
+            }
+            actions.loadSimilarRecordings()
         },
     })),
 

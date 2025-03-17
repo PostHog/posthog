@@ -8,8 +8,9 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use common_types::ClickHouseEvent;
 use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
-use issue_resolution::resolve_issue;
-use metric_consts::FRAME_RESOLUTION;
+use issue_resolution::{resolve_issue, IssueStatus};
+use metric_consts::{FRAME_RESOLUTION, SUPPRESSED_ISSUE_DROPPED_EVENTS};
+use metrics::counter;
 use serde_json::Value;
 use tracing::{error, warn};
 use types::{FingerprintedErrProps, RawErrProps, Stacktrace};
@@ -20,10 +21,10 @@ pub mod config;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;
-pub mod hack;
 pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;
+pub mod posthog_utils;
 pub mod symbol_store;
 pub mod types;
 
@@ -161,7 +162,7 @@ pub async fn handle_events(
             let m_context = context.clone();
             let handle = tokio::spawn(async move {
                 resolve_issue(
-                    &m_context.pool,
+                    &m_context,
                     team_id,
                     &m_fingerprint,
                     name,
@@ -179,28 +180,48 @@ pub async fn handle_events(
     // Collect the results of issue resolution
     let mut resolved_issues = HashMap::new();
     for (fingerprint, handle) in issue_handles.into_iter() {
-        let issue_id = match handle.await.expect("issue resolution task did not panic") {
-            Ok(id) => id,
+        let issue = match handle.await.expect("issue resolution task did not panic") {
+            Ok(i) => i,
             Err(e) => {
                 let index =
                     find_index_with_matching_fingerprint(&fingerprint, &indexed_fingerprinted);
                 return Err((index, e));
             }
         };
-        resolved_issues.insert(fingerprint, issue_id);
+        resolved_issues.insert(fingerprint, issue);
     }
 
     // Fourth pass, to update the events with the resolved issues
     // Unfreeze the events list, since now we have to modify the events we processed
     let mut events = events;
+    let mut to_drop = Vec::new();
     for (index, fingerprinted) in indexed_fingerprinted.into_iter() {
         let event = &mut events[index];
-        let issue_id = resolved_issues
+        let issue = resolved_issues
             .get(&fingerprinted.fingerprint)
             .cloned()
             .expect("Issue was resolved");
-        let output = fingerprinted.to_output(issue_id);
+
+        let output = fingerprinted.to_output(issue.id);
+
+        if matches!(issue.status, IssueStatus::Suppressed) {
+            to_drop.push(index);
+        }
+
         event.properties = Some(serde_json::to_string(&output).map_err(|e| (index, e.into()))?);
+    }
+
+    // Drop the suppressed events. Note we reverse the order of the indices to drop, so that
+    // indices don't shift as we remove items from the list.
+    to_drop.sort_unstable();
+    to_drop.dedup();
+    for index in to_drop.into_iter().rev() {
+        counter!(SUPPRESSED_ISSUE_DROPPED_EVENTS).increment(1);
+        // We can afford the order changes here, because it's the last thing we do, and the order
+        // of the events we emit in this batch doesn't matter - they're sorted by timestamp in
+        // clickhouse anyway, not ingestion order. NOTE: if/when we change this fn to return a
+        // Vec of Results, we should instead replace the items we want to drop with an Err.
+        events.swap_remove(index);
     }
 
     Ok(events)

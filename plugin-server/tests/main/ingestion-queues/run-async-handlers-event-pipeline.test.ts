@@ -16,9 +16,9 @@
 //     KafkaJS consumer runner, which we assume will handle retries.
 
 import Redis from 'ioredis'
+// @ts-expect-error types don't exist for this package
 import LibrdKafkaError from 'node-rdkafka/lib/error'
 
-import { defaultConfig } from '../../../src/config/config'
 import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
 import { buildOnEventIngestionConsumer } from '../../../src/main/ingestion-queues/on-event-handler-consumer'
 import { Hub, ISOTimestamp } from '../../../src/types'
@@ -27,7 +27,6 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
 import { processOnEventStep } from '../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
-import Piscina, { makePiscina } from '../../../src/worker/piscina'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
 import { teardownPlugins } from '../../../src/worker/plugins/teardown'
 import {
@@ -57,7 +56,7 @@ describe('runAppsOnEventPipeline()', () => {
         jest.useFakeTimers({ advanceTimers: true })
         hub = await createHub()
         redis = await hub.redisPool.acquire()
-        await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, null, 'deleteTables') // Need to clear the DB to avoid unique constraint violations on ids
+        await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, [], 'deleteTables') // Need to clear the DB to avoid unique constraint violations on ids
     })
 
     afterEach(async () => {
@@ -110,17 +109,21 @@ describe('runAppsOnEventPipeline()', () => {
         )
 
         await expect(
-            processOnEventStep(hub, {
-                distinctId: 'asdf',
-                teamId: teamId,
-                event: 'some event',
-                properties: {},
-                eventUuid: new UUIDT().toString(),
-                person_created_at: null,
-                person_properties: {},
-                timestamp: new Date().toISOString() as ISOTimestamp,
-                elementsList: [],
-            })
+            processOnEventStep(
+                hub,
+                // @ts-expect-error - TODO: Add missing `projectId` field to event
+                {
+                    distinctId: 'asdf',
+                    teamId: teamId,
+                    event: 'some event',
+                    properties: {},
+                    eventUuid: new UUIDT().toString(),
+                    person_created_at: null,
+                    person_properties: {},
+                    timestamp: new Date().toISOString() as ISOTimestamp,
+                    elementsList: [],
+                }
+            )
         ).rejects.toEqual(new DependencyUnavailableError('Failed to produce', 'Kafka', error))
     })
 
@@ -131,7 +134,7 @@ describe('runAppsOnEventPipeline()', () => {
         const organizationId = await createOrganization(hub.postgres)
         const plugin = await createPlugin(hub.postgres, {
             organization_id: organizationId,
-            name: 'runEveryMinute plugin',
+            name: 'test plugin',
             plugin_type: 'source',
             is_global: false,
             source__index_ts: `
@@ -157,6 +160,7 @@ describe('runAppsOnEventPipeline()', () => {
             elementsList: [],
         }
 
+        // @ts-expect-error - TODO: Add missing `projectId` field to event
         await expect(processOnEventStep(hub, event)).resolves.toEqual(null)
     })
 })
@@ -168,7 +172,6 @@ describe('eachBatchAsyncHandlers', () => {
     // to https://github.com/piscinajs/piscina#method-runtask-options should be
     // the case.
     let hub: Hub
-    let piscina: Piscina
 
     beforeEach(async () => {
         jest.useFakeTimers({ advanceTimers: true })
@@ -181,8 +184,7 @@ describe('eachBatchAsyncHandlers', () => {
     })
 
     test('rejections from kafka are bubbled up to the consumer', async () => {
-        piscina = await makePiscina(defaultConfig, hub)
-        const ingestionConsumer = buildOnEventIngestionConsumer({ hub, piscina })
+        const ingestionConsumer = buildOnEventIngestionConsumer({ hub })
 
         const error = new LibrdKafkaError({ message: 'test', code: 1, errno: 1, origin: 'test', isRetriable: true })
 

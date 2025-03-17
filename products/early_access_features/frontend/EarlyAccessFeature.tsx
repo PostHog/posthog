@@ -1,5 +1,15 @@
 import { IconFlag, IconQuestion, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSkeleton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonMenu,
+    LemonSelect,
+    LemonSkeleton,
+    LemonTag,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -178,13 +188,36 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                     </LemonButton>
                                 )}
                                 {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
-                                    <LemonButton
-                                        onClick={() => updateStage(EarlyAccessFeatureStage.Beta)}
-                                        tooltip="Make beta feature available"
-                                        type="primary"
+                                    <LemonMenu
+                                        items={[
+                                            {
+                                                title: 'Choose stage',
+                                                items: [
+                                                    {
+                                                        label: 'Concept',
+                                                        onClick: () => updateStage(EarlyAccessFeatureStage.Concept),
+                                                    },
+                                                    {
+                                                        label: 'Alpha',
+                                                        onClick: () => updateStage(EarlyAccessFeatureStage.Alpha),
+                                                    },
+                                                    {
+                                                        label: 'Beta (default)',
+                                                        onClick: () => updateStage(EarlyAccessFeatureStage.Beta),
+                                                    },
+                                                    {
+                                                        label: 'General availability',
+                                                        onClick: () =>
+                                                            updateStage(EarlyAccessFeatureStage.GeneralAvailability),
+                                                    },
+                                                ],
+                                            },
+                                        ]}
                                     >
-                                        Release beta
-                                    </LemonButton>
+                                        <LemonButton tooltip="Publish this feature to make it available" type="primary">
+                                            Release
+                                        </LemonButton>
+                                    </LemonMenu>
                                 )}
                                 <LemonDivider vertical />
                                 {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
@@ -253,28 +286,52 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                 </LemonField>
                             )}
                         </div>
-                        {isEditingFeature || isNewEarlyAccessFeature ? (
-                            <></>
-                        ) : (
+
+                        {!isNewEarlyAccessFeature && earlyAccessFeature.stage !== 'draft' ? (
                             <div className="flex-1 min-w-[20rem]">
                                 <b>Stage</b>
                                 <div>
-                                    <LemonTag
-                                        type={
-                                            earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
-                                                ? 'warning'
-                                                : earlyAccessFeature.stage ===
-                                                  EarlyAccessFeatureStage.GeneralAvailability
-                                                ? 'success'
-                                                : 'default'
-                                        }
-                                        className="mt-2 uppercase"
-                                    >
-                                        {earlyAccessFeature.stage}
-                                    </LemonTag>
+                                    {isEditingFeature ? (
+                                        <LemonField name="stage">
+                                            <LemonSelect
+                                                options={[
+                                                    {
+                                                        value: 'concept',
+                                                        label: 'Concept',
+                                                    },
+                                                    {
+                                                        value: 'alpha',
+                                                        label: 'Alpha',
+                                                    },
+                                                    {
+                                                        value: 'beta',
+                                                        label: 'Beta',
+                                                    },
+                                                    {
+                                                        value: 'general-availability',
+                                                        label: 'General availability',
+                                                    },
+                                                ]}
+                                            />
+                                        </LemonField>
+                                    ) : (
+                                        <LemonTag
+                                            type={
+                                                earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
+                                                    ? 'warning'
+                                                    : earlyAccessFeature.stage ===
+                                                      EarlyAccessFeatureStage.GeneralAvailability
+                                                    ? 'success'
+                                                    : 'default'
+                                            }
+                                            className="mt-2 uppercase"
+                                        >
+                                            {earlyAccessFeature.stage}
+                                        </LemonTag>
+                                    )}
                                 </div>
                             </div>
-                        )}
+                        ) : null}
                     </div>
                     <div className="flex flex-wrap items-start gap-4">
                         <div className="flex-1 min-w-[20rem]">
@@ -331,6 +388,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         <h3>Notifications</h3>
                         <p>Get notified when people opt in or out of your feature.</p>
                         <LinkedHogFunctions
+                            logicKey="early-access-feature"
                             type="destination"
                             filters={destinationFilters}
                             subTemplateId="early-access-feature-enrollment"

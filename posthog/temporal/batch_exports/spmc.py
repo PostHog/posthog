@@ -10,7 +10,11 @@ import pyarrow as pa
 import temporalio.common
 from django.conf import settings
 
-from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from posthog.batch_exports.service import (
+    BackfillDetails,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.hogql import ast
@@ -34,10 +38,8 @@ from posthog.temporal.batch_exports.sql import (
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
-    SELECT_FROM_PERSONS_VIEW,
-    SELECT_FROM_PERSONS_VIEW_BACKFILL,
-    SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW,
-    SELECT_FROM_PERSONS_VIEW_NEW,
+    SELECT_FROM_PERSONS,
+    SELECT_FROM_PERSONS_BACKFILL,
 )
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
@@ -540,15 +542,29 @@ class SessionsRecordBatchModel(RecordBatchModel):
                     left=ast.Field(chain=["_inserted_at"]),
                     right=ast.Constant(value=data_interval_end),
                 ),
+                # include $end_timestamp because hogql uses this to add a where clause to the inner query
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["$end_timestamp"]),
+                    right=ast.Constant(value=data_interval_end),
+                ),
             ]
         )
         if data_interval_start is not None:
-            where_and.exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["_inserted_at"]),
-                    right=ast.Constant(value=data_interval_start),
-                )
+            where_and.exprs.extend(
+                [
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["_inserted_at"]),
+                        right=ast.Constant(value=data_interval_start),
+                    ),
+                    # include $end_timestamp because hogql uses this to add a where clause to the inner query
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["$end_timestamp"]),
+                        right=ast.Constant(value=data_interval_start),
+                    ),
+                ]
             )
 
         hogql_query.where = where_and
@@ -769,7 +785,6 @@ class Producer:
         done_ranges: list[tuple[dt.datetime, dt.datetime]],
         fields: list[BatchExportField] | None = None,
         destination_default_fields: list[BatchExportField] | None = None,
-        use_latest_schema: bool = False,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
         filters: list[dict[str, str | list[str]]] | None = None,
@@ -795,15 +810,9 @@ class Producer:
 
         if model_name == "persons":
             if is_backfill and full_range[0] is None:
-                if use_latest_schema:
-                    query = SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW
-                else:
-                    query = SELECT_FROM_PERSONS_VIEW_BACKFILL
+                query = SELECT_FROM_PERSONS_BACKFILL
             else:
-                if use_latest_schema:
-                    query = SELECT_FROM_PERSONS_VIEW_NEW
-                else:
-                    query = SELECT_FROM_PERSONS_VIEW
+                query = SELECT_FROM_PERSONS
         else:
             if parameters.get("exclude_events", None):
                 parameters["exclude_events"] = list(parameters["exclude_events"])

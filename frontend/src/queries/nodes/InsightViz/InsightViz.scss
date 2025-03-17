@@ -66,6 +66,7 @@
         flex: 1;
         flex-direction: column;
         height: 100%;
+        padding: 0.5rem;
 
         &--with-legend {
             flex-direction: row;
@@ -120,6 +121,7 @@
     .LineGraph {
         position: relative !important;
         width: 100% !important;
+        height: 100%;
         min-height: 30vh;
     }
 

@@ -46,6 +46,7 @@ celerybeat.pid
 common/hogvm/typescript/.parcel-cache
 common/hogvm/typescript/dist
 common/plugin_transpiler/dist
+common/tailwind/dist
 coverage-*.xml
 cypress/**/*.diff.png
 cypress/downloads/
@@ -76,10 +77,11 @@ pnpm-error.log
 # pyright config (keep this until we have a standardized one)
 pyrightconfig.json
 settings.yml
-share/GeoLite2-City.mmdb
+share/GeoLite2-City.*
 staticfiles
 storybook-static
 frontend/storybook-static
+common/storybook/dist
 temp_test_run_data.json
 # ignore all dagster tmp directories that may be created
 tmp*/
@@ -92,3 +94,8 @@ yalc.lock
 playwright/.auth/
 playwright-report/
 test-results/
+playwright/playwright-report/
+playwright/test-results/
+
+.dagster_home/*
+!.dagster_home/.gitkeep

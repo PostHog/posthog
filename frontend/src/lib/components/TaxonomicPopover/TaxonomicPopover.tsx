@@ -1,6 +1,10 @@
 import { IconX } from '@posthog/icons'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import {
+    DataWarehousePopoverField,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+} from 'lib/components/TaxonomicFilter/types'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { forwardRef, Ref, useEffect, useState } from 'react'
@@ -27,6 +31,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
     metadataSource?: AnyDataNode
     showNumericalPropsOnly?: boolean
+    dataWarehousePopoverFields?: DataWarehousePopoverField[]
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -59,6 +64,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         metadataSource,
         schemaColumns,
         showNumericalPropsOnly,
+        dataWarehousePopoverFields,
         ...buttonPropsRest
     }: TaxonomicPopoverProps<ValueType>,
     ref: Ref<HTMLButtonElement>
@@ -71,9 +77,9 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     const buttonPropsFinal: Omit<LemonButtonProps, 'sideIcon' | 'sideAction'> = buttonPropsRest
     buttonPropsFinal.children = localValue ? (
         <span>{renderValue?.(localValue) ?? localValue}</span>
-    ) : (
+    ) : placeholder || placeholderClass ? (
         <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
-    )
+    ) : null
     buttonPropsFinal.onClick = () => setVisible(!visible)
     if (!buttonPropsFinal.type) {
         buttonPropsFinal.type = 'secondary'
@@ -102,6 +108,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     metadataSource={metadataSource}
                     excludedProperties={excludedProperties}
                     showNumericalPropsOnly={showNumericalPropsOnly}
+                    dataWarehousePopoverFields={dataWarehousePopoverFields}
                 />
             }
             matchWidth={false}

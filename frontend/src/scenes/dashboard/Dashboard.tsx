@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
+import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
@@ -107,6 +108,7 @@ function DashboardScene(): JSX.Element {
     return (
         <div className="dashboard">
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
+            {canEditDashboard && <AddInsightToDashboardModal />}
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
@@ -127,7 +129,7 @@ function DashboardScene(): JSX.Element {
                             </LemonButton>
                         )}
                         {placement !== DashboardPlacement.Export && (
-                            <div className="flex shrink-0 space-x-4 dashoard-items-actions">
+                            <div className="flex shrink-0 deprecated-space-x-4 dashoard-items-actions">
                                 <div
                                     className={`left-item ${
                                         placement === DashboardPlacement.Public ? 'text-right' : ''

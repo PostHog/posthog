@@ -22,8 +22,8 @@ import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
+import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
@@ -59,7 +59,7 @@ export class EventsProcessor {
         this.clickhouse = pluginsServer.clickhouse
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.teamManager = pluginsServer.teamManager
-        this.groupTypeManager = new GroupTypeManager(pluginsServer.postgres, this.teamManager, pluginsServer.SITE_URL)
+        this.groupTypeManager = new GroupTypeManager(pluginsServer.postgres, this.teamManager)
         this.groupAndFirstEventManager = new GroupAndFirstEventManager(
             this.teamManager,
             this.groupTypeManager,
@@ -73,7 +73,7 @@ export class EventsProcessor {
         teamId: number,
         timestamp: DateTime,
         eventUuid: string,
-        processPerson: boolean
+        processPerson: boolean = false
     ): Promise<PreIngestionEvent> {
         const singleSaveTimer = new Date()
         const timeout = timeoutGuard(
@@ -165,7 +165,7 @@ export class EventsProcessor {
                 )
             } catch (err) {
                 captureException(err, { tags: { team_id: team.id } })
-                status.warn('⚠️', 'Failed to update property definitions for an event', {
+                logger.warn('⚠️', 'Failed to update property definitions for an event', {
                     event,
                     properties,
                     err,
@@ -212,7 +212,7 @@ export class EventsProcessor {
             elementsChain = this.getElementsChain(properties)
         } catch (error) {
             captureException(error, { tags: { team_id: teamId } })
-            status.warn('⚠️', 'Failed to process elements', {
+            logger.warn('⚠️', 'Failed to process elements', {
                 uuid,
                 teamId: teamId,
                 properties,

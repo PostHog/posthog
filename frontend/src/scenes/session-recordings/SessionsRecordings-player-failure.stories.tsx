@@ -8,11 +8,12 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import recording_playlists from './__mocks__/recording_playlists.json'
-import recordings from './__mocks__/recordings.json'
+import { recordingPlaylists } from './__mocks__/recording_playlists'
+import { recordings } from './__mocks__/recordings'
 
 const meta: Meta = {
     title: 'Replay/Player/Failure',
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -34,7 +35,7 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/projects/:team_id/session_recording_playlists': recording_playlists,
+                '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
                 '/api/projects/:team_id/session_recording_playlists/:playlist_id': (req) => {
                     const playlistId = req.params.playlist_id
 

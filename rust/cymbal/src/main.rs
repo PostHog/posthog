@@ -12,7 +12,7 @@ use cymbal::{
 };
 use rdkafka::types::RDKafkaErrorCode;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -54,6 +54,23 @@ async fn main() {
     info!("Starting up...");
 
     let config = Config::init_with_defaults().unwrap();
+
+    match &config.posthog_api_key {
+        Some(key) => {
+            let ph_config = posthog_rs::ClientOptionsBuilder::default()
+                .api_key(key.clone())
+                .api_endpoint(config.posthog_endpoint.clone())
+                .build()
+                .unwrap();
+            posthog_rs::init_global(ph_config).await.unwrap();
+            info!("Posthog client initialized");
+        }
+        None => {
+            posthog_rs::disable_global();
+            warn!("Posthog client disabled");
+        }
+    }
+
     let context = Arc::new(AppContext::new(&config).await.unwrap());
 
     start_health_liveness_server(&config, context.clone());
@@ -71,15 +88,7 @@ async fn main() {
             .json_recv_batch(batch_size, batch_wait_time)
             .await;
 
-        let mut producer = context.kafka_producer.lock().await;
-
-        let txn = match producer.begin() {
-            Ok(txn) => txn,
-            Err(e) => {
-                error!("Failed to start kafka transaction, {:?}", e);
-                panic!("Failed to start kafka transaction: {:?}", e);
-            }
-        };
+        let mut transactional_producer = context.transactional_producer.lock().await;
 
         let mut to_process = Vec::with_capacity(received.len());
         let mut offsets = Vec::with_capacity(received.len());
@@ -114,6 +123,14 @@ async fn main() {
         };
 
         metrics::counter!(EVENT_PROCESSED).increment(processed.len() as u64);
+
+        let txn = match transactional_producer.begin() {
+            Ok(txn) => txn,
+            Err(e) => {
+                error!("Failed to start kafka transaction, {:?}", e);
+                panic!("Failed to start kafka transaction: {:?}", e);
+            }
+        };
 
         let results = txn
             .send_keyed_iter_to_kafka(

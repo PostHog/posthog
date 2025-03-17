@@ -1,11 +1,10 @@
 import { Gauge, Summary } from 'prom-client'
 
 import { Hub, StatelessInstanceMap } from '../../types'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { constructPluginInstance } from '../vm/lazy'
 import { loadPlugin } from './loadPlugin'
 import { loadPluginsFromDB } from './loadPluginsFromDB'
-import { loadSchedule } from './loadSchedule'
 import { teardownPlugins } from './teardown'
 
 export const importUsedGauge = new Gauge({
@@ -21,7 +20,7 @@ const setupPluginsMsSummary = new Summary({
 
 export async function setupPlugins(hub: Hub): Promise<void> {
     const startTime = Date.now()
-    status.info('🔁', `Loading plugin configs...`)
+    logger.info('🔁', `Loading plugin configs...`)
     const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(hub)
     const pluginVMLoadPromises: Array<Promise<any>> = []
     const statelessInstances = {} as StatelessInstanceMap
@@ -80,12 +79,7 @@ export async function setupPlugins(hub: Hub): Promise<void> {
         hub.pluginConfigsPerTeam.get(teamId)?.sort((a, b) => a.order - b.order)
     }
 
-    // Only load the schedule in server that can process scheduled tasks, else the schedule won't be useful
-    if (hub.capabilities.pluginScheduledTasks) {
-        await loadSchedule(hub)
-    }
-
-    status.info(
+    logger.info(
         '✅',
         `Loaded ${pluginConfigs.size} configs for ${plugins.size} plugins, took ${Date.now() - startTime}ms`
     )

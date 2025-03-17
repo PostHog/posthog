@@ -6,11 +6,16 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import EXPERIMENT_DRAFT from '~/mocks/fixtures/api/experiments/_experiment_draft.json'
 import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
+import EXPERIMENT_WITH_ASYMMETRIC_INTERVALS from '~/mocks/fixtures/api/experiments/_experiment_with_asymmetric_credible_interval.json'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
+    CachedExperimentExposureQueryResponse,
     CachedExperimentFunnelsQueryResponse,
+    CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
+    ExperimentMetricType,
     ExperimentSignificanceCode,
     NodeKind,
     ResultCustomizationBy,
@@ -19,6 +24,7 @@ import {
     BaseMathType,
     ChartDisplayType,
     Experiment,
+    ExperimentMetricMathType,
     FeatureFlagBasicType,
     FunnelConversionWindowTimeUnit,
     FunnelVizType,
@@ -2195,12 +2201,124 @@ const EXPERIMENT_QUERY_COUNT_RESULT: CachedExperimentTrendsQueryResponse = {
     ],
 }
 
+const EXPERIMENT_QUERY_RESULT_WITH_ASYMMETRIC_INTERVALS: CachedExperimentQueryResponse = {
+    cache_key: 'cache_1aeef2b7a7acbcc4b54564ba1208a320',
+    cache_target_age: '2025-02-19T09:13:37.273511Z',
+    calculation_trigger: undefined,
+    credible_intervals: {
+        control: [0.07063151332765807, 0.1218892673220187],
+        test: [0.07681082815508776, 0.13286603552770726],
+    },
+    insight: [],
+    is_cached: true,
+    kind: NodeKind.ExperimentQuery,
+    last_refresh: '2025-02-18T09:14:37.273511Z',
+    metric: {
+        inverse: false,
+        kind: NodeKind.ExperimentMetric,
+        metric_config: {
+            event: 'experiment created',
+            kind: NodeKind.ExperimentEventMetricConfig,
+            math: ExperimentMetricMathType.TotalCount,
+            math_hogql: undefined,
+            math_property: undefined,
+            name: 'experiment created',
+            properties: undefined,
+        },
+        metric_type: ExperimentMetricType.MEAN,
+        name: 'Experiments created',
+    },
+    next_allowed_client_refresh: '2025-02-18T09:14:37.273511Z',
+    p_value: 1,
+    probability: {
+        control: 0.3549,
+        test: 0.6451,
+    },
+    query_status: undefined,
+    significance_code: ExperimentSignificanceCode.LowWinProbability,
+    significant: false,
+    stats_version: 2,
+    timezone: 'US/Pacific',
+    variants: [
+        {
+            absolute_exposure: 360,
+            count: 31,
+            exposure: 360,
+            key: 'control',
+        },
+        {
+            absolute_exposure: 339,
+            count: 32,
+            exposure: 339,
+            key: 'test',
+        },
+    ],
+}
+
+const EXPERIMENT_QUERY_EXPOSURE_RESULT: CachedExperimentExposureQueryResponse = {
+    cache_key: 'cache_bba689ce3132fef5d97b652c6a96e871',
+    cache_target_age: '2025-03-07T18:04:07.837340Z',
+    date_range: {
+        date_from: '2025-02-23T18:03:00+00:00',
+        date_to: null,
+        explicitDate: true,
+    },
+    is_cached: true,
+    kind: NodeKind.ExperimentExposureQuery,
+    last_refresh: '2025-03-06T18:04:07.837340Z',
+    next_allowed_client_refresh: '2025-03-06T18:05:07.837340Z',
+    timeseries: [
+        {
+            days: [
+                '2025-02-23',
+                '2025-02-24',
+                '2025-02-25',
+                '2025-02-26',
+                '2025-02-27',
+                '2025-02-28',
+                '2025-03-01',
+                '2025-03-02',
+                '2025-03-03',
+                '2025-03-04',
+                '2025-03-05',
+                '2025-03-06',
+            ],
+            exposure_counts: [0.0, 0.0, 0.0, 0.0, 38.0, 179.0, 317.0, 473.0, 631.0, 756.0, 889.0, 975.0],
+            variant: 'test',
+        },
+        {
+            days: [
+                '2025-02-23',
+                '2025-02-24',
+                '2025-02-25',
+                '2025-02-26',
+                '2025-02-27',
+                '2025-02-28',
+                '2025-03-01',
+                '2025-03-02',
+                '2025-03-03',
+                '2025-03-04',
+                '2025-03-05',
+                '2025-03-06',
+            ],
+            exposure_counts: [0.0, 0.0, 0.0, 0.0, 45.0, 182.0, 347.0, 487.0, 625.0, 780.0, 922.0, 1025.0],
+            variant: 'control',
+        },
+    ],
+    timezone: 'UTC',
+    total_exposures: {
+        test: 975.0,
+        control: 1025.0,
+    },
+}
+
 const meta: Meta = {
     title: 'Scenes-App/Experiments',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2025-01-27',
+        featureFlags: ['experiments-new-query-runner'],
     },
     decorators: [
         mswDecorator({
@@ -2208,11 +2326,16 @@ const meta: Meta = {
                 '/api/projects/:team_id/experiments/': toPaginatedResponse([
                     EXPERIMENT,
                     EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY,
+                    EXPERIMENT_WITH_ASYMMETRIC_INTERVALS,
                 ]),
                 '/api/projects/:team_id/experiments/66/': EXPERIMENT,
+                '/api/projects/:team_id/experiments/20/': EXPERIMENT_DRAFT,
                 '/api/projects/:team_id/experiments/67/': EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY,
+                '/api/projects/:team_id/experiments/68/': EXPERIMENT_WITH_ASYMMETRIC_INTERVALS,
                 '/api/projects/:team_id/experiment_holdouts': [],
                 '/api/projects/:team_id/experiment_saved_metrics/': [],
+                '/api/projects/:team_id/feature_flags/24/': {},
+                '/api/projects/:team_id/feature_flags/24/status/': {},
                 '/api/projects/997/feature_flags/162/': {},
                 '/api/projects/997/feature_flags/162/status/': {},
                 '/api/projects/997/feature_flags/163/': FEATURE_FLAG_163_RESPONSE,
@@ -2221,6 +2344,10 @@ const meta: Meta = {
             post: {
                 '/api/environments/:team_id/query': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
+
+                    if (body.query.kind === NodeKind.ExperimentExposureQuery) {
+                        return res(ctx.json(EXPERIMENT_QUERY_EXPOSURE_RESULT))
+                    }
 
                     if (body.query.kind === NodeKind.ExperimentFunnelsQuery) {
                         return res(ctx.json(METRIC_FUNNEL_RESULT))
@@ -2231,6 +2358,8 @@ const meta: Meta = {
                         return res(ctx.json(METRIC_TREND_CONTINUOUS_RESULT))
                     } else if (body.query.kind === NodeKind.ExperimentTrendsQuery) {
                         return res(ctx.json(METRIC_TREND_RESULT))
+                    } else if (body.query.experiment_id === EXPERIMENT_WITH_ASYMMETRIC_INTERVALS.id) {
+                        return res(ctx.json(EXPERIMENT_QUERY_RESULT_WITH_ASYMMETRIC_INTERVALS))
                     } else if (body.query.kind === NodeKind.ExperimentQuery) {
                         return res(ctx.json(EXPERIMENT_QUERY_COUNT_RESULT))
                     }
@@ -2247,9 +2376,9 @@ export const ExperimentsList: StoryFn = () => {
     return <App />
 }
 
-export const ExperimentV3WithExperimentQuery: StoryFn = () => {
+export const ExperimentDraft: StoryFn = () => {
     useEffect(() => {
-        router.actions.push(urls.experiment(EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY.id))
+        router.actions.push(urls.experiment(EXPERIMENT_DRAFT.id))
     }, [])
     return <App />
 }
@@ -2257,6 +2386,20 @@ export const ExperimentV3WithExperimentQuery: StoryFn = () => {
 export const ExperimentV2WithThreeMetrics: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.experiment(EXPERIMENT.id))
+    }, [])
+    return <App />
+}
+
+export const ExperimentV3WithExperimentQuery: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.experiment(EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY.id))
+    }, [])
+    return <App />
+}
+
+export const ExperimentV3WithAsymmetricIntervals: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.experiment(EXPERIMENT_WITH_ASYMMETRIC_INTERVALS.id))
     }, [])
     return <App />
 }

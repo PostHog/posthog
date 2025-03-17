@@ -7,10 +7,10 @@ from typing import Literal, Optional, Union, cast
 
 from prometheus_client import Counter
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError, DataError
+from django.db import DatabaseError, IntegrityError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
-from django.db.models import Q, Func, F, CharField
+from django.db.models import Q, Func, F, CharField, Expression
 from django.db.models.query import QuerySet
 from sentry_sdk.api import start_span
 from posthog.metrics import LABEL_TEAM_ID
@@ -28,7 +28,6 @@ from posthog.models.team.team import Team
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q, sanitize_property_key
 from posthog.database_healthcheck import (
-    postgres_healthcheck,
     DATABASE_FOR_FLAG_MATCHING,
 )
 from posthog.utils import label_for_team_id_to_track
@@ -78,21 +77,22 @@ class FeatureFlagMatchReason(StrEnum):
     OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
     NO_GROUP_TYPE = "no_group_type"
 
-    def score(self):
-        if self == FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
-            return 4
-        if self == FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
-            return 3.5
-        if self == FeatureFlagMatchReason.CONDITION_MATCH:
-            return 3
-        if self == FeatureFlagMatchReason.NO_GROUP_TYPE:
-            return 2
-        if self == FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
-            return 1
-        if self == FeatureFlagMatchReason.NO_CONDITION_MATCH:
-            return 0
-
-        return -1
+    def score(self) -> float:
+        match self:
+            case FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
+                return 4
+            case FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
+                return 3.5
+            case FeatureFlagMatchReason.CONDITION_MATCH:
+                return 3
+            case FeatureFlagMatchReason.NO_GROUP_TYPE:
+                return 2
+            case FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
+                return 1
+            case FeatureFlagMatchReason.NO_CONDITION_MATCH:
+                return 0
+            case _:
+                raise AssertionError("Unreachable - all enum cases are handled")
 
     def __lt__(self, other):
         if self.__class__ is other.__class__:
@@ -124,8 +124,9 @@ class FlagsMatcherCache:
                 group_type_mapping_rows = GroupTypeMapping.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
                     project_id=self.project_id
                 )
-                return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
-        except DatabaseError:
+                return {row.group_type: cast(GroupTypeIndex, row.group_type_index) for row in group_type_mapping_rows}
+        except DatabaseError as e:
+            logger.exception("group_types_to_indexes database error", error=str(e), exc_info=True)
             self.failed_to_fetch_flags = True
             raise
 
@@ -479,187 +480,197 @@ class FeatureFlagMatcher:
             # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
             # and not just the database query.
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
-                all_conditions: dict = {}
-                person_query: QuerySet = Person.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
-                    team_id=self.team_id,
-                    persondistinctid__distinct_id=self.distinct_id,
-                    persondistinctid__team_id=self.team_id,
-                )
-                basic_group_query: QuerySet = Group.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
-                    team_id=self.team_id
-                )
-                group_query_per_group_type_mapping: dict[GroupTypeIndex, tuple[QuerySet, list[str]]] = {}
-                # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
-                # If no groups for a group type are passed in, we can skip querying for that group type,
-                # since the result will always be `false`.
-                for group_type, group_key in self.groups.items():
-                    group_type_index = self.cache.group_types_to_indexes.get(group_type)
-                    if group_type_index is not None:
-                        # a tuple of querySet and field names
-                        group_query_per_group_type_mapping[group_type_index] = (
-                            basic_group_query.filter(group_type_index=group_type_index, group_key=group_key),
-                            [],
+                with start_span(op="query_conditions"):
+                    all_conditions: dict = {}
+                    person_query: QuerySet = Person.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
+                        team_id=self.team_id,
+                        persondistinctid__distinct_id=self.distinct_id,
+                        persondistinctid__team_id=self.team_id,
+                    )
+                    basic_group_query: QuerySet = Group.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
+                        team_id=self.team_id
+                    )
+                    group_query_per_group_type_mapping: dict[GroupTypeIndex, tuple[QuerySet, list[str]]] = {}
+                    # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
+                    # If no groups for a group type are passed in, we can skip querying for that group type,
+                    # since the result will always be `false`.
+                    for group_type, group_key in self.groups.items():
+                        group_type_index = self.cache.group_types_to_indexes.get(group_type)
+                        if group_type_index is not None:
+                            # a tuple of querySet and field names
+                            group_query_per_group_type_mapping[group_type_index] = (
+                                basic_group_query.filter(group_type_index=group_type_index, group_key=group_key),
+                                [],
+                            )
+
+                    person_fields: list[str] = []
+
+                    for existence_condition_key in self.has_pure_is_not_conditions:
+                        if existence_condition_key == PERSON_KEY:
+                            person_exists = person_query.exists()
+                            all_conditions[f"{ENTITY_EXISTS_PREFIX}{PERSON_KEY}"] = person_exists
+                        else:
+                            if existence_condition_key not in group_query_per_group_type_mapping:
+                                continue
+
+                            group_query, _ = group_query_per_group_type_mapping[
+                                cast(GroupTypeIndex, existence_condition_key)
+                            ]
+                            group_exists = group_query.exists()
+                            all_conditions[f"{ENTITY_EXISTS_PREFIX}{existence_condition_key}"] = group_exists
+
+                    def condition_eval(key, condition):
+                        expr = None
+                        annotate_query = True
+                        nonlocal person_query
+
+                        property_list = Filter(data=condition).property_groups.flat
+                        properties_with_math_operators = get_all_properties_with_math_operators(
+                            property_list, self.cohorts_cache, self.project_id
                         )
 
-                person_fields: list[str] = []
+                        if len(condition.get("properties", {})) > 0:
+                            # Feature Flags don't support OR filtering yet
+                            target_properties = self.property_value_overrides
+                            if feature_flag.aggregation_group_type_index is not None:
+                                if feature_flag.aggregation_group_type_index not in self.cache.group_type_index_to_name:
+                                    target_properties = {}
+                                else:
+                                    target_properties = self.group_property_value_overrides.get(
+                                        self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index],
+                                        {},
+                                    )
 
-                for existence_condition_key in self.has_pure_is_not_conditions:
-                    if existence_condition_key == PERSON_KEY:
-                        person_exists = person_query.exists()
-                        all_conditions[f"{ENTITY_EXISTS_PREFIX}{PERSON_KEY}"] = person_exists
-                    else:
-                        if existence_condition_key not in group_query_per_group_type_mapping:
-                            continue
+                            expr = properties_to_Q(
+                                self.project_id,
+                                property_list,
+                                override_property_values=target_properties,
+                                cohorts_cache=self.cohorts_cache,
+                                using_database=DATABASE_FOR_FLAG_MATCHING,
+                            )
 
-                        group_query, _ = group_query_per_group_type_mapping[
-                            cast(GroupTypeIndex, existence_condition_key)
-                        ]
-                        group_exists = group_query.exists()
-                        all_conditions[f"{ENTITY_EXISTS_PREFIX}{existence_condition_key}"] = group_exists
+                            # TRICKY: Due to property overrides for cohorts, we sometimes shortcircuit the condition check.
+                            # In that case, the expression is either an explicit True or explicit False, or multiple conditions.
+                            # We can skip going to the database in explicit True|False conditions. This is important
+                            # as it allows resolving flags correctly for non-ingested persons.
+                            # However, this doesn't work for the multiple condition case (when expr has multiple Q objects),
+                            # but it's better than nothing.
+                            # TODO: A proper fix would be to handle cohorts with property overrides before we get to this point.
+                            # Unskip test test_complex_cohort_filter_with_override_properties when we fix this.
+                            if expr == Q(pk__isnull=False):
+                                all_conditions[key] = True
+                                annotate_query = False
+                            elif expr == Q(pk__isnull=True):
+                                all_conditions[key] = False
+                                annotate_query = False
 
-                def condition_eval(key, condition):
-                    expr = None
-                    annotate_query = True
-                    nonlocal person_query
-
-                    property_list = Filter(data=condition).property_groups.flat
-                    properties_with_math_operators = get_all_properties_with_math_operators(
-                        property_list, self.cohorts_cache, self.project_id
-                    )
-
-                    if len(condition.get("properties", {})) > 0:
-                        # Feature Flags don't support OR filtering yet
-                        target_properties = self.property_value_overrides
-                        if feature_flag.aggregation_group_type_index is not None:
-                            if feature_flag.aggregation_group_type_index not in self.cache.group_type_index_to_name:
-                                target_properties = {}
+                        if annotate_query:
+                            if feature_flag.aggregation_group_type_index is None:
+                                # :TRICKY: Flag matching depends on type of property when doing >, <, >=, <= comparisons.
+                                # This requires a generated field to query in Q objects, which sadly don't allow inlining fields,
+                                # hence we need to annotate the query here, even though these annotations are used much deeper,
+                                # in properties_to_q, in empty_or_null_with_value_q
+                                # These need to come in before the expr so they're available to use inside the expr.
+                                # Same holds for the group queries below.
+                                type_property_annotations = _get_property_type_annotations(
+                                    properties_with_math_operators
+                                )
+                                person_query = person_query.annotate(
+                                    **type_property_annotations,
+                                    **{
+                                        key: ExpressionWrapper(
+                                            cast(Expression, expr if expr else RawSQL("true", [])),
+                                            output_field=BooleanField(),
+                                        ),
+                                    },
+                                )
+                                person_fields.append(key)
                             else:
-                                target_properties = self.group_property_value_overrides.get(
-                                    self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index],
-                                    {},
+                                if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
+                                    # ignore flags that didn't have the right groups passed in
+                                    return
+                                (
+                                    group_query,
+                                    group_fields,
+                                ) = group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index]
+                                type_property_annotations = _get_property_type_annotations(
+                                    properties_with_math_operators
+                                )
+                                group_query = group_query.annotate(
+                                    **type_property_annotations,
+                                    **{
+                                        key: ExpressionWrapper(
+                                            cast(Expression, expr if expr else RawSQL("true", [])),
+                                            output_field=BooleanField(),
+                                        ),
+                                    },
+                                )
+                                group_fields.append(key)
+                                group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index] = (
+                                    group_query,
+                                    group_fields,
                                 )
 
-                        expr = properties_to_Q(
-                            self.project_id,
-                            property_list,
-                            override_property_values=target_properties,
-                            cohorts_cache=self.cohorts_cache,
-                            using_database=DATABASE_FOR_FLAG_MATCHING,
-                        )
-
-                        # TRICKY: Due to property overrides for cohorts, we sometimes shortcircuit the condition check.
-                        # In that case, the expression is either an explicit True or explicit False, or multiple conditions.
-                        # We can skip going to the database in explicit True|False conditions. This is important
-                        # as it allows resolving flags correctly for non-ingested persons.
-                        # However, this doesn't work for the multiple condition case (when expr has multiple Q objects),
-                        # but it's better than nothing.
-                        # TODO: A proper fix would be to handle cohorts with property overrides before we get to this point.
-                        # Unskip test test_complex_cohort_filter_with_override_properties when we fix this.
-                        if expr == Q(pk__isnull=False):
-                            all_conditions[key] = True
-                            annotate_query = False
-                        elif expr == Q(pk__isnull=True):
-                            all_conditions[key] = False
-                            annotate_query = False
-
-                    if annotate_query:
-                        if feature_flag.aggregation_group_type_index is None:
-                            # :TRICKY: Flag matching depends on type of property when doing >, <, >=, <= comparisons.
-                            # This requires a generated field to query in Q objects, which sadly don't allow inlining fields,
-                            # hence we need to annotate the query here, even though these annotations are used much deeper,
-                            # in properties_to_q, in empty_or_null_with_value_q
-                            # These need to come in before the expr so they're available to use inside the expr.
-                            # Same holds for the group queries below.
-                            type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
-                            person_query = person_query.annotate(
-                                **type_property_annotations,
-                                **{
-                                    key: ExpressionWrapper(
-                                        expr if expr else RawSQL("true", []),
-                                        output_field=BooleanField(),
-                                    ),
-                                },
+                    # only fetch all cohorts if not passed in any cached cohorts
+                    if not self.cohorts_cache and any(feature_flag.uses_cohorts for feature_flag in self.feature_flags):
+                        all_cohorts = {
+                            cohort.pk: cohort
+                            for cohort in Cohort.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
+                                team__project_id=self.project_id, deleted=False
                             )
-                            person_fields.append(key)
-                        else:
-                            if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
-                                # ignore flags that didn't have the right groups passed in
-                                return
-                            (
-                                group_query,
-                                group_fields,
-                            ) = group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index]
-                            type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
-                            group_query = group_query.annotate(
-                                **type_property_annotations,
-                                **{
-                                    key: ExpressionWrapper(
-                                        expr if expr else RawSQL("true", []),
-                                        output_field=BooleanField(),
-                                    )
-                                },
-                            )
-                            group_fields.append(key)
-                            group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index] = (
-                                group_query,
-                                group_fields,
-                            )
+                        }
+                        self.cohorts_cache.update(all_cohorts)
+                    # release conditions
+                    for feature_flag in self.feature_flags:
+                        # super release conditions
+                        if feature_flag.super_conditions and len(feature_flag.super_conditions) > 0:
+                            condition = feature_flag.super_conditions[0]
+                            prop_key = (condition.get("properties") or [{}])[0].get("key")
+                            if prop_key:
+                                key = f"flag_{feature_flag.pk}_super_condition"
+                                condition_eval(key, condition)
 
-                # only fetch all cohorts if not passed in any cached cohorts
-                if not self.cohorts_cache and any(feature_flag.uses_cohorts for feature_flag in self.feature_flags):
-                    all_cohorts = {
-                        cohort.pk: cohort
-                        for cohort in Cohort.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
-                            team__project_id=self.project_id, deleted=False
-                        )
-                    }
-                    self.cohorts_cache.update(all_cohorts)
-                # release conditions
-                for feature_flag in self.feature_flags:
-                    # super release conditions
-                    if feature_flag.super_conditions and len(feature_flag.super_conditions) > 0:
-                        condition = feature_flag.super_conditions[0]
-                        prop_key = (condition.get("properties") or [{}])[0].get("key")
-                        if prop_key:
-                            key = f"flag_{feature_flag.pk}_super_condition"
-                            condition_eval(key, condition)
+                                is_set_key = f"flag_{feature_flag.pk}_super_condition_is_set"
+                                is_set_condition = {
+                                    "properties": [
+                                        {
+                                            "key": prop_key,
+                                            "operator": "is_set",
+                                        }
+                                    ]
+                                }
+                                condition_eval(is_set_key, is_set_condition)
 
-                            is_set_key = f"flag_{feature_flag.pk}_super_condition_is_set"
-                            is_set_condition = {
-                                "properties": [
-                                    {
-                                        "key": prop_key,
-                                        "operator": "is_set",
-                                    }
-                                ]
-                            }
-                            condition_eval(is_set_key, is_set_condition)
+                        with start_span(
+                            op="parse_feature_flag_conditions",
+                            description=f"feature_flag={feature_flag.pk} key={feature_flag.key}",
+                        ):
+                            for index, condition in enumerate(feature_flag.conditions):
+                                key = f"flag_{feature_flag.pk}_condition_{index}"
+                                condition_eval(key, condition)
 
-                    with start_span(
-                        op="parse_feature_flag_conditions",
-                        description=f"feature_flag={feature_flag.pk} key={feature_flag.key}",
-                    ):
-                        for index, condition in enumerate(feature_flag.conditions):
-                            key = f"flag_{feature_flag.pk}_condition_{index}"
-                            condition_eval(key, condition)
+                    if len(person_fields) > 0:
+                        with start_span(op="execute_person_query"):
+                            person_query = person_query.values(*person_fields)
+                            if len(person_query) > 0:
+                                all_conditions = {**all_conditions, **person_query[0]}
 
-                if len(person_fields) > 0:
-                    person_query = person_query.values(*person_fields)
-                    if len(person_query) > 0:
-                        all_conditions = {**all_conditions, **person_query[0]}
-
-                for (
-                    group_query,
-                    group_fields,
-                ) in group_query_per_group_type_mapping.values():
-                    # Only query the group if there's a field to query
-                    if len(group_fields) > 0:
-                        group_query = group_query.values(*group_fields)
-                        if len(group_query) > 0:
-                            assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
-                            all_conditions = {**all_conditions, **group_query[0]}
-                return all_conditions
-        except DatabaseError:
+                    for (
+                        group_query,
+                        group_fields,
+                    ) in group_query_per_group_type_mapping.values():
+                        # Only query the group if there's a field to query
+                        if len(group_fields) > 0:
+                            with start_span(op="execute_group_query"):
+                                group_query = group_query.values(*group_fields)
+                                if len(group_query) > 0:
+                                    assert (
+                                        len(group_query) == 1
+                                    ), f"Expected 1 group query result, got {len(group_query)}"
+                                    all_conditions = {**all_conditions, **group_query[0]}
+                    return all_conditions
+        except DatabaseError as e:
+            logger.exception("query_conditions database error", error=str(e), exc_info=True)
             self.failed_to_fetch_conditions = True
             raise
         except Exception:
@@ -686,6 +697,8 @@ class FeatureFlagMatcher:
             # TODO: Don't use the cache if self.groups is empty, since that means no groups provided anyway
             # :TRICKY: If aggregating by groups
             group_type_name = self.cache.group_type_index_to_name.get(feature_flag.aggregation_group_type_index)
+            if group_type_name is None:
+                return None
             group_key = self.groups.get(group_type_name)
             return group_key
 
@@ -831,6 +844,7 @@ def get_all_feature_flags(
     hash_key_override: Optional[str] = None,
     property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
     group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
+    flag_keys: Optional[list[str]] = None,
 ) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
     if group_property_value_overrides is None:
         group_property_value_overrides = {}
@@ -848,6 +862,11 @@ def get_all_feature_flags(
         cache_hit = False
         all_feature_flags = set_feature_flags_for_team_in_cache(team.project_id)
 
+    # Filter flags by keys if provided
+    if flag_keys is not None:
+        flag_keys_set = set(flag_keys)
+        all_feature_flags = [ff for ff in all_feature_flags if ff.key in flag_keys_set]
+
     FLAG_CACHE_HIT_COUNTER.labels(team_id=label_for_team_id_to_track(team.id), cache_hit=cache_hit).inc()
 
     flags_have_experience_continuity_enabled = any(
@@ -855,8 +874,7 @@ def get_all_feature_flags(
     )
 
     with start_span(op="without_experience_continuity"):
-        # check every 10 seconds whether the database is alive or not
-        is_database_alive = (not settings.DECIDE_SKIP_POSTGRES_FLAGS) and postgres_healthcheck.is_connected()
+        is_database_alive = not settings.DECIDE_SKIP_POSTGRES_FLAGS
         if not is_database_alive or not flags_have_experience_continuity_enabled:
             return _get_all_feature_flags(
                 all_feature_flags,
@@ -1067,11 +1085,6 @@ def handle_feature_flag_exception(err: Exception, log_message: str = "", set_hea
     if reason == "unknown":
         capture_exception(err)
 
-    # DataErrors are generally not because the db is down, but because of bad data.
-    # We don't want to set the healthcheck down for bad data.
-    if not isinstance(err, DataError) and isinstance(err, DatabaseError) and set_healthcheck:
-        postgres_healthcheck.set_connection(False)
-
 
 def parse_exception_for_error_message(err: Exception):
     reason = "unknown"
@@ -1186,7 +1199,7 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int
             **type_property_annotations,
             **{
                 key: ExpressionWrapper(
-                    expr if expr else RawSQL("true", []),
+                    cast(Expression, expr if expr else RawSQL("true", [])),
                     output_field=BooleanField(),
                 ),
             },

@@ -59,29 +59,34 @@ export function Elements(): JSX.Element {
                 <HeatmapCanvas />
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
-                {elementsToDisplay.map(({ rect, element }, index) => (
-                    <AutocaptureElement
-                        key={`inspect-${index}`}
-                        rect={rect}
-                        style={{
-                            pointerEvents: heatmapPointerEvents,
-                            cursor: 'pointer',
-                            zIndex: hoverElement === element ? 2 : 1,
-                            opacity:
-                                (!hoverElement && !selectedElement) ||
-                                selectedElement === element ||
-                                hoverElement === element
-                                    ? 1
-                                    : 0.4,
-                            transition: 'opacity 0.2s, box-shadow 0.2s',
-                            borderRadius: 5,
-                            ...getBoxColors('blue', hoverElement === element || selectedElement === element),
-                        }}
-                        onClick={() => selectElement(element)}
-                        onMouseOver={() => selectedElement === null && setHoverElement(element)}
-                        onMouseOut={() => selectedElement === null && setHoverElement(null)}
-                    />
-                ))}
+                {elementsToDisplay.map(({ rect, element }, index) => {
+                    // being able to hover over elements might rely on their original z-index
+                    // so we copy it over to the toolbar element
+                    const elementZIndex = getComputedStyle(element).zIndex
+                    return (
+                        <AutocaptureElement
+                            key={`inspect-${index}`}
+                            rect={rect}
+                            style={{
+                                pointerEvents: heatmapPointerEvents,
+                                cursor: 'pointer',
+                                zIndex: elementZIndex ? elementZIndex : hoverElement === element ? 2 : 1,
+                                opacity:
+                                    (!hoverElement && !selectedElement) ||
+                                    selectedElement === element ||
+                                    hoverElement === element
+                                        ? 1
+                                        : 0.4,
+                                transition: 'opacity 0.2s, box-shadow 0.2s',
+                                borderRadius: 5,
+                                ...getBoxColors('blue', hoverElement === element || selectedElement === element),
+                            }}
+                            onClick={() => selectElement(element)}
+                            onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                            onMouseOut={() => selectedElement === null && setHoverElement(null)}
+                        />
+                    )
+                })}
 
                 {heatmapElements.map(({ rect, count, clickCount, rageclickCount, element }, index) => {
                     return (

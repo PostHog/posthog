@@ -609,7 +609,6 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
-            use_latest_schema=True,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -723,31 +722,32 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                     postgresql_table_schema=inputs.schema,
                     postgresql_table_fields=schema_columns,
                 )
-                _ = await run_consumer(
-                    consumer=consumer,
-                    queue=queue,
-                    producer_task=producer_task,
-                    schema=record_batch_schema,
-                    max_bytes=settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES,
-                    json_columns=(),
-                    writer_file_kwargs={
-                        "delimiter": "\t",
-                        "quoting": csv.QUOTE_MINIMAL,
-                        "escape_char": None,
-                        "field_names": schema_columns,
-                    },
-                    multiple_files=True,
-                )
-
-                if requires_merge:
-                    await pg_client.amerge_mutable_tables(
-                        final_table_name=pg_table,
-                        stage_table_name=pg_stage_table,
-                        schema=inputs.schema,
-                        update_when_matched=table_fields,
-                        merge_key=merge_key,
-                        update_key=update_key,
+                try:
+                    _ = await run_consumer(
+                        consumer=consumer,
+                        queue=queue,
+                        producer_task=producer_task,
+                        schema=record_batch_schema,
+                        max_bytes=settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES,
+                        json_columns=(),
+                        writer_file_kwargs={
+                            "delimiter": "\t",
+                            "quoting": csv.QUOTE_MINIMAL,
+                            "escape_char": None,
+                            "field_names": schema_columns,
+                        },
+                        multiple_files=True,
                     )
+                finally:
+                    if requires_merge:
+                        await pg_client.amerge_mutable_tables(
+                            final_table_name=pg_table,
+                            stage_table_name=pg_stage_table,
+                            schema=inputs.schema,
+                            update_when_matched=table_fields,
+                            merge_key=merge_key,
+                            update_key=update_key,
+                        )
 
                 return details.records_completed
 

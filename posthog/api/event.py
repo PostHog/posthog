@@ -21,7 +21,7 @@ from posthog.exceptions_capture import capture_exception
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.client import query_with_columns
+from posthog.clickhouse.client import query_with_columns
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 from posthog.models import Element, Filter, Person
 from posthog.models.event.query_event_list import query_events_list
@@ -35,6 +35,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.utils import convert_property_value, flatten
+from posthog.hogql.property_utils import create_property_conditions
 
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
 
@@ -311,6 +312,20 @@ class EventViewSet(
                     right=ast.Constant(value=None),
                 ),
             ]
+
+            # Handle property filters from query parameters
+            for param_key, param_value in request.GET.items():
+                if param_key.startswith("properties_"):
+                    property_key = param_key.replace("properties_", "", 1)
+                    try:
+                        # Expect properly encoded JSON from frontend
+                        property_values = (
+                            json.loads(param_value) if isinstance(param_value, str | bytes | bytearray) else param_value
+                        )
+                        conditions.append(create_property_conditions(property_key, property_values))
+                    except json.JSONDecodeError:
+                        # If not JSON, treat as single value
+                        conditions.append(create_property_conditions(property_key, param_value))
 
             if event_names and len(event_names) > 0:
                 event_conditions: list[ast.Expr] = [

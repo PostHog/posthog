@@ -2,9 +2,10 @@ import * as schedule from 'node-schedule'
 
 import { Hub, Team } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
+import { parseJSON } from '../../utils/json-parse'
+import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { PubSub } from '../../utils/pubsub'
-import { status } from '../../utils/status'
 import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../types'
 
 const HOG_FUNCTION_FIELDS = [
@@ -47,7 +48,7 @@ export class HogFunctionManagerService {
 
         this.pubSub = new PubSub(this.hub, {
             'reload-integrations': async (message) => {
-                const { integrationIds, teamId } = JSON.parse(message)
+                const { integrationIds, teamId } = parseJSON(message)
                 await this.reloadIntegrations(teamId, integrationIds)
             },
             'reload-hog-functions': async () => {
@@ -73,15 +74,15 @@ export class HogFunctionManagerService {
         // every 1 minute we reload all updated hog functions
         this.refreshJob = schedule.scheduleJob('*/1 * * * *', async () => {
             await this.reloadAllHogFunctions().catch((error) => {
-                status.error('🍿', 'Error reloading hog functions:', error)
+                logger.error('🍿', 'Error reloading hog functions:', error)
             })
         })
 
         // every 1 minute we reload all updated hog functions
         this.refreshIntegrationsJob = schedule.scheduleJob('*/5 * * * *', async () => {
-            status.info('🍿', 'Refreshing integrations')
+            logger.info('🍿', 'Refreshing integrations')
             await this.reloadAllIntegrations().catch((error) => {
-                status.error('🍿', 'Error reloading integrations:', error)
+                logger.error('🍿', 'Error reloading integrations:', error)
             })
         })
         this.ready = true
@@ -98,10 +99,6 @@ export class HogFunctionManagerService {
     }
 
     public getTeamHogFunctions(teamId: Team['id']): HogFunctionType[] {
-        if (!this.ready) {
-            throw new Error('HogFunctionManagerService is not ready! Run HogFunctionManagerService.start() before this')
-        }
-
         if (!this.orderedHogFunctionsCache[teamId]) {
             const functions = Object.values(this.hogFunctions).filter((x) => x?.team_id === teamId) as HogFunctionType[]
             this.orderedHogFunctionsCache[teamId] = this.sortHogFunctions(functions)
@@ -159,7 +156,7 @@ export class HogFunctionManagerService {
      * Otherwise we load all hog functions that have been updated so we can also remove
      */
     public async reloadAllHogFunctions(): Promise<void> {
-        status.info('🍿', 'Reloading all hog functions')
+        logger.info('🍿', 'Reloading all hog functions')
 
         const items = (
             this.lastUpdatedAt
@@ -185,7 +182,7 @@ export class HogFunctionManagerService {
         ).rows
 
         if (!items.length) {
-            status.debug('🍿', 'No updated hog functions found')
+            logger.debug('🍿', 'No updated hog functions found')
             return
         }
 
@@ -206,7 +203,7 @@ export class HogFunctionManagerService {
 
         // The query is sorted by updated_at so we can just take the last one
         this.lastUpdatedAt = items[items.length - 1].updated_at
-        status.info('🍿', 'Fetched all hog functions from DB anew')
+        logger.info('🍿', 'Fetched all hog functions from DB anew')
     }
 
     public async fetchHogFunction(id: HogFunctionType['id']): Promise<HogFunctionType | null> {
@@ -227,7 +224,7 @@ export class HogFunctionManagerService {
     }
 
     public reloadIntegrations(teamId: Team['id'], ids: IntegrationType['id'][]): Promise<void> {
-        status.info('🍿', 'Reloading integrations', { teamId, integrationCount: ids.length })
+        logger.info('🍿', 'Reloading integrations', { teamId, integrationCount: ids.length })
 
         // We need to find all hog functions that depend on these integrations and re-enrich them
 
@@ -240,58 +237,69 @@ export class HogFunctionManagerService {
     }
 
     public async reloadAllIntegrations(): Promise<void> {
-        status.info('🍿', 'Reloading all integrations')
+        logger.info('🍿', 'Reloading all integrations')
         // Reload all integrations for all hog functions in use
         await this.enrichWithIntegrations(Object.values(this.hogFunctions).filter((x) => !!x) as HogFunctionType[])
     }
 
     public sanitize(items: HogFunctionType[]): void {
         items.forEach((item) => {
-            const encryptedInputsString = item.encrypted_inputs as string | undefined
+            const encryptedInputs = item.encrypted_inputs
 
             if (!Array.isArray(item.inputs_schema)) {
                 // NOTE: The sql lib can sometimes return an empty object instead of an empty array
                 item.inputs_schema = []
             }
 
-            if (encryptedInputsString) {
+            // Handle case where encrypted_inputs is already an object
+            if (encryptedInputs && typeof encryptedInputs === 'object' && !Array.isArray(encryptedInputs)) {
+                return
+            }
+
+            // Handle case where encrypted_inputs is a string that needs decryption
+            if (typeof encryptedInputs === 'string') {
                 try {
-                    const decrypted = this.hub.encryptedFields.decrypt(encryptedInputsString || '')
-                    item.encrypted_inputs = decrypted ? JSON.parse(decrypted) : {}
+                    const decrypted = this.hub.encryptedFields.decrypt(encryptedInputs)
+                    if (decrypted) {
+                        item.encrypted_inputs = parseJSON(decrypted)
+                    }
                 } catch (error) {
-                    status.error('🍿', 'Error parsing encrypted inputs:', error)
-                    captureException(error)
-                    // Quietly fail - not ideal but better then crashing out
+                    if (encryptedInputs) {
+                        logger.warn('🍿', 'Could not parse encrypted inputs - preserving original value', {
+                            error: error instanceof Error ? error.message : 'Unknown error',
+                        })
+                        captureException(error)
+                    }
                 }
             }
+            // For any other case (null, undefined, unexpected types), leave as-is
         })
-
-        return
     }
 
     public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
-        status.info('🍿', 'Enriching with integrations', { functionCount: items.length })
+        logger.info('🍿', 'Enriching with integrations', { functionCount: items.length })
         const integrationIds: number[] = []
 
         items.forEach((item) => {
             item.inputs_schema?.forEach((schema) => {
                 if (schema.type === 'integration') {
                     const input = item.inputs?.[schema.key]
-                    if (input && typeof input.value === 'number') {
-                        integrationIds.push(input.value)
+                    const value = input?.value?.integrationId ?? input?.value
+                    if (value && typeof value === 'number') {
+                        integrationIds.push(value)
                         item.depends_on_integration_ids = item.depends_on_integration_ids || new Set()
-                        item.depends_on_integration_ids.add(input.value)
+                        item.depends_on_integration_ids.add(value)
                     }
                 }
             })
         })
 
         if (!integrationIds.length) {
-            status.info('🍿', 'No integrations to enrich with')
+            logger.info('🍿', 'No integrations to enrich with')
             return
         }
 
-        status.info('🍿', 'Fetching integrations', { integrationCount: integrationIds.length })
+        logger.info('🍿', 'Fetching integrations', { integrationCount: integrationIds.length })
 
         const integrations: IntegrationType[] = (
             await this.hub.postgres.query(
@@ -304,7 +312,7 @@ export class HogFunctionManagerService {
             )
         ).rows
 
-        status.info('🍿', 'Decrypting integrations', { integrationCount: integrations.length })
+        logger.info('🍿', 'Decrypting integrations', { integrationCount: integrations.length })
 
         const integrationConfigsByTeamAndId: Record<string, Record<string, any>> = integrations.reduce(
             (acc, integration) => {
@@ -316,12 +324,13 @@ export class HogFunctionManagerService {
                         ...this.hub.encryptedFields.decryptObject(integration.sensitive_config || {}, {
                             ignoreDecryptionErrors: true,
                         }),
+                        integrationId: integration.id,
                     },
                 }
             },
             {}
         )
-        status.info('🍿', 'Enriching hog functions', { functionCount: items.length })
+        logger.info('🍿', 'Enriching hog functions', { functionCount: items.length })
 
         let updatedValuesCount = 0
         items.forEach((item) => {
@@ -331,7 +340,7 @@ export class HogFunctionManagerService {
                     if (!input) {
                         return
                     }
-                    const integrationId = input.value
+                    const integrationId = input.value?.integrationId ?? input.value
                     const integrationConfig = integrationConfigsByTeamAndId[`${item.team_id}:${integrationId}`]
                     if (integrationConfig) {
                         input.value = integrationConfig
@@ -340,6 +349,6 @@ export class HogFunctionManagerService {
                 }
             })
         })
-        status.info('🍿', 'Enriched hog functions', { functionCount: items.length, updatedValuesCount })
+        logger.info('🍿', 'Enriched hog functions', { functionCount: items.length, updatedValuesCount })
     }
 }

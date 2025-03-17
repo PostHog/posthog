@@ -61,9 +61,10 @@ function toIntervalMonth(val) { return __toHogInterval(val, 'month') }
 function toIntervalDay(val) { return __toHogInterval(val, 'day') }
 function toDateTime (input, zone) { return __toDateTime(input, zone) }
 function toDate (input) { return __toDate(input) }
-function substring(s, start, length) {
+function substring(s, start, optionalLength) {
     if (typeof s !== 'string') return '';
     const startIdx = start - 1;
+    const length = typeof optionalLength === 'number' ? optionalLength : s.length - startIdx;
     if (startIdx < 0 || length < 0) return '';
     const endIdx = startIdx + length;
     return startIdx < s.length ? s.slice(startIdx, endIdx) : '';
@@ -93,7 +94,7 @@ function notEquals(a, b) { return a !== b }
 function notEmpty (value) { return !empty(value) }
 function minus(a, b) { return a - b }
 function min2(a, b) { return a < b ? a : b }
-function lower (value) { return value.toLowerCase() }
+function lower (value) { if (value === null || value === undefined) { return null } return value.toLowerCase() }
 function lessOrEquals(a, b) { return a <= b }
 function less(a, b) { return a < b }
 function length (value) { return value.length }
@@ -443,6 +444,7 @@ if (!!(empty("") && notEmpty("234"))) {
 if ((lower("Tdd4gh") == "tdd4gh")) {
     print(upper("test"));
 }
+print(lower(null));
 print(reverse("spinner"));
 print("");
 print("-- encodeURLComponent, decodeURLComponent --");
@@ -531,6 +533,7 @@ print("-- string/array --");
 print(__x_in("a", tuple("a", "b", "c")), __x_in("z", tuple("a", "b", "c")));
 print(__x_in("a", ["a", "b", "c"]), __x_in("z", ["a", "b", "c"]));
 print(startsWith("hello", "he"), substring("abcdef", 2, 3));
+print(substring("abcdef", 2));
 print(coalesce(null, null, "firstNonNull"), assumeNotNull("notNull"));
 print("");
 print("-- date --");

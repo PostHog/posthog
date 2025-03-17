@@ -169,7 +169,7 @@ export const membersLogic = kea<membersLogicType>([
             }
         },
         loadAllMembersSuccess: ({ members }) => {
-            if (members && members.length > 0) {
+            if (members && members.length > 1) {
                 activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
             }
         },

@@ -7,6 +7,7 @@
 !common/eslint_rules
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
+!common/tailwind
 !dags
 !ee
 !frontend/@posthog
@@ -20,6 +21,7 @@
 !frontend/webpack.config.js
 !gunicorn.config.py
 !manage.py
+!turbo.json
 !package.json
 !patches
 !playwright.config.ts
@@ -49,6 +51,8 @@
 ee/frontend/node_modules
 common/*/*/node_modules
 common/*/node_modules
+common/*/*/dist
+common/*/dist
 products/*/node_modules
 rust/.env
 rust/.github

@@ -93,12 +93,14 @@ export type DestinationsTableProps = {
     types: HogFunctionTypeType[]
     hideFeedback?: boolean
     hideAddDestinationButton?: boolean
+    hideChangeOrderButton?: boolean
 }
 
 export function DestinationsTable({
     hideFeedback,
     hideAddDestinationButton,
     types,
+    hideChangeOrderButton = false,
 }: DestinationsTableProps): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
     const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(
@@ -123,14 +125,14 @@ export function DestinationsTable({
     const showPriorityColumn = types.includes('transformation')
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <DestinationsFilters
                 types={types}
                 hideFeedback={hideFeedback}
                 hideAddDestinationButton={hideAddDestinationButton}
             />
 
-            {types.includes('transformation') && enabledTransformations.length > 1 && (
+            {types.includes('transformation') && enabledTransformations.length > 1 && !hideChangeOrderButton && (
                 <div className="flex items-center gap-2">
                     Processed sequentially.
                     <LemonButton

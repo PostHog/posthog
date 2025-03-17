@@ -8,6 +8,7 @@ use crate::{
     error::UnhandledError,
     langs::{js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame},
     metric_consts::PER_FRAME_TIME,
+    sanitize_string,
     symbol_store::Catalog,
 };
 
@@ -60,10 +61,8 @@ impl RawFrame {
 
     pub fn symbol_set_ref(&self) -> Option<String> {
         match self {
-            RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => {
-                frame.source_url().map(String::from).ok()
-            }
-            RawFrame::JavaScriptNode(_) => None, // Python frames don't have symbol sets
+            RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => frame.symbol_set_ref(),
+            RawFrame::JavaScriptNode(_) => None, // Node.js frames don't have symbol sets
             RawFrame::Python(_) => None,         // Python frames don't have symbol sets
         }
     }
@@ -168,7 +167,7 @@ impl ContextLine {
 
         Self {
             number,
-            line: constrained,
+            line: sanitize_string(constrained),
         }
     }
 }
