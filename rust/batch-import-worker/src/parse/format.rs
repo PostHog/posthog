@@ -54,7 +54,7 @@ impl FormatConfig {
                     config.skip_no_distinct_id,
                     config
                         .timestamp_offset_seconds
-                        .map(|s| Duration::seconds(s))
+                        .map(Duration::seconds)
                         .unwrap_or_default(),
                     skip_geoip(),
                 );

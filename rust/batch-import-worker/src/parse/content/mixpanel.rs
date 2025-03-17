@@ -155,11 +155,7 @@ fn map_geoip_props(mut props: HashMap<String, Value>) -> HashMap<String, Value> 
         }
     }
 
-    if let Some(code) = props
-        .get("$geoip_country_code")
-        .map(|c| c.as_str())
-        .flatten()
-    {
+    if let Some(code) = props.get("$geoip_country_code").and_then(|c| c.as_str()) {
         if let Some(country_name) = map_country_code(code) {
             props.insert(
                 "$geoip_country_name".to_string(),
@@ -183,9 +179,7 @@ const LONG_NAME_MAP: &[(&str, &str)] = &[
 ];
 
 fn map_country_code(code: &str) -> Option<String> {
-    let Some(country) = Country::from_alpha2(code).ok() else {
-        return None;
-    };
+    let country = Country::from_alpha2(code).ok()?;
 
     for (long_name, short_name) in LONG_NAME_MAP {
         if country.long_name == *long_name {
