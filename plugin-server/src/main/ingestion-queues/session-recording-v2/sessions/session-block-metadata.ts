@@ -18,29 +18,31 @@ export interface SessionBlockMetadata {
     /** URL to the block data with byte range query parameter, if available */
     blockUrl: string | null
     /** First URL in the session */
-    firstUrl?: string | null
+    firstUrl: string | null
     /** All URLs visited in the session */
-    urls?: string[]
+    urls: string[]
+    /** Number of events in the session */
+    eventCount: number
     /** Number of click events in the session */
-    clickCount?: number
+    clickCount: number
     /** Number of keypress events in the session */
-    keypressCount?: number
+    keypressCount: number
     /** Number of mouse activity events in the session */
-    mouseActivityCount?: number
+    mouseActivityCount: number
     /** Number of milliseconds the user was active */
-    activeMilliseconds?: number
+    activeMilliseconds: number
     /** Number of console.log events in the session */
-    consoleLogCount?: number
+    consoleLogCount: number
     /** Number of console.warn events in the session */
-    consoleWarnCount?: number
+    consoleWarnCount: number
     /** Number of console.error events in the session */
-    consoleErrorCount?: number
+    consoleErrorCount: number
     /** Size of the session data in bytes */
-    size?: number
+    size: number
     /** Number of messages in the session */
-    messageCount?: number
+    messageCount: number
     /** Source of the snapshot */
-    snapshotSource?: string | null
+    snapshotSource: string | null
     /** Library used for the snapshot */
-    snapshotLibrary?: string | null
+    snapshotLibrary: string | null
 }

@@ -12,7 +12,7 @@ from sentry_sdk import get_traceparent, push_scope, set_tag
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import get_api_personal_rate_limiter
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries, clear_tag
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -364,9 +364,22 @@ def get_query_runner(
         )
 
     if kind == "RevenueExampleEventsQuery":
-        from .web_analytics.revenue_example_events import RevenueExampleEventsQueryRunner
+        from .web_analytics.revenue_example_events_query_runner import RevenueExampleEventsQueryRunner
 
         return RevenueExampleEventsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueExampleDataWarehouseTablesQuery":
+        from .web_analytics.revenue_example_data_warehouse_tables_query_runner import (
+            RevenueExampleDataWarehouseTablesQueryRunner,
+        )
+
+        return RevenueExampleDataWarehouseTablesQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -755,6 +768,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         with get_api_personal_rate_limiter().run(
             is_api=self.query_endpoint_with_personal_key(), team_id=self.team.pk, task_id=self.query_id
         ):
+            if self.query_endpoint_with_personal_key():
+                tag_queries(qaas=True)
+            else:
+                clear_tag("qaas")
+
             fresh_response_dict = {
                 **self.calculate().model_dump(),
                 "is_cached": False,

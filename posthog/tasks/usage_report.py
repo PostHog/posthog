@@ -1,5 +1,8 @@
 import dataclasses
 import os
+import json
+import base64
+import gzip
 from collections import Counter
 from collections.abc import Sequence
 from datetime import datetime
@@ -7,12 +10,13 @@ from typing import Any, Literal, Optional, TypedDict, Union
 
 import requests
 import structlog
+from cachetools import cached
 from celery import shared_task
 from dateutil import parser
 from django.conf import settings
 from django.db import connection
 from django.db.models import Count, Q, Sum
-from posthoganalytics.client import Client
+from posthoganalytics.client import Client as PostHogClient
 from psycopg import sql
 from retry import retry
 from posthog.exceptions_capture import capture_exception
@@ -42,6 +46,7 @@ from posthog.utils import (
 )
 from posthog.warehouse.models import ExternalDataJob
 from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
+
 
 logger = structlog.get_logger(__name__)
 
@@ -289,6 +294,11 @@ def get_org_user_count(organization_id: str) -> int:
     return OrganizationMembership.objects.filter(organization_id=organization_id).count()
 
 
+@cached(cache={})
+def get_ph_client(*args: Any, **kwargs: Any) -> PostHogClient:
+    return PostHogClient("sTMFPsFhdP1Ssg", *args, **kwargs)
+
+
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3, rate_limit="5/s")
 def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
@@ -333,9 +343,8 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
             f"[Send Usage Report To Billing] Usage Report failed sending to Billing for organization: {org_id}: {err}"
         )
         capture_exception(err)
-        pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
         capture_event(
-            pha_client=pha_client,
+            pha_client=get_ph_client(sync_mode=True),
             name=f"organization usage report to billing service failure",
             organization_id=org_id,
             properties={"err": str(err)},
@@ -805,7 +814,7 @@ def capture_report(
 ) -> None:
     if not org_id and not team_id:
         raise ValueError("Either org_id or team_id must be provided")
-    pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
+    pha_client = get_ph_client(sync_mode=True)
     try:
         capture_event(
             pha_client=pha_client,
@@ -1214,6 +1223,28 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
     return dataclasses.asdict(full_report)
 
 
+def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[str, Any]) -> None:
+    logger.info(f"Sending usage report for organization {organization_id}")  # noqa T201
+
+    json_data = json.dumps(
+        {"organization_id": organization_id, "usage_report": full_report_dict}, separators=(",", ":")
+    )
+    compressed_bytes = gzip.compress(json_data.encode("utf-8"))
+    compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
+
+    message_attributes = {
+        "content_encoding": "gzip",
+        "content_type": "application/json",
+    }
+
+    response = producer.send_message(message_body=compressed_b64, message_attributes=message_attributes)
+
+    if not response:
+        logger.error(f"Failed to send usage report for organization {organization_id}")
+
+    return
+
+
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def send_all_org_usage_reports(
     dry_run: bool = False,
@@ -1238,15 +1269,26 @@ def send_all_org_usage_reports(
 
     instance_metadata = get_instance_metadata(period)
 
+    # Get an SQS producer if EE is available
+    producer = None
+    try:
+        if settings.EE_AVAILABLE:
+            from ee.sqs.SQSProducer import get_sqs_producer
+
+            producer = get_sqs_producer("usage_reports")
+    except Exception:
+        pass
+
     try:
         org_reports = _get_all_org_reports(period_start, period_end)
 
         logger.info("Sending usage reports to PostHog and Billing...")  # noqa T201
         time_now = datetime.now()
-        for org_report in org_reports.values():
-            org_id = org_report.organization_id
 
-            if only_organization_id and only_organization_id != org_id:
+        for org_report in org_reports.values():
+            organization_id = org_report.organization_id
+
+            if only_organization_id and only_organization_id != organization_id:
                 continue
 
             full_report = _get_full_org_usage_report(org_report, instance_metadata)
@@ -1256,20 +1298,25 @@ def send_all_org_usage_reports(
                 continue
 
             # First capture the events to PostHog
-            if not skip_capture_event:
-                at_date_str = at_date.isoformat() if at_date else None
-                capture_report.delay(
-                    capture_event_name=capture_event_name,
-                    org_id=org_id,
-                    full_report_dict=full_report_dict,
-                    at_date=at_date_str,
-                )
+            # if not skip_capture_event:
+            #     at_date_str = at_date.isoformat() if at_date else None
+            #     capture_report.delay(
+            #         capture_event_name=capture_event_name,
+            #         org_id=org_id,
+            #         full_report_dict=full_report_dict,
+            #         at_date=at_date_str,
+            #     )
 
-            # Then capture the events to Billing
-            if has_non_zero_usage(full_report):
-                send_report_to_billing_service.delay(org_id=org_id, report=full_report_dict)
+            # Then capture the events to Billing (only if producer is available)
+            if has_non_zero_usage(full_report) and producer:
+                try:
+                    _queue_report(producer, organization_id, full_report_dict)
+                except Exception as err:
+                    logger.exception(f"Failed to send usage report for organization {organization_id}", error=err)
+                    capture_exception(err)
+
         time_since = datetime.now() - time_now
-        logger.debug(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
+        logger.info(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
     except Exception as err:
         capture_exception(err)
         raise
