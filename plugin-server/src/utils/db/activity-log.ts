@@ -1,5 +1,5 @@
 import { Hub, Team, TeamId } from '../../types'
-import { status } from '../status'
+import { logger } from '../logger'
 import { UUIDT } from '../utils'
 import { PostgresUse } from './postgres'
 
@@ -18,7 +18,7 @@ export async function createPluginActivityLog(
 ) {
     const teamObject: Team | null = typeof team === 'number' ? await hub.teamManager.fetchTeam(team) : team
     if (!teamObject) {
-        status.warn('🤔', `Could not find team ${team} to create an actity log for. Skipping.`)
+        logger.warn('🤔', `Could not find team ${team} to create an actity log for. Skipping.`)
         return
     }
 

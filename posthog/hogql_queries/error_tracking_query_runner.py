@@ -159,7 +159,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 if not token:
                     continue
 
-                or_exprs: list[ast.Expr] = [
+                and_exprs.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Gt,
                         left=ast.Call(
@@ -171,13 +171,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         ),
                         right=ast.Constant(value=0),
                     )
-                ]
-
-                and_exprs.append(
-                    ast.Or(
-                        exprs=or_exprs,
-                    )
                 )
+
             exprs.append(ast.And(exprs=and_exprs))
 
         return ast.And(exprs=exprs)

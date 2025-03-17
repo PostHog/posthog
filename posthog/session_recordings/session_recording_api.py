@@ -638,8 +638,15 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if personal_api_key:
             SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(api_key=personal_api_key, source=source).inc()
 
+        is_v2_enabled = posthoganalytics.feature_enabled(
+            "recordings-blobby-v2-replay",
+            str(self.team.pk),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+        )
+
         if not source:
-            return self._gather_session_recording_sources(recording)
+            return self._gather_session_recording_sources(recording, is_v2_enabled)
         elif source == "realtime":
             return self._send_realtime_snapshots_to_client(recording, request, event_properties)
         elif source == "blob":
@@ -649,7 +656,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             if blob_key:
                 return self._stream_blob_v2_to_client(recording, request, event_properties)
             else:
-                return self._gather_session_recording_sources(recording)
+                return self._gather_session_recording_sources(recording, is_v2_enabled)
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2]")
 
@@ -675,7 +682,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 team=team,
             )
 
-    def _gather_session_recording_sources(self, recording: SessionRecording) -> Response:
+    def _gather_session_recording_sources(self, recording: SessionRecording, is_v2_enabled: bool = False) -> Response:
         might_have_realtime = True
         newest_timestamp = None
         response_data = {}
@@ -683,25 +690,26 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         blob_keys: list[str] | None = None
         blob_prefix = ""
 
-        v2_metadata = SessionReplayEventsV2Test().get_metadata(str(recording.session_id), self.team)
-        if v2_metadata:
-            blocks = sorted(
-                zip(
-                    v2_metadata["block_first_timestamps"],
-                    v2_metadata["block_last_timestamps"],
-                    v2_metadata["block_urls"],
-                ),
-                key=lambda x: x[0],
-            )
-            for i, (start_timestamp, end_timestamp, _) in enumerate(blocks):
-                sources.append(
-                    {
-                        "source": "blob_v2",
-                        "start_timestamp": start_timestamp,
-                        "end_timestamp": end_timestamp,
-                        "blob_key": str(i),
-                    }
+        if is_v2_enabled:
+            v2_metadata = SessionReplayEventsV2Test().get_metadata(str(recording.session_id), self.team)
+            if v2_metadata:
+                blocks = sorted(
+                    zip(
+                        v2_metadata["block_first_timestamps"],
+                        v2_metadata["block_last_timestamps"],
+                        v2_metadata["block_urls"],
+                    ),
+                    key=lambda x: x[0],
                 )
+                for i, (start_timestamp, end_timestamp, _) in enumerate(blocks):
+                    sources.append(
+                        {
+                            "source": "blob_v2",
+                            "start_timestamp": start_timestamp,
+                            "end_timestamp": end_timestamp,
+                            "blob_key": str(i),
+                        }
+                    )
         if recording.object_storage_path:
             blob_prefix = recording.object_storage_path
             blob_keys = object_storage.list_objects(cast(str, blob_prefix))
@@ -1099,6 +1107,53 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.ValidationError("Invalid JSON response from OpenAI")
 
         return Response(response_data)
+
+    @action(methods=["GET"], detail=True, url_path="analyze/similar")
+    def similar_recordings(self, request: request.Request, **kwargs) -> Response:
+        """Find recordings with similar event sequences to the given recording."""
+        timer = ServerTimingsGathered()
+        recording = self.get_object()
+
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
+
+        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
+            raise exceptions.NotFound("Recording not found")
+
+        # Get events for the target recording
+        with timer("get_target_events"):
+            target_events = SessionReplayEvents().get_events_for_session(
+                session_id=str(recording.session_id), team=self.team
+            )
+
+        if not target_events:
+            return Response({"count": 0, "results": []})
+
+        # Find recordings with similar event sequences using ClickHouse
+        with timer("get_similar_recordings"):
+            similar_recordings = SessionReplayEvents().get_similar_recordings(
+                session_id=str(recording.session_id), team=self.team, limit=10, similarity_range=0.9
+            )
+
+        recordings = []
+        recording_ids = []
+        for rec in similar_recordings:
+            recording_instance = SessionRecording.get_or_build(session_id=rec["session_id"], team=self.team)
+            recordings.append(recording_instance)
+            recording_ids.append(recording_instance.session_id)
+
+        # Filter out recordings that have been viewed by the current user
+        with timer("filter_viewed_recordings"):
+            viewed_recordings = current_user_viewed(recording_ids, cast(User, request.user), self.team)
+            unviewed_recordings = [rec for rec in recordings if rec.session_id not in viewed_recordings]
+
+        response = Response(
+            {"count": len(unviewed_recordings), "results": [rec.session_id for rec in unviewed_recordings]}
+        )
+        response.headers["Server-Timing"] = ", ".join(
+            f"{key};dur={round(duration, ndigits=2)}" for key, duration in _generate_timings(None, timer).items()
+        )
+        return response
 
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery

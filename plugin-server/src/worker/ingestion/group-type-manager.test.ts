@@ -1,11 +1,10 @@
-import { Hub, ProjectId } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { captureTeamEvent } from '../../../src/utils/posthog'
-import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
-import { createTeam, resetTestDatabase } from '../../helpers/sql'
+import { createTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { Hub, ProjectId } from '../../types'
+import { closeHub, createHub } from '../../utils/db/hub'
+import { captureTeamEvent } from '../../utils/posthog'
+import { GroupTypeManager } from './group-type-manager'
 
-jest.mock('../../../src/utils/status')
-jest.mock('../../../src/utils/posthog', () => ({
+jest.mock('../../utils/posthog', () => ({
     captureTeamEvent: jest.fn(),
 }))
 
@@ -58,7 +57,7 @@ describe('GroupTypeManager()', () => {
             expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({})
             expect(await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'g0', 0)).toEqual([0, true])
             expect(await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'g1', 1)).toEqual([1, true])
-            groupTypeManager['groupTypesCache'].clear() // Clear cache
+            groupTypeManager['loader'].markForRefresh('2')
             expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({ g0: 0, g1: 1 })
         })
 
