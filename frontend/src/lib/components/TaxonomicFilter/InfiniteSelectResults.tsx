@@ -5,6 +5,7 @@ import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { cn } from 'lib/utils/css-classes'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -13,6 +14,7 @@ export interface InfiniteSelectResultsProps {
     focusInput: () => void
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     popupAnchorElement: HTMLDivElement | null
+    useVerticalLayout?: boolean
 }
 
 function CategoryPill({
@@ -66,6 +68,7 @@ export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
     popupAnchorElement,
+    useVerticalLayout: useVerticalLayoutProp,
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
@@ -99,12 +102,25 @@ export function InfiniteSelectResults({
 
     const showEmptyState = totalListCount === 0 && taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
 
+    const useVerticalLayout =
+        useVerticalLayoutProp !== undefined ? useVerticalLayoutProp : taxonomicGroupTypes.length > 4
+
     return (
-        <>
+        <div className={cn('flex h-full', useVerticalLayout ? 'flex-row' : 'flex-col')}>
             {hasMultipleGroups && (
-                <div className="border-b border-primary">
+                <div
+                    className={cn(
+                        useVerticalLayout ? 'border-r pr-2 mr-2 flex-shrink-0' : 'border-b mb-2',
+                        'border-primary'
+                    )}
+                >
                     <div className="taxonomic-group-title">Categories</div>
-                    <div className="taxonomic-pills flex gap-0.5 flex-wrap">
+                    <div
+                        className={clsx(
+                            'taxonomic-pills flex',
+                            useVerticalLayout ? 'flex-col gap-1' : 'gap-0.5 flex-wrap'
+                        )}
+                    >
                         {taxonomicGroupTypes.map((groupType) => {
                             return (
                                 <CategoryPill
@@ -123,19 +139,21 @@ export function InfiniteSelectResults({
                 </div>
             )}
 
-            {taxonomicGroupTypes.map((groupType) => {
-                return (
-                    <div key={groupType} className={clsx(groupType === openTab ? 'block' : 'hidden')}>
-                        <BindLogic
-                            logic={infiniteListLogic}
-                            props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
-                        >
-                            {showEmptyState && <TaxonomicFilterEmptyState groupType={groupType} />}
-                            {!showEmptyState && listComponent}
-                        </BindLogic>
-                    </div>
-                )
-            })}
-        </>
+            <div className={cn('flex-1 overflow-hidden min-h-0')}>
+                {taxonomicGroupTypes.map((groupType) => {
+                    return (
+                        <div key={groupType} className={cn(groupType === openTab ? 'flex flex-col h-full' : 'hidden')}>
+                            <BindLogic
+                                logic={infiniteListLogic}
+                                props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
+                            >
+                                {showEmptyState && <TaxonomicFilterEmptyState groupType={groupType} />}
+                                {!showEmptyState && listComponent}
+                            </BindLogic>
+                        </div>
+                    )
+                })}
+            </div>
+        </div>
     )
 }
