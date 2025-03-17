@@ -95,12 +95,7 @@ describe('eachMessageWebhooksHandlers', () => {
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
         )
         const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
-        groupTypeManager['groupTypesCache'].set(2 as ProjectId, [
-            {
-                organization: 0,
-            },
-            Date.now(),
-        ])
+        await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'organization', 0)
 
         const organizationManager = new OrganizationManager(hub.postgres, hub.teamManager)
         organizationManager['availableProductFeaturesCache'].set(2, [

@@ -5,7 +5,7 @@ import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
 import { buildIntegerMatcher } from '../../config/config'
-import { Hub, ValueMatcher } from '../../types'
+import { PluginsServerConfig, ValueMatcher } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
@@ -23,7 +23,6 @@ import {
     HogFunctionType,
 } from '../types'
 import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
-import { HogFunctionManagerService } from './hog-function-manager.service'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -141,15 +140,8 @@ export const buildGlobalsWithInputs = (
 export class HogExecutorService {
     private telemetryMatcher: ValueMatcher<number>
 
-    constructor(private hub: Hub, private hogFunctionManager: HogFunctionManagerService) {
-        this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
-    }
-
-    findHogFunctionInvocations(triggerGlobals: HogFunctionInvocationGlobals) {
-        // Build and generate invocations for all the possible mappings
-        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(triggerGlobals.project.id)
-
-        return this.buildHogFunctionInvocations(allFunctionsForTeam, triggerGlobals)
+    constructor(private config: PluginsServerConfig) {
+        this.telemetryMatcher = buildIntegerMatcher(this.config.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
     buildHogFunctionInvocations(
@@ -689,14 +681,14 @@ export class HogExecutorService {
         request.headers = request.headers ?? {}
 
         if (request.url.startsWith('https://googleads.googleapis.com/') && !request.headers['developer-token']) {
-            request.headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
+            request.headers['developer-token'] = this.config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
         }
 
         return request
     }
 
     public redactFetchRequest(request: HogFunctionQueueParametersFetchRequest): HogFunctionQueueParametersFetchRequest {
-        if (request.headers && request.headers['developer-token'] === this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN) {
+        if (request.headers && request.headers['developer-token'] === this.config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN) {
             delete request.headers['developer-token']
         }
 
