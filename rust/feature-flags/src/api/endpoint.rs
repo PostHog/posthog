@@ -137,13 +137,13 @@ mod tests {
         assert!(matches!(params.compression, Some(Compression::Base64)));
 
         // Test case 2: Partial query string
-        let uri = Uri::from_static("http://localhost:3001/flags/?v=4&compression=gzip");
+        let uri = Uri::from_static("http://localhost:3001/flags/?v=2&compression=gzip");
         let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
         let Query(params) = Query::<FlagsQueryParams>::from_request(req, &())
             .await
             .unwrap();
 
-        assert_eq!(params.version, Some("4".to_string()));
+        assert_eq!(params.version, Some("2".to_string()));
         assert!(matches!(params.compression, Some(Compression::Gzip)));
         assert_eq!(params.lib_version, None);
         assert_eq!(params.sent_at, None);
