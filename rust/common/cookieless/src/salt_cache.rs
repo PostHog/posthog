@@ -2,7 +2,9 @@ use base64::{engine::general_purpose, Engine};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::constants::*;
+use crate::constants::{
+    MAX_NEGATIVE_TIMEZONE_HOURS, MAX_POSITIVE_TIMEZONE_HOURS, SALT_TTL_SECONDS,
+};
 use crate::metrics::metrics_consts::{
     COOKIELESS_CACHE_HIT_COUNTER, COOKIELESS_CACHE_MISS_COUNTER, COOKIELESS_REDIS_ERROR_COUNTER,
 };
@@ -11,8 +13,6 @@ use common_redis::{Client as RedisClient, CustomRedisError};
 use moka::sync::Cache;
 use rand::RngCore;
 use thiserror::Error;
-const MAX_NEGATIVE_TIMEZONE_HOURS: i32 = 12;
-const MAX_POSITIVE_TIMEZONE_HOURS: i32 = 14;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum SaltCacheError {
@@ -96,7 +96,7 @@ impl SaltCache {
         );
 
         // Try to get it from Redis
-        let redis_key = format!("cookieless_salt:{}", yyyymmdd);
+        let redis_key = format!("cookieless_salt:{yyyymmdd}");
         let salt_base64 = match self.redis_client.get(redis_key.clone()).await {
             Ok(value) => Some(value),
             Err(CustomRedisError::NotFound) => None,
@@ -146,7 +146,7 @@ impl SaltCache {
         // In a real implementation, you'd want to use a Redis transaction or Lua script
         match self
             .redis_client
-            .set(format!("{}:nx", redis_key), new_salt_base64.clone())
+            .set(format!("{redis_key}:nx"), new_salt_base64.clone())
             .await
         {
             Ok(_) => {
@@ -219,6 +219,7 @@ impl SaltCache {
 /// A date is valid if:
 /// 1. It's not in the future (at least one timezone could plausibly be in this calendar day)
 /// 2. It's not too far in the past (with some buffer for ingestion lag)
+#[must_use]
 pub fn is_calendar_date_valid(yyyymmdd: &str) -> bool {
     // Parse the date
     let parts: Vec<&str> = yyyymmdd.split('-').collect();
@@ -242,7 +243,7 @@ pub fn is_calendar_date_valid(yyyymmdd: &str) -> bool {
     };
 
     // Create a UTC date for the start of the day
-    let date_string = format!("{}-{:02}-{:02}T00:00:00Z", year, month, day);
+    let date_string = format!("{year}-{month:02}-{day:02}T00:00:00Z");
     let utc_date = match chrono::DateTime::parse_from_rfc3339(&date_string) {
         Ok(d) => d.timestamp() * 1000, // Convert to milliseconds
         Err(_) => return false,
@@ -255,8 +256,8 @@ pub fn is_calendar_date_valid(yyyymmdd: &str) -> bool {
         .as_millis() as i64;
 
     // Define the range of the calendar day in UTC
-    let start_of_day_minus_12 = utc_date - (MAX_NEGATIVE_TIMEZONE_HOURS as i64 * 3600 * 1000);
-    let end_of_day_plus_14 = utc_date + ((MAX_POSITIVE_TIMEZONE_HOURS + 24) as i64 * 3600 * 1000);
+    let start_of_day_minus_12 = utc_date - (i64::from(MAX_NEGATIVE_TIMEZONE_HOURS) * 3600 * 1000);
+    let end_of_day_plus_14 = utc_date + (i64::from(MAX_POSITIVE_TIMEZONE_HOURS + 24) * 3600 * 1000);
 
     // Check if the current UTC time falls within this range
     now_utc >= start_of_day_minus_12 && now_utc < end_of_day_plus_14

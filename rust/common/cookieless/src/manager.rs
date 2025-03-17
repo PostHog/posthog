@@ -7,12 +7,13 @@ use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
 use thiserror::Error;
 use url::Url;
 
-use crate::constants::*;
+use crate::constants::{
+    COOKIELESS_SENTINEL_VALUE, IDENTIFIES_TTL_SECONDS, SALT_TTL_SECONDS, SESSION_INACTIVITY_MS,
+    SESSION_TTL_SECONDS, TIMEZONE_FALLBACK,
+};
 use crate::hash::{do_hash, HashError};
 use crate::salt_cache::{SaltCache, SaltCacheError};
 use common_redis::Client as RedisClient;
-
-const TIMEZONE_FALLBACK: &str = "UTC";
 
 #[derive(Debug, Error)]
 pub enum CookielessManagerError {
@@ -94,6 +95,27 @@ pub struct HashParams<'a> {
     pub hash_extra: &'a str,
 }
 
+/// Data for an event to be processed by the cookieless manager
+#[derive(Debug, Clone)]
+pub struct EventData<'a> {
+    /// IP address
+    pub ip: &'a str,
+    /// Timestamp in milliseconds
+    pub timestamp_ms: u64,
+    /// Host
+    pub host: &'a str,
+    /// User agent
+    pub user_agent: &'a str,
+    /// Event timezone (optional)
+    pub event_time_zone: Option<&'a str>,
+    /// Additional data to include in the hash (optional)
+    pub hash_extra: Option<&'a str>,
+    /// Team ID
+    pub team_id: u64,
+    /// Team timezone (optional)
+    pub team_time_zone: Option<&'a str>,
+}
+
 /// Manager for cookieless tracking
 pub struct CookielessManager {
     /// Configuration for the manager
@@ -121,6 +143,50 @@ impl CookielessManager {
     /// Clear the salt cache
     pub fn clear_cache(&self) {
         self.salt_cache.clear_cache();
+    }
+
+    /// Compute a cookieless distinct ID for an event
+    pub async fn compute_cookieless_distinct_id(
+        &self,
+        event_data: EventData<'_>,
+    ) -> Result<String, CookielessManagerError> {
+        // If cookieless mode is disabled, return an error
+        if self.config.disabled {
+            return Err(CookielessManagerError::Disabled);
+        }
+
+        // Validate required fields
+        if event_data.ip.is_empty() {
+            return Err(CookielessManagerError::MissingProperty("ip".to_string()));
+        }
+        if event_data.host.is_empty() {
+            return Err(CookielessManagerError::MissingProperty("host".to_string()));
+        }
+        if event_data.user_agent.is_empty() {
+            return Err(CookielessManagerError::MissingProperty("user_agent".to_string()));
+        }
+
+        // Get the team timezone or use UTC as fallback
+        let team_time_zone = event_data.team_time_zone.unwrap_or(TIMEZONE_FALLBACK);
+
+        // Create hash parameters
+        let hash_params = HashParams {
+            timestamp_ms: event_data.timestamp_ms,
+            event_time_zone: event_data.event_time_zone,
+            team_time_zone,
+            team_id: event_data.team_id,
+            ip: event_data.ip,
+            host: event_data.host,
+            user_agent: event_data.user_agent,
+            n: 0, // For now, we don't support identify events, so n is always 0
+            hash_extra: event_data.hash_extra.unwrap_or(""),
+        };
+
+        // Compute the hash
+        let hash = self.do_hash_for_day(hash_params).await?;
+
+        // Convert the hash to a distinct ID
+        Ok(Self::hash_to_distinct_id(&hash))
     }
 
     /// Compute a hash for a specific day
@@ -205,8 +271,7 @@ fn to_yyyy_mm_dd_in_timezone_safe(
         Some(dt) => dt,
         None => {
             return Err(CookielessManagerError::InvalidTimestamp(format!(
-                "Invalid timestamp: {}",
-                timestamp_ms
+                "Invalid timestamp: {timestamp_ms}"
             )))
         }
     };
@@ -221,6 +286,7 @@ fn to_yyyy_mm_dd_in_timezone_safe(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_redis::MockRedisClient;
 
     #[test]
     fn test_to_yyyy_mm_dd_in_timezone_safe() {
@@ -316,5 +382,176 @@ mod tests {
         let hash = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         let distinct_id = CookielessManager::hash_to_distinct_id(&hash);
         assert_eq!(distinct_id, "$posthog_cookieless_AQIDBAUGBwgJCgsMDQ4PEA==");
+    }
+
+    #[tokio::test]
+    async fn test_compute_cookieless_distinct_id() {
+        // Create a mock Redis client
+        let mut mock_redis = MockRedisClient::new();
+        let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let redis_key = format!("cookieless_salt:{}", today);
+        mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
+        let redis_client = Arc::new(mock_redis);
+
+        // Create a CookielessManager
+        let config = CookielessConfig::default();
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Create an event
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            team_id: 1,
+            team_time_zone: Some("UTC"),
+        };
+
+        // Process the event
+        let result = manager.compute_cookieless_distinct_id(event_data).await.unwrap();
+
+        // Check that we got a distinct ID
+        assert!(result.starts_with(COOKIELESS_SENTINEL_VALUE));
+    }
+
+    #[tokio::test]
+    async fn test_compute_cookieless_distinct_id_with_hash_extra() {
+        // Create a mock Redis client
+        let mut mock_redis = MockRedisClient::new();
+        let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let redis_key = format!("cookieless_salt:{}", today);
+        mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
+        let redis_client = Arc::new(mock_redis);
+
+        // Create a CookielessManager
+        let config = CookielessConfig::default();
+        let manager = CookielessManager::new(config, redis_client.clone());
+
+        // Create an event with hash_extra
+        let event_data1 = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: Some("extra1"),
+            team_id: 1,
+            team_time_zone: Some("UTC"),
+        };
+
+        // Create another event with different hash_extra
+        let event_data2 = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: Some("extra2"),
+            team_id: 1,
+            team_time_zone: Some("UTC"),
+        };
+
+        // Process the events
+        let result1 = manager.compute_cookieless_distinct_id(event_data1).await.unwrap();
+        let result2 = manager.compute_cookieless_distinct_id(event_data2).await.unwrap();
+
+        // Check that we got different distinct IDs
+        assert_ne!(result1, result2);
+    }
+
+    #[tokio::test]
+    async fn test_compute_cookieless_distinct_id_disabled() {
+        // Create a mock Redis client
+        let redis_client = Arc::new(MockRedisClient::new());
+
+        // Create a CookielessManager with disabled config
+        let config = CookielessConfig {
+            disabled: true,
+            ..CookielessConfig::default()
+        };
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Create an event
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            team_id: 1,
+            team_time_zone: Some("UTC"),
+        };
+
+        // Process the event
+        let result = manager.compute_cookieless_distinct_id(event_data).await;
+
+        // Check that we got a Disabled error
+        assert!(matches!(result, Err(CookielessManagerError::Disabled)));
+    }
+
+    #[tokio::test]
+    async fn test_compute_cookieless_distinct_id_missing_fields() {
+        // Create a mock Redis client
+        let redis_client = Arc::new(MockRedisClient::new());
+
+        // Create a CookielessManager
+        let config = CookielessConfig::default();
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Test missing IP
+        let event_data = EventData {
+            ip: "",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            team_id: 1,
+            team_time_zone: Some("UTC"),
+        };
+        let result = manager.compute_cookieless_distinct_id(event_data).await;
+        assert!(matches!(
+            result,
+            Err(CookielessManagerError::MissingProperty(s)) if s == "ip"
+        ));
+
+        // Test missing host
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            team_id: 1,
+            team_time_zone: Some("UTC"),
+        };
+        let result = manager.compute_cookieless_distinct_id(event_data).await;
+        assert!(matches!(
+            result,
+            Err(CookielessManagerError::MissingProperty(s)) if s == "host"
+        ));
+
+        // Test missing user agent
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "",
+            event_time_zone: None,
+            hash_extra: None,
+            team_id: 1,
+            team_time_zone: Some("UTC"),
+        };
+        let result = manager.compute_cookieless_distinct_id(event_data).await;
+        assert!(matches!(
+            result,
+            Err(CookielessManagerError::MissingProperty(s)) if s == "user_agent"
+        ));
     }
 }
