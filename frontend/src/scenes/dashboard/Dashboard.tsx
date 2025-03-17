@@ -39,8 +39,9 @@ export const scene: SceneExport = {
 }
 
 export function Dashboard({ id, dashboard, placement, themes }: DashboardProps = {}): JSX.Element {
-    useMountedLogic(dataThemeLogic({ themes }))
     const dashboardProps = { id: parseInt(id as string), placement, dashboard }
+    useMountedLogic(dataThemeLogic({ themes }))
+    useMountedLogic(dashboardColorsLogic(dashboardProps))
 
     return (
         <BindLogic logic={dashboardLogic} props={dashboardProps}>

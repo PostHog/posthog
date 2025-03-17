@@ -1,12 +1,13 @@
 import { LemonButton, LemonModal, LemonTable, LemonTableColumns, Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
-import { DataColorToken, getColorVar } from 'lib/colors'
+import { DataColorToken } from 'lib/colors'
 import { Animation } from 'lib/components/Animation/Animation'
 import { ColorGlyph } from 'lib/components/SeriesGlyph'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { useState } from 'react'
 import { ColorResult, GithubPicker } from 'react-color'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { formatBreakdownLabel, getFunnelDatasetKey, getTrendDatasetKey } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -15,8 +16,8 @@ import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils
 import { DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import { dashboardInsightColorsLogic } from './dashboardInsightColorsLogic'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { dashboardColorsLogic } from './dashboardColorsLogic'
+import { dashboardLogic } from './dashboardLogic'
 
 const colorTokens: DataColorToken[] = Array.from({ length: 15 }, (_, i) => `preset-${i + 1}` as DataColorToken)
 
@@ -60,8 +61,6 @@ export const ColorPickerButton = ({ colorToken, onSelect }: ColorPickerButtonPro
     const { getTheme } = useValues(dataThemeLogic)
     const theme = getTheme()
 
-    console.debug('ColorPickerButton theme', theme)
-
     if (theme == null) {
         return null
     }
@@ -76,20 +75,6 @@ export const ColorPickerButton = ({ colorToken, onSelect }: ColorPickerButtonPro
     const onColorSelect = (colorResult: ColorResult): void => {
         onSelect(colorToTokenMap[colorResult.hex])
     }
-    // const [pickerOpen, setPickerOpen] = useState(false)
-    // const { isDarkModeOn } = useValues(themeLogic)
-
-    // const onColorSelect = (colorResult: ColorResult): void => {
-    //     if (propOnColorSelect) {
-    //         propOnColorSelect(colorResult.hex)
-    //     }
-
-    //     if (colorChoices.includes(colorResult.hex)) {
-    //         setPickerOpen(false)
-    //     }
-    // }
-
-    // const colors = isDarkModeOn ? colorChoices.map((n) => RGBToHex(lightenDarkenColor(n, -30))) : colorChoices
 
     return (
         <Popover
@@ -111,9 +96,15 @@ export const ColorPickerButton = ({ colorToken, onSelect }: ColorPickerButtonPro
 }
 
 export function DashboardInsightColorsModal(): JSX.Element {
+    const { dashboard } = useValues(dashboardLogic)
+
     const { dashboardInsightColorsModalVisible, insightTiles, insightTilesLoading } =
         useValues(dashboardInsightColorsLogic)
-    const { hideDashboardInsightColorsModal, setBreakdownColor } = useActions(dashboardInsightColorsLogic)
+    const { hideDashboardInsightColorsModal } = useActions(dashboardInsightColorsLogic)
+
+    const { breakdownColors } = useValues(dashboardColorsLogic({ id: dashboard?.id }))
+    const { setBreakdownColor } = useActions(dashboardColorsLogic({ id: dashboard?.id }))
+
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { cohorts } = useValues(cohortsModel)
 
@@ -124,7 +115,12 @@ export function DashboardInsightColorsModal(): JSX.Element {
             title: 'Color',
             key: 'color',
             render: (_, breakdownValue) => {
-                return <ColorPickerButton onSelect={(colorToken) => setBreakdownColor(breakdownValue, colorToken)} />
+                return (
+                    <ColorPickerButton
+                        onSelect={(colorToken) => setBreakdownColor(breakdownValue, colorToken)}
+                        colorToken={breakdownColors[breakdownValue]}
+                    />
+                )
             },
         },
         {

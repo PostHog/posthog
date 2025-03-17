@@ -426,7 +426,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
                     const key = getFunnelDatasetKey(dataset)
                     const breakdownValue = JSON.parse(key)['breakdown_value']
-                    console.debug('b', breakdownValue)
 
                     if (breakdownColors?.[breakdownValue]) {
                         return breakdownColors[breakdownValue]

@@ -1,9 +1,7 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
-import { DataColorToken } from 'lib/colors'
+import { actions, kea, path, reducers, selectors } from 'kea'
 
 import { DashboardTile, QueryBasedInsightModel } from '~/types'
 
-import { dashboardColorsLogic } from './dashboardColorsLogic'
 import type { dashboardInsightColorsLogicType } from './dashboardInsightColorsLogicType'
 import { dashboardLogic } from './dashboardLogic'
 
@@ -12,7 +10,6 @@ export const dashboardInsightColorsLogic = kea<dashboardInsightColorsLogicType>(
     actions({
         showDashboardInsightColorsModal: (id: number) => ({ id }),
         hideDashboardInsightColorsModal: true,
-        setBreakdownColor: (breakdownValue: string, colorToken: DataColorToken) => ({ breakdownValue, colorToken }),
     }),
     reducers({
         dashboardId: [
@@ -35,10 +32,4 @@ export const dashboardInsightColorsLogic = kea<dashboardInsightColorsLogicType>(
             { resultEqualityCheck: () => false, equalityCheck: () => false },
         ],
     }),
-    listeners(({ values }) => ({
-        setBreakdownColor: ({ breakdownValue, colorToken }) => {
-            const builtDashboardColorsLogic = dashboardColorsLogic.findMounted({ id: values.dashboardId })
-            builtDashboardColorsLogic?.actions.setBreakdownColor(breakdownValue, colorToken)
-        },
-    })),
 ])

@@ -15,7 +15,6 @@ export const dashboardColorsLogic = kea<dashboardColorsLogicType>([
     }),
 
     actions(() => ({
-        setResultColorUsed: (...rest) => ({ ...rest }),
         setBreakdownColor: (breakdownValue: string, colorToken: DataColorToken) => ({ breakdownValue, colorToken }),
     })),
 
