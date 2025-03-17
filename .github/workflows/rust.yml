@@ -60,7 +60,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.82
+              uses: dtolnay/rust-toolchain@1.100
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
@@ -121,7 +121,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.82 # please keep this in sync with rust-version in rust/*/Cargo.toml
+              uses: dtolnay/rust-toolchain@1.100 # please keep this in sync with rust-version in rust/*/Cargo.toml
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
@@ -200,7 +200,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.82
+              uses: dtolnay/rust-toolchain@1.100
               with:
                   components: clippy,rustfmt
 
