@@ -2,6 +2,7 @@ import * as schedule from 'node-schedule'
 
 import { Action, Hook, PluginsServerConfig, RawAction, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { parseJSON } from '../../utils/json-parse'
 import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 
@@ -22,11 +23,11 @@ export class ActionManager {
 
         this.pubSub = new PubSub(this.serverConfig, {
             'reload-action': async (message) => {
-                const { actionId, teamId } = JSON.parse(message)
+                const { actionId, teamId } = parseJSON(message)
                 await this.reloadAction(teamId, actionId)
             },
             'drop-action': (message) => {
-                const { actionId, teamId } = JSON.parse(message)
+                const { actionId, teamId } = parseJSON(message)
                 this.dropAction(teamId, actionId)
             },
         })

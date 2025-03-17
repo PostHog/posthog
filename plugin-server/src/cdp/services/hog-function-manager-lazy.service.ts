@@ -156,10 +156,6 @@ export class HogFunctionManagerLazyService {
         return await this.lazyLoader.getMany(ids)
     }
 
-    // public teamHasHogDestinations(teamId: Team['id']): boolean {
-    //     return !!Object.keys(this.getTeamHogFunctions(teamId)).length
-    // }
-
     public async fetchHogFunction(id: HogFunctionType['id']): Promise<HogFunctionType | null> {
         const items: HogFunctionType[] = (
             await this.hub.postgres.query(

@@ -7,6 +7,7 @@ import { HogFunctionInvocation, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { status } from '../../../src/utils/status'
+import { parseJSON } from '../../utils/json-parse'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../_tests/fixtures'
 
@@ -151,7 +152,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const body = JSON.parse((result.invocation.queueParameters as any).body!)
+            const body = parseJSON((result.invocation.queueParameters as any).body!)
             expect(body).toEqual({
                 event: {
                     uuid: 'uuid',

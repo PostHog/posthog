@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events'
 import { PluginsServerConfig, RedisPool } from '../../../../types'
 import { createRedis } from '../../../../utils/db/redis'
 import { timeoutGuard } from '../../../../utils/db/utils'
+import { parseJSON } from '../../../../utils/json-parse'
 import { captureException } from '../../../../utils/posthog'
 import { status } from '../../../../utils/status'
 
@@ -50,7 +51,7 @@ export class RealtimeManager extends EventEmitter {
 
         this.pubsubRedis.on('message', (channel, message) => {
             try {
-                const subMessage = JSON.parse(message) as { team_id: number; session_id: string }
+                const subMessage = parseJSON(message) as { team_id: number; session_id: string }
                 this.emitSubscriptionEvent(subMessage.team_id, subMessage.session_id)
             } catch (e) {
                 captureException(e)

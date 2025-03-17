@@ -12,6 +12,7 @@ import {
 } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
+import { parseJSON } from '../../utils/json-parse'
 import { status } from '../../utils/status'
 import { HogWatcherState } from '../services/hog-watcher.service'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
@@ -190,7 +191,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                     await Promise.all(
                         messages.map(async (message) => {
                             try {
-                                const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+                                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
                                 if (!this.hogFunctionManager.teamHasHogDestinations(clickHouseEvent.team_id)) {
                                     // No need to continue if the team doesn't have any functions

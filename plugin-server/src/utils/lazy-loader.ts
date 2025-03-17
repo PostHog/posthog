@@ -126,7 +126,7 @@ export class LazyLoader<T> {
                 Date.now() +
                 (loaded[key] === null ? refreshNullAge : refreshAge) +
                 Math.floor(Math.random() * refreshJitterMs)
-            this.lastUsed[key] = now
+            this.lastUsed[key] = Date.now()
         }
 
         return results

@@ -652,8 +652,14 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s1 = str(uuid7("2023-12-02"))
 
         self.team.revenue_tracking_config = {
-            "events": [{"eventName": "purchase", "revenueProperty": "revenue", "revenueCurrencyProperty": "currency"}],
-            "baseCurrency": CurrencyCode.GBP.value,
+            "events": [
+                {
+                    "eventName": "purchase",
+                    "revenueProperty": "revenue",
+                    "revenueCurrencyProperty": {"property": "currency"},
+                }
+            ],
+            "baseCurrency": CurrencyCode.GBP,
         }
         self.team.save()
 
@@ -663,7 +669,8 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             event="purchase",
         )
-        results = self._run_web_overview_query("2023-12-01", "2023-12-03", include_revenue=True).results
+        response = self._run_web_overview_query("2023-12-01", "2023-12-03", include_revenue=True)
+        results = response.results
 
         visitors = results[0]
         assert visitors.value == 1
@@ -689,8 +696,14 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s1 = str(uuid7("2023-12-02"))
 
         self.team.revenue_tracking_config = {
-            "events": [{"eventName": "purchase", "revenueProperty": "revenue", "revenueCurrencyProperty": "currency"}],
-            "baseCurrency": CurrencyCode.GBP.value,
+            "events": [
+                {
+                    "eventName": "purchase",
+                    "revenueProperty": "revenue",
+                    "revenueCurrencyProperty": {"property": "currency"},
+                }
+            ],
+            "baseCurrency": CurrencyCode.GBP,
         }
         self.team.save()
 

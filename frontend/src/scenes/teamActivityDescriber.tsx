@@ -13,7 +13,11 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isNotNil, isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { RevenueTrackingEventItem } from '~/queries/schema/schema-general'
+import {
+    CurrencyCode,
+    RevenueTrackingDataWarehouseTable,
+    RevenueTrackingEventItem,
+} from '~/queries/schema/schema-general'
 import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
 
 import { ThemeName } from './dataThemeLogic'
@@ -412,6 +416,16 @@ const teamActionsMapping: Record<
         if (!change) {
             return null
         }
+
+        const beforeCurrency =
+            typeof change.before === 'object' && change.before && 'baseCurrency' in change.before
+                ? change.before.baseCurrency || CurrencyCode.USD
+                : null
+        const afterCurrency =
+            typeof change.after === 'object' && change.after && 'baseCurrency' in change.after
+                ? change.after.baseCurrency || CurrencyCode.USD
+                : null
+
         const beforeEvents: RevenueTrackingEventItem[] =
             typeof change.before === 'object' && change.before && 'events' in change.before ? change.before.events : []
         const afterEvents: RevenueTrackingEventItem[] =
@@ -422,6 +436,27 @@ const teamActionsMapping: Record<
         const addedEvents = afterEventNames?.filter((event) => !beforeEventNames?.includes(event))
         const removedEvents = beforeEventNames?.filter((event) => !afterEventNames?.includes(event))
         const modifiedEvents = afterEventNames?.filter((event) => beforeEventNames?.includes(event))
+
+        const beforedataWarehouseTables: RevenueTrackingDataWarehouseTable[] =
+            typeof change.before === 'object' && change.before && 'dataWarehouseTables' in change.before
+                ? change.before.dataWarehouseTables
+                : []
+        const afterdataWarehouseTables: RevenueTrackingDataWarehouseTable[] =
+            typeof change.after === 'object' && change.after && 'dataWarehouseTables' in change.after
+                ? change.after.dataWarehouseTables
+                : []
+
+        const beforeExternalDataSchemaNames = beforedataWarehouseTables?.map((schema) => schema?.tableName)
+        const afterExternalDataSchemaNames = afterdataWarehouseTables?.map((schema) => schema?.tableName)
+        const addeddataWarehouseTables = afterExternalDataSchemaNames?.filter(
+            (schema) => !beforeExternalDataSchemaNames?.includes(schema)
+        )
+        const removeddataWarehouseTables = beforeExternalDataSchemaNames?.filter(
+            (schema) => !afterExternalDataSchemaNames?.includes(schema)
+        )
+        const modifieddataWarehouseTables = afterExternalDataSchemaNames?.filter((schema) =>
+            beforeExternalDataSchemaNames?.includes(schema)
+        )
 
         const changes = [
             addedEvents?.length
@@ -447,6 +482,33 @@ const teamActionsMapping: Record<
                       'events',
                       true
                   )} (${modifiedEvents.join(', ')})`
+                : null,
+            addeddataWarehouseTables?.length
+                ? `added ${addeddataWarehouseTables.length} ${pluralize(
+                      addeddataWarehouseTables.length,
+                      'data warehouse table',
+                      'data warehouse tables',
+                      true
+                  )} (${addeddataWarehouseTables.join(', ')})`
+                : null,
+            removeddataWarehouseTables?.length
+                ? `removed ${removeddataWarehouseTables.length} ${pluralize(
+                      removeddataWarehouseTables.length,
+                      'data warehouse table',
+                      'data warehouse tables',
+                      true
+                  )} (${removeddataWarehouseTables.join(', ')})`
+                : null,
+            modifieddataWarehouseTables?.length
+                ? `modified ${modifieddataWarehouseTables.length} ${pluralize(
+                      modifieddataWarehouseTables.length,
+                      'data warehouse table',
+                      'data warehouse tables',
+                      true
+                  )} (${modifieddataWarehouseTables.join(', ')})`
+                : null,
+            beforeCurrency && afterCurrency && beforeCurrency !== afterCurrency
+                ? `changed base currency from ${beforeCurrency} to ${afterCurrency}`
                 : null,
         ].filter(isNotNil)
 
