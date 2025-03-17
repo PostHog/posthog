@@ -89,7 +89,10 @@ export interface AssistantGenerationStatusEvent {
 
 export interface AssistantToolCallMessage extends BaseAssistantMessage {
     type: AssistantMessageType.ToolCall
-    /** Payload passed through to the frontend - specifically for calls of contextual tool. */
+    /**
+     * Payload passed through to the frontend - specifically for calls of contextual tool.
+     * Tool call messages without a ui_payload are not passed through to the frontend.
+     */
     ui_payload?: Record<string, any>
     content: string
     tool_call_id: string

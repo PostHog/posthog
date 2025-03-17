@@ -1445,7 +1445,7 @@
                     "type": "string"
                 },
                 "ui_payload": {
-                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool.",
+                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
                     "type": "object"
                 }
             },
@@ -14479,7 +14479,7 @@
                             "type": "string"
                         },
                         "ui_payload": {
-                            "description": "Payload passed through to the frontend - specifically for calls of contextual tool.",
+                            "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
                             "type": "object"
                         }
                     },

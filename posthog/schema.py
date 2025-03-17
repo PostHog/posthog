@@ -214,7 +214,11 @@ class AssistantToolCallMessage(BaseModel):
     tool_call_id: str
     type: Literal["tool"] = "tool"
     ui_payload: Optional[dict[str, Any]] = Field(
-        default=None, description="Payload passed through to the frontend - specifically for calls of contextual tool."
+        default=None,
+        description=(
+            "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages"
+            " without a ui_payload are not passed through to the frontend."
+        ),
     )
 
 
@@ -1657,7 +1661,11 @@ class RootAssistantMessage1(BaseModel):
     tool_call_id: str
     type: Literal["tool"] = "tool"
     ui_payload: Optional[dict[str, Any]] = Field(
-        default=None, description="Payload passed through to the frontend - specifically for calls of contextual tool."
+        default=None,
+        description=(
+            "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages"
+            " without a ui_payload are not passed through to the frontend."
+        ),
     )
 
 
