@@ -1,5 +1,7 @@
 import { Counter } from 'prom-client'
 
+import { logger } from './logger'
+
 const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
 const REFRESH_JITTER_MS = 1000 * 60 // 1 minute
 
@@ -92,6 +94,7 @@ export class LazyLoader<T> {
                         }, bufferMs)
                     }).then((keys) => {
                         // Pull out the keys to load and clear the buffer
+                        logger.info('[LazyLoader]', this.options.name, 'Loading: ', keys)
                         return this.options.loader(keys)
                     }),
                 }

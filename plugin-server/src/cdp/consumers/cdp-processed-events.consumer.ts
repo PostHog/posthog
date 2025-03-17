@@ -103,7 +103,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
             let lazyLoadedTeams: Record<TeamId, HogFunctionType[] | undefined> | undefined
 
-            if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
+            if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && teamsToLoad.length > 0) {
                 lazyLoadedTeams = await this.hogFunctionManagerLazy.getHogFunctionsForTeams(teamsToLoad, this.hogTypes)
 
                 logger.info('🧐', `Lazy loaded ${Object.keys(lazyLoadedTeams).length} teams`)
