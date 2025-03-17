@@ -1567,7 +1567,7 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."path" = 'Unfiled/Feature Flags/Untitled'
          AND "posthog_filesystem"."team_id" = 99999
-         AND NOT ("posthog_filesystem"."id" = '0195a40a7afd76f5b126566516fcb76d'::uuid))
+         AND NOT ("posthog_filesystem"."id" = '00000000000000000000000000000000'::uuid))
   LIMIT 1
   '''
 # ---

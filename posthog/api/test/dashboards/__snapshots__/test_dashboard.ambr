@@ -1028,7 +1028,7 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."path" = 'Unfiled/Dashboards/dashboard'
          AND "posthog_filesystem"."team_id" = 99999
-         AND NOT ("posthog_filesystem"."id" = '0195a40399b17096aaadf27b581fcb62'::uuid))
+         AND NOT ("posthog_filesystem"."id" = '00000000000000000000000000000000'::uuid))
   LIMIT 1
   '''
 # ---
@@ -5954,7 +5954,7 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."path" = 'Unfiled/Dashboards/dashboard-1'
          AND "posthog_filesystem"."team_id" = 99999
-         AND NOT ("posthog_filesystem"."id" = '0195a403ce5e75979553ea1a7a6f4605'::uuid))
+         AND NOT ("posthog_filesystem"."id" = '00000000000000000000000000000000'::uuid))
   LIMIT 1
   '''
 # ---
@@ -10506,7 +10506,7 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."path" = 'Unfiled/Dashboards/private dashboard'
          AND "posthog_filesystem"."team_id" = 99999
-         AND NOT ("posthog_filesystem"."id" = '0195a403d9187320bfe978ee22d60e22'::uuid))
+         AND NOT ("posthog_filesystem"."id" = '00000000000000000000000000000000'::uuid))
   LIMIT 1
   '''
 # ---
