@@ -19,6 +19,7 @@ from posthog.plugins.plugin_server_api import get_hog_function_templates
 from rest_framework_dataclasses.serializers import DataclassSerializer
 from django.db.models import Count
 from posthog.models import HogFunction
+from django.core.cache import cache
 
 
 logger = structlog.get_logger(__name__)
@@ -109,21 +110,6 @@ class HogFunctionTemplates:
         ]
         sub_templates = derive_sub_templates(templates=templates)
 
-        template_usage = (
-            HogFunction.objects.filter(type="destination")
-            .values("template_id")
-            .annotate(count=Count("template_id"))
-            .order_by("-count")[:500]
-        )
-
-        popularity_dict = {item["template_id"]: item["count"] for item in template_usage}
-
-        for template in templates:
-            if template.id not in popularity_dict:
-                popularity_dict[template.id] = 0
-
-        templates.sort(key=lambda template: (-popularity_dict[template.id], template.name.lower()))
-
         # If we failed to get the templates, we cache for 30 seconds to avoid hammering the node service
         # If we got the templates, we cache for 5 minutes as these change infrequently
         cls._cache_until = datetime.now() + timedelta(seconds=30 if not nodejs_templates else 300)
@@ -169,6 +155,28 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
                     continue
 
             matching_templates.append(template)
+
+        if sub_template_id is None:
+            key = f"hog_function/template_usage"
+            template_usage = cache.get(key)
+
+            if template_usage is None:
+                template_usage = (
+                    HogFunction.objects.filter(type="destination", deleted=False, enabled=True)
+                    .values("template_id")
+                    .annotate(count=Count("template_id"))
+                    .order_by("-count")[:500]
+                )
+
+            cache.set(key, template_usage, 60)
+
+            popularity_dict = {item["template_id"]: item["count"] for item in template_usage}
+
+            for template in matching_templates:
+                if template.id not in popularity_dict:
+                    popularity_dict[template.id] = 0
+
+            matching_templates.sort(key=lambda template: (-popularity_dict[template.id], template.name.lower()))
 
         page = self.paginate_queryset(matching_templates)
         serializer = self.get_serializer(page, many=True)
