@@ -21,12 +21,14 @@ async def _add_inputs_to_properties(
     input: ExecuteActivityInput | ExecuteWorkflowInput,
     execution_type: Literal["activity", "workflow"],
 ):
-    if len(input.args) == 1 and is_dataclass(input.args[0]) and hasattr(input.args[0], "properties_to_log"):
-        try:
+    try:
+        if len(input.args) == 1 and is_dataclass(input.args[0]) and hasattr(input.args[0], "properties_to_log"):
             properties.update(input.args[0].properties_to_log)
-        except Exception as e:
-            await logger.awarning("Failed to get safe properties for %s", input.args[0], exc_info=e)
-            capture_exception(e)
+    except Exception as e:
+        await logger.awarning(
+            "Failed to add inputs to properties for class %s", type(input.args[0]).__name__, exc_info=e
+        )
+        capture_exception(e)
 
 
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
