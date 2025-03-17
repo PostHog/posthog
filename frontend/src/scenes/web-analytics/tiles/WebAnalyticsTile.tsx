@@ -10,6 +10,7 @@ import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { percentage, tryDecodeURIComponent, UnexpectedNeverError } from 'lib/utils'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
@@ -25,6 +26,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import {
     GeographyTab,
+    ProductTab,
     TileId,
     webAnalyticsLogic,
     webStatsBreakdownToPropertyName,
@@ -486,6 +488,7 @@ export const WebStatsTableTile = ({
     tileId: TileId
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+    const { productTab } = useValues(webAnalyticsLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
@@ -495,9 +498,14 @@ export const WebStatsTableTile = ({
                 return
             }
 
+            if (productTab === ProductTab.PAGE_REPORTS) {
+                lemonToast.info('Filters are not yet supported in this tile')
+                return
+            }
+
             togglePropertyFilter(type, key, breakdownValue)
         },
-        [togglePropertyFilter, type, key]
+        [togglePropertyFilter, type, key, productTab]
     )
 
     const context = useMemo((): QueryContext => {
