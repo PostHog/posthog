@@ -106,7 +106,12 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && teamsToLoad.length > 0) {
                 lazyLoadedTeams = await this.hogFunctionManagerLazy.getHogFunctionsForTeams(teamsToLoad, this.hogTypes)
 
-                logger.info('🧐', `Lazy loaded ${Object.keys(lazyLoadedTeams).length} teams`)
+                if (Object.keys(lazyLoadedTeams).length !== teamsToLoad.length) {
+                    logger.warn('Lazy loaded different number of teams', {
+                        lazy: Object.keys(lazyLoadedTeams).length,
+                        eager: teamsToLoad.length,
+                    })
+                }
             }
             const hogFunctionsByTeam = teamsToLoad.reduce((acc, teamId) => {
                 acc[teamId] = this.hogFunctionManager.getTeamHogFunctions(teamId)

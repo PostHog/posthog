@@ -40,7 +40,7 @@ export type LazyLoaderOptions<T> = {
     refreshNullAge?: number
     /** How much jitter to add to the refresh time */
     refreshJitterMs?: number
-    /** How long to buffer loads for */
+    /** How long to buffer loads for - if set to 0 then it will load immediately without buffering */
     bufferMs?: number
 }
 
