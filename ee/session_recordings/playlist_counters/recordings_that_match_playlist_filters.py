@@ -31,7 +31,7 @@ TASK_EXPIRATION_TIME = (
     # we definitely want to expire this task after a while
     # but we don't want to expire it too quickly
     # so we multiply the schedule by some factor or fallback to a long time
-    settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS * 5
+    settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS * 15
     if settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS
     else THIRTY_SIX_HOURS_IN_SECONDS
 )
@@ -284,7 +284,7 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
     # limit how many run per worker instance - if we have 10 workers, this will run 600 times per hour
-    rate_limit="120/h",
+    rate_limit="180/h",
     expires=TASK_EXPIRATION_TIME,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
     # will retry twice, once after 120 seconds (with jitter)
