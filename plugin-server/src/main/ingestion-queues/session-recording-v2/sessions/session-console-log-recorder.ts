@@ -1,32 +1,32 @@
 import { DateTime } from 'luxon'
 
-import { LogLevel, TimestampFormat } from '../../../../types'
+import { TimestampFormat } from '../../../../types'
 import { castTimestampOrNow } from '../../../../utils/utils'
 import { ParsedMessageData } from '../kafka/types'
-import { RRWebEventType } from '../rrweb-types'
+import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
-const levelMapping: Record<string, LogLevel> = {
-    info: LogLevel.Info,
-    count: LogLevel.Info,
-    timeEnd: LogLevel.Info,
-    warn: LogLevel.Warn,
-    countReset: LogLevel.Warn,
-    error: LogLevel.Error,
-    assert: LogLevel.Error,
+const levelMapping: Record<string, ConsoleLogLevel> = {
+    info: ConsoleLogLevel.Log,
+    count: ConsoleLogLevel.Log,
+    timeEnd: ConsoleLogLevel.Log,
+    warn: ConsoleLogLevel.Warn,
+    countReset: ConsoleLogLevel.Warn,
+    error: ConsoleLogLevel.Error,
+    assert: ConsoleLogLevel.Error,
     // really these should be 'log' but we don't want users to have to think about this
-    log: LogLevel.Info,
-    trace: LogLevel.Info,
-    dir: LogLevel.Info,
-    dirxml: LogLevel.Info,
-    group: LogLevel.Info,
-    groupCollapsed: LogLevel.Info,
-    debug: LogLevel.Info,
-    timeLog: LogLevel.Info,
+    log: ConsoleLogLevel.Log,
+    trace: ConsoleLogLevel.Log,
+    dir: ConsoleLogLevel.Log,
+    dirxml: ConsoleLogLevel.Log,
+    group: ConsoleLogLevel.Log,
+    groupCollapsed: ConsoleLogLevel.Log,
+    debug: ConsoleLogLevel.Log,
+    timeLog: ConsoleLogLevel.Log,
 }
 
-function safeLevel(level: unknown): LogLevel {
-    return levelMapping[typeof level === 'string' ? level : 'info'] || LogLevel.Info
+function safeLevel(level: unknown): ConsoleLogLevel {
+    return levelMapping[typeof level === 'string' ? level : 'info'] || ConsoleLogLevel.Log
 }
 
 function sanitizeForUTF8(input: string): string {
@@ -115,11 +115,11 @@ export class SessionConsoleLogRecorder {
                     const payload: unknown[] = Array.isArray(maybePayload) ? maybePayload : []
                     const message = payloadToSafeString(payload)
 
-                    if (level === 'info') {
+                    if (level === ConsoleLogLevel.Log) {
                         this.consoleLogCount++
-                    } else if (level === 'warn') {
+                    } else if (level === ConsoleLogLevel.Warn) {
                         this.consoleWarnCount++
-                    } else if (level === 'error') {
+                    } else if (level === ConsoleLogLevel.Error) {
                         this.consoleErrorCount++
                     }
 

@@ -2,7 +2,6 @@ import { BreakdownType, FunnelMathType, IntervalType, PropertyFilterType, Proper
 
 import {
     CompareFilter,
-    DateRange,
     EventsNode,
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
@@ -13,6 +12,33 @@ import {
     TrendsFilterLegacy,
 } from './schema-general'
 import { integer } from './type-utils'
+
+/**
+ * This filter only works with absolute dates.
+ */
+export interface AssistantDateRange {
+    /**
+     * ISO8601 date string.
+     */
+    date_from: string
+    /**
+     * ISO8601 date string.
+     */
+    date_to?: string | null
+}
+
+/**
+ * This filter only works with durations.
+ */
+export interface AssistantDurationRange {
+    /**
+     * Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary.
+     * Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.
+     */
+    date_from: string
+}
+
+export type AssistantDateRangeFilter = AssistantDateRange | AssistantDurationRange
 
 export type AssistantArrayPropertyFilterOperator = PropertyOperator.Exact | PropertyOperator.IsNot
 export interface AssistantArrayPropertyFilter {
@@ -108,7 +134,7 @@ export interface AssistantInsightsQueryBase {
     /**
      * Date range for the query
      */
-    dateRange?: DateRange
+    dateRange?: AssistantDateRangeFilter
 
     /**
      * Exclude internal and test users by applying the respective filters
