@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Error;
 use celes::Country;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use common_types::{CapturedEvent, InternallyCapturedEvent, RawEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -42,6 +42,7 @@ impl MixpanelEvent {
     pub fn parse_fn(
         context: TransformContext,
         skip_no_distinct_id: bool,
+        timestamp_offset: Duration,
         event_transform: impl Fn(RawEvent) -> Result<Option<RawEvent>, Error>,
     ) -> impl Fn(Self) -> Result<Option<InternallyCapturedEvent>, Error> {
         move |mx| {
@@ -58,6 +59,8 @@ impl MixpanelEvent {
             // We don't support subsecond precision for historical imports
             let timestamp = DateTime::<Utc>::from_timestamp(mx.properties.timestamp_ms / 1000, 0)
                 .ok_or(Error::msg("Invalid timestamp"))?;
+
+            let timestamp = timestamp + timestamp_offset;
 
             let properties = mx.properties.other;
             let properties = map_geoip_props(properties);
@@ -130,7 +133,7 @@ fn get_distinct_id(props: &MixpanelProperties) -> Option<String> {
     // If the distinct_id contains only uppercase letters and dashes, it's an anonymous ID
     if distinct_id
         .chars()
-        .all(|c| c.is_ascii_uppercase() || c == '-')
+        .all(|c| c.is_ascii_uppercase() || c == '-' || c.is_ascii_digit())
     {
         return Some(before_identity.to_string());
     }
