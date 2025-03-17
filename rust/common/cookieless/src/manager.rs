@@ -137,8 +137,8 @@ impl CookielessManager {
     pub fn new(config: CookielessConfig, redis_client: Arc<dyn RedisClient + Send + Sync>) -> Self {
         let salt_cache = SaltCache::new(redis_client.clone(), Some(config.salt_ttl_seconds));
 
-        Self { 
-            config, 
+        Self {
+            config,
             salt_cache,
             redis_client,
         }
@@ -175,7 +175,9 @@ impl CookielessManager {
             return Err(CookielessManagerError::MissingProperty("host".to_string()));
         }
         if event_data.user_agent.is_empty() {
-            return Err(CookielessManagerError::MissingProperty("user_agent".to_string()));
+            return Err(CookielessManagerError::MissingProperty(
+                "user_agent".to_string(),
+            ));
         }
 
         // Get the team timezone or use UTC as fallback
@@ -203,7 +205,9 @@ impl CookielessManager {
         }
 
         // Get the number of identify events for this hash
-        let n = self.get_identify_count(&base_hash, event_data.team_id).await?;
+        let n = self
+            .get_identify_count(&base_hash, event_data.team_id)
+            .await?;
 
         // If n is 0, we can use the base hash
         if n == 0 {
@@ -211,10 +215,7 @@ impl CookielessManager {
         }
 
         // Otherwise, recompute the hash with the correct n value
-        let hash_params_with_n = HashParams {
-            n,
-            ..hash_params
-        };
+        let hash_params_with_n = HashParams { n, ..hash_params };
 
         // Compute the final hash
         let final_hash = self.do_hash_for_day(hash_params_with_n).await?;
@@ -261,7 +262,11 @@ impl CookielessManager {
 
     /// Get the number of identify events for a specific hash
     /// This is used to ensure that a user that logs in and out doesn't collide with themselves
-    pub async fn get_identify_count(&self, hash: &[u8], team_id: u64) -> Result<u64, CookielessManagerError> {
+    pub async fn get_identify_count(
+        &self,
+        hash: &[u8],
+        team_id: u64,
+    ) -> Result<u64, CookielessManagerError> {
         // If we're in stateless mode, always return 0
         if self.config.force_stateless_mode {
             return Ok(0);
@@ -274,9 +279,9 @@ impl CookielessManager {
         match self.redis_client.get(redis_key).await {
             Ok(count_str) => {
                 // Parse the count string to a u64
-                count_str.parse::<u64>().map_err(|e| {
-                    CookielessManagerError::InvalidIdentifyCount(e.to_string())
-                })
+                count_str
+                    .parse::<u64>()
+                    .map_err(|e| CookielessManagerError::InvalidIdentifyCount(e.to_string()))
             }
             Err(common_redis::CustomRedisError::NotFound) => {
                 // If the key doesn't exist, the count is 0
@@ -488,7 +493,10 @@ mod tests {
         };
 
         // Process the event
-        let result = manager.compute_cookieless_distinct_id(event_data).await.unwrap();
+        let result = manager
+            .compute_cookieless_distinct_id(event_data)
+            .await
+            .unwrap();
 
         // Check that we got a distinct ID
         assert!(result.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
@@ -533,8 +541,14 @@ mod tests {
         };
 
         // Process the events
-        let result1 = manager.compute_cookieless_distinct_id(event_data1).await.unwrap();
-        let result2 = manager.compute_cookieless_distinct_id(event_data2).await.unwrap();
+        let result1 = manager
+            .compute_cookieless_distinct_id(event_data1)
+            .await
+            .unwrap();
+        let result2 = manager
+            .compute_cookieless_distinct_id(event_data2)
+            .await
+            .unwrap();
 
         // Check that we got different distinct IDs
         assert_ne!(result1, result2);
@@ -727,8 +741,11 @@ mod tests {
             n: 0,
             hash_extra: event_data.hash_extra.unwrap_or(""),
         };
-        let base_hash = temp_manager.do_hash_for_day(hash_params.clone()).await.unwrap();
-        
+        let base_hash = temp_manager
+            .do_hash_for_day(hash_params.clone())
+            .await
+            .unwrap();
+
         // Get the Redis key for the identify count
         let identifies_key = get_redis_identifies_key(&base_hash, event_data.team_id);
 
@@ -740,7 +757,10 @@ mod tests {
         let manager = CookielessManager::new(config, redis_client);
 
         // Process the event
-        let result = manager.compute_cookieless_distinct_id(event_data).await.unwrap();
+        let result = manager
+            .compute_cookieless_distinct_id(event_data)
+            .await
+            .unwrap();
 
         // Check that we got a distinct ID
         assert!(result.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
@@ -750,7 +770,10 @@ mod tests {
             n: 2,
             ..hash_params
         };
-        let expected_hash = temp_manager.do_hash_for_day(hash_params_with_n).await.unwrap();
+        let expected_hash = temp_manager
+            .do_hash_for_day(hash_params_with_n)
+            .await
+            .unwrap();
         let expected_distinct_id = CookielessManager::hash_to_distinct_id(&expected_hash);
 
         // Check that the result matches the expected distinct ID
@@ -787,7 +810,10 @@ mod tests {
         };
 
         // Process the event
-        let result = manager.compute_cookieless_distinct_id(event_data).await.unwrap();
+        let result = manager
+            .compute_cookieless_distinct_id(event_data)
+            .await
+            .unwrap();
 
         // Check that we got a distinct ID
         assert!(result.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
@@ -798,27 +824,28 @@ mod tests {
         // Read the test cases from the JSON file
         let test_cases_json = fs::read_to_string("src/test_cases.json").unwrap();
         let test_cases: Value = serde_json::from_str(&test_cases_json).unwrap();
-        
+
         // Test hash_to_distinct_id function
         if let Some(distinct_id_tests) = test_cases.get("hash_to_distinct_id_tests") {
             for test_case in distinct_id_tests.as_array().unwrap() {
                 let hash_base64 = test_case["hash"].as_str().unwrap();
                 let hash = general_purpose::STANDARD.decode(hash_base64).unwrap();
                 let expected_distinct_id = test_case["expected_distinct_id"].as_str().unwrap();
-                
+
                 let distinct_id = CookielessManager::hash_to_distinct_id(&hash);
                 assert_eq!(distinct_id, expected_distinct_id);
             }
         }
-        
+
         // Test get_redis_identifies_key function
         if let Some(identifies_key_tests) = test_cases.get("redis_identifies_key_tests") {
             for test_case in identifies_key_tests.as_array().unwrap() {
                 let hash_base64 = test_case["hash"].as_str().unwrap();
                 let hash = general_purpose::STANDARD.decode(hash_base64).unwrap();
                 let team_id = test_case["team_id"].as_u64().unwrap();
-                let expected_identifies_key = test_case["expected_identifies_key"].as_str().unwrap();
-                
+                let expected_identifies_key =
+                    test_case["expected_identifies_key"].as_str().unwrap();
+
                 let identifies_key = get_redis_identifies_key(&hash, team_id);
                 assert_eq!(identifies_key, expected_identifies_key);
             }
