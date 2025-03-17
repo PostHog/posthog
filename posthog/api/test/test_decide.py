@@ -1079,8 +1079,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "enabled": True,
                 "variant": "first-variant",
                 "reason": {
-                    "code": "condition_match",  # Adjust based on actual value
-                    "condition_index": 0,  # Adjust based on actual value
+                    "code": "condition_match",
+                    "condition_index": 0,
                     "description": "Matched condition set 1",
                 },
                 "metadata": {
