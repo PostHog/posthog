@@ -2212,13 +2212,7 @@ class TestPrinter(BaseTest):
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
 
-    def test_print_hogql_uses_hogql_function_names(self):
-        # Test that avgArray doesn't get printed as avgArrayOrNull in hogql dialect
+    def test_print_hogql_aggregation_function_uses_hogql_function_names(self):
         query = parse_expr("avgArray([1, 2, 3])")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="hogql",
-            settings=HogQLGlobalSettings(max_execution_time=10),
-        )
+        printed = print_ast(query, HogQLContext(team_id=self.team.pk), dialect="hogql")
         assert printed == "avgArray([1, 2, 3])"
