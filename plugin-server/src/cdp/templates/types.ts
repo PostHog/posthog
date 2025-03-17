@@ -41,11 +41,6 @@ export type HogFunctionTemplate = {
     mapping_templates?: HogFunctionMappingTemplate[]
     masking?: HogFunctionMasking
     icon_url?: string
-    /** 
-     * If true, this transformation uses the filter infrastructure to determine whether to drop events.
-     * The transformation code will only run if the event passes all filters.
-     */
-    uses_filter_infrastructure?: boolean
 }
 
 export type HogFunctionTemplateCompiled = HogFunctionTemplate & {
