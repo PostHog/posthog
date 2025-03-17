@@ -23,6 +23,7 @@ from ee.hogai.taxonomy_agent.parsers import (
 )
 from ee.hogai.taxonomy_agent.prompts import (
     CORE_MEMORY_INSTRUCTIONS,
+    REACT_ACTIONS_PROMPT,
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
@@ -98,6 +99,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "project_datetime": self.project_now,
                         "project_timezone": self.project_timezone,
                         "project_name": self._team.name,
+                        "actions": state.rag_context,
+                        "actions_prompt": REACT_ACTIONS_PROMPT,
                     },
                     config,
                 ),
@@ -288,10 +291,16 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         return "continue"
 
     def _handle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
-        if input.name == "retrieve_event_properties":
-            output = toolkit.retrieve_event_properties(input.arguments)
+        if input.name == "retrieve_event_properties" or input.name == "retrieve_action_properties":
+            output = toolkit.retrieve_event_or_action_properties(input.arguments)
         elif input.name == "retrieve_event_property_values":
-            output = toolkit.retrieve_event_property_values(input.arguments.event_name, input.arguments.property_name)
+            output = toolkit.retrieve_event_or_action_property_values(
+                input.arguments.event_name, input.arguments.property_name
+            )
+        elif input.name == "retrieve_action_property_values":
+            output = toolkit.retrieve_event_or_action_property_values(
+                input.arguments.action_id, input.arguments.property_name
+            )
         elif input.name == "retrieve_entity_properties":
             output = toolkit.retrieve_entity_properties(input.arguments)
         elif input.name == "retrieve_entity_property_values":
