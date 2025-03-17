@@ -322,9 +322,6 @@ importers:
       buffer:
         specifier: ^6.0.3
         version: 6.0.3
-      css-loader:
-        specifier: ^3.4.2
-        version: 3.6.0(webpack@5.88.2)
       file-loader:
         specifier: ^6.1.0
         version: 6.2.0(webpack@5.88.2)
@@ -342,7 +339,7 @@ importers:
         version: 7.0.1(monaco-editor@0.49.0)(webpack@5.88.2)
       postcss-loader:
         specifier: ^4.3.0
-        version: 4.3.0(postcss@8.5.2)(webpack@5.88.2)
+        version: 4.3.0(postcss@8.5.3)(webpack@5.88.2)
       raw-loader:
         specifier: ^4.0.2
         version: 4.0.2(webpack@5.88.2)
@@ -364,6 +361,10 @@ importers:
       webpack-cli:
         specifier: ^5.1.4
         version: 5.1.4(webpack@5.88.2)
+    devDependencies:
+      css-loader:
+        specifier: ^7.1.2
+        version: 7.1.2(webpack@5.88.2)
 
   common/tailwind:
     dependencies:
@@ -8245,6 +8246,18 @@ packages:
     peerDependencies:
       webpack: ^5.0.0
 
+  css-loader@7.1.2:
+    resolution: {integrity: sha512-6WvYYn7l/XEGN8Xu2vWFt9nVzrCn39vKyTEFf/ExEyoksJjjSZV/0/35XPlMbpnr6VGhZIUg5yJrL8tGfes/FA==}
+    engines: {node: '>= 18.12.0'}
+    peerDependencies:
+      '@rspack/core': 0.x || 1.x
+      webpack: ^5.27.0
+    peerDependenciesMeta:
+      '@rspack/core':
+        optional: true
+      webpack:
+        optional: true
+
   css-prefers-color-scheme@10.0.0:
     resolution: {integrity: sha512-VCtXZAWivRglTZditUfB4StnsWr6YVZ2PRtuxQLKTNRdtAf8tpzaVPE9zXIF3VaSc7O70iK/j1+NXxyQCqdPjQ==}
     engines: {node: '>=18'}
@@ -12955,6 +12968,12 @@ packages:
     peerDependencies:
       postcss: ^8.1.0
 
+  postcss-modules-extract-imports@3.1.0:
+    resolution: {integrity: sha512-k3kNe0aNFQDAZGbin48pL2VNidTF0w4/eASDsxlyspobzU3wZQLOGj7L9gfRe0Jo9/4uud09DsjFNH7winGv8Q==}
+    engines: {node: ^10 || ^12 || >= 14}
+    peerDependencies:
+      postcss: ^8.1.0
+
   postcss-modules-local-by-default@3.0.3:
     resolution: {integrity: sha512-e3xDq+LotiGesympRlKNgaJ0PCzoUIdpH0dj47iWAui/kyTgh3CiAr1qP54uodmJhl6p9rN6BoNcdEDVJx9RDw==}
     engines: {node: '>= 6'}
@@ -12965,12 +12984,24 @@ packages:
     peerDependencies:
       postcss: ^8.1.0
 
+  postcss-modules-local-by-default@4.2.0:
+    resolution: {integrity: sha512-5kcJm/zk+GJDSfw+V/42fJ5fhjL5YbFDl8nVdXkJPLLW+Vf9mTD5Xe0wqIaDnLuL2U6cDNpTr+UQ+v2HWIBhzw==}
+    engines: {node: ^10 || ^12 || >= 14}
+    peerDependencies:
+      postcss: ^8.1.0
+
   postcss-modules-scope@2.2.0:
     resolution: {integrity: sha512-YyEgsTMRpNd+HmyC7H/mh3y+MeFWevy7V1evVhJWewmMbjDHIbZbOXICC2y+m1xI1UVfIT1HMW/O04Hxyu9oXQ==}
     engines: {node: '>= 6'}
 
   postcss-modules-scope@3.0.0:
     resolution: {integrity: sha512-hncihwFA2yPath8oZ15PZqvWGkWf+XUfQgUGamS4LqoP1anQLOsOJw0vr7J7IwLpoY9fatA2qiGUGmuZL0Iqlg==}
+    engines: {node: ^10 || ^12 || >= 14}
+    peerDependencies:
+      postcss: ^8.1.0
+
+  postcss-modules-scope@3.2.1:
+    resolution: {integrity: sha512-m9jZstCVaqGjTAuny8MdgE88scJnCiQSlSrOWcTQgM2t32UBe+MUmFSO5t7VMSfAf/FJKImAxBav8ooCHJXCJA==}
     engines: {node: ^10 || ^12 || >= 14}
     peerDependencies:
       postcss: ^8.1.0
@@ -19397,7 +19428,7 @@ snapshots:
 
   '@posthog/rrweb-snapshot@0.0.4':
     dependencies:
-      postcss: 8.5.2
+      postcss: 8.5.3
 
   '@posthog/rrweb-types@0.0.8': {}
 
@@ -22631,7 +22662,7 @@ snapshots:
       '@typescript-eslint/types': 7.1.1
       '@typescript-eslint/typescript-estree': 7.1.1(typescript@4.9.5)
       eslint: 8.57.0
-      semver: 7.5.4
+      semver: 7.7.0
     transitivePeerDependencies:
       - supports-color
       - typescript
@@ -24318,33 +24349,29 @@ snapshots:
       semver: 6.3.1
       webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
 
-  css-loader@3.6.0(webpack@5.88.2):
-    dependencies:
-      camelcase: 5.3.1
-      cssesc: 3.0.0
-      icss-utils: 4.1.1
-      loader-utils: 1.4.2
-      normalize-path: 3.0.0
-      postcss: 7.0.39
-      postcss-modules-extract-imports: 2.0.0
-      postcss-modules-local-by-default: 3.0.3
-      postcss-modules-scope: 2.2.0
-      postcss-modules-values: 3.0.0
-      postcss-value-parser: 4.2.0
-      schema-utils: 2.7.1
-      semver: 6.3.1
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
-
   css-loader@6.8.1(webpack@5.88.2):
     dependencies:
-      icss-utils: 5.1.0(postcss@8.5.2)
-      postcss: 8.5.2
-      postcss-modules-extract-imports: 3.0.0(postcss@8.5.2)
-      postcss-modules-local-by-default: 4.0.3(postcss@8.5.2)
-      postcss-modules-scope: 3.0.0(postcss@8.5.2)
-      postcss-modules-values: 4.0.0(postcss@8.5.2)
+      icss-utils: 5.1.0(postcss@8.5.3)
+      postcss: 8.5.3
+      postcss-modules-extract-imports: 3.0.0(postcss@8.5.3)
+      postcss-modules-local-by-default: 4.0.3(postcss@8.5.3)
+      postcss-modules-scope: 3.0.0(postcss@8.5.3)
+      postcss-modules-values: 4.0.0(postcss@8.5.3)
       postcss-value-parser: 4.2.0
       semver: 7.7.0
+      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
+
+  css-loader@7.1.2(webpack@5.88.2):
+    dependencies:
+      icss-utils: 5.1.0(postcss@8.5.3)
+      postcss: 8.5.3
+      postcss-modules-extract-imports: 3.1.0(postcss@8.5.3)
+      postcss-modules-local-by-default: 4.2.0(postcss@8.5.3)
+      postcss-modules-scope: 3.2.1(postcss@8.5.3)
+      postcss-modules-values: 4.0.0(postcss@8.5.3)
+      postcss-value-parser: 4.2.0
+      semver: 7.7.0
+    optionalDependencies:
       webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
 
   css-prefers-color-scheme@10.0.0(postcss@8.5.2):
@@ -25590,7 +25617,7 @@ snapshots:
 
   eslint-import-resolver-node@0.3.9:
     dependencies:
-      debug: 3.2.7(supports-color@5.5.0)
+      debug: 3.2.7(supports-color@8.1.1)
       is-core-module: 2.13.1
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -25598,7 +25625,7 @@ snapshots:
 
   eslint-module-utils@2.8.0(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint-import-resolver-node@0.3.9)(eslint@8.57.0):
     dependencies:
-      debug: 3.2.7(supports-color@5.5.0)
+      debug: 3.2.7(supports-color@8.1.1)
     optionalDependencies:
       '@typescript-eslint/parser': 7.1.1(eslint@8.57.0)(typescript@4.9.5)
       eslint: 8.57.0
@@ -25640,7 +25667,7 @@ snapshots:
       array.prototype.findlastindex: 1.2.3
       array.prototype.flat: 1.3.2
       array.prototype.flatmap: 1.3.2
-      debug: 3.2.7(supports-color@5.5.0)
+      debug: 3.2.7(supports-color@8.1.1)
       doctrine: 2.1.0
       eslint: 8.57.0
       eslint-import-resolver-node: 0.3.9
@@ -27066,9 +27093,9 @@ snapshots:
     dependencies:
       postcss: 7.0.39
 
-  icss-utils@5.1.0(postcss@8.5.2):
+  icss-utils@5.1.0(postcss@8.5.3):
     dependencies:
-      postcss: 8.5.2
+      postcss: 8.5.3
 
   ieee754@1.1.13: {}
 
@@ -30232,16 +30259,6 @@ snapshots:
       '@csstools/utilities': 2.0.0(postcss@8.5.2)
       postcss: 8.5.2
 
-  postcss-loader@4.3.0(postcss@8.5.2)(webpack@5.88.2):
-    dependencies:
-      cosmiconfig: 7.1.0
-      klona: 2.0.5
-      loader-utils: 2.0.4
-      postcss: 8.5.2
-      schema-utils: 3.3.0
-      semver: 7.7.0
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
-
   postcss-loader@4.3.0(postcss@8.5.3)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))):
     dependencies:
       cosmiconfig: 7.1.0
@@ -30251,6 +30268,16 @@ snapshots:
       schema-utils: 3.3.0
       semver: 7.7.0
       webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
+
+  postcss-loader@4.3.0(postcss@8.5.3)(webpack@5.88.2):
+    dependencies:
+      cosmiconfig: 7.1.0
+      klona: 2.0.5
+      loader-utils: 2.0.4
+      postcss: 8.5.3
+      schema-utils: 3.3.0
+      semver: 7.7.0
+      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
 
   postcss-logical@8.0.0(postcss@8.5.2):
     dependencies:
@@ -30347,9 +30374,13 @@ snapshots:
     dependencies:
       postcss: 7.0.39
 
-  postcss-modules-extract-imports@3.0.0(postcss@8.5.2):
+  postcss-modules-extract-imports@3.0.0(postcss@8.5.3):
     dependencies:
-      postcss: 8.5.2
+      postcss: 8.5.3
+
+  postcss-modules-extract-imports@3.1.0(postcss@8.5.3):
+    dependencies:
+      postcss: 8.5.3
 
   postcss-modules-local-by-default@3.0.3:
     dependencies:
@@ -30358,11 +30389,18 @@ snapshots:
       postcss-selector-parser: 6.1.2
       postcss-value-parser: 4.2.0
 
-  postcss-modules-local-by-default@4.0.3(postcss@8.5.2):
+  postcss-modules-local-by-default@4.0.3(postcss@8.5.3):
     dependencies:
-      icss-utils: 5.1.0(postcss@8.5.2)
-      postcss: 8.5.2
+      icss-utils: 5.1.0(postcss@8.5.3)
+      postcss: 8.5.3
       postcss-selector-parser: 6.1.2
+      postcss-value-parser: 4.2.0
+
+  postcss-modules-local-by-default@4.2.0(postcss@8.5.3):
+    dependencies:
+      icss-utils: 5.1.0(postcss@8.5.3)
+      postcss: 8.5.3
+      postcss-selector-parser: 7.1.0
       postcss-value-parser: 4.2.0
 
   postcss-modules-scope@2.2.0:
@@ -30370,20 +30408,25 @@ snapshots:
       postcss: 7.0.39
       postcss-selector-parser: 6.1.2
 
-  postcss-modules-scope@3.0.0(postcss@8.5.2):
+  postcss-modules-scope@3.0.0(postcss@8.5.3):
     dependencies:
-      postcss: 8.5.2
+      postcss: 8.5.3
       postcss-selector-parser: 6.1.2
+
+  postcss-modules-scope@3.2.1(postcss@8.5.3):
+    dependencies:
+      postcss: 8.5.3
+      postcss-selector-parser: 7.1.0
 
   postcss-modules-values@3.0.0:
     dependencies:
       icss-utils: 4.1.1
       postcss: 7.0.39
 
-  postcss-modules-values@4.0.0(postcss@8.5.2):
+  postcss-modules-values@4.0.0(postcss@8.5.3):
     dependencies:
-      icss-utils: 5.1.0(postcss@8.5.2)
-      postcss: 8.5.2
+      icss-utils: 5.1.0(postcss@8.5.3)
+      postcss: 8.5.3
 
   postcss-nesting@13.0.1(postcss@8.5.2):
     dependencies:

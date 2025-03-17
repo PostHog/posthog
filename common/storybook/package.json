@@ -37,23 +37,24 @@
         "@storybook/test-runner": "^0.16.0",
         "@storybook/theming": "^7.6.4",
         "@storybook/types": "^7.6.4",
+        "babel-loader": "^8.0.6",
         "babel-preset-nano-react-app": "^0.1.0",
         "buffer": "^6.0.3",
-        "webpack": "^5.88.2",
-        "webpack-cli": "^5.1.4",
+        "file-loader": "^6.1.0",
         "html-webpack-harddisk-plugin": "^2.0.0",
         "html-webpack-plugin": "^5.5.3",
-        "monaco-editor-webpack-plugin": "^7.0.1",
-        "babel-loader": "^8.0.6",
-        "css-loader": "^3.4.2",
-        "file-loader": "^6.1.0",
         "less-loader": "^7.0.2",
+        "monaco-editor-webpack-plugin": "^7.0.1",
         "postcss-loader": "^4.3.0",
         "raw-loader": "^4.0.2",
         "sass-loader": "^10.0.1",
-        "style-loader": "^2.0.0",
         "storybook": "^7.6.4",
-        "storybook-addon-pseudo-states": "2.1.2"
+        "storybook-addon-pseudo-states": "2.1.2",
+        "style-loader": "^2.0.0",
+        "webpack": "^5.88.2",
+        "webpack-cli": "^5.1.4"
     },
-    "peerDependencies": {}
+    "devDependencies": {
+        "css-loader": "^7.1.2"
+    }
 }
