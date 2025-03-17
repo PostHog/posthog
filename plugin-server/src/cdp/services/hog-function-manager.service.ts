@@ -178,7 +178,6 @@ export class HogFunctionManagerService {
     }
 
     private onIntegrationsReloaded(integrationIds: IntegrationType['id'][]) {
-        console.log(integrationIds, this.lazyLoader.cache)
         const hogFunctionsRequiringRefresh = Object.values(this.lazyLoader.cache).filter((hogFunction) => {
             for (const integrationId of integrationIds) {
                 if (hogFunction?.depends_on_integration_ids?.has(integrationId)) {
@@ -189,7 +188,7 @@ export class HogFunctionManagerService {
         })
 
         this.lazyLoader.markForRefresh(
-            hogFunctionsRequiringRefresh.filter((x) => !!x).map((hogFunction) => hogFunction.id)
+            hogFunctionsRequiringRefresh.filter((x) => !!x).map((hogFunction) => hogFunction!.id)
         )
     }
 
