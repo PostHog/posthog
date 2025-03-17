@@ -109,12 +109,29 @@ jobs:
                   CELERY_METRICS_PORT=8999
                   CLOUD_DEPLOYMENT=E2E
                   ENCRYPTION_SALT_KEYS=00beef0000beef0000beef0000beef00
+                  PLUGIN_SERVER_MODE=cdp-api
                   EOT
 
             - name: Run docker image
               run: |
                   DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --add-host clickhouse:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
-                  $DOCKER_RUN ./bin/plugin-server
+                  $DOCKER_RUN ./bin/plugin-server &> /tmp/logs/server.txt &
+
+            - name: Wait for PostHog
+              uses: iFaxity/wait-on-action@v1.2.1
+              timeout-minutes: 3
+              with:
+                  verbose: true
+                  log: true
+                  resource: http://localhost:8000/_health
+
+            - name: Archive report
+              uses: actions/upload-artifact@v4
+              with:
+                  name: plugin-server-logs
+                  path: /tmp/logs/server.txt
+                  retention-days: 30
+              if: ${{ always() }}
 
     deploy:
         name: deploy ${{ matrix.release }}
