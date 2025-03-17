@@ -91,5 +91,20 @@
             "hash_extra": "Sphinx of Black Quartz, Judge My Vow. This is a pretty long extra string - it is exactly 100 chars!!! Actually no, it's longer, to make sure that this is truncated properly",
             "expected": "lPLnR7N4qR683u8oyGmTGg=="
         }
+    ],
+    "hash_to_distinct_id_tests": [
+        {
+            "//": "Test case for hash_to_distinct_id function",
+            "hash": "jZfBjkLcdjlQTVmIKIhC3Q==",
+            "expected_distinct_id": "cookieless_jZfBjkLcdjlQTVmIKIhC3Q"
+        }
+    ],
+    "redis_identifies_key_tests": [
+        {
+            "//": "Test case for get_redis_identifies_key function",
+            "hash": "jZfBjkLcdjlQTVmIKIhC3Q==",
+            "team_id": 42,
+            "expected_identifies_key": "cklsi:42:jZfBjkLcdjlQTVmIKIhC3Q"
+        }
     ]
 }

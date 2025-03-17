@@ -1,5 +1,6 @@
 import type { PluginEvent } from '@posthog/plugin-scaffold'
 import fs from 'fs'
+import path from 'path'
 
 import { createOrganization, createTeam } from '~/tests/helpers/sql'
 
@@ -15,6 +16,8 @@ import {
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
     CookielessManager,
+    getRedisIdentifiesKey,
+    hashToDistinctId,
     sessionStateToBuffer,
     toYYYYMMDDInTimezoneSafe,
 } from './cookieless-manager'
@@ -279,7 +282,8 @@ describe('CookielessManager', () => {
                 if (!actual?.properties) {
                     throw new Error('no event or properties')
                 }
-                expect(actual.distinct_id).not.toEqual(COOKIELESS_SENTINEL_VALUE)
+                expect(actual.distinct_id).not.toEqual(COOKIELESS_SENT
+                INEL_VALUE)
                 expect(actual.distinct_id.startsWith('cookieless_')).toBe(true)
                 expect(actual.properties.$session_id).toBeDefined()
             })
@@ -488,19 +492,57 @@ describe('CookielessManager', () => {
         })
     })
 
-    describe('doHash', () => {
-        // don't import, as importing from outside our package directory will change the shape of the build directory
+    describe('rust implementation compatibility', () => {
+        // Make sure that this TS implementation of cookieless matches up with the Rust implementation
+        // We do this with a shared test case file that is used by both the Rust and TS tests
+
+        // Don't import, as importing from outside our package directory will change the shape of the build directory
         // instead, just find the file path and load it directly
-        const testCasesPath = require.resolve('../../../../rust/common/cookieless/src/test_cases.json')
-        const doHashTestCases: any[] = parseJSON(fs.readFileSync(testCasesPath, 'utf-8')).test_cases
-        it.each(doHashTestCases)(
-            'should hash',
-            ({ salt, team_id, ip, expected, root_domain, user_agent, n, hash_extra }) => {
-                const saltBuf = Buffer.from(salt, 'base64')
-                const resultBuf = CookielessManager.doHash(saltBuf, team_id, ip, root_domain, user_agent, n, hash_extra)
-                const result = resultBuf.toString('base64')
-                expect(result).toEqual(expected)
-            }
-        )
+        const TEST_CASES_PATH = path.resolve(__dirname, '../../../../rust/common/cookieless/src/test_cases.json')
+        const TEST_CASES: Record<string, any[]> = parseJSON(fs.readFileSync(TEST_CASES_PATH, 'utf8'))
+
+        describe('doHash', () => {
+            it.each(TEST_CASES.test_cases)(
+                'should hash the inputs',
+                ({ salt, team_id, ip, expected, root_domain, user_agent, n, hash_extra }) => {
+                    const saltBuf = Buffer.from(salt, 'base64')
+                    const resultBuf = CookielessManager.doHash(
+                        saltBuf,
+                        team_id,
+                        ip,
+                        root_domain,
+                        user_agent,
+                        n,
+                        hash_extra
+                    )
+                    const result = resultBuf.toString('base64')
+                    expect(result).toEqual(expected)
+                }
+            )
+        })
+
+        describe('hashToDistinctId', () => {
+            it.each(TEST_CASES.hash_to_distinct_id_tests)(
+                'should correctly convert a hash to a distinct ID',
+                ({ hash, expected_distinct_id }) => {
+                    const hashBuf = Buffer.from(hash, 'base64')
+
+                    const distinctId = hashToDistinctId(hashBuf)
+                    expect(distinctId).toEqual(expected_distinct_id)
+                }
+            )
+        })
+
+        describe('getRedisIdentifiesKey', () => {
+            it.each(TEST_CASES.redis_identifies_key_tests)(
+                'should correctly convert a hash to a distinct ID',
+                ({ hash, team_id, expected_identifies_key }) => {
+                    const hashBuf = Buffer.from(hash, 'base64')
+
+                    const distinctId = getRedisIdentifiesKey(hashBuf, team_id)
+                    expect(distinctId).toEqual(expected_identifies_key)
+                }
+            )
+        })
     })
 })

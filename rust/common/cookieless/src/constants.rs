@@ -2,6 +2,7 @@
 
 // String constants
 pub const COOKIELESS_SENTINEL_VALUE: &str = "$posthog_cookieless";
+pub const COOKIELESS_DISTINCT_ID_PREFIX: &str = "cookieless";
 pub const COOKIELESS_MODE_FLAG_PROPERTY: &str = "$cookieless_mode";
 pub const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY: &str = "$cookieless_extra";
 pub const TIMEZONE_FALLBACK: &str = "UTC";
