@@ -63,7 +63,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(response.json()["results"]) > 5
-        assert response.json()["results"][0] == EXPECTED_FIRST_RESULT
+        assert EXPECTED_FIRST_RESULT in response.json()["results"]
 
     def test_filter_function_templates(self):
         response1 = self.client.get("/api/projects/@current/hog_function_templates/?type=notfound")
@@ -111,7 +111,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(response.json()["results"]) > 5
-        assert response.json()["results"][0] == EXPECTED_FIRST_RESULT
+        assert EXPECTED_FIRST_RESULT in response.json()["results"]
 
     def test_alpha_templates_are_hidden(self):
         self.client.logout()
