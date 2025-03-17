@@ -13,6 +13,8 @@ export interface ToolDefinition {
     displayName: string
     /** Contextual data to be included for use by the LLM */
     context: Record<string, any>
+    /** When in context, the tool can add items to the pool of Max's suggested questions */
+    suggestions?: string[] // TODO: Suggestions aren't used yet, pending a refactor of maxLogic's allSuggestions
     /** The callback function that will be executed with the LLM's tool call output */
     callback: (toolOutput: any) => void
 }

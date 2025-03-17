@@ -119,6 +119,11 @@ export const RecordingsUniversalFilters = ({
                     setIsFiltersExpanded(true)
                 }}
                 initialMaxPrompt="Show me recordings where "
+                suggestions={[
+                    'Show recordings of people who visited signup in the last 24 hours',
+                    'Show recordings showing user frustration',
+                    'Show recordings of people who faced bugs',
+                ]}
                 onMaxOpen={() => setIsFiltersExpanded(true)}
             >
                 <>
