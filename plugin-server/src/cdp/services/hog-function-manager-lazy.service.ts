@@ -83,6 +83,10 @@ export class HogFunctionManagerLazyService {
                     hogFunctionIds: HogFunctionType['id'][]
                 }
 
+                logger.info('🍿', 'Marking hog functions for refresh', {
+                    teamId,
+                    hogFunctionIds,
+                })
                 this.lazyLoaderByTeam.markForRefresh(teamId.toString())
                 this.lazyLoader.markForRefresh(hogFunctionIds)
             },
