@@ -25,11 +25,6 @@ export const hogTransformationDroppedEvents = new Counter({
     help: 'Indicates how many events are dropped by hog transformations',
 })
 
-export const filterTransformationDroppedEvents = new Counter({
-    name: 'filter_transformation_dropped_events',
-    help: 'Indicates how many events are dropped by filter transformations',
-})
-
 export const hogTransformationInvocations = new Counter({
     name: 'hog_transformation_invocations_total',
     help: 'Number of times transformEvent was called directly',
