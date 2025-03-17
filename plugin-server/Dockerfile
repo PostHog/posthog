@@ -1,17 +1,19 @@
+
 #
 # ---------------------------------------------------------
 #
 FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.82-node_18.19.1 AS plugin-server-build
 
 # Compile and install system dependencies
-RUN apt-get update &&
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        "make" \
-        "g++" \
-        "gcc" \
-        "python3" \
-        "libssl-dev" \
-        "zlib1g-dev" &&
+    "make" \
+    "g++" \
+    "gcc" \
+    "python3" \
+    "libssl-dev" \
+    "zlib1g-dev" \
+    && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /code
@@ -28,9 +30,9 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # Compile and install Node.js dependencies.
 # NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
-    corepack enable &&
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store &&
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store &&
+    corepack enable && \
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
 # Build the plugin server.
@@ -49,9 +51,11 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
-    corepack enable &&
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod &&
+    corepack enable && \
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server prepare
+
+
 
 #
 # ---------------------------------------------------------
@@ -61,40 +65,45 @@ WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Fetch the GeoLite2-City database that will be used for IP geolocation within Django.
-RUN apt-get update &&
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        "ca-certificates" \
-        "curl" \
-        "brotli" &&
-    rm -rf /var/lib/apt/lists/* &&
-    mkdir share &&
-    (curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb) &&
+    "ca-certificates" \
+    "curl" \
+    "brotli" \
+    && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir share && \
+    ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
     chmod -R 755 ./share/GeoLite2-City.mmdb
+
 
 #
 # ---------------------------------------------------------
 #
+# NOTE: v1.32 is running bullseye, v1.33 is running bookworm
 FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.82-node_18.19.1
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Install NodeJS 18.
 RUN apt-get install -y --no-install-recommends \
-    "curl" &&
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - &&
+    "curl" \
+    && \
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
     apt-get install -y --no-install-recommends \
-        "nodejs" &&
+    "nodejs" \
+    && \
     rm -rf /var/lib/apt/lists/*
 
 # Install and use a non-root user.
-RUN groupadd -g 1000 posthog &&
-    useradd -r -g posthog posthog &&
+RUN groupadd -g 1000 posthog && \
+    useradd -r -g posthog posthog && \
     chown posthog:posthog /code
 USER posthog
 
 # Add the commit hash
 ARG COMMIT_HASH
-RUN echo $COMMIT_HASH >/code/commit.txt
+RUN echo $COMMIT_HASH > /code/commit.txt
 
 # Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
 COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
@@ -110,20 +119,15 @@ COPY --from=plugin-server-build --chown=posthog:posthog /code/node_modules /code
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
 
+
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
 # Setup ENV.
-ENV NODE_ENV=production \
-    CHROME_BIN=/usr/bin/chromium \
-    CHROME_PATH=/usr/lib/chromium/ \
-    CHROMEDRIVER_BIN=/usr/bin/chromedriver
+ENV NODE_ENV=production
 
 # Expose container port and run entry point script.
-EXPOSE 8000
+EXPOSE 6738
 
-# Expose the port from which we serve OpenMetrics data.
-EXPOSE 8001
-COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
 USER root
 CMD ["./bin/plugin-server"]

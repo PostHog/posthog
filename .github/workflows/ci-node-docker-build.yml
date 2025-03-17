@@ -1,0 +1,216 @@
+name: Build and deploy rust container images
+
+on:
+    workflow_dispatch:
+    push:
+        paths:
+            - 'plugin-server/**'
+            - '.github/workflows/ci-node-docker-build.yml'
+        branches:
+            - 'master'
+
+jobs:
+    build:
+        name: build ${{ matrix.image }}
+        strategy:
+            matrix:
+                include:
+                    - image: capture
+                      dockerfile: ./rust/Dockerfile
+                      project: kshskj225r
+                    - image: hook-api
+                      dockerfile: ./rust/Dockerfile
+                      project: c1bwj4j4qg
+                    - image: hook-janitor
+                      dockerfile: ./rust/Dockerfile
+                      project: c1bwj4j4qg
+                    - image: hook-worker
+                      dockerfile: ./rust/Dockerfile
+                      project: c1bwj4j4qg
+                    - image: hook-migrator
+                      dockerfile: ./rust/Dockerfile.migrate-hooks
+                      project: c1bwj4j4qg
+                    - image: cyclotron-janitor
+                      dockerfile: ./rust/Dockerfile
+                      project: r4zm8vtlbw
+                    - image: cyclotron-fetch
+                      dockerfile: ./rust/Dockerfile
+                      project: r4zm8vtlbw
+                    - image: property-defs-rs
+                      dockerfile: ./rust/Dockerfile
+                      project: vznmbshh6q
+                    - image: cymbal
+                      dockerfile: ./rust/Dockerfile
+                      project: 8dq0xkk0ck
+                    - image: feature-flags
+                      dockerfile: ./rust/Dockerfile-feature-flags
+                      project: vglf58qgzw
+                    - image: batch-import-worker
+                      dockerfile: ./rust/Dockerfile
+                      project: 4ppc15q4bv
+        runs-on: depot-ubuntu-22.04
+        permissions:
+            id-token: write # allow issuing OIDC tokens for this workflow run
+            contents: read # allow reading the repo contents
+            packages: write # allow push to ghcr.io
+
+        outputs:
+            capture_digest: ${{ steps.digest.outputs.capture_digest }}
+            cyclotron-fetch_digest: ${{ steps.digest.outputs.cyclotron-fetch_digest }}
+            cyclotron-janitor_digest: ${{ steps.digest.outputs.cyclotron-janitor_digest }}
+            property-defs-rs_digest: ${{ steps.digest.outputs.property-defs-rs_digest }}
+            batch-import-worker_digest: ${{ steps.digest.outputs.batch-import-worker_digest }}
+            hook-api_digest: ${{ steps.digest.outputs.hook-api_digest }}
+            hook-janitor_digest: ${{ steps.digest.outputs.hook-janitor_digest }}
+            hook-worker_digest: ${{ steps.digest.outputs.hook-worker_digest }}
+            hook-migrator_digest: ${{ steps.digest.outputs.hook-migrator_digest }}
+            cymbal_digest: ${{ steps.digest.outputs.cymbal_digest }}
+            feature-flags_digest: ${{ steps.digest.outputs.feature-flags_digest }}
+        defaults:
+            run:
+                working-directory: rust
+
+        steps:
+            - name: Check Out Repo
+              # Checkout project code
+              # Use sparse checkout to only select files in rust directory
+              # Turning off cone mode ensures that files in the project root are not included during checkout
+              uses: actions/checkout@v3
+              with:
+                  sparse-checkout: 'rust/'
+                  sparse-checkout-cone-mode: false
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v3
+              with:
+                  image: tonistiigi/binfmt:latest
+                  platforms: all
+
+            - name: Login to ghcr.io
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+                  logout: false
+
+            - name: Docker meta
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ghcr.io/posthog/posthog/${{ matrix.image }}
+                  tags: |
+                      type=ref,event=pr
+                      type=ref,event=branch
+                      type=semver,pattern={{version}}
+                      type=semver,pattern={{major}}.{{minor}}
+                      type=sha
+
+            - name: Set up Docker Buildx
+              id: buildx
+              uses: docker/setup-buildx-action@v2
+
+            - name: Retrieve sccache configuration
+              id: sccache
+              run: |
+                  echo "endpoint=$SCCACHE_WEBDAV_ENDPOINT" >> "$GITHUB_OUTPUT"
+                  echo "::add-mask::$SCCACHE_WEBDAV_TOKEN"
+                  echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
+
+            - name: Build and push image
+              id: docker_build
+              uses: depot/build-push-action@v1
+              with:
+                  project: ${{ matrix.project }}
+                  context: ./rust/
+                  file: ${{ matrix.dockerfile }}
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: BIN=${{ matrix.image }}
+                  secrets: |
+                      SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
+                      SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
+
+            - name: Container image digest
+              id: digest
+              run: |
+                  echo ${{ steps.docker_build.outputs.digest }}
+                  echo "${{matrix.image}}_digest=${{ steps.docker_build.outputs.digest }}" >> $GITHUB_OUTPUT
+                  cat $GITHUB_OUTPUT
+
+    deploy:
+        name: deploy ${{ matrix.release }}
+        runs-on: ubuntu-24.04
+        needs: build
+        if: github.ref == 'refs/heads/master'
+        strategy:
+            matrix:
+                include:
+                    - release: capture
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.capture_digest }}'
+                    - release: capture-replay
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.capture_digest }}'
+                    - release: cyclotron
+                      values:
+                          fetch_image:
+                              sha: '${{ needs.build.outputs.cyclotron-fetch_digest }}'
+                          janitor_image:
+                              sha: '${{ needs.build.outputs.cyclotron-janitor_digest }}'
+                    - release: property-defs-rs
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.property-defs-rs_digest }}'
+                    - release: feature-flags
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.feature-flags_digest }}'
+                    - release: batch-import-worker
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.batch-import-worker_digest }}'
+                    - release: cymbal
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.cymbal_digest }}'
+                    - release: hoghooks
+                      values:
+                          api_image:
+                              sha: '${{ needs.build.outputs.hook-api_digest }}'
+                          janitor_image:
+                              sha: '${{ needs.build.outputs.hook-janitor_digest }}'
+                          worker_image:
+                              sha: '${{ needs.build.outputs.hook-worker_digest }}'
+                          migrator_image:
+                              sha: '${{ needs.build.outputs.hook-migrator_digest }}'
+        steps:
+            - name: get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@v3
+              with:
+                  app_id: ${{ secrets.DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
+
+            - name: trigger ${{ matrix.release }} deployment
+              uses: peter-evans/repository-dispatch@v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": ${{ toJson(matrix.values) }},
+                        "release": "${{ matrix.release }}",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": [],
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
