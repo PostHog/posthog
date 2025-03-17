@@ -78,7 +78,7 @@ Follow this instruction to create a query:
 * Determine what metric the user seeks from the funnel and choose the correct funnel type.
 * Determine the funnel order type, aggregation type, and visualization type that will answer the user's question in the best way. Use the provided defaults.
 * Determine the window interval and unit. Use the provided defaults.
-* Choose the date range and the interval the user wants to analyze.
+* Use the date range and the interval from the plan.
 * Determine if the user wants to name the series or use the default names.
 * Determine if the user wants to filter out internal and test users. If the user didn't specify, filter out internal and test users by default.
 * Determine if you need to apply a sampling factor, different layout, bin count,  etc. Only specify those if the user has explicitly asked.

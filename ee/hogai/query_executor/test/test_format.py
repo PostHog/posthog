@@ -4,6 +4,7 @@ from typing import Any
 from freezegun import freeze_time
 
 from posthog.schema import (
+    AssistantDateRange,
     AssistantFunnelsEventsNode,
     AssistantFunnelsFilter,
     AssistantFunnelsQuery,
@@ -12,7 +13,6 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantTrendsQuery,
     Compare,
-    DateRange,
     FunnelStepReference,
     FunnelVizType,
 )
@@ -379,7 +379,7 @@ class TestCompression(BaseTest):
                 results,
             ).format(),
             "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
-            "Granularity: Day\n"
+            "Time interval: Day\n"
             "Date|Number of persons on date|Day 0|Day 1|Day 2|Day 3\n"
             "2025-01-21 00:00|100|100%|100%|50%|25%\n"
             "2025-01-22 00:00|100|100%|50%|25%\n"
@@ -418,7 +418,7 @@ class TestCompression(BaseTest):
                 results,
             ).format(),
             "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
-            "Granularity: Day\n"
+            "Time interval: Day\n"
             "Date|Number of persons on date|Day 0|Day 1|Day 2|Day 3\n"
             "2025-01-21 00:00|0|100%|0%|0%|0%\n"
             "2025-01-22 00:00|0|100%|0%|0%\n"
@@ -510,7 +510,7 @@ class TestCompression(BaseTest):
                 AssistantFunnelsEventsNode(event="$pageview", custom_name="custom"),
                 AssistantFunnelsEventsNode(event="$ai_trace"),
             ],
-            dateRange=DateRange(date_from="2025-01-20", date_to="2025-01-22"),
+            dateRange=AssistantDateRange(date_from="2025-01-20", date_to="2025-01-22"),
             funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TIME_TO_CONVERT),
         )
         results = {"average_conversion_time": 600, "bins": [[600, 1], [601, 0]]}
@@ -533,7 +533,7 @@ class TestCompression(BaseTest):
                 AssistantFunnelsEventsNode(event="$pageview", custom_name="custom"),
                 AssistantFunnelsEventsNode(event="$ai_trace"),
             ],
-            dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-10"),
+            dateRange=AssistantDateRange(date_from="2025-01-08", date_to="2025-01-10"),
             funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
         )
         self.assertEqual(
@@ -563,7 +563,7 @@ class TestCompression(BaseTest):
                 AssistantFunnelsEventsNode(event="$pageview", custom_name="custom"),
                 AssistantFunnelsEventsNode(event="$ai_trace"),
             ],
-            dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-10"),
+            dateRange=AssistantDateRange(date_from="2025-01-08", date_to="2025-01-10"),
             funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
         )
 

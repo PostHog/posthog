@@ -2,6 +2,7 @@ import * as schedule from 'node-schedule'
 
 import { Hub, Team } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
+import { parseJSON } from '../../utils/json-parse'
 import { captureException } from '../../utils/posthog'
 import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
@@ -47,7 +48,7 @@ export class HogFunctionManagerService {
 
         this.pubSub = new PubSub(this.hub, {
             'reload-integrations': async (message) => {
-                const { integrationIds, teamId } = JSON.parse(message)
+                const { integrationIds, teamId } = parseJSON(message)
                 await this.reloadIntegrations(teamId, integrationIds)
             },
             'reload-hog-functions': async () => {
@@ -98,10 +99,6 @@ export class HogFunctionManagerService {
     }
 
     public getTeamHogFunctions(teamId: Team['id']): HogFunctionType[] {
-        if (!this.ready) {
-            throw new Error('HogFunctionManagerService is not ready! Run HogFunctionManagerService.start() before this')
-        }
-
         if (!this.orderedHogFunctionsCache[teamId]) {
             const functions = Object.values(this.hogFunctions).filter((x) => x?.team_id === teamId) as HogFunctionType[]
             this.orderedHogFunctionsCache[teamId] = this.sortHogFunctions(functions)
@@ -264,7 +261,7 @@ export class HogFunctionManagerService {
                 try {
                     const decrypted = this.hub.encryptedFields.decrypt(encryptedInputs)
                     if (decrypted) {
-                        item.encrypted_inputs = JSON.parse(decrypted)
+                        item.encrypted_inputs = parseJSON(decrypted)
                     }
                 } catch (error) {
                     if (encryptedInputs) {
