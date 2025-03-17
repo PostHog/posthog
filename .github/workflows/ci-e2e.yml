@@ -88,7 +88,8 @@ jobs:
 
     container:
         name: Build and cache container image
-        runs-on: ubuntu-24.04
+        # run these on 4, if they're RAM constrained the FE build will fail randomly
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 60
         needs: [changes]
         permissions:
