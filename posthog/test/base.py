@@ -131,6 +131,11 @@ def clean_varying_query_parts(query, replace_all_numbers):
             query,
         )
         query = re.sub(r"'[0-9a-f-]{32,36}'::uuid", r"'00000000-0000-0000-0000-000000000000'::uuid", query)
+        query = re.sub(
+            r"'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'",
+            r"'00000000-0000-0000-0000-000000000000'",
+            query,
+        )
 
     else:
         query = re.sub(r"(team|project|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
