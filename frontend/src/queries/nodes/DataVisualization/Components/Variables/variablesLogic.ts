@@ -208,7 +208,7 @@ export const variablesLogic = kea<variablesLogicType>([
                 return
             }
 
-            if (!props.sourceQuery) {
+            if (!props.sourceQuery?.source) {
                 return
             }
 
