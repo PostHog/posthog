@@ -6,8 +6,8 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { AssigneeSelect } from '../AssigneeSelect'
 import { errorTrackingDataNodeLogic } from '../errorTrackingDataNodeLogic'
 import { errorTrackingSceneLogic } from '../errorTrackingSceneLogic'
-import { GenericSelect } from './StatusSelect'
-import { IssueStatus, StatusTag } from './StatusTag'
+import { GenericSelect } from './GenericSelect'
+import { IssueStatus, StatusIndicator } from './Indicator'
 
 export function BulkActions(): JSX.Element {
     const { mergeIssues, assignIssues, resolveIssues, suppressIssues, activateIssues } =
@@ -19,9 +19,9 @@ export function BulkActions(): JSX.Element {
     const hasAtLeastOneIssue = selectedIssueIds.length > 0
     const hasAtLeastTwoIssues = selectedIssueIds.length >= 2
 
-    const currentStatus = selectedIssueIds
-        .map((issue: ErrorTrackingIssue) => issue.status)
-        .reduce<string | undefined | null>((acc, status) => {
+    const currentStatus = results
+        .map((issue: ErrorTrackingIssue) => issue.status as IssueStatus)
+        .reduce<IssueStatus | undefined | null>((acc, status) => {
             if (acc === null) {
                 return status
             }
@@ -58,7 +58,7 @@ export function BulkActions(): JSX.Element {
                         values={['active', 'resolved', 'suppressed'].filter((status) => status !== currentStatus)}
                         placeholder="Mark as"
                         renderValue={(value) => {
-                            return <StatusTag status={value as IssueStatus} size="small" />
+                            return <StatusIndicator status={value as IssueStatus} size="small" />
                         }}
                         onChange={(value) => {
                             switch (value) {

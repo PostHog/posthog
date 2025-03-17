@@ -12,9 +12,9 @@ import { AssigneeSelect } from './AssigneeSelect'
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
+import { GenericSelect } from './issue/GenericSelect'
+import { IssueStatus, StatusIndicator } from './issue/Indicator'
 import { Metadata } from './issue/Metadata'
-import { GenericSelect } from './issue/StatusSelect'
-import { IssueStatus, StatusTag } from './issue/StatusTag'
 import { EventsTab } from './issue/tabs/EventsTab'
 import { DetailsWidget } from './issue/widgets/DetailsWidget'
 import { StacktraceWidget } from './issue/widgets/StacktraceWidget'
@@ -65,7 +65,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     current={issue.status}
                                     values={['active', 'resolved', 'suppressed']}
                                     placeholder="Mark as"
-                                    renderValue={(value) => <StatusTag status={value as IssueStatus} size="small" />}
+                                    renderValue={(value) => (
+                                        <StatusIndicator status={value as IssueStatus} size="small" />
+                                    )}
                                     onChange={(value) => updateIssue({ status: value })}
                                 />
                             )}

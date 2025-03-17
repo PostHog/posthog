@@ -7,8 +7,8 @@ import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { BulkActions } from './issue/BulkActions'
-import { GenericSelect } from './issue/StatusSelect'
-import { IndicatorTag, StatusTag } from './issue/StatusTag'
+import { GenericSelect } from './issue/GenericSelect'
+import { LabelIndicator, StatusIndicator } from './issue/Indicator'
 
 export const ErrorTrackingListOptions = (): JSX.Element => {
     const { assignee } = useValues(errorTrackingLogic)
@@ -32,9 +32,9 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                                 switch (key) {
                                     case 'all':
                                     case null:
-                                        return <IndicatorTag intent="key" label="All" size="small" />
+                                        return <LabelIndicator intent="muted" label="All" size="small" />
                                     default:
-                                        return <StatusTag status={key} size="small" />
+                                        return <StatusIndicator status={key} size="small" />
                                 }
                             }}
                             placeholder="Select status"

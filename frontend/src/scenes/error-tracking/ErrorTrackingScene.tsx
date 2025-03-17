@@ -34,7 +34,7 @@ import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
-import { StatusTag } from './issue/StatusTag'
+import { StatusIndicator } from './issue/Indicator'
 import { sparklineLabels, sparklineLabelsDay, sparklineLabelsMonth } from './utils'
 
 export const scene: SceneExport = {
@@ -162,7 +162,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     </div>
                     <div className="line-clamp-1 text-gray-600">{record.description}</div>
                     <div className="flex gap-1 items-center text-gray-500">
-                        <StatusTag size="xsmall" status={record.status} />
+                        <StatusIndicator size="xsmall" status={record.status} />
                         <span>|</span>
                         <TZLabel time={record.first_seen} className="border-dotted border-b text-xs" delayMs={750} />
                         <span>|</span>
