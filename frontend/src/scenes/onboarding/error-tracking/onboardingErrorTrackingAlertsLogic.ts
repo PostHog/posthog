@@ -1,6 +1,6 @@
-import { actions, connect, kea, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
-import { urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
@@ -123,5 +123,15 @@ export const onboardingErrorTrackingAlertsLogic = kea<onboardingErrorTrackingAle
             },
         },
     })),
-    urlToAction(({}) => ({})),
+    afterMount(({ actions }) => {
+        const { kind, integration_id } = router.values.searchParams
+
+        if (kind && kind === 'slack_callback') {
+            actions.setIntegration('slack')
+
+            if (integration_id) {
+                actions.setConnectionConfigValue('slackWorkspaceId', integration_id)
+            }
+        }
+    }),
 ])

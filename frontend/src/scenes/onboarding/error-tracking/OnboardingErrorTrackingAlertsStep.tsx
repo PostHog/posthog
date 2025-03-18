@@ -161,14 +161,7 @@ const FormFields = ({
             {selectedSlackIntegration && (
                 <LemonField name="slackChannelId" label="Channel">
                     {({ value, onChange }) => (
-                        <SlackChannelPicker
-                            value={value}
-                            onChange={(v) => {
-                                debugger
-                                onChange(v)
-                            }}
-                            integration={selectedSlackIntegration}
-                        />
+                        <SlackChannelPicker value={value} onChange={onChange} integration={selectedSlackIntegration} />
                     )}
                 </LemonField>
             )}
