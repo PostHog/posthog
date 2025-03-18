@@ -6733,6 +6733,7 @@ class TracesQuery(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[TracesQueryResponse] = None
+    showColumnConfigurator: Optional[bool] = None
     traceId: Optional[str] = None
 
 

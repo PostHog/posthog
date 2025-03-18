@@ -114,9 +114,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             {
                 setRefreshStatus: (state, { tileId, loading }) => ({
                     ...state,
-                    [tileId]: loading
-                        ? { loading: true, timer: new Date() }
-                        : { timer: state[tileId]?.timer || undefined },
+                    [tileId]: loading ? { loading: true, timer: new Date() } : state[tileId],
                 }),
                 refreshAllDashboardItems: () => ({}),
             },
@@ -702,18 +700,16 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
 
             try {
                 // Refresh all tiles in parallel
-                await Promise.all(
-                    values.tiles.map(async (tile, index) => {
-                        const insightProps = {
-                            dashboardItemId: tile.context?.insightProps?.dashboardItemId as InsightShortId,
-                        }
-                        const mountedInsightDataLogic = insightDataLogic.findMounted(insightProps)
-                        if (mountedInsightDataLogic) {
-                            mountedInsightDataLogic.actions.loadData(true)
-                        }
-                        actions.setRefreshStatus(`tile-${index}`, false)
-                    })
-                )
+                values.tiles.map((tile, index) => {
+                    const insightProps = {
+                        dashboardItemId: tile.context?.insightProps?.dashboardItemId as InsightShortId,
+                    }
+                    const mountedInsightDataLogic = insightDataLogic.findMounted(insightProps)
+                    if (mountedInsightDataLogic) {
+                        mountedInsightDataLogic.actions.loadData(true)
+                    }
+                    actions.setRefreshStatus(`tile-${index}`, false)
+                })
             } catch (error) {
                 console.error('Error refreshing dashboard items:', error)
                 // Clear loading states on error
