@@ -2,23 +2,21 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
 import {
-    HogFunctionAppMetric,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionType,
     HogFunctionTypeType,
 } from '../../cdp/types'
-import { createInvocation, fixLogDeduplication, isLegacyPluginHogFunction } from '../../cdp/utils'
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
+import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
-import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
-import { safeClickhouseString } from '../../utils/db/utils'
-import { status } from '../../utils/status'
-import { castTimestampOrNow } from '../../utils/utils'
+import { Hub } from '../../types'
+import { logger } from '../../utils/logger'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
+import { HogFunctionManagerLazyService } from '../services/hog-function-manager-lazy.service'
+import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import { cleanNullValues, createGeoipLookup } from './transformation-functions'
+import { cleanNullValues } from './transformation-functions'
 
 export const hogTransformationDroppedEvents = new Counter({
     name: 'hog_transformation_dropped_events',
@@ -56,17 +54,24 @@ export class HogTransformerService {
     private hogFunctionManager: HogFunctionManagerService
     private hub: Hub
     private pluginExecutor: LegacyPluginExecutorService
+    private hogFunctionMonitoringService: HogFunctionMonitoringService
+    private hogFunctionManagerLazy: HogFunctionManagerLazyService
 
     constructor(hub: Hub) {
         this.hub = hub
         this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
+        this.hogFunctionManagerLazy = new HogFunctionManagerLazyService(hub)
+        this.hogExecutor = new HogExecutorService(hub)
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
+        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
     }
 
-    private getTransformationFunctions() {
+    private async getTransformationFunctions() {
+        const geoipLookup = await this.hub.geoipService.get()
         return {
-            geoipLookup: createGeoipLookup(this.hub.mmdb),
+            geoipLookup: (val: unknown): any => {
+                return typeof val === 'string' ? geoipLookup.city(val) : null
+            },
             cleanNullValues,
         }
     }
@@ -99,99 +104,36 @@ export class HogTransformerService {
         await this.hogFunctionManager.stop()
     }
 
-    private produceAppMetric(metric: HogFunctionAppMetric): Promise<void> {
-        const appMetric: AppMetric2Type = {
-            app_source: 'hog_function',
-            ...metric,
-            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-        }
-
-        return this.hub.kafkaProducer
-            .queueMessages([
-                {
-                    topic: KAFKA_APP_METRICS_2,
-                    messages: [
-                        {
-                            value: safeClickhouseString(JSON.stringify(appMetric)),
-                            key: appMetric.app_source_id,
-                        },
-                    ],
-                },
-            ])
-            .catch((error) => {
-                status.error('⚠️', `failed to produce app metric: ${error}`)
-            })
-    }
-
-    private produceLogs(result: HogFunctionInvocationResult): Promise<void> {
-        const logs = fixLogDeduplication(
-            result.logs.map((logEntry) => ({
-                ...logEntry,
-                team_id: result.invocation.hogFunction.team_id,
-                log_source: 'hog_function',
-                log_source_id: result.invocation.hogFunction.id,
-                instance_id: result.invocation.id,
-            }))
-        )
-
-        return this.hub.kafkaProducer
-            .queueMessages(
-                logs.map((logEntry) => ({
-                    topic: KAFKA_LOG_ENTRIES,
-                    messages: [
-                        {
-                            value: safeClickhouseString(JSON.stringify(logEntry)),
-                            key: logEntry.instance_id,
-                        },
-                    ],
-                }))
-            )
-            .catch((error) => {
-                status.error('⚠️', `failed to produce logs: ${error}`)
-            })
-    }
-
-    private processInvocationResult(result: HogFunctionInvocationResult): Promise<void>[] {
-        const promises: Promise<void>[] = []
-
-        if (result.finished || result.error) {
-            promises.push(
-                this.produceAppMetric({
-                    team_id: result.invocation.teamId,
-                    app_source_id: result.invocation.hogFunction.id,
-                    metric_kind: result.error ? 'failure' : 'success',
-                    metric_name: result.error ? 'failed' : 'succeeded',
-                    count: 1,
-                })
-            )
-        }
-
-        if (result.logs.length > 0) {
-            promises.push(this.produceLogs(result))
-            // Clear the logs after processing
-            result.logs = []
-        }
-
-        return promises
-    }
-
     public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
             func: async () => {
                 hogTransformationAttempts.inc({ type: 'with_messages' })
                 const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
-                const transformationResult = await this.transformEvent(event, teamHogFunctions)
-                const messagePromises: Promise<void>[] = []
 
-                transformationResult.invocationResults.forEach((result) => {
-                    messagePromises.push(...this.processInvocationResult(result))
-                })
+                if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
+                    try {
+                        const teamHogFunctionsLazy = await this.hogFunctionManagerLazy.getHogFunctionsForTeam(
+                            event.team_id,
+                            ['transformation']
+                        )
+                        if (teamHogFunctionsLazy.length !== teamHogFunctions.length) {
+                            logger.warn('loaded different number of functions', {
+                                lazy: teamHogFunctionsLazy.length,
+                                eager: teamHogFunctions.length,
+                            })
+                        }
+                    } catch (e) {
+                        logger.error('Error lazy loading hog functions', { error: e })
+                    }
+                }
+                const transformationResult = await this.transformEvent(event, teamHogFunctions)
+                await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
 
                 hogTransformationCompleted.inc({ type: 'with_messages' })
                 return {
                     ...transformationResult,
-                    messagePromises,
+                    messagePromises: [this.hogFunctionMonitoringService.produceQueuedMessages()],
                 }
             },
         })
@@ -215,7 +157,7 @@ export class HogTransformerService {
                     results.push(result)
 
                     if (result.error) {
-                        status.error('⚠️', 'Error in transformation', {
+                        logger.error('⚠️', 'Error in transformation', {
                             error: result.error,
                             function_id: hogFunction.id,
                             team_id: event.team_id,
@@ -225,7 +167,7 @@ export class HogTransformerService {
                     }
 
                     if (!result.execResult) {
-                        status.warn('⚠️', 'Execution result is null - dropping event')
+                        logger.warn('⚠️', 'Execution result is null - dropping event')
                         hogTransformationDroppedEvents.inc()
                         transformationsFailed.push(transformationIdentifier)
                         return {
@@ -243,7 +185,7 @@ export class HogTransformerService {
                         !transformedEvent.properties ||
                         typeof transformedEvent.properties !== 'object'
                     ) {
-                        status.error('⚠️', 'Invalid transformation result - missing or invalid properties', {
+                        logger.error('⚠️', 'Invalid transformation result - missing or invalid properties', {
                             function_id: hogFunction.id,
                         })
                         transformationsFailed.push(transformationIdentifier)
@@ -258,7 +200,7 @@ export class HogTransformerService {
 
                     if ('event' in transformedEvent) {
                         if (typeof transformedEvent.event !== 'string') {
-                            status.error('⚠️', 'Invalid transformation result - event name must be a string', {
+                            logger.error('⚠️', 'Invalid transformation result - event name must be a string', {
                                 function_id: hogFunction.id,
                                 event: transformedEvent.event,
                             })
@@ -270,7 +212,7 @@ export class HogTransformerService {
 
                     if ('distinct_id' in transformedEvent) {
                         if (typeof transformedEvent.distinct_id !== 'string') {
-                            status.error('⚠️', 'Invalid transformation result - distinct_id must be a string', {
+                            logger.error('⚠️', 'Invalid transformation result - distinct_id must be a string', {
                                 function_id: hogFunction.id,
                                 distinct_id: transformedEvent.distinct_id,
                             })
@@ -304,7 +246,7 @@ export class HogTransformerService {
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals
     ): Promise<HogFunctionInvocationResult> {
-        const transformationFunctions = this.getTransformationFunctions()
+        const transformationFunctions = await this.getTransformationFunctions()
         const globalsWithInputs = buildGlobalsWithInputs(globals, {
             ...(hogFunction.inputs ?? {}),
             ...(hogFunction.encrypted_inputs ?? {}),

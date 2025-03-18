@@ -101,7 +101,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             createEmptyListStorage('', true),
             {
                 loadRemoteItems: async ({ offset, limit }, breakpoint) => {
-                    // avoid the 150ms delay on first load
                     if (!values.remoteItems.first) {
                         await breakpoint(500)
                     } else {
@@ -189,9 +188,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     // On updating item, invalidate cache
                     apiCache = {}
                     apiCacheTimers = {}
+                    const popFromResults = 'hidden' in item && item.hidden
+                    const results: TaxonomicDefinitionTypes[] = values.remoteItems.results
+                        .map((i) => (i.name === item.name ? (popFromResults ? null : item) : i))
+                        .filter((i): i is TaxonomicDefinitionTypes => i !== null)
                     return {
                         ...values.remoteItems,
-                        results: values.remoteItems.results.map((i) => (i.name === item.name ? item : i)),
+                        results,
                     }
                 },
             },
@@ -356,7 +359,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                 return {
                     results,
-                    count: results.length,
+                    count: localItems.count + remoteItems.count,
                     searchQuery: remoteItems.searchQuery || localItems.searchQuery,
                     originalQuery: remoteItems.originalQuery || localItems.originalQuery,
                     expandedCount: remoteItems.expandedCount,

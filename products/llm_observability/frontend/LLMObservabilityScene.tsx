@@ -118,6 +118,39 @@ function LLMObservabilityGenerations(): JSX.Element {
             context={{
                 emptyStateHeading: 'There were no generations in this period',
                 emptyStateDetail: 'Try changing the date range or filters.',
+                columns: {
+                    uuid: {
+                        title: 'ID',
+                        render: ({ record, value }) => {
+                            const traceId = (record as any[])[2]
+                            if (!value) {
+                                return <></>
+                            }
+                            // show only first 4 and last 4 characters of the trace id
+                            const visualValue = (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+                            if (!traceId) {
+                                return <strong>{visualValue}</strong>
+                            }
+                            return (
+                                <strong>
+                                    <Link to={`/llm-observability/traces/${traceId}?event=${value as string}`}>
+                                        {visualValue}
+                                    </Link>
+                                </strong>
+                            )
+                        },
+                    },
+                    'properties.$ai_trace_id': {
+                        title: 'Trace ID',
+                        render: ({ value }) => {
+                            if (!value) {
+                                return <></>
+                            }
+                            const visualValue = (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+                            return <Link to={`/llm-observability/traces/${value as string}`}>{visualValue}</Link>
+                        },
+                    },
+                },
             }}
             uniqueKey="llm-observability-generations"
         />

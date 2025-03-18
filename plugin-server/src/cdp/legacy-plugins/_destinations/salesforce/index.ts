@@ -4,6 +4,7 @@ import { URL } from 'url'
 
 import type { Response } from '~/src/utils/fetch'
 
+import { parseJSON } from '../../../../utils/json-parse'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 export interface EventSink {
@@ -23,7 +24,7 @@ export const parseEventSinkConfig = (config: SalesforcePluginConfig): EventToSin
     let eventMapping: EventToSinkMapping | null = null
     if (config.eventEndpointMapping?.length > 0) {
         try {
-            eventMapping = JSON.parse(config.eventEndpointMapping) as EventToSinkMapping
+            eventMapping = parseJSON(config.eventEndpointMapping) as EventToSinkMapping
         } catch (e) {
             throw new Error('eventEndpointMapping must be an empty string or contain valid JSON!')
         }
@@ -244,7 +245,7 @@ function configToMatchingEvents(config: SalesforcePluginConfig): string[] {
     if (config.eventsToInclude) {
         return config.eventsToInclude.split(',').map((e: string) => e.trim())
     } else {
-        return Object.keys(JSON.parse(config.eventEndpointMapping)).map((e: string) => e.trim())
+        return Object.keys(parseJSON(config.eventEndpointMapping)).map((e: string) => e.trim())
     }
     return []
 }

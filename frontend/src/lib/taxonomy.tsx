@@ -189,6 +189,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description:
                 'A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs)',
         },
+        $ai_embedding: {
+            label: 'AI Embedding',
+            description: 'A call to an embedding model',
+        },
         $ai_metric: {
             label: 'AI Metric',
             description: 'An evaluation metric for a trace of generative AI models (LLMs)',
@@ -268,6 +272,36 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
     },
     event_properties: {
+        $python_runtime: {
+            label: 'Python Runtime',
+            description: 'The Python runtime that was used to capture the event.',
+            examples: ['CPython'],
+            system: true,
+        },
+        $python_version: {
+            label: 'Python Version',
+            description: 'The Python version that was used to capture the event.',
+            examples: ['3.11.5'],
+            system: true,
+        },
+        $sdk_debug_replay_internal_buffer_length: {
+            label: 'Replay internal buffer length',
+            description: 'Useful for debugging. The internal buffer length for replay.',
+            examples: ['100'],
+            system: true,
+        },
+        $sdk_debug_replay_internal_buffer_size: {
+            label: 'Replay internal buffer size',
+            description: 'Useful for debugging. The internal buffer size for replay.',
+            examples: ['100'],
+            system: true,
+        },
+        $sdk_debug_retry_queue_size: {
+            label: 'Retry queue size',
+            description: 'Useful for debugging. The size of the retry queue.',
+            examples: ['100'],
+            system: true,
+        },
         $last_posthog_reset: {
             label: 'Timestamp of last call to `Reset` in the web sdk',
             description: 'The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.',
@@ -1440,6 +1474,21 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The number of tokens in the output from the LLM API',
             examples: [23],
         },
+        $ai_cache_read_input_tokens: {
+            label: 'AI Cache Read Input Tokens (LLM)',
+            description: 'The number of tokens read from the cache for the input prompt',
+            examples: [23],
+        },
+        $ai_cache_creation_input_tokens: {
+            label: 'AI Cache Creation Input Tokens (LLM)',
+            description: 'The number of tokens created in the cache for the input prompt (anthropic only)',
+            examples: [23],
+        },
+        $ai_reasoning_tokens: {
+            label: 'AI Reasoning Tokens (LLM)',
+            description: 'The number of tokens in the reasoning output from the LLM API',
+            examples: [23],
+        },
         $ai_input_cost_usd: {
             label: 'AI Input Cost USD (LLM)',
             description: 'The cost in USD of the input tokens sent to the LLM API',
@@ -1469,6 +1518,13 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Model Parameters (LLM)',
             description: 'The parameters used to configure the model in the LLM API, in JSON',
             examples: ['{"temperature": 0.5, "max_tokens": 50}'],
+        },
+        $ai_tools: {
+            label: 'AI Tools (LLM)',
+            description: 'The tools available to the LLM',
+            examples: [
+                '[{"type": "function", "function": {"name": "tool1", "arguments": {"arg1": "value1", "arg2": "value2"}}}]',
+            ],
         },
         $ai_stream: {
             label: 'AI Stream (LLM)',

@@ -1,15 +1,19 @@
-use std::sync::Arc;
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 
 use app_context::AppContext;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use common_types::ClickHouseEvent;
 use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
-use issue_resolution::resolve_issue;
-use metric_consts::FRAME_RESOLUTION;
+use issue_resolution::{resolve_issue, IssueStatus};
+use metric_consts::{FRAME_RESOLUTION, SUPPRESSED_ISSUE_DROPPED_EVENTS};
+use metrics::counter;
 use serde_json::Value;
 use tracing::{error, warn};
-use types::{Exception, RawErrProps, Stacktrace};
+use types::{FingerprintedErrProps, RawErrProps, Stacktrace};
 use uuid::Uuid;
 
 pub mod app_context;
@@ -17,73 +21,210 @@ pub mod config;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;
-pub mod hack;
 pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;
+pub mod posthog_utils;
 pub mod symbol_store;
 pub mod types;
 
-pub async fn handle_event(
+pub async fn handle_events(
     context: Arc<AppContext>,
-    mut event: ClickHouseEvent,
-) -> Result<ClickHouseEvent, UnhandledError> {
-    let mut props = match get_props(&event) {
-        Ok(r) => r,
-        Err(e) => {
-            warn!(team = event.team_id, "Failed to get props: {}", e);
-
-            if let Err(e) = add_error_to_event(&mut event, e) {
-                // If we fail to add an error to an event, we just log it.
-                // This can happen if we failed to read the properties
-                // of the event in /any/ way, e.g. due to a serde recursion limit.
-                // If that's the case, we will fail to add a new element to the
-                // event properties storing the error message, so there's not much
-                // we can do. We should consider whether we want to drop these events.
-                error!(team = event.team_id, "Failed to add error to event: {}", e);
+    mut events: Vec<ClickHouseEvent>,
+) -> Result<Vec<ClickHouseEvent>, (usize, UnhandledError)> {
+    // First pass through the event list, to get all the exception property sets
+    // we'll process. Events we don't get exception properties from will be skipped
+    // in all the following passes
+    let mut indexed_props = Vec::new();
+    for (index, event) in events.iter_mut().enumerate() {
+        match get_props(event) {
+            Ok(r) => indexed_props.push((index, r)),
+            Err(e) => {
+                warn!(team = event.team_id, "Failed to get props: {}", e);
+                if let Err(e) = add_error_to_event(event, e) {
+                    // If we fail to add an error to an event, we just log it.
+                    // This can happen if we failed to read the properties
+                    // of the event at all, e.g. due to a serde recursion limit.
+                    error!(team = event.team_id, "Failed to add error to event: {}", e);
+                }
+                continue;
             }
-            return Ok(event);
+        };
+    }
+
+    // Freeze the events list as immutable until the final stage, to ensure we don't
+    // accidentally mutate or drop an event during processing.
+    let events = events;
+
+    // Second pass, to spawn the relevant tokio tasks to resolve the frames
+    let mut frame_resolve_handles = HashMap::new();
+    for (index, props) in indexed_props.iter_mut() {
+        let team_id = events[*index].team_id;
+        for exception in props.exception_list.iter_mut() {
+            let frames = match exception.stack.take() {
+                Some(Stacktrace::Raw { frames }) => {
+                    if frames.is_empty() {
+                        continue;
+                    }
+                    frames
+                }
+                Some(Stacktrace::Resolved { frames }) => {
+                    // This stack trace is already resolved, we have no work to do.
+                    exception.stack = Some(Stacktrace::Resolved { frames });
+                    continue;
+                }
+                None => {
+                    continue; // It was None before and it's none after the take
+                }
+            };
+
+            for frame in frames.iter() {
+                let id = frame.frame_id();
+                if frame_resolve_handles.contains_key(&id) {
+                    // We've already spawned a task to resolve this frame, so we don't need to do it again.
+                    continue;
+                }
+
+                // We need a cloned frame to move into the closure below
+                let frame = frame.clone();
+                let context = context.clone();
+                // Spawn a concurrent task for resolving every frame
+                let handle = tokio::spawn(async move {
+                    context.worker_liveness.report_healthy().await;
+                    metrics::counter!(FRAME_RESOLUTION).increment(1);
+                    let res = context
+                        .resolver
+                        .resolve(&frame, team_id, &context.pool, &context.catalog)
+                        .await;
+                    context.worker_liveness.report_healthy().await;
+                    res
+                });
+                frame_resolve_handles.insert(id, handle);
+            }
+
+            // Put the frames back on the exception, now that we're done mutating them until we've
+            // gathered our lookup table.
+            exception.stack = Some(Stacktrace::Raw { frames });
         }
-    };
-
-    let exceptions = std::mem::take(&mut props.exception_list);
-
-    if exceptions.is_empty() {
-        props.add_error_message("No exceptions found on exception event");
-        event.properties = Some(serde_json::to_string(&props).unwrap());
-        return Ok(event);
     }
 
-    let mut results = Vec::new();
-    for exception in exceptions.into_iter() {
-        // If we get an unhandled error during exception processing, we return an error, which should
-        // cause the caller to drop the offset without storing it - unhandled exceptions indicate
-        // a dependency is down, or some bug, adn we want to take lag in those situations.
-        results.push(process_exception(context.clone(), event.team_id, exception).await?);
+    // Collect the results of frame resolution
+    let mut frame_lookup_table = HashMap::new();
+    for (id, handle) in frame_resolve_handles.into_iter() {
+        let res = match handle.await.expect("Frame resolve task didn't panic") {
+            Ok(r) => r,
+            Err(e) => {
+                let index = find_index_with_matching_frame_id(&id, &indexed_props);
+                return Err((index, e));
+            }
+        };
+        frame_lookup_table.insert(id, res);
     }
 
-    let fingerprint = generate_fingerprint(&results);
-    props.exception_list = results;
-    let fingerprinted = props.to_fingerprinted(fingerprint.clone());
+    // Third pass, to map the unresolved frames into resolved ones, fingerprint them, and kick
+    // off issue resolution for any new fingerprints. This time we consume the RawErrorProps list,
+    // converting each entry into a fingerprinted one.
+    let mut indexed_fingerprinted = Vec::new();
+    let mut issue_handles = HashMap::new();
+    for (index, mut props) in indexed_props.into_iter() {
+        let event = &events[index];
+        let team_id = event.team_id;
+        for exception in props.exception_list.iter_mut() {
+            exception.stack = exception
+                .stack
+                .take()
+                .map(|s| {
+                    s.resolve(&frame_lookup_table).ok_or(UnhandledError::Other(
+                        "Stacktrace::resolve returned None".to_string(),
+                    ))
+                })
+                .transpose()
+                .map_err(|e| (index, e))?
+        }
 
-    let event_timestamp = get_event_timestamp(&event).unwrap_or_else(|| {
-        warn!(
-            event = event.uuid.to_string(),
-            "Failed to get event timestamp, using current time"
-        );
-        Utc::now()
-    });
+        let proposed = generate_fingerprint(&props.exception_list);
+        let fingerprinted = props.to_fingerprinted(proposed);
+        // We do this because the input props might have come with a fingerprint, and if they did, we want to resolve that
+        // issue, not the one associated with the generated fingerprint.
+        let to_resolve = fingerprinted.fingerprint.clone();
+        if let Entry::Vacant(e) = issue_handles.entry(to_resolve.clone()) {
+            let name = fingerprinted.exception_list[0].exception_type.clone();
+            let description = fingerprinted.exception_list[0].exception_message.clone();
+            let event_timestamp = get_event_timestamp(event).unwrap_or_else(|| {
+                warn!(
+                    event = event.uuid.to_string(),
+                    "Failed to get event timestamp, using current time"
+                );
+                Utc::now()
+            });
 
-    let mut output =
-        resolve_issue(&context.pool, event.team_id, fingerprinted, event_timestamp).await?;
+            let m_fingerprint = to_resolve.clone();
+            let m_context = context.clone();
+            let handle = tokio::spawn(async move {
+                resolve_issue(
+                    &m_context,
+                    team_id,
+                    &m_fingerprint,
+                    name,
+                    description,
+                    event_timestamp,
+                )
+                .await
+            });
+            e.insert(handle);
+        }
 
-    // TODO - I'm not sure we actually want to do this? Maybe junk drawer stuff should end up in clickhouse, and
-    // be directly queryable by users? Stripping it for now, so it only ends up in postgres
-    output.strip_frame_junk();
+        indexed_fingerprinted.push((index, fingerprinted));
+    }
 
-    event.properties = Some(serde_json::to_string(&output).unwrap());
+    // Collect the results of issue resolution
+    let mut resolved_issues = HashMap::new();
+    for (fingerprint, handle) in issue_handles.into_iter() {
+        let issue = match handle.await.expect("issue resolution task did not panic") {
+            Ok(i) => i,
+            Err(e) => {
+                let index =
+                    find_index_with_matching_fingerprint(&fingerprint, &indexed_fingerprinted);
+                return Err((index, e));
+            }
+        };
+        resolved_issues.insert(fingerprint, issue);
+    }
 
-    Ok(event)
+    // Fourth pass, to update the events with the resolved issues
+    // Unfreeze the events list, since now we have to modify the events we processed
+    let mut events = events;
+    let mut to_drop = Vec::new();
+    for (index, fingerprinted) in indexed_fingerprinted.into_iter() {
+        let event = &mut events[index];
+        let issue = resolved_issues
+            .get(&fingerprinted.fingerprint)
+            .cloned()
+            .expect("Issue was resolved");
+
+        let output = fingerprinted.to_output(issue.id);
+
+        if matches!(issue.status, IssueStatus::Suppressed) {
+            to_drop.push(index);
+        }
+
+        event.properties = Some(serde_json::to_string(&output).map_err(|e| (index, e.into()))?);
+    }
+
+    // Drop the suppressed events. Note we reverse the order of the indices to drop, so that
+    // indices don't shift as we remove items from the list.
+    to_drop.sort_unstable();
+    to_drop.dedup();
+    for index in to_drop.into_iter().rev() {
+        counter!(SUPPRESSED_ISSUE_DROPPED_EVENTS).increment(1);
+        // We can afford the order changes here, because it's the last thing we do, and the order
+        // of the events we emit in this batch doesn't matter - they're sorted by timestamp in
+        // clickhouse anyway, not ingestion order. NOTE: if/when we change this fn to return a
+        // Vec of Results, we should instead replace the items we want to drop with an Err.
+        events.swap_remove(index);
+    }
+
+    Ok(events)
 }
 
 pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
@@ -116,6 +257,10 @@ pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
             return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
         }
     };
+
+    if props.exception_list.is_empty() {
+        return Err(EventError::EmptyExceptionList(event.uuid));
+    }
 
     Ok(props)
 }
@@ -164,63 +309,6 @@ pub fn needs_sanitization(s: &str) -> bool {
     s.contains('\u{0000}')
 }
 
-async fn process_exception(
-    context: Arc<AppContext>,
-    team_id: i32,
-    mut e: Exception,
-) -> Result<Exception, UnhandledError> {
-    let stack = std::mem::take(&mut e.stack);
-    let Some(Stacktrace::Raw { frames }) = stack else {
-        // This stack trace is already resolved, we have no work to do.
-        e.stack = stack;
-        return Ok(e);
-    };
-
-    if frames.is_empty() {
-        // If the frame list was empty, we effectively just remove the stack from the exception,
-        // making it stackless.
-        return Ok(e);
-    }
-
-    let mut handles = Vec::with_capacity(frames.len());
-    let mut resolved_frames = Vec::with_capacity(frames.len());
-
-    for frame in frames.into_iter() {
-        let context = context.clone();
-        // Spawn a concurrent task for resolving every frame - we're careful elsewhere to
-        // ensure this kind of concurrency is fine, although this "throw it at the wall"
-        // data flow structure is pretty questionable. Once we switch to handling more than
-        // 1 event at a time, we should re-group frames into associated groups and then
-        // process those groups in-order (but the individual frames in them can still be
-        // thrown at the wall), with some cross-group concurrency.
-        handles.push(tokio::spawn(async move {
-            context.worker_liveness.report_healthy().await;
-            metrics::counter!(FRAME_RESOLUTION).increment(1);
-            let res = context
-                .resolver
-                .resolve(&frame, team_id, &context.pool, &context.catalog)
-                .await;
-            context.worker_liveness.report_healthy().await;
-            res
-        }));
-    }
-
-    // Collect the results
-    for handle in handles {
-        // Joinhandles wrap the returned type in a Result, because if the task panics,
-        // tokio catches it and returns an error. If any of our tasks panicked, we want
-        // to propogate that panic, so we unwrap the outer Result here.
-        let res = handle.await.unwrap()?;
-        resolved_frames.push(res)
-    }
-
-    e.stack = Some(Stacktrace::Resolved {
-        frames: resolved_frames,
-    });
-
-    Ok(e)
-}
-
 // This is expensive, since it round-trips the event through JSON.
 // We could maybe change ClickhouseEvent to only do serde at the edges
 pub fn add_error_to_event(
@@ -249,6 +337,33 @@ pub fn get_event_timestamp(event: &ClickHouseEvent) -> Option<DateTime<Utc>> {
     NaiveDateTime::parse_from_str(&event.timestamp, "%Y-%m-%d %H:%M:%S%.f")
         .map(|ndt| ndt.and_utc())
         .ok()
+}
+
+fn find_index_with_matching_frame_id(id: &str, list: &[(usize, RawErrProps)]) -> usize {
+    for (index, props) in list.iter() {
+        for exception in props.exception_list.iter() {
+            if let Some(Stacktrace::Raw { frames }) = &exception.stack {
+                for frame in frames {
+                    if frame.frame_id() == id {
+                        return *index;
+                    }
+                }
+            }
+        }
+    }
+    0
+}
+
+fn find_index_with_matching_fingerprint(
+    fingerprint: &str,
+    list: &[(usize, FingerprintedErrProps)],
+) -> usize {
+    for (index, props) in list.iter() {
+        if props.fingerprint == fingerprint {
+            return *index;
+        }
+    }
+    0
 }
 
 #[cfg(test)]

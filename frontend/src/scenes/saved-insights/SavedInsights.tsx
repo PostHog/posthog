@@ -187,6 +187,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: false,
     },
+    [NodeKind.GroupsQuery]: {
+        name: 'Groups',
+        description: 'List and explore groups.',
+        icon: IconPerson,
+        inMenu: false,
+    },
     [NodeKind.DataTableNode]: {
         name: 'Data table',
         description: 'Slice and dice your data in a table.',
@@ -295,6 +301,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.RevenueExampleEventsQuery]: {
+        name: 'Revenue Example Events',
+        description: 'Revenue Example Events Query.',
+        icon: IconTableChart,
+        inMenu: true,
+    },
+    [NodeKind.RevenueExampleDataWarehouseTablesQuery]: {
+        name: 'Revenue Example Data Warehouse Tables',
+        description: 'Revenue Example Data Warehouse Tables Query.',
+        icon: IconTableChart,
+        inMenu: true,
+    },
     [NodeKind.ErrorTrackingQuery]: {
         name: 'Error Tracking',
         description: 'List and explore exception groups.',
@@ -313,6 +331,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
+    [NodeKind.ExperimentExposureQuery]: {
+        name: 'Experiment Exposure',
+        description: 'View experiment exposure.',
+        icon: IconFlask,
+        inMenu: false,
+    },
     [NodeKind.ExperimentTrendsQuery]: {
         name: 'Experiment Trends Result',
         description: 'View experiment trend result.',
@@ -322,6 +346,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.ExperimentFunnelsQuery]: {
         name: 'Experiment Funnels Result',
         description: 'View experiment funnel result.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentEventExposureConfig]: {
+        name: 'Experiment Event Exposure Config',
+        description: 'Experiment event exposure configuration.',
         icon: IconFlask,
         inMenu: false,
     },
@@ -373,6 +403,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.TracesQuery]: {
         name: 'LLM Observability Traces',
         icon: IconAI,
+        inMenu: false,
+    },
+    [NodeKind.VectorSearchQuery]: {
+        name: 'Vector Search',
+        icon: IconHogQL,
         inMenu: false,
     },
 }

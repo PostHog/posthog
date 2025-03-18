@@ -7,12 +7,12 @@ use common_types::ClickHouseEvent;
 use cymbal::{
     app_context::AppContext,
     config::Config,
-    handle_event,
+    handle_events,
     metric_consts::{DROPPED_EVENTS, ERRORS, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME},
 };
 use rdkafka::types::RDKafkaErrorCode;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -54,6 +54,23 @@ async fn main() {
     info!("Starting up...");
 
     let config = Config::init_with_defaults().unwrap();
+
+    match &config.posthog_api_key {
+        Some(key) => {
+            let ph_config = posthog_rs::ClientOptionsBuilder::default()
+                .api_key(key.clone())
+                .api_endpoint(config.posthog_endpoint.clone())
+                .build()
+                .unwrap();
+            posthog_rs::init_global(ph_config).await.unwrap();
+            info!("Posthog client initialized");
+        }
+        None => {
+            posthog_rs::disable_global();
+            warn!("Posthog client disabled");
+        }
+    }
+
     let context = Arc::new(AppContext::new(&config).await.unwrap());
 
     start_health_liveness_server(&config, context.clone());
@@ -71,22 +88,17 @@ async fn main() {
             .json_recv_batch(batch_size, batch_wait_time)
             .await;
 
-        let mut output = Vec::with_capacity(received.len());
+        let mut transactional_producer = context.transactional_producer.lock().await;
+
+        let mut to_process = Vec::with_capacity(received.len());
         let mut offsets = Vec::with_capacity(received.len());
 
-        let mut producer = context.kafka_producer.lock().await;
-
-        let txn = match producer.begin() {
-            Ok(txn) => txn,
-            Err(e) => {
-                error!("Failed to start kafka transaction, {:?}", e);
-                panic!("Failed to start kafka transaction: {:?}", e);
-            }
-        };
-
         for message in received {
-            let (event, offset) = match message {
-                Ok(r) => r,
+            match message {
+                Ok((event, offset)) => {
+                    to_process.push(event);
+                    offsets.push(offset);
+                }
                 Err(RecvErr::Kafka(e)) => {
                     panic!("Kafka error: {}", e)
                 }
@@ -98,30 +110,33 @@ async fn main() {
                     continue;
                 }
             };
-
             metrics::counter!(EVENT_RECEIVED).increment(1);
-
-            let event = match handle_event(context.clone(), event).await {
-                Ok(e) => e,
-                Err(e) => {
-                    error!("Error handling event: {:?}; offset: {:?}", e, offset);
-                    // If we get an unhandled error, it means we have some logical error in the code, or a
-                    // dependency is down, and we should just fall over.
-                    panic!("Unhandled error: {:?}; offset: {:?}", e, offset);
-                }
-            };
-
-            metrics::counter!(EVENT_PROCESSED).increment(1);
-
-            output.push(event);
-            offsets.push(offset);
         }
+
+        let processed = match handle_events(context.clone(), to_process).await {
+            Ok(events) => events,
+            Err((index, e)) => {
+                let offset = &offsets[index];
+                error!("Error handling event: {:?}; offset: {:?}", e, offset);
+                panic!("Unhandled error: {:?}; offset: {:?}", e, offset);
+            }
+        };
+
+        metrics::counter!(EVENT_PROCESSED).increment(processed.len() as u64);
+
+        let txn = match transactional_producer.begin() {
+            Ok(txn) => txn,
+            Err(e) => {
+                error!("Failed to start kafka transaction, {:?}", e);
+                panic!("Failed to start kafka transaction: {:?}", e);
+            }
+        };
 
         let results = txn
             .send_keyed_iter_to_kafka(
                 &context.config.events_topic,
                 |ev| Some(ev.uuid.to_string()),
-                &output,
+                &processed,
             )
             .await;
 

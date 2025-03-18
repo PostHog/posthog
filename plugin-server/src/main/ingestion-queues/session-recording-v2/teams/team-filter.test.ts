@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { ParsedMessageData } from '../kafka/types'
 import { TeamFilter } from './team-filter'
 import { TeamService } from './team-service'
@@ -22,7 +24,12 @@ const createMessage = (token?: string, overrides = {}): ParsedMessageData => ({
     distinct_id: 'distinct_id',
     session_id: 'session_id',
     eventsByWindowId: {},
-    eventsRange: { start: 0, end: 0 },
+    eventsRange: {
+        start: DateTime.fromMillis(0),
+        end: DateTime.fromMillis(0),
+    },
+    snapshot_source: null,
+    snapshot_library: null,
     ...overrides,
 })
 

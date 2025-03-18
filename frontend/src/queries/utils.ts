@@ -18,6 +18,7 @@ import {
     EventsQuery,
     FunnelsQuery,
     GoalLine,
+    GroupsQuery,
     HogQLASTQuery,
     HogQLMetadata,
     HogQLQuery,
@@ -37,6 +38,8 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueExampleDataWarehouseTablesQuery,
+    RevenueExampleEventsQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
     StickinessQuery,
@@ -104,6 +107,13 @@ export function isDataTableNode(node?: Record<string, any> | null): node is Data
     return node?.kind === NodeKind.DataTableNode
 }
 
+/** Previously SQL queries by default were `DataTableNode`s. However now new SQL queries are `DataVisualizationNode`s */
+export function isDataTableNodeWithHogQLQuery(node?: Record<string, any> | null): node is DataTableNode & {
+    source: HogQLQuery
+} {
+    return isDataTableNode(node) && isHogQLQuery(node.source)
+}
+
 export function isDataVisualizationNode(node?: Record<string, any> | null): node is DataVisualizationNode {
     return node?.kind === NodeKind.DataVisualizationNode
 }
@@ -164,6 +174,16 @@ export function isSessionAttributionExplorerQuery(
     node?: Record<string, any> | null
 ): node is SessionAttributionExplorerQuery {
     return node?.kind === NodeKind.SessionAttributionExplorerQuery
+}
+
+export function isRevenueExampleEventsQuery(node?: Record<string, any> | null): node is RevenueExampleEventsQuery {
+    return node?.kind === NodeKind.RevenueExampleEventsQuery
+}
+
+export function isRevenueExampleDataWarehouseTablesQuery(
+    node?: Record<string, any> | null
+): node is RevenueExampleDataWarehouseTablesQuery {
+    return node?.kind === NodeKind.RevenueExampleDataWarehouseTablesQuery
 }
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
@@ -468,6 +488,16 @@ export function taxonomicPersonFilterToHogQL(
     return null
 }
 
+export function taxonomicGroupFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    return null
+}
+
 export function isHogQlAggregation(hogQl: string): boolean {
     return (
         hogQl.includes('count(') ||
@@ -537,4 +567,8 @@ export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): brea
 
 export function isValidQueryForExperiment(query: Node): boolean {
     return isNodeWithSource(query) && isFunnelsQuery(query.source) && query.source.series.length >= 2
+}
+
+export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {
+    return node?.kind === NodeKind.GroupsQuery
 }

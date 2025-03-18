@@ -18,7 +18,7 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
-import { EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
+import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
 
@@ -99,10 +99,10 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     showSeriesIndicator={true}
                                     entitiesLimit={1}
                                     showNumericalPropsOnly={true}
-                                    allowedMathTypes={EXPERIMENT_ALLOWED_MATH_TYPES}
+                                    allowedMathTypes={LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES}
                                     {...commonActionFilterProps}
                                 />
-                                <div className="mt-4 space-y-4">
+                                <div className="mt-4 deprecated-space-y-4">
                                     <TestAccountFilterSwitch
                                         checked={hasFilters ? !!currentMetric.count_query?.filterTestAccounts : false}
                                         onChange={(checked: boolean) => {
@@ -146,7 +146,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             !currentMetric.exposure_query
                                                 ? 'border-accent-primary bg-accent-primary-highlight'
-                                                : 'border-border'
+                                                : 'border-primary'
                                         }`}
                                         onClick={() => {
                                             const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
@@ -177,7 +177,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             currentMetric.exposure_query
                                                 ? 'border-accent-primary bg-accent-primary-highlight'
-                                                : 'border-border'
+                                                : 'border-primary'
                                         }`}
                                         disabledReason={
                                             isDataWarehouseMetric
@@ -267,7 +267,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             showNumericalPropsOnly={true}
                                             {...commonActionFilterProps}
                                         />
-                                        <div className="mt-4 space-y-4">
+                                        <div className="mt-4 deprecated-space-y-4">
                                             <TestAccountFilterSwitch
                                                 checked={(() => {
                                                     const val = currentMetric.exposure_query?.filterTestAccounts

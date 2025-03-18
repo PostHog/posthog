@@ -1,5 +1,6 @@
 from typing import Literal, Optional, cast
 
+from django.db.models.functions.comparison import Coalesce
 from pydantic import BaseModel
 
 from posthog.constants import (
@@ -48,6 +49,8 @@ from posthog.schema import (
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
 from django.db.models import Q
+from django.db import models
+
 
 from posthog.warehouse.models.util import get_view_or_table_by_name
 
@@ -85,14 +88,18 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     if value != "true" and value != "false":
         return value
     if property.type == "person":
-        property_types = PropertyDefinition.objects.filter(
-            team=team,
+        property_types = PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=team.project_id,  # type: ignore
             name=property.key,
             type=PropertyDefinition.Type.PERSON,
         )
     elif property.type == "group":
-        property_types = PropertyDefinition.objects.filter(
-            team=team,
+        property_types = PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=team.project_id,  # type: ignore
             name=property.key,
             type=PropertyDefinition.Type.GROUP,
             group_type_index=property.group_type_index,
@@ -132,8 +139,10 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         return value
 
     else:
-        property_types = PropertyDefinition.objects.filter(
-            team=team,
+        property_types = PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=team.project_id,  # type: ignore
             name=property.key,
             type=PropertyDefinition.Type.EVENT,
         )
@@ -285,7 +294,7 @@ def property_to_expr(
         | DataWarehousePersonPropertyFilter
     ),
     team: Team,
-    scope: Literal["event", "person", "session", "replay", "replay_entity"] = "event",
+    scope: Literal["event", "person", "group", "session", "replay", "replay_entity"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -404,7 +413,7 @@ def property_to_expr(
                 property.key = key
             else:
                 raise QueryError("Data warehouse person property filter value must be a string")
-        elif property.type == "group":
+        elif property.type == "group" and scope != "group":
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type in ["recording", "data_warehouse", "log_entry"]:
             chain = []

@@ -2,12 +2,14 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import posthog from 'posthog-js'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
@@ -39,7 +41,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         initIssue: true,
         setIssue: (issue: ErrorTrackingIssue) => ({ issue }),
         setEventsMode: (mode: EventsMode) => ({ mode }),
-        updateIssue: (issue: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>) => ({ issue }),
+        updateIssue: (issue: Partial<Pick<ErrorTrackingIssue, 'status'>>) => ({ issue }),
+        assignIssue: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
     }),
 
     reducers({
@@ -59,15 +62,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     const response = await api.errorTracking.getIssue(props.id, props.fingerprint)
                     return { ...values.issue, ...response }
                 },
-                loadClickHouseIssue: async (firstSeen: string) => {
-                    const dateRange = {
-                        date_from: firstSeen,
-                        date_to: values.issue?.last_seen || dayjs().toISOString(),
-                    }
+                loadClickHouseIssue: async (first_seen: Dayjs) => {
+                    const hasLastSeen = values.issue && values.issue.last_seen
+                    const lastSeen = hasLastSeen ? dayjs(values.issue?.last_seen).endOf('minute') : dayjs()
+                    const firstSeen = values.dateRange.date_from
+                        ? values.dateRange.date_from
+                        : first_seen.startOf('minute').toISOString()
+
                     const response = await api.query(
                         errorTrackingIssueQuery({
                             issueId: props.id,
-                            dateRange: dateRange,
+                            dateRange: {
+                                date_from: firstSeen,
+                                date_to: lastSeen.toISOString(),
+                            },
                             customVolume: values.customSparklineConfig,
                         }),
                         {},
@@ -81,7 +89,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 },
                 updateIssue: async ({ issue }) => {
                     const response = await api.errorTracking.updateIssue(props.id, issue)
+                    posthog.capture('error_tracking_issue_status_updated', { ...issue, issue_id: props.id })
                     return { ...values.issue, ...response }
+                },
+                assignIssue: async ({ assignee }) => {
+                    await api.errorTracking.assignIssue(props.id, assignee)
+                    posthog.capture('error_tracking_issue_assigned', { issue_id: props.id })
+                    return values.issue ? { ...values.issue, assignee } : values.issue
                 },
                 setIssue: ({ issue }) => issue,
             },
@@ -104,6 +118,16 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         name: exceptionType,
                     },
                 ]
+            },
+        ],
+
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (_, p) => [p.id],
+            (issueId): SidePanelSceneContext => {
+                return {
+                    activity_scope: ActivityScope.ERROR_TRACKING_ISSUE,
+                    activity_item_id: issueId,
+                }
             },
         ],
 
@@ -131,7 +155,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 if (!issue) {
                     actions.loadRelationalIssue()
                 } else {
-                    actions.loadClickHouseIssue(issue.first_seen)
+                    actions.loadClickHouseIssue(dayjs(issue.first_seen))
                 }
             }
         }

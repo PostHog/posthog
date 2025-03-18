@@ -35,7 +35,6 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
@@ -123,7 +122,6 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
-                    {canEditDashboard && <AddInsightToDashboardModal />}
                 </>
             )}
 

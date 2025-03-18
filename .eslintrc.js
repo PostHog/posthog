@@ -12,7 +12,16 @@ const globals = {
 }
 
 module.exports = {
-    ignorePatterns: ['node_modules', 'plugin-server', 'rust', 'livestream'],
+    ignorePatterns: [
+        'node_modules',
+        'plugin-server',
+        'rust',
+        'livestream',
+        'common/hogvm/typescript',
+        'common/plugin_transpiler',
+        'common/hogvm/__tests__/**/__snapshots__/**',
+        'cypress/cypress.e2e.config.ts',
+    ],
     env,
     settings: {
         react: {

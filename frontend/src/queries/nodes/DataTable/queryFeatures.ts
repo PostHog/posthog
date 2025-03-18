@@ -2,8 +2,11 @@ import { Node } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
     isEventsQuery,
+    isGroupsQuery,
     isHogQLQuery,
     isPersonsNode,
+    isRevenueExampleDataWarehouseTablesQuery,
+    isRevenueExampleEventsQuery,
     isSessionAttributionExplorerQuery,
     isTracesQuery,
     isWebExternalClicksQuery,
@@ -19,7 +22,9 @@ export enum QueryFeature {
     eventNameFilter,
     eventPropertyFilters,
     personPropertyFilters,
+    groupPropertyFilters,
     personsSearch,
+    groupsSearch,
     savedEventsQueries,
     columnConfigurator,
     resultIsArrayOfArrays,
@@ -33,13 +38,24 @@ export enum QueryFeature {
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
     const features = new Set<QueryFeature>()
 
-    if (isHogQLQuery(query) || isEventsQuery(query) || isSessionAttributionExplorerQuery(query)) {
+    if (
+        isHogQLQuery(query) ||
+        isEventsQuery(query) ||
+        isSessionAttributionExplorerQuery(query) ||
+        isRevenueExampleEventsQuery(query)
+    ) {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.eventPropertyFilters)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.testAccountFilters)
+    }
+
+    if (isRevenueExampleDataWarehouseTablesQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
     }
 
     if (isEventsQuery(query)) {
@@ -59,6 +75,14 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
             features.add(QueryFeature.columnsInResponse)
             features.add(QueryFeature.resultIsArrayOfArrays)
         }
+    }
+
+    if (isGroupsQuery(query)) {
+        features.add(QueryFeature.groupPropertyFilters)
+        features.add(QueryFeature.groupsSearch)
+        features.add(QueryFeature.selectAndOrderByColumns)
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
     }
 
     if (

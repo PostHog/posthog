@@ -2,7 +2,7 @@ from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
 import products.early_access_features.backend.api as early_access_feature
-from posthog.api import data_color_theme, metalytics, project
+from posthog.api import data_color_theme, metalytics, project, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
@@ -13,10 +13,12 @@ from posthog.warehouse.api import (
     saved_query,
     table,
     view_link,
+    query_tab_state,
 )
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
+from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
 from . import (
     activity_log,
@@ -309,7 +311,12 @@ projects_router.register(
     "project_warehouse_model_paths",
     ["team_id"],
 )
-
+projects_router.register(
+    r"query_tab_state",
+    query_tab_state.QueryTabStateViewSet,
+    "project_query_tab_state",
+    ["project_id"],
+)
 
 register_grandfathered_environment_nested_viewset(
     r"external_data_schemas",
@@ -428,6 +435,15 @@ environment_sessions_recordings_router, legacy_project_session_recordings_router
         ["team_id"],
     )
 )
+
+register_grandfathered_environment_nested_viewset(
+    r"session_recording_playlists",
+    SessionRecordingPlaylistViewSet,
+    "environment_session_recording_playlist",
+    ["team_id"],
+)
+
+
 register_grandfathered_environment_nested_viewset(r"heatmaps", HeatmapViewSet, "environment_heatmaps", ["team_id"])
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
@@ -616,3 +632,5 @@ environments_router.register(
     "environment_web_vitals",
     ["team_id"],
 )
+
+router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")

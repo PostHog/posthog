@@ -60,10 +60,10 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
             {
                 name: 'stripe_secret_key',
-                label: 'Client secret',
+                label: 'API key',
                 type: 'password',
                 required: true,
-                placeholder: 'sk_live_...',
+                placeholder: 'rk_live_...',
             },
         ],
     },
@@ -84,7 +84,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         fields: [
             {
                 name: 'connection_string',
-                label: 'Connection String (optional)',
+                label: 'Connection string (optional)',
                 type: 'text',
                 required: false,
                 placeholder: 'postgresql://user:password@localhost:5432/database',
@@ -629,7 +629,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         name: 'Salesforce',
         fields: [
             {
-                name: 'integration_id',
+                name: 'salesforce_integration_id',
                 label: 'Salesforce account',
                 type: 'oauth',
                 required: true,
@@ -821,6 +821,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         setManualLinkingProvider: (provider: ManualLinkSourceType) => ({ provider }),
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
+        updateSyncTimeOfDay: (schema: ExternalDataSourceSyncSchema, syncTimeOfDay: string) => ({
+            schema,
+            syncTimeOfDay,
+        }),
+        setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
     }),
     connect({
         values: [
@@ -876,6 +881,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return state.map((s) => ({
                         ...s,
                         should_sync: s.table === schema.table ? shouldSync : s.should_sync,
+                    }))
+                },
+                updateSyncTimeOfDay: (state, { schema, syncTimeOfDay }) => {
+                    return state.map((s) => ({
+                        ...s,
+                        sync_time_of_day: s.table === schema.table ? syncTimeOfDay : s.sync_time_of_day,
                     }))
                 },
                 updateSchemaSyncType: (state, { schema, syncType, incrementalField, incrementalFieldType }) => {
@@ -938,6 +949,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     incremental_field: incrementalField,
                     incremental_field_type: incrementalFieldType,
                 }),
+            },
+        ],
+        isProjectTime: [
+            false as boolean,
+            {
+                setIsProjectTime: (_, { isProjectTime }) => isProjectTime,
             },
         ],
     }),
@@ -1018,6 +1035,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         sources && sources.results.find((source) => source.source_type === connector.name)
                             ? 'Already linked'
                             : null,
+                    existingSource:
+                        sources && sources.results.find((source) => source.source_type === connector.name)
+                            ? true
+                            : false,
                 }))
             },
         ],
@@ -1132,6 +1153,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             sync_type: schema.sync_type,
                             incremental_field: schema.incremental_field,
                             incremental_field_type: schema.incremental_field_type,
+                            sync_time_of_day: schema.sync_time_of_day,
                         })),
                     },
                 })
@@ -1172,7 +1194,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     source_type: values.selectedConnector.name,
                 })
 
-                lemonToast.success('New Data Resource Created')
+                lemonToast.success('New data resource created')
 
                 activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.ConnectSource)
 
@@ -1275,7 +1297,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
             errors: (sourceValues) => {
-                return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+
+                if (values.sourceConnectionDetailsManualErrors.prefix && sourceValues.prefix) {
+                    actions.setSourceConnectionDetailsManualErrors({
+                        prefix: undefined,
+                    })
+                }
+
+                return errors
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {

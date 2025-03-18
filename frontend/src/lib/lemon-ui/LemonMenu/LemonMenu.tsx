@@ -14,7 +14,16 @@ type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 export interface LemonMenuItemBase
     extends Pick<
         LemonButtonProps,
-        'icon' | 'sideIcon' | 'sideAction' | 'disabledReason' | 'tooltip' | 'active' | 'status' | 'data-attr'
+        | 'icon'
+        | 'sideIcon'
+        | 'sideAction'
+        | 'disabledReason'
+        | 'tooltip'
+        | 'tooltipPlacement'
+        | 'active'
+        | 'status'
+        | 'data-attr'
+        | 'size'
     > {
     label: string | JSX.Element
     key?: React.Key
@@ -30,7 +39,7 @@ export interface LemonMenuItemNode extends LemonMenuItemBase {
 }
 
 export interface LemonMenuItemLeafCallback extends LemonMenuItemBase {
-    onClick: () => void
+    onClick?: () => void
     items?: never
     placement?: never
     keyboardShortcut?: KeyboardShortcut
@@ -190,7 +199,7 @@ export function LemonMenuSectionList({
             {sections.map((section, i) => {
                 const sectionElement = (
                     <li key={section.key || i}>
-                        <section className="space-y-px">
+                        <section className="deprecated-space-y-px">
                             {section.title ? (
                                 typeof section.title === 'string' ? (
                                     <h5 className="mx-2 my-1">{section.title}</h5>
@@ -237,7 +246,7 @@ export function LemonMenuItemList({
     let rollingItemIndex = 0
 
     return (
-        <ul className="space-y-px">
+        <ul className="deprecated-space-y-px">
             {items.map((item, index) => (
                 <li key={item.key || index}>
                     <LemonMenuItemButton

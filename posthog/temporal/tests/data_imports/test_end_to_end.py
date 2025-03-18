@@ -1,21 +1,22 @@
-from concurrent.futures import ThreadPoolExecutor
 import functools
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional, cast
 from unittest import mock
 
 import aioboto3
-from deltalake import DeltaTable
+import deltalake
 import posthoganalytics
 import psycopg
 import pytest
 import pytest_asyncio
+import s3fs
 from asgiref.sync import sync_to_async
+from deltalake import DeltaTable
 from django.conf import settings
 from django.test import override_settings
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.sources.helpers.rest_client.client import RESTClient
-import s3fs
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -36,8 +37,10 @@ from posthog.schema import (
     HogQLQueryModifiers,
     PersonsOnEventsMode,
 )
-from posthog.temporal.data_imports import ACTIVITIES
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.warehouse.models import (
     ExternalDataJob,
@@ -110,6 +113,7 @@ async def _run(
     sync_type: Optional[ExternalDataSchema.SyncType] = None,
     sync_type_config: Optional[dict] = None,
     billable: Optional[bool] = None,
+    ignore_assertions: Optional[bool] = False,
 ):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
@@ -137,32 +141,41 @@ async def _run(
         billable=billable if billable is not None else True,
     )
 
-    with mock.patch(
-        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.trigger_compaction_job"
-    ) as mock_trigger_compaction_job:
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.trigger_compaction_job"
+        ) as mock_trigger_compaction_job,
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
+        ) as mock_get_data_import_finished_metric,
+    ):
         await _execute_run(workflow_id, inputs, mock_data_response)
 
-    run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
+    if not ignore_assertions:
+        run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
 
-    assert run is not None
-    assert run.status == ExternalDataJob.Status.COMPLETED
+        assert run is not None
+        assert run.status == ExternalDataJob.Status.COMPLETED
 
-    mock_trigger_compaction_job.assert_called()
+        mock_trigger_compaction_job.assert_called()
+        mock_get_data_import_finished_metric.assert_called_with(
+            source_type=source_type, status=ExternalDataJob.Status.COMPLETED.lower()
+        )
 
-    await sync_to_async(schema.refresh_from_db)()
+        await sync_to_async(schema.refresh_from_db)()
 
-    assert schema.last_synced_at == run.created_at
+        assert schema.last_synced_at == run.created_at
 
-    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
-    assert len(res.results) == 1
+        res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
+        assert len(res.results) == 1
 
-    for name, field in external_tables.get(table_name, {}).items():
-        if field.hidden:
-            continue
-        assert name in (res.columns or [])
+        for name, field in external_tables.get(table_name, {}).items():
+            if field.hidden:
+                continue
+            assert name in (res.columns or [])
 
-    await sync_to_async(schema.refresh_from_db)()
-    assert schema.sync_type_config.get("reset_pipeline", None) is None
+        await sync_to_async(schema.refresh_from_db)()
+        assert schema.sync_type_config.get("reset_pipeline", None) is None
 
     return workflow_id, inputs
 
@@ -1007,7 +1020,7 @@ async def test_non_retryable_error_with_special_characters(team, stripe_customer
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_inconsistent_types_in_data(team, stripe_balance_transaction):
+async def test_inconsistent_types_in_data(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
         connection_id=uuid.uuid4(),
@@ -1019,7 +1032,7 @@ async def test_inconsistent_types_in_data(team, stripe_balance_transaction):
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        name="Customer",
+        name="Price",
         team_id=team.pk,
         source_id=source.pk,
         sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
@@ -1041,6 +1054,26 @@ async def test_inconsistent_types_in_data(team, stripe_balance_transaction):
             {"id": "txn_1MiN3gLkdIwHu7ixxapQrznl", "type": ["transfer", "another_value"]},
         ],
     )
+
+    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM stripe_price", team)
+    columns = res.columns
+    results = res.results
+
+    assert columns is not None
+    assert any(x == "id" for x in columns)
+    assert any(x == "type" for x in columns)
+
+    assert results is not None
+    assert len(results) == 2
+
+    id_index = columns.index("id")
+    arr_index = columns.index("type")
+
+    assert results[0][id_index] == "txn_1MiN3gLkdIwHu7ixxapQrznl"
+    assert results[0][arr_index] == '["transfer"]'
+
+    assert results[1][id_index] == "txn_1MiN3gLkdIwHu7ixxapQrznl"
+    assert results[1][arr_index] == '["transfer","another_value"]'
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1190,7 +1223,6 @@ async def test_postgres_nan_numerical_values(team, postgres_config, postgres_con
 @pytest.mark.asyncio
 async def test_delete_table_on_reset(team, stripe_balance_transaction):
     with (
-        mock.patch.object(DeltaTable, "delete") as mock_delta_table_delete,
         mock.patch.object(s3fs.S3FileSystem, "delete") as mock_s3_delete,
     ):
         workflow_id, inputs = await _run(
@@ -1212,7 +1244,6 @@ async def test_delete_table_on_reset(team, stripe_balance_transaction):
 
         await _execute_run(str(uuid.uuid4()), inputs, stripe_balance_transaction["data"])
 
-    mock_delta_table_delete.assert_called()
     mock_s3_delete.assert_called()
 
     await sync_to_async(schema.refresh_from_db)()
@@ -1236,3 +1267,544 @@ async def test_billable_job(team, stripe_balance_transaction):
 
     run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
     assert run.billable is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (2)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    with (
+        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch.object(DeltaTable, "merge") as mock_merge,
+        mock.patch.object(deltalake, "write_deltalake") as mock_write,
+        mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
+    ):
+        await _run(
+            team=team,
+            schema_name="test_table",
+            table_name="postgres_test_table",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    mock_post_run_operations.assert_called_once()
+
+    mock_merge.assert_not_called()
+    assert mock_write.call_count == 2
+
+    first_call_args, first_call_kwargs = mock_write.call_args_list[0]
+    second_call_args, second_call_kwargs = mock_write.call_args_list[1]
+
+    # The first call should be an append
+    assert first_call_kwargs == {
+        "mode": "overwrite",
+        "schema_mode": "overwrite",
+        "table_or_uri": mock.ANY,
+        "data": mock.ANY,
+        "partition_by": mock.ANY,
+        "engine": "rust",
+    }
+
+    # The last call should be an append
+    assert second_call_kwargs == {
+        "mode": "append",
+        "schema_mode": "merge",
+        "table_or_uri": mock.ANY,
+        "data": mock.ANY,
+        "partition_by": mock.ANY,
+        "engine": "rust",
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (2)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_table",
+        table_name="postgres_test_table",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+        ignore_assertions=True,
+    )
+
+    with (
+        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch.object(DeltaTable, "merge") as mock_merge,
+        mock.patch.object(deltalake, "write_deltalake") as mock_write,
+        mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
+    ):
+        await _execute_run(
+            str(uuid.uuid4()),
+            ExternalDataWorkflowInputs(
+                team_id=inputs.team_id,
+                external_data_source_id=inputs.external_data_source_id,
+                external_data_schema_id=inputs.external_data_schema_id,
+                reset_pipeline=True,
+            ),
+            [],
+        )
+
+    mock_post_run_operations.assert_called_once()
+
+    mock_merge.assert_not_called()
+    assert mock_write.call_count == 2
+
+    first_call_args, first_call_kwargs = mock_write.call_args_list[0]
+    second_call_args, second_call_kwargs = mock_write.call_args_list[1]
+
+    # The first call should be an overwrite
+    assert first_call_kwargs == {
+        "mode": "overwrite",
+        "schema_mode": "overwrite",
+        "table_or_uri": mock.ANY,
+        "data": mock.ANY,
+        "partition_by": mock.ANY,
+        "engine": "rust",
+    }
+
+    # The subsequent call should be an append
+    assert second_call_kwargs == {
+        "mode": "append",
+        "schema_mode": "merge",
+        "table_or_uri": mock.ANY,
+        "data": mock.ANY,
+        "partition_by": mock.ANY,
+        "engine": "rust",
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_partition_folders_with_int_id(team, postgres_config, postgres_connection, minio_client):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_partition_folders (id integer, created_at timestamp)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES (1, '2025-01-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES (2, '2025-02-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.commit()
+
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_partition_folders",
+        table_name="postgres_test_partition_folders",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+        ignore_assertions=True,
+    )
+
+    @sync_to_async
+    def get_jobs():
+        jobs = ExternalDataJob.objects.filter(
+            team_id=team.pk,
+            pipeline_id=inputs.external_data_source_id,
+        ).order_by("-created_at")
+
+        return list(jobs)
+
+    jobs = await get_jobs()
+    latest_job = jobs[0]
+    folder_path = await sync_to_async(latest_job.folder_path)()
+
+    s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
+
+    # Using numerical primary key causes partitions not be md5'd
+    assert any(f"{PARTITION_KEY}=0" in obj["Key"] for obj in s3_objects["Contents"])
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partitioning_enabled is True
+    assert schema.partitioning_keys == ["id"]
+    assert schema.partition_mode == "numerical"
+    assert schema.partition_count is not None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_partition_folders_with_uuid_id_and_created_at(team, postgres_config, postgres_connection, minio_client):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_partition_folders (id uuid, created_at timestamp)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES ('{uuid}', '2025-01-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"], uuid=str(uuid.uuid4())
+        )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES ('{uuid}', '2025-02-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"], uuid=str(uuid.uuid4())
+        )
+    )
+    await postgres_connection.commit()
+
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_partition_folders",
+        table_name="postgres_test_partition_folders",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+        ignore_assertions=True,
+    )
+
+    @sync_to_async
+    def get_jobs():
+        jobs = ExternalDataJob.objects.filter(
+            team_id=team.pk,
+            pipeline_id=inputs.external_data_source_id,
+        ).order_by("-created_at")
+
+        return list(jobs)
+
+    jobs = await get_jobs()
+    latest_job = jobs[0]
+    folder_path = await sync_to_async(latest_job.folder_path)()
+
+    s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
+
+    # Using datetime partition mode with created_at
+    assert any(f"{PARTITION_KEY}=2025-01" in obj["Key"] for obj in s3_objects["Contents"])
+    assert any(f"{PARTITION_KEY}=2025-02" in obj["Key"] for obj in s3_objects["Contents"])
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partitioning_enabled is True
+    assert schema.partitioning_keys == ["created_at"]
+    assert schema.partition_mode == "datetime"
+    assert schema.partition_count is not None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_partition_folders_with_existing_table(team, postgres_config, postgres_connection, minio_client):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_partition_folders (id integer, created_at timestamp)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES (1, '2025-01-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES (2, '2025-02-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.commit()
+
+    # Emulate an existing table with no partitions
+    with mock.patch(
+        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.should_partition_table", return_value=False
+    ):
+        workflow_id, inputs = await _run(
+            team=team,
+            schema_name="test_partition_folders",
+            table_name="postgres_test_partition_folders",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    @sync_to_async
+    def get_jobs():
+        jobs = ExternalDataJob.objects.filter(
+            team_id=team.pk,
+            pipeline_id=inputs.external_data_source_id,
+        ).order_by("-created_at")
+
+        return list(jobs)
+
+    jobs = await get_jobs()
+    latest_job = jobs[0]
+    folder_path = await sync_to_async(latest_job.folder_path)()
+
+    s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
+
+    # Confirm there are no partitions in S3
+    assert not any(PARTITION_KEY in obj["Key"] for obj in s3_objects["Contents"])
+
+    # Add new data to the postgres table
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES (3, '2025-03-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.commit()
+
+    # Resync
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    # Reconfirm there are no partitions
+    s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
+    assert not any(PARTITION_KEY in obj["Key"] for obj in s3_objects["Contents"])
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partitioning_enabled is False
+    assert schema.partitioning_keys is None
+    assert schema.partition_count is None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_partition_folders_with_existing_table_and_pipeline_reset(
+    team, postgres_config, postgres_connection, minio_client
+):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_partition_folders (id integer, created_at timestamp)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES (1, '2025-01-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES (2, '2025-02-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.commit()
+
+    # Emulate an existing table with no partitions
+    with mock.patch(
+        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.should_partition_table", return_value=False
+    ):
+        workflow_id, inputs = await _run(
+            team=team,
+            schema_name="test_partition_folders",
+            table_name="postgres_test_partition_folders",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    @sync_to_async
+    def get_jobs():
+        jobs = ExternalDataJob.objects.filter(
+            team_id=team.pk,
+            pipeline_id=inputs.external_data_source_id,
+        ).order_by("-created_at")
+
+        return list(jobs)
+
+    jobs = await get_jobs()
+    latest_job = jobs[0]
+    folder_path = await sync_to_async(latest_job.folder_path)()
+
+    s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
+
+    # Confirm there are no partitions in S3
+    assert not any(PARTITION_KEY in obj["Key"] for obj in s3_objects["Contents"])
+
+    # Update the schema to be incremental based on the created_at field
+    schema: ExternalDataSchema = await sync_to_async(ExternalDataSchema.objects.get)(id=inputs.external_data_schema_id)
+    schema.sync_type_config = {
+        "incremental_field": "created_at",
+        "incremental_field_type": "timestamp",
+        "incremental_field_last_value": "2025-02-01T12:00:00.000Z",
+    }
+    await sync_to_async(schema.save)()
+
+    # Resync with reset_pipeline = True
+    await _execute_run(
+        str(uuid.uuid4()),
+        ExternalDataWorkflowInputs(
+            team_id=inputs.team_id,
+            external_data_source_id=inputs.external_data_source_id,
+            external_data_schema_id=inputs.external_data_schema_id,
+            reset_pipeline=True,
+        ),
+        [],
+    )
+
+    # Confirm the table now has partitions
+    s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
+
+    assert any(f"{PARTITION_KEY}=" in obj["Key"] for obj in s3_objects["Contents"])
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partitioning_enabled is True
+    assert schema.partitioning_keys == ["id"]
+    assert schema.partition_count is not None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_partition_folders_delta_merge_called_with_partition_predicate(
+    team, postgres_config, postgres_connection
+):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_partition_folders (id integer, created_at timestamp)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES (1, '2025-01-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES (2, '2025-02-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.commit()
+
+    # Emulate an existing table with no partitions
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_partition_folders",
+        table_name="postgres_test_partition_folders",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+        ignore_assertions=True,
+    )
+
+    with (
+        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch.object(DeltaTable, "merge") as mock_merge,
+        mock.patch.object(deltalake, "write_deltalake") as mock_write,
+        mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
+    ):
+        # Mocking the return of the delta merge as it gets JSON'ified
+        mock_merge_instance = mock_merge.return_value
+        mock_when_matched = mock_merge_instance.when_matched_update_all.return_value
+        mock_when_not_matched = mock_when_matched.when_not_matched_insert_all.return_value
+        mock_when_not_matched.execute.return_value = {}
+
+        await _execute_run(
+            str(uuid.uuid4()),
+            inputs,
+            [],
+        )
+
+    mock_post_run_operations.assert_called_once()
+
+    mock_write.assert_not_called()
+    assert mock_merge.call_count == 1
+
+    merge_call_args, first_call_kwargs = mock_merge.call_args_list[0]
+
+    assert first_call_kwargs == {
+        "source": mock.ANY,
+        "source_alias": "source",
+        "target_alias": "target",
+        "predicate": f"source.id = target.id AND source.{PARTITION_KEY} = target.{PARTITION_KEY} AND target.{PARTITION_KEY} = '0'",
+        "streamed_exec": True,
+    }

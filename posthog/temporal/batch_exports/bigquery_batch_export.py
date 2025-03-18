@@ -4,6 +4,7 @@ import contextlib
 import dataclasses
 import datetime as dt
 import json
+import typing
 
 import pyarrow as pa
 import structlog
@@ -514,23 +515,32 @@ class BigQueryClient(bigquery.Client):
 
         return result
 
+    @classmethod
+    def from_service_account_inputs(
+        cls, private_key: str, private_key_id: str, token_uri: str, client_email: str, project_id: str
+    ) -> typing.Self:
+        credentials = service_account.Credentials.from_service_account_info(
+            {
+                "private_key": private_key,
+                "private_key_id": private_key_id,
+                "token_uri": token_uri,
+                "client_email": client_email,
+                "project_id": project_id,
+            },
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+        client = cls(
+            project=project_id,
+            credentials=credentials,
+        )
+        return client
+
 
 @contextlib.contextmanager
 def bigquery_client(inputs: BigQueryInsertInputs):
     """Manage a BigQuery client."""
-    credentials = service_account.Credentials.from_service_account_info(
-        {
-            "private_key": inputs.private_key,
-            "private_key_id": inputs.private_key_id,
-            "token_uri": inputs.token_uri,
-            "client_email": inputs.client_email,
-            "project_id": inputs.project_id,
-        },
-        scopes=["https://www.googleapis.com/auth/cloud-platform"],
-    )
-    client = BigQueryClient(
-        project=inputs.project_id,
-        credentials=credentials,
+    client = BigQueryClient.from_service_account_inputs(
+        inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, inputs.project_id
     )
 
     try:
@@ -664,7 +674,6 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             fields=fields,
             filters=filters,
             destination_default_fields=bigquery_default_fields(),
-            use_latest_schema=True,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
@@ -770,26 +779,30 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         bigquery_table=bigquery_stage_table if can_perform_merge else bigquery_table,
                         table_schema=stage_schema if can_perform_merge else schema,
                     )
-                    await run_consumer(
-                        consumer=consumer,
-                        queue=queue,
-                        producer_task=producer_task,
-                        schema=record_batch_schema,
-                        max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                        json_columns=() if can_perform_merge else json_columns,
-                        writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
-                        multiple_files=True,
-                    )
-
-                    if can_perform_merge:
-                        await bq_client.amerge_tables(
-                            final_table=bigquery_table,
-                            stage_table=bigquery_stage_table,
-                            mutable=mutable,
-                            merge_key=merge_key,
-                            update_key=update_key,
-                            stage_fields_cast_to_json=json_columns,
+                    try:
+                        await run_consumer(
+                            consumer=consumer,
+                            queue=queue,
+                            producer_task=producer_task,
+                            schema=record_batch_schema,
+                            max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                            json_columns=() if can_perform_merge else json_columns,
+                            writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
+                            multiple_files=True,
                         )
+
+                    # ensure we always write data to final table, even if we fail halfway through, as if we resume from
+                    # a heartbeat, we can continue without losing data
+                    finally:
+                        if can_perform_merge:
+                            await bq_client.amerge_tables(
+                                final_table=bigquery_table,
+                                stage_table=bigquery_stage_table,
+                                mutable=mutable,
+                                merge_key=merge_key,
+                                update_key=update_key,
+                                stage_fields_cast_to_json=json_columns,
+                            )
 
         return details.records_completed
 

@@ -1,4 +1,18 @@
-/* TODO: Migrate this to a CSS variable (with a `bg-` Tailwind class) once @adamleithp finishes his Tailwind work */
 .insights-loading-state {
-    background-color: rgb(129 129 129 / 20%);
+    background-color: var(--color-skeleton-light);
+}
+
+@keyframes InsightsEmptyState__BriefSpin {
+    0%,
+    65% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.brief-spin {
+    animation: InsightsEmptyState__BriefSpin 2s infinite ease-in-out;
 }

@@ -47,9 +47,9 @@ export const scene: SceneExport = {
 
 export function Surveys(): JSX.Element {
     const {
-        surveys,
+        data: { surveys },
         searchedSurveys,
-        surveysLoading,
+        dataLoading,
         surveysResponsesCount,
         surveysResponsesCountLoading,
         searchTerm,
@@ -57,13 +57,16 @@ export function Surveys(): JSX.Element {
         showSurveysDisabledBanner,
         tab,
         globalSurveyAppearanceConfigAvailable,
+        hasNextPage,
+        hasNextSearchPage,
     } = useValues(surveysLogic)
 
-    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab } = useActions(surveysLogic)
+    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab, loadNextPage, loadNextSearchPage } =
+        useActions(surveysLogic)
 
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const shouldShowEmptyState = !surveysLoading && surveys.length === 0
+    const shouldShowEmptyState = !dataLoading && surveys.length === 0
     const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
@@ -125,6 +128,7 @@ export function Surveys(): JSX.Element {
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
                     <LinkedHogFunctions
+                        logicKey="surveys"
                         type="destination"
                         subTemplateId="survey-response"
                         filters={{
@@ -144,7 +148,7 @@ export function Surveys(): JSX.Element {
 
             {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && (
                 <>
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <VersionCheckerBanner />
 
                         {showSurveysDisabledBanner ? (
@@ -158,8 +162,8 @@ export function Surveys(): JSX.Element {
                                 }}
                                 className="mb-2"
                             >
-                                Survey popovers are currently disabled for this {settingLevel} but there are active
-                                surveys running. Re-enable them in the settings.
+                                Survey popovers are currently disabled for this {settingLevel}. Re-enable them in the
+                                settings, otherwise surveys will not be visible.
                             </LemonBanner>
                         ) : null}
                     </div>
@@ -225,7 +229,22 @@ export function Surveys(): JSX.Element {
                                 emptyState={
                                     tab === SurveysTabs.Active ? 'No surveys. Create a new survey?' : 'No surveys found'
                                 }
-                                loading={surveysLoading}
+                                loading={dataLoading}
+                                footer={
+                                    (searchTerm ? hasNextSearchPage : hasNextPage) && (
+                                        <div className="flex justify-center p-1">
+                                            <LemonButton
+                                                onClick={searchTerm ? loadNextSearchPage : loadNextPage}
+                                                className="min-w-full text-center"
+                                                disabledReason={dataLoading ? 'Loading surveys' : ''}
+                                            >
+                                                <span className="text-center flex-1">
+                                                    {dataLoading ? 'Loading...' : 'Load more'}
+                                                </span>
+                                            </LemonButton>
+                                        </div>
+                                    )
+                                }
                                 columns={[
                                     {
                                         dataIndex: 'name',

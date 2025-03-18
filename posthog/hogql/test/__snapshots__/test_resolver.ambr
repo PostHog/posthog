@@ -2686,7 +2686,13 @@
                           $end_timestamp: {
                             hidden: False
                           },
+                          $entry__kx: {
+                            hidden: False
+                          },
                           $entry_current_url: {
+                            hidden: False
+                          },
+                          $entry_dclid: {
                             hidden: False
                           },
                           $entry_fbclid: {
@@ -2695,16 +2701,43 @@
                           $entry_gad_source: {
                             hidden: False
                           },
+                          $entry_gbraid: {
+                            hidden: False
+                          },
                           $entry_gclid: {
                             hidden: False
                           },
+                          $entry_gclsrc: {
+                            hidden: False
+                          },
                           $entry_hostname: {
+                            hidden: False
+                          },
+                          $entry_igshid: {
+                            hidden: False
+                          },
+                          $entry_irclid: {
+                            hidden: False
+                          },
+                          $entry_li_fat_id: {
+                            hidden: False
+                          },
+                          $entry_mc_cid: {
+                            hidden: False
+                          },
+                          $entry_msclkid: {
                             hidden: False
                           },
                           $entry_pathname: {
                             hidden: False
                           },
                           $entry_referring_domain: {
+                            hidden: False
+                          },
+                          $entry_ttclid: {
+                            hidden: False
+                          },
+                          $entry_twclid: {
                             hidden: False
                           },
                           $entry_utm_campaign: {
@@ -2720,6 +2753,9 @@
                             hidden: False
                           },
                           $entry_utm_term: {
+                            hidden: False
+                          },
+                          $entry_wbraid: {
                             hidden: False
                           },
                           $exit_current_url: {

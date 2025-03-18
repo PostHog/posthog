@@ -4,7 +4,9 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { S3SessionBatchFileStorage } from './s3-session-batch-writer'
 
 jest.mock('@aws-sdk/lib-storage')
-jest.mock('../../../../utils/status')
+jest.mock('../../../../utils/logger')
+
+jest.setTimeout(1000)
 
 describe('S3SessionBatchFileStorage', () => {
     let storage: S3SessionBatchFileStorage
@@ -20,7 +22,7 @@ describe('S3SessionBatchFileStorage', () => {
         mockUpload = jest.fn().mockImplementation(({ params: { Body: stream } }) => {
             const done = async () => {
                 return new Promise((resolve, reject) => {
-                    stream.on('data', (chunk) => {
+                    stream.on('data', (chunk: any) => {
                         uploadedData = Buffer.concat([uploadedData, chunk])
                     })
                     stream.on('error', reject)
@@ -33,7 +35,7 @@ describe('S3SessionBatchFileStorage', () => {
         })
         jest.mocked(Upload).mockImplementation(mockUpload)
 
-        storage = new S3SessionBatchFileStorage(mockS3Client, 'test-bucket', 'test-prefix')
+        storage = new S3SessionBatchFileStorage(mockS3Client, 'test-bucket', 'test-prefix', 5000)
     })
 
     afterEach(() => {
@@ -143,6 +145,100 @@ describe('S3SessionBatchFileStorage', () => {
             for (const key of keys) {
                 expect(key).toMatch(/^test-prefix\/\d+-[a-z0-9]+$/)
             }
+        })
+    })
+
+    describe('timeout', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('should timeout if upload takes too long', async () => {
+            // Mock a slow upload that never resolves
+            mockUpload = jest.fn().mockImplementation((_) => {
+                const done = async () => {
+                    return new Promise(() => {})
+                }
+
+                mockUploadDone = jest.fn().mockImplementation(done)
+                return { done: mockUploadDone }
+            })
+            jest.mocked(Upload).mockImplementation(mockUpload)
+
+            const writer = storage.newBatch()
+            const testData = Buffer.from('test data')
+            await writer.writeSession(testData)
+
+            const finishPromise = writer.finish()
+
+            // Advance timers past the default 5s timeout
+            jest.advanceTimersByTime(6000)
+
+            await expect(finishPromise).rejects.toThrow('S3 upload timed out after 5000ms')
+        })
+
+        it('should clear timeout on successful upload', async () => {
+            const writer = storage.newBatch()
+            const testData = Buffer.from('test data')
+            await writer.writeSession(testData)
+            await writer.finish()
+
+            // Advance timers - should not throw since timeout was cleared
+            jest.advanceTimersByTime(6000)
+        })
+
+        it('should respect custom timeout value', async () => {
+            // Mock a slow upload that never resolves
+            mockUpload.mockImplementationOnce(() => ({
+                done: () => new Promise(() => {}),
+            }))
+
+            const customTimeout = 2000
+            storage = new S3SessionBatchFileStorage(mockS3Client, 'test-bucket', 'test-prefix', customTimeout)
+            const writer = storage.newBatch()
+            const testData = Buffer.from('test data')
+            await writer.writeSession(testData)
+
+            const finishPromise = writer.finish()
+
+            // Advance timers just before timeout
+            jest.advanceTimersByTime(1999)
+
+            // Advance past timeout
+            jest.advanceTimersByTime(2)
+            await expect(finishPromise).rejects.toThrow('S3 upload timed out after 2000ms')
+        })
+    })
+
+    describe('checkHealth', () => {
+        it('should return true when bucket is accessible', async () => {
+            mockS3Client.send = jest.fn().mockResolvedValue({})
+
+            const result = await storage.checkHealth()
+
+            expect(result).toBe(true)
+            expect(mockS3Client.send).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    input: { Bucket: 'test-bucket' },
+                })
+            )
+        })
+
+        it('should return false when bucket is not accessible', async () => {
+            mockS3Client.send = jest.fn().mockRejectedValue(new Error('Bucket not found'))
+
+            const result = await storage.checkHealth()
+
+            expect(result).toBe(false)
+            expect(mockS3Client.send).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    input: { Bucket: 'test-bucket' },
+                })
+            )
         })
     })
 })

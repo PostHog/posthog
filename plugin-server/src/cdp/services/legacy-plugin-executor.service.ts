@@ -2,11 +2,11 @@ import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from 
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
-import { Hub } from '~/src/types'
-
+import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { Response, trackedFetch } from '../../utils/fetch'
-import { status } from '../../utils/status'
+import { parseJSON } from '../../utils/json-parse'
+import { logger } from '../../utils/logger'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
 import { firstTimeEventTrackerPlugin } from '../legacy-plugins/_transformations/first-time-event-tracker/template'
@@ -39,6 +39,10 @@ export type PluginState = {
 
 const pluginConfigCheckCache: Record<string, boolean> = {}
 
+export type LegacyPluginExecutorOptions = {
+    fetch?: (...args: Parameters<typeof trackedFetch>) => Promise<Response>
+}
+
 export class LegacyPluginExecutorService {
     constructor(private hub: Hub) {}
     private pluginState: Record<string, PluginState> = {}
@@ -66,7 +70,7 @@ export class LegacyPluginExecutorService {
                 'storageGet'
             )
 
-            return result?.rows.length === 1 ? JSON.parse(result.rows[0].value) : defaultValue
+            return result?.rows.length === 1 ? parseJSON(result.rows[0].value) : defaultValue
         }
         const set = async (key: string, value: unknown): Promise<void> => {
             const cacheKey = `${teamId}-${pluginConfigId}`
@@ -108,15 +112,17 @@ export class LegacyPluginExecutorService {
         }
     }
 
-    public async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
+    public async execute(
+        invocation: HogFunctionInvocation,
+        options?: LegacyPluginExecutorOptions
+    ): Promise<HogFunctionInvocationResult> {
         const result: HogFunctionInvocationResult = {
             invocation,
             finished: true,
             capturedPostHogEvents: [],
             logs: [],
+            metrics: [],
         }
-
-        const isTestFunction = invocation.hogFunction.name.includes(CDP_TEST_ID)
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({
@@ -126,29 +132,11 @@ export class LegacyPluginExecutorService {
             })
         }
 
-        const logger: LegacyPluginLogger = {
+        const pluginLogger: LegacyPluginLogger = {
             debug: (...args: any[]) => addLog('debug', ...args),
             warn: (...args: any[]) => addLog('warn', ...args),
             log: (...args: any[]) => addLog('info', ...args),
             error: (...args: any[]) => addLog('error', ...args),
-        }
-
-        const fetch = (...args: Parameters<typeof trackedFetch>): Promise<Response> => {
-            const method = args[1] && typeof args[1].method === 'string' ? args[1].method : 'GET'
-
-            if (isTestFunction && method.toUpperCase() !== 'GET') {
-                // For testing we mock out all non-GET requests
-                addLog('info', 'Fetch called but mocked due to test function')
-                return Promise.resolve({
-                    status: 200,
-                    json: () =>
-                        Promise.resolve({
-                            status: 'OK',
-                            message: 'Test function',
-                        }),
-                } as Response)
-            }
-            return this.fetch(...args)
         }
 
         const pluginId = isLegacyPluginHogFunction(invocation.hogFunction) ? invocation.hogFunction.template_id : null
@@ -159,8 +147,6 @@ export class LegacyPluginExecutorService {
                       | LegacyTransformationPlugin
                       | LegacyDestinationPlugin)
                 : null
-
-            addLog('debug', `Executing plugin ${pluginId}`)
 
             if (!pluginId || !plugin) {
                 throw new Error(`Plugin ${pluginId} not found`)
@@ -178,18 +164,16 @@ export class LegacyPluginExecutorService {
             const legacyPluginConfigId = invocation.globals.inputs?.legacy_plugin_config_id
 
             if (!state) {
-                // TODO: Modify fetch to be a silent log if it is a test function...
+                const geoip = await this.hub.geoipService.get()
+
                 const meta: LegacyTransformationPluginMeta = {
                     config: invocation.globals.inputs,
                     global: {},
-                    logger: logger,
+                    logger: pluginLogger,
                     geoip: {
                         locate: (ipAddress: string): Record<string, any> | null => {
-                            if (!this.hub.mmdb) {
-                                return null
-                            }
                             try {
-                                return this.hub.mmdb.city(ipAddress)
+                                return geoip.city(ipAddress)
                             } catch {
                                 return null
                             }
@@ -227,21 +211,43 @@ export class LegacyPluginExecutorService {
                 throw new Error(`Plugin ${pluginId} setup failed: ${e.message}`)
             }
 
+            const isTestFunction = invocation.hogFunction.name.includes(CDP_TEST_ID)
+
+            const fetch = async (...args: Parameters<typeof trackedFetch>) => {
+                // TRICKY: We use the overridden fetch here if given as it is used by the comparer service
+                // Additionally we don't do real fetches for test functions
+                const method = args[1] && typeof args[1].method === 'string' ? args[1].method : 'GET'
+
+                if (isTestFunction && method.toUpperCase() !== 'GET') {
+                    // For testing we mock out all non-GET requests
+                    addLog('info', 'Fetch called but mocked due to test function', {
+                        url: args[0],
+                        method,
+                    })
+
+                    result.metrics!.push({
+                        team_id: invocation.hogFunction.team_id,
+                        app_source_id: invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    })
+                    // Simulate a mini bit of fetch delay
+                    await new Promise((resolve) => setTimeout(resolve, 200))
+                    return {
+                        status: 200,
+                        json: () =>
+                            Promise.resolve({
+                                status: 'OK',
+                                message: 'Test function',
+                            }),
+                    } as Response
+                }
+
+                return (options?.fetch || this.fetch)(...args)
+            }
+
             const start = performance.now()
-
-            status.info('⚡️', 'Executing plugin', {
-                pluginId,
-                invocationId: invocation.id,
-            })
-
-            const person: ProcessedPluginEvent['person'] = invocation.globals.person
-                ? {
-                      uuid: invocation.globals.person.id,
-                      team_id: invocation.hogFunction.team_id,
-                      properties: invocation.globals.person.properties,
-                      created_at: '', // NOTE: We don't have this anymore - see if any plugin uses it...
-                  }
-                : undefined
 
             const event = {
                 distinct_id: invocation.globals.event.distinct_id,
@@ -259,17 +265,21 @@ export class LegacyPluginExecutorService {
                 // Destination style
                 const processedEvent: ProcessedPluginEvent = {
                     ...event,
-                    person,
+                    ip: null, // convertToOnEventPayload removes this so we should too
                     properties: event.properties || {},
                 }
+
+                const start = performance.now()
 
                 await plugin.onEvent?.(processedEvent, {
                     ...state.meta,
                     // NOTE: We override logger and fetch here so we can track the calls
-                    logger,
+                    logger: pluginLogger,
                     fetch,
                     storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                 })
+
+                addLog('info', `Function completed in ${performance.now() - start}ms.`)
             } else {
                 if (plugin === firstTimeEventTrackerPlugin) {
                     // Special fallback case until this is fully removed
@@ -277,7 +287,7 @@ export class LegacyPluginExecutorService {
                         event as PluginEvent,
                         {
                             ...state.meta,
-                            logger,
+                            logger: pluginLogger,
                         },
                         this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId)
                     )
@@ -286,21 +296,20 @@ export class LegacyPluginExecutorService {
                     // Transformation style
                     const transformedEvent = plugin.processEvent(event as PluginEvent, {
                         ...state.meta,
-                        logger,
+                        logger: pluginLogger,
                     })
                     result.execResult = transformedEvent
                 }
             }
 
-            addLog('debug', `Execution successful`)
             pluginExecutionDuration.observe(performance.now() - start)
         } catch (e) {
             if (e instanceof RetryError) {
                 // NOTE: Schedule as a retry to cyclotron?
             }
 
-            status.error('💩', 'Plugin errored', {
-                error: e,
+            logger.error('💩', 'Plugin errored', {
+                error: e.message,
                 pluginId,
                 invocationId: invocation.id,
             })

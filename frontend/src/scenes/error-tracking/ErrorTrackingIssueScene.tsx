@@ -10,7 +10,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AssigneeSelect } from './AssigneeSelect'
-import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { Events } from './issue/Events'
@@ -26,16 +25,17 @@ export const scene: SceneExport = {
     }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint }),
 }
 
-const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
+export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
     active: 'Active',
     archived: 'Archived',
     resolved: 'Resolved',
     pending_release: 'Pending release',
+    suppressed: 'Suppressed',
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
-    const { updateIssue, initIssue } = useActions(errorTrackingIssueSceneLogic)
+    const { updateIssue, initIssue, assignIssue } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
         initIssue()
@@ -51,7 +51,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                 <div className="flex divide-x gap-x-2">
                                     <AssigneeSelect
                                         assignee={issue.assignee}
-                                        onChange={(assignee) => updateIssue({ assignee })}
+                                        onChange={assignIssue}
                                         type="secondary"
                                         showName
                                     />
@@ -64,6 +64,14 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                         </LemonButton>
                                         <LemonButton type="primary" onClick={() => updateIssue({ status: 'resolved' })}>
                                             Resolve
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="secondary"
+                                            status="danger"
+                                            tooltip="Stop capturing these errors"
+                                            onClick={() => updateIssue({ status: 'suppressed' })}
+                                        >
+                                            Suppress
                                         </LemonButton>
                                     </div>
                                 </div>
@@ -88,7 +96,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         <LemonDivider className="my-4" />
                         <PanelLayout>
                             <PanelLayout.Container column primary>
-                                <ErrorTrackingFilters />
                                 <SparklinePanel />
                                 <PanelLayout.Panel primary>
                                     <Events />

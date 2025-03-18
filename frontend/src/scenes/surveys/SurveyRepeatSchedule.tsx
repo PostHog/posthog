@@ -6,12 +6,14 @@ import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { ScheduleType, SurveyEditSection, surveyLogic } from './surveyLogic'
+import { SurveySchedule, SurveyType } from '~/types'
+
+import { SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 
 function SurveyIterationOptions(): JSX.Element {
-    const { showSurveyRepeatSchedule, schedule } = useValues(surveyLogic)
-    const { setSurveyValue, setSchedule } = useActions(surveyLogic)
+    const { showSurveyRepeatSchedule, survey } = useValues(surveyLogic)
+    const { setSurveyValue } = useActions(surveyLogic)
     const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
 
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
@@ -20,30 +22,42 @@ function SurveyIterationOptions(): JSX.Element {
 
     return (
         <>
-            <LemonField.Pure>
+            <LemonField.Pure
+                info="Showing a survey all the time requires at least version 1.220.0 of posthog-js"
+                label={<h3 className="mb-0">How often should we show this survey?</h3>}
+            >
                 <LemonRadio
-                    value={schedule}
+                    value={survey.schedule ?? SurveySchedule.Once}
                     onChange={(newValue) => {
-                        setSchedule(newValue as ScheduleType)
-                        if (newValue === 'once') {
+                        setSurveyValue('schedule', newValue)
+                        if (newValue === SurveySchedule.Once || newValue === SurveySchedule.Always) {
                             setSurveyValue('iteration_count', 0)
                             setSurveyValue('iteration_frequency_days', 0)
-                        } else if (newValue === 'recurring') {
+                        } else if (newValue === SurveySchedule.Recurring) {
                             setSurveyValue('iteration_count', 1)
                             setSurveyValue('iteration_frequency_days', 90)
                         }
                     }}
                     options={[
                         {
-                            value: 'once',
+                            value: SurveySchedule.Once,
                             label: 'Once',
                             'data-attr': 'survey-iteration-frequency-days',
                         },
                         {
-                            value: 'recurring',
+                            value: SurveySchedule.Recurring,
                             label: 'Repeat on a schedule',
                             'data-attr': 'survey-iteration-frequency-days',
                             disabledReason: surveysRecurringScheduleDisabledReason,
+                        },
+                        {
+                            value: SurveySchedule.Always,
+                            label: 'Always visible (for feedback surveys)',
+                            'data-attr': 'survey-iteration-frequency-days',
+                            disabledReason:
+                                survey.type !== SurveyType.Widget
+                                    ? 'Only available for feedback surveys. Please change the type in the Presentation tab'
+                                    : undefined,
                         },
                     ]}
                 />
@@ -113,9 +127,9 @@ export function SurveyRepeatSchedule(): JSX.Element {
 
     return (
         <div className="mt-4">
-            <h3> How often should we show this survey? </h3>
             {canSurveyBeRepeated ? (
                 <span className="font-medium">
+                    <h3 className="mb-0">How often should we show this survey?</h3>
                     <IconInfo className="mr-0.5" /> This survey is displayed whenever the{' '}
                     <LemonSnack>{survey.conditions?.events?.values.map((v) => v.name).join(', ')}</LemonSnack>{' '}
                     <span>{survey.conditions?.events?.values.length === 1 ? 'event is' : 'events are'}</span> triggered.

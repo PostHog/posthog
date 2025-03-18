@@ -1,5 +1,5 @@
 import type { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -173,4 +173,8 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             }
         },
     })),
+
+    afterMount(({ actions }) => {
+        actions.loadExceptionEventDefinition()
+    }),
 ])

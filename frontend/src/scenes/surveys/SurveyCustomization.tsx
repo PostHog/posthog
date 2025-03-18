@@ -51,7 +51,7 @@ export function Customization({
                         <></>
                     </PayGateMini>
                 )}
-                <LemonField.Pure className="mt-2" label="Background color">
+                <LemonField.Pure label="Background color">
                     <LemonInput
                         value={appearance?.backgroundColor}
                         onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
@@ -172,8 +172,8 @@ export function Customization({
                         value={appearance?.zIndex}
                         onChange={(zIndex) => onAppearanceChange({ ...appearance, zIndex })}
                         disabled={!surveysStylingAvailable}
-                        placeholder="99999"
-                        defaultValue="99999"
+                        placeholder="2147482647"
+                        defaultValue="2147482647"
                         className="ignore-error-border"
                     />
                 </LemonField.Pure>
@@ -192,18 +192,22 @@ export function Customization({
                     </LemonField.Pure>
                 )}
                 {isCustomFontsEnabled && (
-                    <LemonField.Pure className="mt-2" label="Font family">
+                    <LemonField.Pure
+                        className="mt-2"
+                        label="Font family"
+                        info="Custom font selection requires at least version 1.223.4 of posthog-js"
+                    >
                         <LemonSelect
                             value={appearance?.fontFamily}
                             onChange={(fontFamily) => onAppearanceChange({ ...appearance, fontFamily })}
                             options={WEB_SAFE_FONTS.map((font) => {
                                 return {
                                     label: (
-                                        <span className={font.toLowerCase().replace(/\s/g, '-')}>
-                                            {font} {font === 'system-ui' ? '(default)' : ''}
+                                        <span className={font.value.toLowerCase().replace(/\s/g, '-')}>
+                                            {font.label}
                                         </span>
                                     ),
-                                    value: font,
+                                    value: font.value,
                                 }
                             })}
                             className="ignore-error-border"
@@ -276,7 +280,7 @@ export function Customization({
                                     onAppearanceChange({ ...appearance, surveyPopupDelaySeconds })
                                 }}
                             />
-                            Delay survey popup after page load by at least{' '}
+                            Delay survey popup by at least{' '}
                             <LemonInput
                                 type="number"
                                 data-attr="survey-popup-delay-input"
@@ -296,7 +300,7 @@ export function Customization({
                                 }}
                                 className="w-12 ignore-error-border"
                             />{' '}
-                            seconds.
+                            seconds once the display conditions are met.
                         </div>
                     </LemonField.Pure>
                 </div>
@@ -305,27 +309,37 @@ export function Customization({
     )
 }
 
-export function WidgetCustomization({ appearance, onAppearanceChange }: WidgetCustomizationProps): JSX.Element {
+export function WidgetCustomization({
+    appearance,
+    onAppearanceChange,
+    validationErrors,
+}: WidgetCustomizationProps): JSX.Element {
     return (
         <>
-            <div className="mt-2">Feedback button type</div>
-            <LemonSelect
-                value={appearance.widgetType}
-                onChange={(widgetType) => onAppearanceChange({ ...appearance, widgetType })}
-                options={[
-                    { label: 'Embedded tab', value: 'tab' },
-                    { label: 'Custom', value: 'selector' },
-                ]}
-            />
+            <LemonField.Pure label="Feedback button type" className="mt-2" labelClassName="font-normal">
+                <LemonSelect
+                    value={appearance.widgetType}
+                    onChange={(widgetType) => onAppearanceChange({ ...appearance, widgetType })}
+                    options={[
+                        { label: 'Embedded tab', value: 'tab' },
+                        { label: 'Custom', value: 'selector' },
+                    ]}
+                />
+            </LemonField.Pure>
             {appearance.widgetType === 'selector' ? (
-                <>
-                    <div className="mt-2">Class or ID selector</div>
+                <LemonField.Pure
+                    className="mt-2"
+                    label="CSS selector"
+                    labelClassName="font-normal"
+                    info="Enter a class or ID selector for the feedback button, like .feedback-button or #feedback-button. If you're using a custom theme, you can use the theme's class name."
+                >
                     <LemonInput
                         value={appearance.widgetSelector}
                         onChange={(widgetSelector) => onAppearanceChange({ ...appearance, widgetSelector })}
                         placeholder="ex: .feedback-button, #feedback-button"
                     />
-                </>
+                    {validationErrors?.widgetSelector && <LemonField.Error error={validationErrors?.widgetSelector} />}
+                </LemonField.Pure>
             ) : (
                 <>
                     <div className="mt-2">Label</div>

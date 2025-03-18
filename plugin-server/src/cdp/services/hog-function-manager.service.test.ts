@@ -4,9 +4,9 @@ import { HogFunctionType, IntegrationType } from '~/src/cdp/types'
 import { Hub } from '~/src/types'
 import { closeHub, createHub } from '~/src/utils/db/hub'
 import { PostgresUse } from '~/src/utils/db/postgres'
-import { insertHogFunction, insertIntegration } from '~/tests/cdp/fixtures'
 import { createTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
+import { insertHogFunction, insertIntegration } from '../_tests/fixtures'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
@@ -121,9 +121,10 @@ describe('HogFunctionManager', () => {
                 inputs: {
                     slack: {
                         value: {
-                            access_token: 'token',
                             team: 'foobar',
+                            access_token: 'token',
                             not_encrypted: 'not-encrypted',
+                            integrationId: 1,
                         },
                     },
                     normal: {
@@ -213,9 +214,10 @@ describe('HogFunctionManager', () => {
         expect(function1Inputs).toEqual({
             slack: {
                 value: {
-                    access_token: 'token',
                     team: 'foobar',
+                    access_token: 'token',
                     not_encrypted: 'not-encrypted',
+                    integrationId: 1,
                 },
             },
             normal: {
@@ -371,7 +373,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn1',
-            execution_order: null,
+            execution_order: undefined,
             type: 'transformation',
         })
 
@@ -412,7 +414,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn2',
-            execution_order: null,
+            execution_order: undefined,
             type: 'transformation',
         })
 
@@ -438,5 +440,218 @@ describe('Hogfunction Manager - Execution Order', () => {
             { name: 'fn1', order: 2 }, // Third because execution_order=2
             { name: 'fn2', order: null }, // Last because null execution_order
         ])
+    })
+})
+
+describe('HogFunctionManager - Integration Updates', () => {
+    let hub: Hub
+    let manager: HogFunctionManagerService
+    let teamId: number
+    let integration: IntegrationType
+
+    beforeEach(async () => {
+        hub = await createHub()
+        await resetTestDatabase()
+        manager = new HogFunctionManagerService(hub)
+
+        const team = await hub.db.fetchTeam(2)
+        teamId = await createTeam(hub.db.postgres, team!.organization_id)
+
+        // Create an integration
+        integration = await insertIntegration(hub.postgres, teamId, {
+            kind: 'slack',
+            config: { team: 'initial-team' },
+            sensitive_config: {
+                access_token: hub.encryptedFields.encrypt('initial-token'),
+            },
+        })
+
+        // Create a hog function that uses this integration
+        await insertHogFunction(hub.postgres, teamId, {
+            name: 'Test Integration Updates',
+            inputs_schema: [
+                {
+                    type: 'integration',
+                    key: 'slack',
+                },
+            ],
+            inputs: {
+                slack: {
+                    value: integration.id,
+                },
+            },
+        })
+
+        await manager.start(['destination'])
+    })
+
+    afterEach(async () => {
+        await manager.stop()
+        await closeHub(hub)
+    })
+
+    it('updates cached integration data when integration changes', async () => {
+        // First check - initial state
+        const functions = manager.getTeamHogFunctions(teamId)
+        expect(functions[0]?.inputs?.slack?.value).toEqual({
+            team: 'initial-team',
+            access_token: 'initial-token',
+            integrationId: integration.id,
+        })
+
+        // Update the integration in the database
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_integration 
+             SET config = jsonb_set(config, '{team}', '"updated-team"'::jsonb),
+                 sensitive_config = jsonb_set(sensitive_config, '{access_token}', $1::jsonb)
+             WHERE id = $2`,
+            [JSON.stringify(hub.encryptedFields.encrypt('updated-token')), integration.id],
+            'updateIntegration'
+        )
+
+        await manager.reloadIntegrations(teamId, [integration.id])
+
+        // Verify the database update worked
+        const updatedIntegration = await hub.db.postgres.query(
+            PostgresUse.COMMON_READ,
+            `SELECT config, sensitive_config FROM posthog_integration WHERE id = $1`,
+            [integration.id],
+            'fetchUpdatedIntegration'
+        )
+
+        // assert the integration was updated
+        expect(updatedIntegration.rows[0].config).toEqual({ team: 'updated-team' })
+        expect(hub.encryptedFields.decrypt(updatedIntegration.rows[0].sensitive_config.access_token)).toEqual(
+            'updated-token'
+        )
+
+        // Trigger integration reload
+        await manager.reloadAllIntegrations()
+        // Check if the cached data was updated
+        const newFunctions = manager.getTeamHogFunctions(teamId)
+        expect(newFunctions[0]?.inputs?.slack?.value).toEqual({
+            team: 'updated-team',
+            access_token: 'updated-token',
+            integrationId: integration.id,
+        })
+    })
+})
+
+describe('sanitize', () => {
+    let hub: Hub
+    let manager: HogFunctionManagerService
+
+    beforeEach(async () => {
+        hub = await createHub()
+        manager = new HogFunctionManagerService(hub)
+    })
+
+    afterEach(async () => {
+        await closeHub(hub)
+    })
+
+    it('should handle encrypted_inputs as an object', () => {
+        const item: HogFunctionType = {
+            id: '1',
+            team_id: 1,
+            name: 'test',
+            type: 'destination',
+            enabled: true,
+            deleted: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            encrypted_inputs: {
+                apiKey: {
+                    value: 'test-key',
+                    order: 0,
+                    bytecode: ['_H', 1, 32, 'test-key'],
+                },
+            },
+        } as unknown as HogFunctionType
+
+        manager.sanitize([item])
+
+        // Should preserve the original object
+        expect(item.encrypted_inputs).toEqual({
+            apiKey: {
+                value: 'test-key',
+                order: 0,
+                bytecode: ['_H', 1, 32, 'test-key'],
+            },
+        })
+    })
+
+    it('should handle encrypted_inputs as a string', () => {
+        const encryptedString = hub.encryptedFields.encrypt(
+            JSON.stringify({
+                apiKey: {
+                    value: 'test-key',
+                    order: 0,
+                },
+            })
+        )
+
+        const item: HogFunctionType = {
+            id: '1',
+            team_id: 1,
+            name: 'test',
+            type: 'destination',
+            enabled: true,
+            deleted: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            encrypted_inputs: encryptedString,
+        } as unknown as HogFunctionType
+
+        manager.sanitize([item])
+
+        // Should decrypt and parse the string
+        expect(item.encrypted_inputs).toEqual({
+            apiKey: {
+                value: 'test-key',
+                order: 0,
+            },
+        })
+    })
+
+    it('should capture exception for invalid encrypted string while preserving value', () => {
+        const item: HogFunctionType = {
+            id: '1',
+            team_id: 1,
+            name: 'test',
+            type: 'destination',
+            enabled: true,
+            deleted: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            encrypted_inputs: 'invalid-encrypted-string',
+        } as unknown as HogFunctionType
+
+        manager.sanitize([item])
+
+        // Should preserve the original invalid string
+        expect(item.encrypted_inputs).toBe('invalid-encrypted-string')
+    })
+
+    it('should not capture exception for undefined values', () => {
+        const items: HogFunctionType[] = [
+            {
+                id: '1',
+                team_id: 1,
+                name: 'test-undefined',
+                type: 'destination',
+                enabled: true,
+                deleted: false,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                encrypted_inputs: undefined,
+            } as unknown as HogFunctionType,
+        ]
+
+        manager.sanitize(items)
+
+        // Should preserve undefined value
+        expect(items[0].encrypted_inputs).toBeUndefined()
     })
 })

@@ -45,6 +45,7 @@ case "$RS_SVC" in
     export OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
     export FRAME_CACHE_TTL_SECONDS=1
     export BIND_PORT=3302 # HACK! avoid local-dev clash with property-defs-rs port
+    export ALLOW_INTERNAL_IPS="true"
     ;;
 
   cyclotron-fetch)
@@ -92,7 +93,7 @@ while true; do
 
   # restart subprocess if it fails without bin/start shutdown
   set +e
-  wait -n $RS_PID
+  wait $RS_PID
   set -e
 
   sleep 3

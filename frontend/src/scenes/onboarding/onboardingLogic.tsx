@@ -1,5 +1,7 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -11,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { Breadcrumb, OnboardingProduct, ProductKey, ReplayTabs } from '~/types'
+import { Breadcrumb, OnboardingProduct, ProductKey, ReplayTabs, SidePanelTab } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
@@ -32,6 +34,7 @@ export enum OnboardingStepKey {
     DASHBOARD_TEMPLATE = 'dashboard_template',
     DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
     SESSION_REPLAY = 'session_replay',
+    AUTHORIZED_DOMAINS = 'authorized_domains',
 }
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
@@ -54,6 +57,8 @@ export const getProductUri = (productKey: ProductKey, replayLandingPage: ReplayT
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
             return urls.insightNew()
+        case ProductKey.WEB_ANALYTICS:
+            return urls.webAnalytics()
         case ProductKey.SESSION_REPLAY:
             return urls.replay(replayLandingPage)
         case ProductKey.FEATURE_FLAGS:
@@ -82,6 +87,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['isCloudOrDev'],
             replayLandingPageLogic,
             ['replayLandingPage'],
+            sidePanelStateLogic,
+            ['modalMode'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             billingLogic,
@@ -95,14 +104,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
-        completeOnboarding: (nextProductKey?: string, redirectUrlOverride?: string) => ({
-            nextProductKey,
-            redirectUrlOverride,
+        completeOnboarding: (options?: { redirectUrlOverride?: string }) => ({
+            redirectUrlOverride: options?.redirectUrlOverride,
         }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
-        setIncludeIntro: (includeIntro: boolean) => ({ includeIntro }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
         goToNextStep: (numStepsToAdvance?: number) => ({ numStepsToAdvance }),
@@ -139,12 +146,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             false,
             {
                 setSubscribedDuringOnboarding: (_, { subscribedDuringOnboarding }) => subscribedDuringOnboarding,
-            },
-        ],
-        includeIntro: [
-            true,
-            {
-                setIncludeIntro: (_, { includeIntro }) => includeIntro,
             },
         ],
         waitForBilling: [
@@ -237,6 +238,19 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 )
             },
         ],
+        shouldShowDataWarehouseStep: [
+            (s) => [s.productKey, s.featureFlags],
+            (productKey, featureFlags) => {
+                const dataWarehouseStepEnabled =
+                    featureFlags[FEATURE_FLAGS.ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS] === 'test'
+
+                if (!dataWarehouseStepEnabled) {
+                    return false
+                }
+
+                return productKey === ProductKey.PRODUCT_ANALYTICS
+            },
+        ],
         isStepKeyInvalid: [
             (s) => [s.stepKey, s.allOnboardingSteps, s.currentOnboardingStep],
             (stepKey: string, allOnboardingSteps: AllOnboardingSteps, currentOnboardingStep: React.ReactNode | null) =>
@@ -299,7 +313,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
 
-        completeOnboarding: ({ nextProductKey, redirectUrlOverride }) => {
+        completeOnboarding: ({ redirectUrlOverride }) => {
             if (redirectUrlOverride) {
                 actions.setOnCompleteOnboardingRedirectUrl(redirectUrlOverride)
             }
@@ -312,10 +326,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
                         [productKey]: true,
                     },
                 })
-                if (nextProductKey) {
-                    actions.setProductKey(nextProductKey)
-                    router.actions.push(urls.onboarding(nextProductKey))
-                }
+            }
+
+            if (values.isFirstProductOnboarding && !values.modalMode) {
+                actions.openSidePanel(SidePanelTab.Activation)
             }
         },
         setAllOnboardingSteps: () => {

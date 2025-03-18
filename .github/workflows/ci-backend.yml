@@ -52,9 +52,9 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
-            - uses: dorny/paths-filter@v2
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
               with:
                   filters: |
@@ -100,17 +100,17 @@ jobs:
         steps:
             # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
             # there are backend changes, cancel previous runs
-            - uses: n1hility/cancel-previous-runs@v3
+            - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
               if: github.actor != 'posthog-bot' && needs.changes.outputs.backend == 'true'
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               with:
                   fetch-depth: 1
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
               with:
                   python-version: 3.11.9
                   cache: 'pip'
@@ -142,7 +142,7 @@ jobs:
 
             - name: Check static typing
               run: |
-                  mypy -p posthog | mypy-baseline filter
+                  mypy --version && mypy -p posthog | mypy-baseline filter || echo "run 'pnpm run mypy-baseline-sync' to update the baseline"
 
             - name: Check if "schema.py" is up to date
               run: |
@@ -157,7 +157,7 @@ jobs:
         runs-on: depot-ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -165,7 +165,7 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
               with:
                   python-version: 3.11.9
                   cache: 'pip'
@@ -182,7 +182,7 @@ jobs:
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
-              uses: actions/checkout@v3
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               with:
                   ref: master
 
@@ -196,7 +196,7 @@ jobs:
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
-              uses: actions/checkout@v3
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - name: Install python dependencies for this PR
               run: |
@@ -265,7 +265,7 @@ jobs:
             # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
             # All the other ones should rely on `needs.changes.outputs.backend` directly or indirectly, so that they're
             # effectively skipped if backend code is unchanged. See https://github.com/PostHog/posthog/pull/15174.
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -284,8 +284,7 @@ jobs:
                   group: ${{ matrix.group }}
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - uses: EndBug/add-and-commit@v9
-              # Skip on forks
+            - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
               if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
               with:
@@ -314,7 +313,7 @@ jobs:
                   exit 1
 
             - name: Archive email renders
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.person-on-events == false
               with:
                   name: email_renders-${{ matrix.segment }}-${{ matrix.person-on-events }}
@@ -332,7 +331,7 @@ jobs:
         runs-on: depot-ubuntu-latest
         steps:
             - name: 'Checkout repo'
-              uses: actions/checkout@v3
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               with:
                   fetch-depth: 1
 
@@ -343,7 +342,7 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
               with:
                   python-version: 3.11.9
                   cache: 'pip'
@@ -363,8 +362,8 @@ jobs:
               run: |
                   uv pip install --system -r requirements.txt -r requirements-dev.txt
 
-            - name: Add kafka host to /etc/hosts for kafka connectivity
-              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+            - name: Add Kafka and ClickHouse to /etc/hosts
+              run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up needed files
               run: |

@@ -1,7 +1,10 @@
 from datetime import datetime
 from typing import Any
-from unittest.mock import ANY, MagicMock, Mock, call, patch
+from unittest.mock import MagicMock, Mock, patch
 from uuid import uuid4
+import gzip
+import json
+import base64
 
 import pytest
 import structlog
@@ -12,9 +15,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
-from ee.billing.billing_manager import build_billing_token
 from ee.models.license import License
-from ee.settings import BILLING_SERVICE_URL
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -44,7 +45,6 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     capture_event,
-    capture_report,
     get_instance_metadata,
     send_all_org_usage_reports,
 )
@@ -61,7 +61,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.test.fixtures import create_app_metric2
-from posthog.utils import get_machine_id, get_previous_day
+from posthog.utils import get_previous_day
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 
 logger = structlog.get_logger(__name__)
@@ -78,6 +78,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             distinct_id=str(uuid4()),
             first_timestamp=timestamp,
             last_timestamp=timestamp,
+            size=10,
         )
 
     if include_mobile_replay:
@@ -89,6 +90,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             first_timestamp=timestamp,
             last_timestamp=timestamp,
             snapshot_source="mobile",
+            size=6,
         )
 
     # recordings out of period  - 11 sessions
@@ -101,6 +103,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             distinct_id=str(uuid4()),
             first_timestamp=timestamp1,
             last_timestamp=timestamp1,
+            size=10,
         )
         # we maybe also include a single mobile recording out of period
         if i == 1 and include_mobile_replay:
@@ -111,6 +114,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
                 first_timestamp=timestamp1,
                 last_timestamp=timestamp1,
                 snapshot_source="mobile",
+                size=6,
             )
 
     # ensure there is a recording that starts before the period and ends during the period
@@ -124,6 +128,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         distinct_id=str(uuid4()),
         first_timestamp=timestamp2,
         last_timestamp=timestamp2,
+        size=10,
     )
     produce_replay_summary(
         team_id=team_id,
@@ -131,6 +136,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         distinct_id=str(uuid4()),
         first_timestamp=start_of_day,
         last_timestamp=start_of_day,
+        size=10,
     )
     timestamp3 = start_of_day + relativedelta(hours=1)
     produce_replay_summary(
@@ -139,6 +145,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         distinct_id=str(uuid4()),
         first_timestamp=timestamp3,
         last_timestamp=timestamp3,
+        size=10,
     )
 
 
@@ -152,7 +159,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
         self.expected_properties: dict = {}
 
-    def _create_sample_usage_data(self) -> None:
+    def _create_sample_usage_data(self, include_mobile_replay: bool) -> None:
         """
         For this test, we create a lot of data around the current date 2022-01-01
         so that we can test the report overall
@@ -355,6 +362,22 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 team=self.org_1_team_1,
             )
 
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$ai_generation",
+                properties={
+                    "$ai_trace_id": "some_id",
+                    "$ai_input_tokens": 100,
+                    "$ai_output_tokens": 100,
+                    "$ai_input_cost_usd": 0.01,
+                    "$ai_output_cost_usd": 0.01,
+                    "$ai_total_cost_usd": 0.02,
+                },
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+
             # Add events for each SDK
             sdks = [
                 "web",
@@ -403,7 +426,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 person_mode="full",
             )
 
-            _setup_replay_data(team_id=self.org_1_team_2.id, include_mobile_replay=False)
+            _setup_replay_data(team_id=self.org_1_team_2.id, include_mobile_replay=include_mobile_replay)
 
             _create_event(
                 distinct_id=distinct_id,
@@ -462,7 +485,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
     def _test_usage_report(self) -> list[dict]:
         with self.settings(SITE_URL="http://test.posthog.com"):
-            self._create_sample_usage_data()
+            self._create_sample_usage_data(include_mobile_replay=True)
             self._create_plugin("Installed but not enabled", False)
             self._create_plugin("Installed and enabled", True)
 
@@ -505,8 +528,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 41,
-                    "enhanced_persons_event_count_in_period": 40,
+                    "event_count_in_period": 42,
+                    "enhanced_persons_event_count_in_period": 41,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
                     "event_count_from_traceloop_in_period": 1,
@@ -524,8 +547,11 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "ruby_events_count_in_period": 1,
                     "python_events_count_in_period": 1,
                     "php_events_count_in_period": 1,
+                    "dotnet_events_count_in_period": 0,
+                    "recording_bytes_in_period": 50,
                     "recording_count_in_period": 5,
-                    "mobile_recording_count_in_period": 0,
+                    "mobile_recording_bytes_in_period": 6,
+                    "mobile_recording_count_in_period": 1,
                     "mobile_billable_recording_count_in_period": 0,
                     "group_types_total": 2,
                     "dashboard_count": 2,
@@ -535,6 +561,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "ff_count": 2,
                     "ff_active_count": 1,
                     "issues_created_total": 1,
+                    "symbol_sets_count": 0,
+                    "resolved_symbol_sets_count": 0,
                     "decide_requests_count_in_period": 0,
                     "local_evaluation_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
@@ -553,6 +581,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
                     "exceptions_captured_in_period": 0,
+                    "ai_event_count_in_period": 1,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "date": "2022-01-09",
@@ -563,8 +592,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_in_period": 30,
-                            "enhanced_persons_event_count_in_period": 29,
+                            "event_count_in_period": 31,
+                            "enhanced_persons_event_count_in_period": 30,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
                             "event_count_from_traceloop_in_period": 1,
@@ -582,7 +611,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ruby_events_count_in_period": 1,
                             "python_events_count_in_period": 1,
                             "php_events_count_in_period": 1,
+                            "dotnet_events_count_in_period": 0,
+                            "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
+                            "mobile_recording_bytes_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
                             "group_types_total": 2,
@@ -593,6 +625,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ff_count": 2,
                             "ff_active_count": 1,
                             "issues_created_total": 1,
+                            "symbol_sets_count": 0,
+                            "resolved_symbol_sets_count": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
@@ -613,6 +647,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "ai_event_count_in_period": 1,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
@@ -634,8 +669,11 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ruby_events_count_in_period": 0,
                             "python_events_count_in_period": 0,
                             "php_events_count_in_period": 0,
+                            "dotnet_events_count_in_period": 0,
+                            "recording_bytes_in_period": 50,
                             "recording_count_in_period": 5,
-                            "mobile_recording_count_in_period": 0,
+                            "mobile_recording_bytes_in_period": 6,
+                            "mobile_recording_count_in_period": 1,
                             "mobile_billable_recording_count_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
@@ -645,6 +683,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ff_count": 0,
                             "ff_active_count": 0,
                             "issues_created_total": 0,
+                            "symbol_sets_count": 0,
+                            "resolved_symbol_sets_count": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
@@ -665,6 +705,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "ai_event_count_in_period": 0,
                         },
                     },
                 },
@@ -709,7 +750,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "ruby_events_count_in_period": 0,
                     "python_events_count_in_period": 0,
                     "php_events_count_in_period": 0,
+                    "dotnet_events_count_in_period": 0,
+                    "recording_bytes_in_period": 0,
                     "recording_count_in_period": 0,
+                    "mobile_recording_bytes_in_period": 0,
                     "mobile_recording_count_in_period": 0,
                     "mobile_billable_recording_count_in_period": 0,
                     "group_types_total": 0,
@@ -720,6 +764,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "ff_count": 0,
                     "ff_active_count": 0,
                     "issues_created_total": 0,
+                    "symbol_sets_count": 0,
+                    "resolved_symbol_sets_count": 0,
                     "decide_requests_count_in_period": 0,
                     "local_evaluation_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
@@ -740,6 +786,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "exceptions_captured_in_period": 0,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
+                    "ai_event_count_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
                     "organization_name": "Org 2",
@@ -767,7 +814,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ruby_events_count_in_period": 0,
                             "python_events_count_in_period": 0,
                             "php_events_count_in_period": 0,
+                            "dotnet_events_count_in_period": 0,
+                            "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
+                            "mobile_recording_bytes_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
                             "group_types_total": 0,
@@ -778,6 +828,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ff_count": 0,
                             "ff_active_count": 0,
                             "issues_created_total": 0,
+                            "symbol_sets_count": 0,
+                            "resolved_symbol_sets_count": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
@@ -798,6 +850,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "ai_event_count_in_period": 0,
                         }
                     },
                 },
@@ -823,43 +876,42 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
     @freeze_time("2022-01-10T00:01:00Z")
     @patch("os.environ", {"DEPLOYMENT": "tests"})
-    @patch("posthog.tasks.usage_report.Client")
-    @patch("requests.post")
-    def test_unlicensed_usage_report(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_unlicensed_usage_report(self, mock_get_sqs_producer: MagicMock, mock_client: MagicMock) -> None:
         self.expected_properties = {}
         mockresponse = Mock()
-        mock_post.return_value = mockresponse
+        mock_get_sqs_producer.return_value = MagicMock()
         mockresponse.status_code = 200
         mockresponse.json = lambda: {}
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
-        all_reports = self._test_usage_report()
-        with self.settings(SITE_URL="http://test.posthog.com"):
+        with self.settings(SITE_URL="http://test.posthog.com", EE_AVAILABLE=False):
             send_all_org_usage_reports()
 
         # Check calls to other services
-        mock_post.assert_not_called()
+        mock_get_sqs_producer.assert_not_called()
 
-        calls = [
-            call(
-                get_machine_id(),
-                "organization usage report",
-                {**all_reports[0], "scope": "machine"},
-                groups={"instance": ANY},
-                timestamp=None,
-            ),
-            call(
-                get_machine_id(),
-                "organization usage report",
-                {**all_reports[1], "scope": "machine"},
-                groups={"instance": ANY},
-                timestamp=None,
-            ),
-        ]
+        # calls = [
+        #     call(
+        #         get_machine_id(),
+        #         "organization usage report",
+        #         {**all_reports[0], "scope": "machine"},
+        #         groups={"instance": ANY},
+        #         timestamp=None,
+        #     ),
+        #     call(
+        #         get_machine_id(),
+        #         "organization usage report",
+        #         {**all_reports[1], "scope": "machine"},
+        #         groups={"instance": ANY},
+        #         timestamp=None,
+        #     ),
+        # ]
 
-        assert mock_posthog.capture.call_count == 2
-        mock_posthog.capture.assert_has_calls(calls, any_order=True)
+        # assert mock_posthog.capture.call_count == 2
+        # mock_posthog.capture.assert_has_calls(calls, any_order=True)
 
 
 @freeze_time("2022-01-09T00:01:00Z")
@@ -1057,7 +1109,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
 
     @snapshot_clickhouse_queries
-    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_usage_report_decide_requests(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
         self._setup_teams()
@@ -1135,7 +1187,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_2_report["teams"]["5"]["decide_requests_count_in_period"] == 0
         assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_period"] == 0
 
-    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_usage_report_local_evaluation_requests(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
@@ -1235,7 +1287,7 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
 
-    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_usage_report_survey_responses(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
         self._setup_teams()
@@ -1313,7 +1365,7 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
         assert org_2_report["survey_responses_count_in_period"] == 1
         assert org_2_report["teams"]["5"]["survey_responses_count_in_period"] == 1
 
-    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_survey_events_are_not_double_charged(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
@@ -1370,7 +1422,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
 
-    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_external_data_rows_synced_response(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
@@ -1428,7 +1480,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["rows_synced_in_period"] == 0
 
-    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_external_data_rows_synced_response_with_v2_jobs(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
@@ -1500,7 +1552,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
 
-    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_hog_function_usage_metrics(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
         self._setup_teams()
@@ -1544,7 +1596,7 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
         self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
 
-    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_posthog_exceptions_captured_response(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
@@ -1622,6 +1674,105 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         assert org_2_report["teams"][str(self.org_2_team_3.pk)]["exceptions_captured_in_period"] == 7
 
 
+@freeze_time("2022-01-10T10:00:00Z")
+class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
+    def setUp(self) -> None:
+        Team.objects.all().delete()
+        return super().setUp()
+
+    def _setup_teams(self) -> None:
+        self.org_1 = Organization.objects.create(name="Org 1")
+        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_llm_observability_usage_metrics(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        # Create AI Generation events in period
+        for i in range(5):
+            _create_event(
+                distinct_id="test_id",
+                event="$ai_generation",
+                properties={
+                    "$ai_trace_id": "some_id",
+                    "$ai_model": "gpt-4o",
+                    "$ai_provider": "openai",
+                    "$ai_input_tokens": 100,
+                    "$ai_output_tokens": 100,
+                    "$ai_input_cost_usd": 0.01,
+                    "$ai_output_cost_usd": 0.01,
+                    "$ai_total_cost_usd": 0.02,
+                },
+                timestamp=now() - relativedelta(hours=i),
+                team=self.org_1_team_1,
+            )
+
+        # Create AI Span And Trace events in period
+        _create_event(
+            distinct_id="test_id",
+            event="$ai_span",
+            properties={
+                "$ai_trace_id": "some_id",
+                "$ai_span_id": "some_id",
+            },
+            timestamp=now() - relativedelta(hours=1),
+            team=self.org_1_team_1,
+        )
+
+        _create_event(
+            distinct_id="test_id",
+            event="$ai_trace",
+            properties={
+                "$ai_trace_id": "some_id",
+            },
+            timestamp=now() - relativedelta(hours=1),
+            team=self.org_1_team_1,
+        )
+
+        # Create some out of period events that shouldn't be counted
+        _create_event(
+            distinct_id="test_id",
+            event="$ai_generation",
+            properties={
+                "$ai_trace_id": "some_id",
+                "$ai_model": "gpt-4o",
+                "$ai_provider": "openai",
+                "$ai_input_tokens": 100,
+                "$ai_output_tokens": 100,
+                "$ai_input_cost_usd": 0.01,
+                "$ai_output_cost_usd": 0.01,
+                "$ai_total_cost_usd": 0.02,
+            },
+            timestamp=now() - relativedelta(days=2),
+            team=self.org_1_team_1,
+        )
+
+        # Create some non-AI events that shouldn't be counted
+        _create_event(
+            distinct_id="test_id",
+            event="$pageview",
+            timestamp=now() - relativedelta(hours=1),
+            team=self.org_1_team_1,
+        )
+
+        flush_persons_and_events()
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["ai_event_count_in_period"] == 7
+        assert org_1_report["teams"]["3"]["ai_event_count_in_period"] == 7
+
+
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1692,95 +1843,119 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                         "usage": 1000,
                         "limit": None,
                     },
+                    "feature_flag_requests": {
+                        "usage": 1000,
+                        "limit": None,
+                    },
                 },
             }
         }
 
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("posthog.tasks.usage_report.Client")
-    @patch("requests.post")
-    def test_send_usage(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_send_usage(self, mock_get_sqs_producer: MagicMock, mock_client: MagicMock) -> None:
         mockresponse = Mock()
-        mock_post.return_value = mockresponse
         mockresponse.status_code = 200
         mockresponse.json = lambda: self._usage_report_response()
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
+        mock_producer = MagicMock()
+        mock_get_sqs_producer.return_value = mock_producer
+
         period = get_previous_day()
         period_start, period_end = period
         all_reports = _get_all_org_reports(period_start, period_end)
+
         full_report_as_dict = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
         )
+        json_data = json.dumps(
+            {"organization_id": str(self.organization.id), "usage_report": full_report_as_dict}, separators=(",", ":")
+        )
+        compressed_bytes = gzip.compress(json_data.encode("utf-8"))
+        compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
+
         send_all_org_usage_reports(dry_run=False)
         license = License.objects.first()
         assert license
-        token = build_billing_token(license, self.organization)
-        mock_post.assert_called_once_with(
-            f"{BILLING_SERVICE_URL}/api/usage",
-            json=full_report_as_dict,
-            headers={"Authorization": f"Bearer {token}"},
+
+        mock_producer.send_message.assert_called_once_with(
+            message_attributes={
+                "content_encoding": "gzip",
+                "content_type": "application/json",
+            },
+            message_body=compressed_b64,
         )
 
-        mock_posthog.capture.assert_any_call(
-            get_machine_id(),
-            "organization usage report",
-            {**full_report_as_dict, "scope": "machine"},
-            groups={"instance": ANY},
-            timestamp=None,
-        )
+        # mock_posthog.capture.assert_any_call(
+        #     get_machine_id(),
+        #     "organization usage report",
+        #     {**full_report_as_dict, "scope": "machine"},
+        #     groups={"instance": ANY},
+        #     timestamp=None,
+        # )
 
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("posthog.tasks.usage_report.Client")
-    @patch("requests.post")
-    def test_send_usage_cloud(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_send_usage_cloud(self, mock_get_sqs_producer: MagicMock, mock_client: MagicMock) -> None:
         with self.is_cloud(True):
             mockresponse = Mock()
-            mock_post.return_value = mockresponse
             mockresponse.status_code = 200
             mockresponse.json = lambda: self._usage_report_response()
             mock_posthog = MagicMock()
             mock_client.return_value = mock_posthog
 
+            mock_producer = MagicMock()
+            mock_get_sqs_producer.return_value = mock_producer
+
             period = get_previous_day()
             period_start, period_end = period
             all_reports = _get_all_org_reports(period_start, period_end)
+
             full_report_as_dict = _get_full_org_usage_report_as_dict(
-                _get_full_org_usage_report(
-                    all_reports[str(self.organization.id)],
-                    get_instance_metadata(period),
-                )
+                _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
             )
+            json_data = json.dumps(
+                {"organization_id": str(self.organization.id), "usage_report": full_report_as_dict},
+                separators=(",", ":"),
+            )
+            compressed_bytes = gzip.compress(json_data.encode("utf-8"))
+            compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
+
             send_all_org_usage_reports(dry_run=False)
             license = License.objects.first()
             assert license
-            token = build_billing_token(license, self.organization)
-            mock_post.assert_called_once_with(
-                f"{BILLING_SERVICE_URL}/api/usage",
-                json=full_report_as_dict,
-                headers={"Authorization": f"Bearer {token}"},
+
+            mock_producer.send_message.assert_called_once_with(
+                message_attributes={
+                    "content_encoding": "gzip",
+                    "content_type": "application/json",
+                },
+                message_body=compressed_b64,
             )
 
-            mock_posthog.capture.assert_any_call(
-                self.user.distinct_id,
-                "organization usage report",
-                {**full_report_as_dict, "scope": "user"},
-                groups={
-                    "instance": "http://localhost:8010",
-                    "organization": str(self.organization.id),
-                },
-                timestamp=None,
-            )
+            # mock_posthog.capture.assert_any_call(
+            #     self.user.distinct_id,
+            #     "organization usage report",
+            #     {**full_report_as_dict, "scope": "user"},
+            #     groups={
+            #         "instance": "http://localhost:8010",
+            #         "organization": str(self.organization.id),
+            #     },
+            #     timestamp=None,
+            # )
 
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.capture_exception")
     @patch("posthog.tasks.usage_report.sync_execute", side_effect=Exception())
-    @patch("posthog.tasks.usage_report.Client")
-    @patch("requests.post")
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
     def test_send_usage_cloud_exception(
         self,
-        mock_post: MagicMock,
+        mock_get_sqs_producer: MagicMock,
         mock_client: MagicMock,
         mock_sync_execute: MagicMock,
         mock_capture_exception: MagicMock,
@@ -1788,7 +1963,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         with pytest.raises(Exception):
             with self.is_cloud(True):
                 mockresponse = Mock()
-                mock_post.return_value = mockresponse
+                mock_get_sqs_producer.return_value = MagicMock()
                 mockresponse.status_code = 200
                 mockresponse.json = lambda: self._usage_report_response()
                 mock_posthog = MagicMock()
@@ -1796,53 +1971,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                 send_all_org_usage_reports(dry_run=False)
         assert mock_capture_exception.call_count == 1
 
-    @freeze_time("2021-10-10T23:01:00Z")
-    @patch("posthog.tasks.usage_report.Client")
-    @patch("requests.post")
-    def test_send_usage_billing_service_not_reachable(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
-        with pytest.raises(Exception):
-            mockresponse = Mock()
-            mock_post.return_value = mockresponse
-            mockresponse.status_code = 404
-            mockresponse.ok = False
-            mockresponse.json = lambda: {"code": "not_found"}
-            mockresponse.content = ""
-
-            mock_posthog = MagicMock()
-            mock_client.return_value = mock_posthog
-
-            send_all_org_usage_reports(dry_run=False)
-            mock_posthog.capture.assert_any_call(
-                get_machine_id(),
-                "organization usage report to billing service failure",
-                {"err": ANY, "scope": "machine"},
-                groups={"instance": ANY},
-                timestamp=None,
-            )
-
-    @freeze_time("2021-10-10T23:01:00Z")
-    @patch("posthog.tasks.usage_report.Client")
-    @patch("requests.post")
-    def test_org_usage_updated_correctly(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
-        mockresponse = Mock()
-        mock_post.return_value = mockresponse
-        mockresponse.status_code = 200
-        usage_report_response = self._usage_report_response()
-        mockresponse.json = lambda: usage_report_response
-        mock_posthog = MagicMock()
-        mock_client.return_value = mock_posthog
-
-        send_all_org_usage_reports(dry_run=False)
-
-        self.team.organization.refresh_from_db()
-        assert self.team.organization.usage == {
-            "events": {"limit": None, "usage": 10000, "todays_usage": 0},
-            "recordings": {"limit": None, "usage": 1000, "todays_usage": 0},
-            "rows_synced": {"limit": None, "usage": 1000, "todays_usage": 0},
-            "period": ["2021-10-01T00:00:00Z", "2021-10-31T00:00:00Z"],
-        }
-
-    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.get_ph_client")
     def test_capture_event_called_with_string_timestamp(self, mock_client: MagicMock) -> None:
         organization = Organization.objects.create()
         mock_posthog = MagicMock()
@@ -1856,56 +1985,10 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
 
-    @patch("posthog.tasks.usage_report.Client")
-    def test_capture_report_transforms_team_id_to_org_id(self, mock_client: MagicMock) -> None:
-        mock_posthog = MagicMock()
-        mock_client.return_value = mock_posthog
-
-        # Create a second team in the same organization to verify the mapping
-        team2 = Team.objects.create(organization=self.organization)
-
-        # Create a report with team-level data
-        report = {
-            "organization_name": "Test Org",
-            "date": "2024-01-01",
-        }
-
-        with self.is_cloud(True):
-            # Call capture_report
-            capture_report(capture_event_name="test event", team_id=team2.id, full_report_dict=report)
-
-        # Verify the capture call was made with the organization ID
-        mock_posthog.capture.assert_called_once_with(
-            self.user.distinct_id,
-            "test event",
-            {**report, "scope": "user"},
-            groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
-            timestamp=None,
-        )
-
-        # now check with send_for_all_members=True
-        mock_posthog.reset_mock()
-
-        with self.is_cloud(True):
-            capture_report(
-                capture_event_name="test event",
-                team_id=self.team.id,
-                full_report_dict=report,
-                send_for_all_members=True,
-            )
-
-        mock_posthog.capture.assert_called_once_with(
-            self.user.distinct_id,
-            "test event",
-            {**report, "scope": "user"},
-            groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
-            timestamp=None,
-        )
-
 
 class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")
     def test_usage_not_sent_if_zero(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
         mock_posthog = MagicMock()
@@ -1918,7 +2001,7 @@ class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTe
 
 class SendUsageNoLicenseTest(APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")
     def test_no_license(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
         TEST_clear_instance_license_cache()

@@ -1,12 +1,11 @@
-import { LemonButton, LemonDialog, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-general'
+import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { ExperimentMetricForm } from './ExperimentMetricForm'
+import { ExperimentMetricForm } from '../ExperimentMetricForm'
 
 export function ExperimentMetricModal({
     experimentId,
@@ -18,14 +17,14 @@ export function ExperimentMetricModal({
     const {
         experiment,
         experimentLoading,
-        getExperimentMetricType,
         isPrimaryMetricModalOpen,
         isSecondaryMetricModalOpen,
         editingPrimaryMetricIndex,
         editingSecondaryMetricIndex,
     } = useValues(experimentLogic({ experimentId }))
     const {
-        updateExperimentGoal,
+        setMetric,
+        updateExperimentMetrics,
         setExperiment,
         closePrimaryMetricModal,
         closeSecondaryMetricModal,
@@ -41,7 +40,6 @@ export function ExperimentMetricModal({
 
     const metrics = experiment[metricsField]
     const metric = metrics[metricIdx] as ExperimentMetric
-    const metricType = getExperimentMetricType(metric)
 
     const onClose = (): void => {
         restoreUnmodifiedExperiment()
@@ -71,7 +69,7 @@ export function ExperimentMetricModal({
                                         setExperiment({
                                             [metricsField]: newMetrics,
                                         })
-                                        updateExperimentGoal()
+                                        updateExperimentMetrics()
                                         isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
                                     },
                                     size: 'small',
@@ -93,7 +91,7 @@ export function ExperimentMetricModal({
                         <LemonButton
                             form="edit-experiment-metric-form"
                             onClick={() => {
-                                updateExperimentGoal()
+                                updateExperimentMetrics()
                                 isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
                             }}
                             type="primary"
@@ -107,40 +105,28 @@ export function ExperimentMetricModal({
             }
         >
             <div className="mb-4">
-                <h4 className="mb-2">Metric type</h4>
-                <LemonRadio
-                    data-attr="metrics-selector"
-                    value={metricType}
-                    onChange={(newMetricType: ExperimentMetricType) => {
-                        const newMetric = {
-                            ...metrics[metricIdx],
-                            metric_type: newMetricType,
-                        }
-                        setExperiment({
-                            ...experiment,
-                            [metricsField]: [
-                                ...metrics.slice(0, metricIdx),
-                                newMetric,
-                                ...metrics.slice(metricIdx + 1),
-                            ],
+                <LemonLabel className="mb-1">Name (optional)</LemonLabel>
+                <LemonInput
+                    value={metric.name}
+                    onChange={(newName) => {
+                        setMetric({
+                            metricIdx,
+                            metric: {
+                                ...metric,
+                                name: newName,
+                            },
+                            isSecondary,
                         })
                     }}
-                    options={[
-                        {
-                            value: ExperimentMetricType.COUNT,
-                            label: 'Count',
-                            description:
-                                'Tracks how many times an event happens, useful for click counts or page views.',
-                        },
-                        {
-                            value: ExperimentMetricType.CONTINUOUS,
-                            label: 'Continuous',
-                            description: 'Measures numerical values like revenue or session length.',
-                        },
-                    ]}
                 />
             </div>
-            <ExperimentMetricForm isSecondary={isSecondary} />
+            <ExperimentMetricForm
+                metric={metric}
+                handleSetMetric={({ newMetric }: { newMetric: ExperimentMetric }) => {
+                    setMetric({ metricIdx, metric: newMetric, isSecondary })
+                }}
+                filterTestAccounts={experiment.exposure_criteria?.filterTestAccounts || false}
+            />
         </LemonModal>
     )
 }

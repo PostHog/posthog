@@ -1,4 +1,5 @@
-import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
+import { IconCheck } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -46,10 +47,12 @@ export function NewSourceWizardScene(): JSX.Element {
 }
 
 interface NewSourcesWizardProps {
+    disableConnectedSources?: boolean
     onComplete?: () => void
 }
 
-export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Element {
+export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
+    const { onComplete } = props
     const wizardLogic = sourceWizardLogic({ onComplete })
 
     const { modalTitle, modalCaption, isWrapped, currentStep, isLoading, canGoBack, canGoNext, nextButtonText } =
@@ -103,7 +106,7 @@ export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Ele
                 <p>{modalCaption}</p>
 
                 {currentStep === 1 ? (
-                    <FirstStep />
+                    <FirstStep {...props} />
                 ) : currentStep === 2 ? (
                     <SecondStep />
                 ) : currentStep === 3 ? (
@@ -120,7 +123,7 @@ export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Ele
     )
 }
 
-function FirstStep(): JSX.Element {
+function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'disableConnectedSources'>): JSX.Element {
     const { connectors, manualConnectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
     const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
         useActions(sourceWizardLogic)
@@ -150,7 +153,7 @@ function FirstStep(): JSX.Element {
 
             <p>
                 Data will be synced to PostHog and regularly refreshed.{' '}
-                <Link to="https://posthog.com/docs/data-warehouse/setup#stripe">Learn more</Link>
+                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
             </p>
             <LemonTable
                 dataSource={filteredConnectors}
@@ -176,22 +179,43 @@ function FirstStep(): JSX.Element {
                     {
                         key: 'actions',
                         width: 0,
-                        render: (_, sourceConfig) => (
-                            <div className="flex flex-row justify-end">
-                                <LemonButton onClick={() => onClick(sourceConfig)} className="my-2" type="primary">
-                                    Link
-                                </LemonButton>
-                            </div>
-                        ),
+                        render: (_, sourceConfig) => {
+                            const isConnected = disableConnectedSources && sourceConfig.existingSource
+
+                            return (
+                                <div className="flex flex-row justify-end">
+                                    {isConnected && (
+                                        <LemonTag type="success" className="my-4" size="medium">
+                                            <IconCheck />
+                                            Connected
+                                        </LemonTag>
+                                    )}
+                                    {!isConnected && (
+                                        <LemonButton
+                                            onClick={() => onClick(sourceConfig)}
+                                            className="my-2"
+                                            type="primary"
+                                            disabledReason={
+                                                disableConnectedSources && sourceConfig.existingSource
+                                                    ? 'You have already connected this source'
+                                                    : undefined
+                                            }
+                                        >
+                                            Link
+                                        </LemonButton>
+                                    )}
+                                </div>
+                            )
+                        },
                     },
                 ]}
             />
 
-            <h2 className="mt-4">Self Managed</h2>
+            <h2 className="mt-4">Self-managed</h2>
 
             <p>
                 Data will be queried directly from your data source that you manage.{' '}
-                <Link to="https://posthog.com/docs/data-warehouse/setup#linking-a-custom-source">Learn more</Link>
+                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
             </p>
             <LemonTable
                 dataSource={manualConnectors}

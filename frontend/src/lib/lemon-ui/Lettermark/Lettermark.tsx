@@ -22,7 +22,7 @@ export interface LettermarkProps {
     /** A dashed outlined style rather than filled */
     outlined?: boolean
     /** @default 'medium' */
-    size?: 'xsmall' | 'medium' | 'xlarge'
+    size?: 'xsmall' | 'small' | 'medium' | 'xlarge'
 }
 
 /** An icon-sized lettermark.

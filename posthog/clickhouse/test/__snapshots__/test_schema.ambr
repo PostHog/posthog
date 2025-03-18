@@ -498,6 +498,20 @@
           first_timestamp DateTime64(6, 'UTC'),
           last_timestamp DateTime64(6, 'UTC'),
           block_url String,
+          first_url Nullable(VARCHAR),
+          urls Array(String),
+          click_count Int64,
+          keypress_count Int64,
+          mouse_activity_count Int64,
+          active_milliseconds Int64,
+          console_log_count Int64,
+          console_warn_count Int64,
+          console_error_count Int64,
+          size Int64,
+          event_count Int64,
+          message_count Int64,
+          snapshot_source LowCardinality(Nullable(String)),
+          snapshot_library Nullable(String),
       ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_v2_test_test', 'group1', 'JSONEachRow')
   
   '''
@@ -745,6 +759,7 @@
       , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
+      , $session_id_uuid Nullable(UInt128)
       , elements_chain_href String COMMENT 'column_materializer::elements_chain::href'
       , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
       , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
@@ -932,6 +947,19 @@
   _offset,
   _partition
   FROM posthog_test.kafka_events_recent_json
+  
+  '''
+# ---
+# name: test_create_table_query[exchange_rate]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`exchange_rate` ON CLUSTER 'posthog' (
+      currency String,
+      date Date,
+      rate Decimal64(10),
+      version UInt32 DEFAULT toUnixTimestamp(now())
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.exchange_rate', '{replica}-{shard}', version)
+  ORDER BY (date, currency);
   
   '''
 # ---
@@ -1529,6 +1557,20 @@
           first_timestamp DateTime64(6, 'UTC'),
           last_timestamp DateTime64(6, 'UTC'),
           block_url String,
+          first_url Nullable(VARCHAR),
+          urls Array(String),
+          click_count Int64,
+          keypress_count Int64,
+          mouse_activity_count Int64,
+          active_milliseconds Int64,
+          console_log_count Int64,
+          console_warn_count Int64,
+          console_error_count Int64,
+          size Int64,
+          event_count Int64,
+          message_count Int64,
+          snapshot_source LowCardinality(Nullable(String)),
+          snapshot_library Nullable(String),
       ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_v2_test_test', 'group1', 'JSONEachRow')
   
   '''
@@ -1930,6 +1972,27 @@
   
   '''
 # ---
+# name: test_create_table_query[pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+  ) ENGINE = ReplacingMergeTree(timestamp, is_deleted)
+  
+      -- id for uniqueness
+      ORDER BY (team_id, domain, id)
+      SETTINGS index_granularity=512
+      
+  '''
+# ---
 # name: test_create_table_query[plugin_log_entries]
   '''
   
@@ -2034,6 +2097,8 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -2118,6 +2183,8 @@
       argMinState(JSONExtractString(properties, 'mc_cid'), timestamp) as initial_mc_cid,
       argMinState(JSONExtractString(properties, 'igshid'), timestamp) as initial_igshid,
       argMinState(JSONExtractString(properties, 'ttclid'), timestamp) as initial_ttclid,
+      argMinState(JSONExtractString(properties, '_kx'), timestamp) as initial__kx,
+      argMinState(JSONExtractString(properties, 'irclid'), timestamp) as initial_irclid,
   
       -- count
       sumIf(1, event='$pageview') as pageview_count,
@@ -2301,6 +2368,21 @@
           block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+          first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+          all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+          click_count SimpleAggregateFunction(sum, Int64),
+          keypress_count SimpleAggregateFunction(sum, Int64),
+          mouse_activity_count SimpleAggregateFunction(sum, Int64),
+          active_milliseconds SimpleAggregateFunction(sum, Int64),
+          console_log_count SimpleAggregateFunction(sum, Int64),
+          console_warn_count SimpleAggregateFunction(sum, Int64),
+          console_error_count SimpleAggregateFunction(sum, Int64),
+          size SimpleAggregateFunction(sum, Int64),
+          message_count SimpleAggregateFunction(sum, Int64),
+          event_count SimpleAggregateFunction(sum, Int64),
+          snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+          snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+          _timestamp SimpleAggregateFunction(max, DateTime)
       ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events_v2_test', sipHash64(distinct_id))
   
   '''
@@ -2318,7 +2400,21 @@
           `block_first_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           `block_last_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           `block_urls` SimpleAggregateFunction(groupArrayArray, Array(String)),
-          `_timestamp` Nullable(DateTime)
+          `first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+          `all_urls` SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+          `click_count` SimpleAggregateFunction(sum, Int64),
+          `keypress_count` SimpleAggregateFunction(sum, Int64),
+          `mouse_activity_count` SimpleAggregateFunction(sum, Int64),
+          `active_milliseconds` SimpleAggregateFunction(sum, Int64),
+          `console_log_count` SimpleAggregateFunction(sum, Int64),
+          `console_warn_count` SimpleAggregateFunction(sum, Int64),
+          `console_error_count` SimpleAggregateFunction(sum, Int64),
+          `size` SimpleAggregateFunction(sum, Int64),
+          `message_count` SimpleAggregateFunction(sum, Int64),
+          `event_count` SimpleAggregateFunction(sum, Int64),
+          `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+          `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+          `_timestamp` SimpleAggregateFunction(max, DateTime)
       )
       AS SELECT
           session_id,
@@ -2329,6 +2425,20 @@
           groupArray(first_timestamp) AS block_first_timestamps,
           groupArray(last_timestamp) AS block_last_timestamps,
           groupArray(block_url) AS block_urls,
+          argMinState(first_url, first_timestamp) as first_url,
+          groupUniqArrayArray(urls) AS all_urls,
+          sum(click_count) AS click_count,
+          sum(keypress_count) AS keypress_count,
+          sum(mouse_activity_count) AS mouse_activity_count,
+          sum(active_milliseconds) AS active_milliseconds,
+          sum(console_log_count) AS console_log_count,
+          sum(console_warn_count) AS console_warn_count,
+          sum(console_error_count) AS console_error_count,
+          sum(size) AS size,
+          sum(message_count) AS message_count,
+          sum(event_count) AS event_count,
+          argMinState(snapshot_source, first_timestamp) as snapshot_source,
+          argMinState(snapshot_library, first_timestamp) as snapshot_library,
           max(_timestamp) as _timestamp
       FROM posthog_test.kafka_session_replay_events_v2_test
       GROUP BY session_id, team_id, distinct_id
@@ -2355,13 +2465,15 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Other Ad / campaign / attribution IDs
       initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2536,6 +2648,7 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)'))
       , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
       , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
       , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
@@ -2712,6 +2825,27 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.pg_embeddings', '{replica}', timestamp, is_deleted)
+  
+      -- id for uniqueness
+      ORDER BY (domain, team_id, id)
+      SETTINGS index_granularity=512
+      
+  '''
+# ---
 # name: test_create_table_query[sharded_raw_sessions]
   '''
   
@@ -2770,6 +2904,8 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -2906,6 +3042,21 @@
           block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+          first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+          all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+          click_count SimpleAggregateFunction(sum, Int64),
+          keypress_count SimpleAggregateFunction(sum, Int64),
+          mouse_activity_count SimpleAggregateFunction(sum, Int64),
+          active_milliseconds SimpleAggregateFunction(sum, Int64),
+          console_log_count SimpleAggregateFunction(sum, Int64),
+          console_warn_count SimpleAggregateFunction(sum, Int64),
+          console_error_count SimpleAggregateFunction(sum, Int64),
+          size SimpleAggregateFunction(sum, Int64),
+          message_count SimpleAggregateFunction(sum, Int64),
+          event_count SimpleAggregateFunction(sum, Int64),
+          snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+          snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+          _timestamp SimpleAggregateFunction(max, DateTime)
       ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events_v2_test', '{replica}')
   
               PARTITION BY toYYYYMM(min_first_timestamp)
@@ -2934,13 +3085,15 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Other Ad / campaign / attribution IDs
       initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3044,6 +3197,23 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_pg_embeddings', sipHash64(domain, team_id))
+  
+  '''
+# ---
 # name: test_create_table_query[writable_raw_sessions]
   '''
   
@@ -3102,6 +3272,8 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -3170,13 +3342,15 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Other Ad / campaign / attribution IDs
       initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3391,6 +3565,19 @@
   ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
   TTL toDateTime(inserted_at) + INTERVAL 7 DAY
   SETTINGS storage_policy = 'hot_to_cold'
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[exchange_rate]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`exchange_rate` ON CLUSTER 'posthog' (
+      currency String,
+      date Date,
+      rate Decimal64(10),
+      version UInt32 DEFAULT toUnixTimestamp(now())
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.exchange_rate', '{replica}-{shard}', version)
+  ORDER BY (date, currency);
   
   '''
 # ---
@@ -3627,6 +3814,27 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+  ) ENGINE = ReplacingMergeTree(timestamp, is_deleted)
+  
+      -- id for uniqueness
+      ORDER BY (team_id, domain, id)
+      SETTINGS index_granularity=512
+      
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[plugin_log_entries]
   '''
   
@@ -3749,6 +3957,7 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)'))
       , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
       , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
       , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
@@ -3925,6 +4134,27 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[sharded_pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.pg_embeddings', '{replica}', timestamp, is_deleted)
+  
+      -- id for uniqueness
+      ORDER BY (domain, team_id, id)
+      SETTINGS index_granularity=512
+      
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[sharded_raw_sessions]
   '''
   
@@ -3983,6 +4213,8 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -4119,6 +4351,21 @@
           block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+          first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+          all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+          click_count SimpleAggregateFunction(sum, Int64),
+          keypress_count SimpleAggregateFunction(sum, Int64),
+          mouse_activity_count SimpleAggregateFunction(sum, Int64),
+          active_milliseconds SimpleAggregateFunction(sum, Int64),
+          console_log_count SimpleAggregateFunction(sum, Int64),
+          console_warn_count SimpleAggregateFunction(sum, Int64),
+          console_error_count SimpleAggregateFunction(sum, Int64),
+          size SimpleAggregateFunction(sum, Int64),
+          message_count SimpleAggregateFunction(sum, Int64),
+          event_count SimpleAggregateFunction(sum, Int64),
+          snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+          snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+          _timestamp SimpleAggregateFunction(max, DateTime)
       ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events_v2_test', '{replica}')
   
               PARTITION BY toYYYYMM(min_first_timestamp)
@@ -4147,13 +4394,15 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Other Ad / campaign / attribution IDs
       initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
