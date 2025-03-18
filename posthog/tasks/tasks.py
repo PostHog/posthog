@@ -14,6 +14,7 @@ from redis import Redis
 from structlog import get_logger
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency, get_api_personal_rate_limiter
+from posthog.clickhouse.query_tagging import tag_queries, clear_tag
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
@@ -74,6 +75,11 @@ def process_query_task(
     """
     with get_api_personal_rate_limiter().run(is_api=api_query_personal_key, team_id=team_id, task_id=query_id):
         from posthog.clickhouse.client import execute_process_query
+
+        if api_query_personal_key:
+            tag_queries(qaas=True)
+        else:
+            clear_tag("qaas")
 
         execute_process_query(
             team_id=team_id,

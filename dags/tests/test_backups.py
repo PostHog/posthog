@@ -133,13 +133,9 @@ def test_throw_on_error():
     client.execute.side_effect = [
         [
             ("node1", "BACKUP_CREATED", ""),
-            ("node2", "BACKUP_CREATED", ""),
-            ("node3", "BACKUP_CREATED", ""),
         ],  # All backups created correctly, no error
         [
-            ("node1", "BACKUP_CREATED", ""),
-            ("node2", "BACKUP_CREATED", ""),
-            ("node3", "BACKUP_FAILED", "an_error"),
+            ("node1", "BACKUP_FAILED", "an_error"),
         ],  # One backup failed, should raise an error
     ]
 

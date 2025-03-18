@@ -216,6 +216,7 @@ class Survey(UUIDModel):
         null=True,
         blank=True,
     )
+    enable_partial_responses = models.BooleanField(default=False, null=True)
 
     actions = models.ManyToManyField(Action)
 

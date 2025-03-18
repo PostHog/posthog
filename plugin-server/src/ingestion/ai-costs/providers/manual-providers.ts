@@ -1,6 +1,6 @@
 import type { ModelRow } from './types'
 
-export const costsOverrides: ModelRow[] = [
+export const manualCosts: ModelRow[] = [
     // OpenAI
     {
         model: 'gpt-4.5',
@@ -43,6 +43,44 @@ export const costsOverrides: ModelRow[] = [
         cost: {
             prompt_token: 0.000008,
             completion_token: 0.000024,
+        },
+    },
+    {
+        model: 'claude-3.5',
+        cost: {
+            prompt_token: 0.000003,
+            completion_token: 0.000015,
+        },
+    },
+    {
+        model: 'claude-3.7',
+        cost: {
+            prompt_token: 0.000003,
+            completion_token: 0.000015,
+        },
+    },
+    // google gen ai
+    {
+        model: 'gemini-2.0-flash',
+        cost: {
+            prompt_token: 0.00000015,
+            completion_token: 0.000000075,
+        },
+    },
+    // Other
+    {
+        model: 'deepseek-v3-fireworks',
+        cost: {
+            prompt_token: 0.0000009,
+            completion_token: 0.0000009,
+        },
+    },
+    // testing
+    {
+        model: 'testing_model',
+        cost: {
+            prompt_token: 0.1,
+            completion_token: 0.1,
         },
     },
 ]

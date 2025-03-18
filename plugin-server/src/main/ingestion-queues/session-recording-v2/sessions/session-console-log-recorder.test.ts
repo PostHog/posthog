@@ -1,6 +1,5 @@
 import { DateTime } from 'luxon'
 
-import { LogLevel } from '../../../../types'
 import { ParsedMessageData } from '../kafka/types'
 import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
@@ -232,7 +231,7 @@ describe('SessionConsoleLogRecorder', () => {
                 {
                     team_id: 1,
                     message: 'First message',
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Log,
                     log_source: 'session_replay',
                     log_source_id: 'test_session_id',
                     instance_id: null,
@@ -245,7 +244,7 @@ describe('SessionConsoleLogRecorder', () => {
                 {
                     team_id: 1,
                     message: 'Second message',
-                    level: LogLevel.Warn,
+                    level: ConsoleLogLevel.Warn,
                     log_source: 'session_replay',
                     log_source_id: 'test_session_id',
                     instance_id: null,
@@ -282,7 +281,7 @@ describe('SessionConsoleLogRecorder', () => {
                 {
                     team_id: 1,
                     message: 'Message with multiple strings',
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Log,
                     log_source: 'session_replay',
                     log_source_id: 'test_session_id',
                     instance_id: null,
@@ -398,23 +397,23 @@ describe('SessionConsoleLogRecorder', () => {
     describe('Log level mapping', () => {
         const testCases = [
             // Info level mappings
-            { input: 'info', expected: LogLevel.Info },
-            { input: 'log', expected: LogLevel.Info },
-            { input: 'debug', expected: LogLevel.Info },
-            { input: 'trace', expected: LogLevel.Info },
-            { input: 'dir', expected: LogLevel.Info },
-            { input: 'dirxml', expected: LogLevel.Info },
-            { input: 'group', expected: LogLevel.Info },
-            { input: 'groupCollapsed', expected: LogLevel.Info },
-            { input: 'count', expected: LogLevel.Info },
-            { input: 'timeEnd', expected: LogLevel.Info },
-            { input: 'timeLog', expected: LogLevel.Info },
+            { input: 'info', expected: ConsoleLogLevel.Log },
+            { input: 'log', expected: ConsoleLogLevel.Log },
+            { input: 'debug', expected: ConsoleLogLevel.Log },
+            { input: 'trace', expected: ConsoleLogLevel.Log },
+            { input: 'dir', expected: ConsoleLogLevel.Log },
+            { input: 'dirxml', expected: ConsoleLogLevel.Log },
+            { input: 'group', expected: ConsoleLogLevel.Log },
+            { input: 'groupCollapsed', expected: ConsoleLogLevel.Log },
+            { input: 'count', expected: ConsoleLogLevel.Log },
+            { input: 'timeEnd', expected: ConsoleLogLevel.Log },
+            { input: 'timeLog', expected: ConsoleLogLevel.Log },
             // Warn level mappings
-            { input: 'warn', expected: LogLevel.Warn },
-            { input: 'countReset', expected: LogLevel.Warn },
+            { input: 'warn', expected: ConsoleLogLevel.Warn },
+            { input: 'countReset', expected: ConsoleLogLevel.Warn },
             // Error level mappings
-            { input: 'error', expected: LogLevel.Error },
-            { input: 'assert', expected: LogLevel.Error },
+            { input: 'error', expected: ConsoleLogLevel.Error },
+            { input: 'assert', expected: ConsoleLogLevel.Error },
         ]
 
         test.each(testCases)('maps browser level $input to $expected', async ({ input, expected }) => {
@@ -441,11 +440,11 @@ describe('SessionConsoleLogRecorder', () => {
 
         it('handles edge cases', async () => {
             const edgeCases = [
-                { level: 'unknown', expected: LogLevel.Info },
-                { level: '', expected: LogLevel.Info },
-                { level: undefined, expected: LogLevel.Info },
-                { level: null, expected: LogLevel.Info },
-                { level: 123, expected: LogLevel.Info },
+                { level: 'unknown', expected: ConsoleLogLevel.Log },
+                { level: '', expected: ConsoleLogLevel.Log },
+                { level: undefined, expected: ConsoleLogLevel.Log },
+                { level: null, expected: ConsoleLogLevel.Log },
+                { level: 123, expected: ConsoleLogLevel.Log },
             ]
 
             for (const { level, expected } of edgeCases) {
@@ -494,7 +493,7 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Log,
                     message: 'Duplicate message',
                 }),
             ])
@@ -526,15 +525,15 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Log,
                     message: 'Same message',
                 }),
                 expect.objectContaining({
-                    level: LogLevel.Warn,
+                    level: ConsoleLogLevel.Warn,
                     message: 'Same message',
                 }),
                 expect.objectContaining({
-                    level: LogLevel.Error,
+                    level: ConsoleLogLevel.Error,
                     message: 'Same message',
                 }),
             ])
@@ -567,7 +566,7 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Log,
                     message: 'Duplicate message',
                 }),
             ])
@@ -619,15 +618,15 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Log,
                     message: 'Duplicate info',
                 }),
                 expect.objectContaining({
-                    level: LogLevel.Warn,
+                    level: ConsoleLogLevel.Warn,
                     message: 'Duplicate warn',
                 }),
                 expect.objectContaining({
-                    level: LogLevel.Error,
+                    level: ConsoleLogLevel.Error,
                     message: 'Duplicate error',
                 }),
             ])
@@ -659,15 +658,15 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Log,
                     message: 'First unique message',
                 }),
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Log,
                     message: 'Second unique message',
                 }),
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Log,
                     message: 'Third unique message',
                 }),
             ])
