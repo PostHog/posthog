@@ -585,7 +585,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
 def get_teams_with_qaas_metrics(
     begin: datetime,
     end: datetime,
-) -> dict[str, tuple[int, int]]:
+) -> dict[str, list[tuple[int, int]]]:
     # Intentionally uses event_time not query_start_time, the difference between values is on avg 1.5s,
     # the former is part of primary key, the latter not.
     query = f"""
@@ -608,8 +608,8 @@ def get_teams_with_qaas_metrics(
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
         )
-    result_count: list[(int, int)] = []
-    result_read_bytes: list[(int, int)] = []
+    result_count: list[tuple[int, int]] = []
+    result_read_bytes: list[tuple[int, int]] = []
     for team_id, count, read_bytes in results:
         result_count.append((team_id, count))
         result_read_bytes.append((team_id, read_bytes))
