@@ -114,7 +114,6 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         "isAuthenticated": False,
         # gzip and gzip-js are aliases for the same compression algorithm
         "supportedCompression": ["gzip", "gzip-js"],
-        "featureFlags": [],
         "sessionRecording": False,
     }
 
@@ -202,18 +201,19 @@ def get_decide(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
         # Return minimal default configuration for non-POST requests
         statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
+        empty_response = _format_feature_flags_response({}, {}, {}, False, 2)
+
+        response = {
+            "config": {"enable_collect_everything": True},
+            "toolbarParams": {},
+            "isAuthenticated": False,
+            "supportedCompression": ["gzip", "gzip-js"],
+            "sessionRecording": False,
+        }
+        response.update(empty_response)
         return cors_response(
             request,
-            JsonResponse(
-                {
-                    "config": {"enable_collect_everything": True},
-                    "toolbarParams": {},
-                    "isAuthenticated": False,
-                    "supportedCompression": ["gzip", "gzip-js"],
-                    "featureFlags": [],
-                    "sessionRecording": False,
-                }
-            ),
+            JsonResponse(response),
         )
 
     # --- 2. Parse request data and API version ---
@@ -316,9 +316,14 @@ def get_decide(request: HttpRequest) -> HttpResponse:
         # For remote config, we need to ensure quota limiting is reflected
         if flags_response.get("quotaLimited"):
             response["quotaLimited"] = flags_response["quotaLimited"]
-            response["featureFlags"] = {}
             response["errorsWhileComputingFlags"] = False
-            response["featureFlagPayloads"] = {}
+            # Account for versions
+            if "featureFlags" in flags_response:
+                response["featureFlags"] = flags_response["featureFlags"]
+            if "featureFlagPayloads" in flags_response:
+                response["featureFlagPayloads"] = flags_response["featureFlagPayloads"]
+            if "flags" in flags_response:
+                response["flags"] = flags_response["flags"]
         else:  # Only update flags if not quota limited
             response.update(flags_response)
         # NOTE: Whenever you add something to decide response, update this test:
@@ -354,12 +359,7 @@ def get_feature_flags_response_or_body(
 
     # Early exit if flags are disabled via request
     if process_bool(data.get("disable_flags")) is True:
-        return {
-            "flags": {},
-            "featureFlags": {},
-            "errorsWhileComputingFlags": False,
-            "featureFlagPayloads": {},
-        }
+        return _format_feature_flags_response({}, {}, {}, False, api_version)
 
     # Check if team is quota limited for feature flags
     if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
@@ -369,13 +369,9 @@ def get_feature_flags_response_or_body(
             QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
         if token in limited_tokens_flags:
-            return {
-                "quotaLimited": ["feature_flags"],
-                "flags": {},
-                "featureFlags": {},
-                "errorsWhileComputingFlags": False,
-                "featureFlagPayloads": {},
-            }
+            response = _format_feature_flags_response({}, {}, {}, False, api_version)
+            response["quotaLimited"] = ["feature_flags"]
+            return response
 
     # Validate distinct_id
     distinct_id = data.get("distinct_id")

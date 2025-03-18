@@ -3788,7 +3788,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertTrue(response.json()["defaultIdentifiedOnly"])
 
     @patch("ee.billing.quota_limiting.list_limited_team_attributes")
-    def test_decide_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
+    def test_decide_v1_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
         self, _fake_token_limiting, *args
     ):
         from ee.billing.quota_limiting import QuotaResource
@@ -3800,9 +3800,63 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             _fake_token_limiting.side_effect = fake_limiter
 
-            response = self._post_decide().json()
+            response = self._post_decide(api_version=1).json()
+            assert response["featureFlags"] == []
+            assert response["errorsWhileComputingFlags"] is False
+            assert "feature_flags" in response["quotaLimited"]
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_decide_v2_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
+        self, _fake_token_limiting, *args
+    ):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.FEATURE_FLAG_REQUESTS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            response = self._post_decide(api_version=2).json()
+            assert response["featureFlags"] == {}
+            assert response["errorsWhileComputingFlags"] is False
+            assert "feature_flags" in response["quotaLimited"]
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_decide_v3_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
+        self, _fake_token_limiting, *args
+    ):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.FEATURE_FLAG_REQUESTS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            response = self._post_decide(api_version=3).json()
             assert response["featureFlags"] == {}
             assert response["featureFlagPayloads"] == {}
+            assert response["errorsWhileComputingFlags"] is False
+            assert "feature_flags" in response["quotaLimited"]
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_decide_v4_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
+        self, _fake_token_limiting, *args
+    ):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.FEATURE_FLAG_REQUESTS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            response = self._post_decide(api_version=4).json()
+            assert response["flags"] == {}
             assert response["errorsWhileComputingFlags"] is False
             assert "feature_flags" in response["quotaLimited"]
 
