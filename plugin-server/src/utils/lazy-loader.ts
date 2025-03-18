@@ -23,6 +23,12 @@ const lazyLoaderBufferUsage = new Counter({
     labelNames: ['name', 'hit'],
 })
 
+const lazyLoaderQueuedCacheHits = new Counter({
+    name: 'lazy_loader_queued_cache_hits',
+    help: 'The number of times we have hit the cached loading promise for a key',
+    labelNames: ['name', 'hit'],
+})
+
 /**
  * We have a common pattern across consumers where we want to:
  * - Load a value lazily
@@ -85,8 +91,10 @@ export class LazyLoader<T> {
             if (pendingLoad) {
                 // If we already have a scheduled loader for this key we just add it to the list
                 keyPromises.push(pendingLoad)
+                lazyLoaderQueuedCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
                 continue
             }
+            lazyLoaderQueuedCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
 
             if (!this.buffer) {
                 // If we don't have a buffer then we create one
