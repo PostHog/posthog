@@ -318,14 +318,14 @@ def org_quota_limited_until(
                         < billing_period_start
                     ),
                     "if_check_2": (
+                        datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)
+                    ).timestamp(),
+                    "if_check_3": (
                         (
                             datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)
                         ).timestamp()
                         < billing_period_start
                     ),
-                    "if_check_3": (
-                        datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)
-                    ).timestamp(),
                 },
             )
             quota_limiting_suspended_until = round((today_end + timedelta(days=grace_period_days)).timestamp())
