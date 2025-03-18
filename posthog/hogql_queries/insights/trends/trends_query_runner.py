@@ -3,7 +3,7 @@ from copy import deepcopy
 from datetime import timedelta
 from math import ceil
 from operator import itemgetter
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, TypeVar
 
 from django.conf import settings
 from django.utils.timezone import datetime
@@ -31,10 +31,11 @@ from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare_intervals
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import (
     QueryPreviousPeriodDateRange,
 )
@@ -67,11 +68,14 @@ from posthog.schema import (
     QueryTiming,
     Series,
     TrendsQuery,
+    StickinessQuery,
     TrendsQueryResponse,
-    BaseMathType,
 )
 from posthog.utils import format_label_date, multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
+
+# Define a type variable for queries that can be either TrendsQuery or StickinessQuery
+T = TypeVar("T", bound=Union[TrendsQuery, StickinessQuery])
 
 
 class TrendsQueryRunner(QueryRunner):
@@ -91,22 +95,9 @@ class TrendsQueryRunner(QueryRunner):
         if isinstance(query, dict):
             query = TrendsQuery.model_validate(query)
 
-        modified_query = deepcopy(query)
+        # Use the new function to handle WAU/MAU conversions
+        query = convert_active_user_math_based_on_interval(query)
 
-        interval = modified_query.interval or IntervalType.DAY
-
-        for series in modified_query.series:
-            # Convert WAU to DAU for week or longer intervals
-            # Convert MAU to DAU for month or longer intervals
-            if hasattr(series, "math") and (
-                (series.math == BaseMathType.WEEKLY_ACTIVE and compare_intervals(interval, ">=", IntervalType.WEEK))
-                or (
-                    series.math == BaseMathType.MONTHLY_ACTIVE and compare_intervals(interval, ">=", IntervalType.MONTH)
-                )
-            ):
-                series.math = BaseMathType.DAU
-
-        query = modified_query
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.update_hogql_modifiers()
         self.series = self.setup_series()

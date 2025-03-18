@@ -14,6 +14,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -64,6 +65,10 @@ class StickinessQueryRunner(QueryRunner):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
     ):
+        if isinstance(query, dict):
+            query = StickinessQuery.model_validate(query)
+
+        query = convert_active_user_math_based_on_interval(query)
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.series = self.setup_series()
 
