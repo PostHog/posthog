@@ -15,19 +15,8 @@ export function groupActivityDescriber(logItem: ActivityLogItem, asNotification?
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> edited the <code>{logItem.detail.name}</code>{' '}
-                    property.
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity === 'delete_property') {
-        return {
-            description: (
-                <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted the <code>{logItem.detail.name}</code>{' '}
-                    property.
+                    <strong>{userNameForLogItem(logItem)}</strong> {logItem.detail?.changes?.[0]?.action || 'changed'}{' '}
+                    the <code>{logItem.detail?.name}</code> property.
                 </>
             ),
         }

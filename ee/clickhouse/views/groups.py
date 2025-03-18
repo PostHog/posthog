@@ -169,6 +169,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                         },
                         status=400,
                     )
+            original_value = group.group_properties.get(request.data["key"], None)
             group.group_properties[request.data["key"]] = request.data["value"]
             group.save()
             log_activity(
@@ -179,7 +180,17 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                 item_id=group.pk,
                 scope="Group",
                 activity="update_property",
-                detail=Detail(name=str(request.data["key"]), changes=[Change(type="Group", action="changed")]),
+                detail=Detail(
+                    name=str(request.data["key"]),
+                    changes=[
+                        Change(
+                            type="Group",
+                            action="added" if original_value is None else "changed",
+                            before=original_value,
+                            after=request.data["value"],
+                        )
+                    ],
+                ),
             )
             return response.Response(self.get_serializer(group).data)
         except Group.DoesNotExist:
@@ -216,6 +227,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                         },
                         status=400,
                     )
+            original_value = group.group_properties[request.data["$unset"]]
             del group.group_properties[request.data["$unset"]]
             group.save()
             log_activity(
@@ -225,8 +237,11 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                 was_impersonated=is_impersonated_session(request),
                 item_id=group.pk,
                 scope="Group",
-                activity="delete_property",
-                detail=Detail(name=str(request.data["$unset"]), changes=[Change(type="Group", action="changed")]),
+                activity="update_property",
+                detail=Detail(
+                    name=str(request.data["$unset"]),
+                    changes=[Change(type="Group", action="deleted", before=original_value)],
+                ),
             )
             return response.Response(self.get_serializer(group).data)
         except Group.DoesNotExist:

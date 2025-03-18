@@ -165,7 +165,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_group_property_crud_add_success(self):
-        create_group(
+        group = create_group(
             team_id=self.team.pk,
             group_type_index=0,
             group_key="org:5",
@@ -188,9 +188,24 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("results", response.json())
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["activity"], "update_property")
+        self.assertEqual(response.json()["results"][0]["scope"], "Group")
+        self.assertEqual(response.json()["results"][0]["item_id"], str(group.pk))
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "added")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], None)
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
+
     @freeze_time("2021-05-02")
     def test_group_property_crud_update_success(self):
-        create_group(
+        group = create_group(
             team_id=self.team.pk,
             group_type_index=0,
             group_key="org:5",
@@ -212,6 +227,21 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                 "group_type_index": 0,
             },
         )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("results", response.json())
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["activity"], "update_property")
+        self.assertEqual(response.json()["results"][0]["scope"], "Group")
+        self.assertEqual(response.json()["results"][0]["item_id"], str(group.pk))
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
 
     @freeze_time("2021-05-02")
     def test_group_property_crud_update_missing_key(self):
@@ -245,7 +275,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_group_property_crud_delete_success(self):
-        create_group(
+        group = create_group(
             team_id=self.team.pk,
             group_type_index=0,
             group_key="org:5",
@@ -267,6 +297,21 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                 "group_type_index": 0,
             },
         )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("results", response.json())
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["activity"], "update_property")
+        self.assertEqual(response.json()["results"][0]["scope"], "Group")
+        self.assertEqual(response.json()["results"][0]["item_id"], str(group.pk))
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "deleted")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], None)
 
     @freeze_time("2021-05-02")
     def test_group_property_crud_delete_missing_key(self):
