@@ -8,8 +8,9 @@ import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
+import { parseJSON } from '../utils/json-parse'
+import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
-import { status } from '../utils/status'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import { MAX_GROUP_TYPES_PER_TEAM } from '../worker/ingestion/group-type-manager'
 import { CdpInternalEvent } from './schema'
@@ -25,7 +26,6 @@ import {
     HogFunctionLogEntrySerialized,
     HogFunctionType,
 } from './types'
-
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode
 export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
@@ -57,13 +57,13 @@ export function convertToHogFunctionInvocationGlobals(
     team: Team,
     siteUrl: string
 ): HogFunctionInvocationGlobals {
-    const properties = event.properties ? JSON.parse(event.properties) : {}
+    const properties = event.properties ? parseJSON(event.properties) : {}
     const projectUrl = `${siteUrl}/project/${team.id}`
 
     let person: HogFunctionInvocationGlobals['person']
 
     if (event.person_id) {
-        const personProperties = event.person_properties ? JSON.parse(event.person_properties) : {}
+        const personProperties = event.person_properties ? parseJSON(event.person_properties) : {}
         const personDisplayName = getPersonDisplayName(team, event.distinct_id, personProperties)
 
         person = {
@@ -294,7 +294,7 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
         gunzip(Buffer.from(data, 'base64'), (err, result) => (err ? rej(err) : res(result)))
     )
 
-    return JSON.parse(res.toString())
+    return parseJSON(res.toString())
 }
 
 export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogFunctionLogEntrySerialized[] => {
@@ -396,7 +396,7 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
         try {
             params.body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
         } catch (e) {
-            status.error('Error parsing blob', e, job.blob)
+            logger.error('Error parsing blob', e, job.blob)
             captureException(e)
         }
     }
