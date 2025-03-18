@@ -86,7 +86,7 @@ pub struct HashParams<'a> {
     /// Event timezone
     pub event_time_zone: Option<&'a str>,
     /// Team timezone
-    pub team_time_zone: &'a str,
+    pub team_time_zone: Option<&'a str>,
     /// Team ID
     pub team_id: u64,
     /// IP address
@@ -180,14 +180,11 @@ impl CookielessManager {
             ));
         }
 
-        // Get the team timezone or use UTC as fallback
-        let team_time_zone = event_data.team_time_zone.unwrap_or(TIMEZONE_FALLBACK);
-
         // First, compute the hash with n=0 to get the base hash
         let hash_params = HashParams {
             timestamp_ms: event_data.timestamp_ms,
             event_time_zone: event_data.event_time_zone,
-            team_time_zone,
+            team_time_zone: event_data.team_time_zone,
             team_id: event_data.team_id,
             ip: event_data.ip,
             host: event_data.host,
@@ -368,30 +365,19 @@ pub fn extract_root_domain(host: &str) -> Result<String, CookielessManagerError>
 fn to_yyyy_mm_dd_in_timezone_safe(
     timestamp_ms: u64,
     event_time_zone: Option<&str>,
-    team_time_zone: &str,
+    team_time_zone: Option<&str>,
 ) -> Result<String, CookielessManagerError> {
-    // Use the event timezone if provided, otherwise fall back to the team timezone
-    let timezone_str = event_time_zone.unwrap_or(team_time_zone);
-
-    // Parse the timezone
-    let timezone = match chrono_tz::Tz::from_str(timezone_str) {
-        Ok(tz) => tz,
-        Err(_) => match chrono_tz::Tz::from_str(TIMEZONE_FALLBACK) {
-            Ok(tz) => tz,
-            Err(e) => return Err(CookielessManagerError::TimezoneError(e.to_string())),
-        },
-    };
+    // Try to use timezone in the following order: event_time_zone, team_time_zone, fallback
+    let timezone = event_time_zone
+        .and_then(|tz_str| chrono_tz::Tz::from_str(tz_str).ok())
+        .or_else(|| team_time_zone.and_then(|tz_str| chrono_tz::Tz::from_str(tz_str).ok()))
+        .unwrap_or(TIMEZONE_FALLBACK);
 
     // Convert the timestamp to a DateTime
     let timestamp_seconds = (timestamp_ms / 1000) as i64;
-    let datetime = match DateTime::<Utc>::from_timestamp(timestamp_seconds, 0) {
-        Some(dt) => dt,
-        None => {
-            return Err(CookielessManagerError::InvalidTimestamp(format!(
-                "Invalid timestamp: {timestamp_ms}"
-            )))
-        }
-    };
+    let datetime = DateTime::<Utc>::from_timestamp(timestamp_seconds, 0).ok_or_else(|| {
+        CookielessManagerError::InvalidTimestamp(format!("Invalid timestamp: {timestamp_ms}"))
+    })?;
 
     // Convert to the target timezone
     let datetime_in_timezone = datetime.with_timezone(&timezone);
@@ -423,28 +409,32 @@ mod tests {
         let date = DateTime::parse_from_rfc3339("2024-12-31T10:00:00Z")
             .unwrap()
             .timestamp_millis() as u64;
-        let result = to_yyyy_mm_dd_in_timezone_safe(date, Some("Europe/London"), "UTC").unwrap();
+        let result =
+            to_yyyy_mm_dd_in_timezone_safe(date, Some("Europe/London"), Some("UTC")).unwrap();
         assert_eq!(result, "2024-12-31");
 
         // Handle single digit months and days
         let date = DateTime::parse_from_rfc3339("2025-01-01T10:00:00Z")
             .unwrap()
             .timestamp_millis() as u64;
-        let result = to_yyyy_mm_dd_in_timezone_safe(date, Some("Europe/London"), "UTC").unwrap();
+        let result =
+            to_yyyy_mm_dd_in_timezone_safe(date, Some("Europe/London"), Some("UTC")).unwrap();
         assert_eq!(result, "2025-01-01");
 
         // Handle nonsense timezone
         let date = DateTime::parse_from_rfc3339("2025-01-01T10:00:00Z")
             .unwrap()
             .timestamp_millis() as u64;
-        let result = to_yyyy_mm_dd_in_timezone_safe(date, Some("Not/A/Timezone"), "UTC").unwrap();
+        let result =
+            to_yyyy_mm_dd_in_timezone_safe(date, Some("Not/A/Timezone"), Some("UTC")).unwrap();
         assert_eq!(result, "2025-01-01");
 
         // Handle positive timezone
         let date = DateTime::parse_from_rfc3339("2025-01-01T20:30:01Z")
             .unwrap()
             .timestamp_millis() as u64;
-        let result = to_yyyy_mm_dd_in_timezone_safe(date, Some("Asia/Tehran"), "UTC").unwrap();
+        let result =
+            to_yyyy_mm_dd_in_timezone_safe(date, Some("Asia/Tehran"), Some("UTC")).unwrap();
         assert_eq!(result, "2025-01-02");
 
         // Handle large positive timezone
@@ -452,7 +442,7 @@ mod tests {
             .unwrap()
             .timestamp_millis() as u64;
         let result =
-            to_yyyy_mm_dd_in_timezone_safe(date, Some("Pacific/Tongatapu"), "UTC").unwrap();
+            to_yyyy_mm_dd_in_timezone_safe(date, Some("Pacific/Tongatapu"), Some("UTC")).unwrap();
         assert_eq!(result, "2025-01-02");
 
         // Handle negative timezone
@@ -460,15 +450,37 @@ mod tests {
             .unwrap()
             .timestamp_millis() as u64;
         let result =
-            to_yyyy_mm_dd_in_timezone_safe(date, Some("America/Sao_Paulo"), "UTC").unwrap();
+            to_yyyy_mm_dd_in_timezone_safe(date, Some("America/Sao_Paulo"), Some("UTC")).unwrap();
         assert_eq!(result, "2024-12-31");
 
         // Handle large negative timezone
         let date = DateTime::parse_from_rfc3339("2025-01-01T10:59:00Z")
             .unwrap()
             .timestamp_millis() as u64;
-        let result = to_yyyy_mm_dd_in_timezone_safe(date, Some("Pacific/Midway"), "UTC").unwrap();
+        let result =
+            to_yyyy_mm_dd_in_timezone_safe(date, Some("Pacific/Midway"), Some("UTC")).unwrap();
         assert_eq!(result, "2024-12-31");
+
+        // Test with no team timezone provided
+        let date = DateTime::parse_from_rfc3339("2025-01-01T10:59:00Z")
+            .unwrap()
+            .timestamp_millis() as u64;
+        let result = to_yyyy_mm_dd_in_timezone_safe(date, Some("Pacific/Midway"), None).unwrap();
+        assert_eq!(result, "2024-12-31");
+
+        // Test with no event timezone but with team timezone
+        let date = DateTime::parse_from_rfc3339("2025-01-01T10:59:00Z")
+            .unwrap()
+            .timestamp_millis() as u64;
+        let result = to_yyyy_mm_dd_in_timezone_safe(date, None, Some("America/New_York")).unwrap();
+        assert_eq!(result, "2025-01-01");
+
+        // Test with neither timezone provided
+        let date = DateTime::parse_from_rfc3339("2025-01-01T10:59:00Z")
+            .unwrap()
+            .timestamp_millis() as u64;
+        let result = to_yyyy_mm_dd_in_timezone_safe(date, None, None).unwrap();
+        assert_eq!(result, "2025-01-01"); // Should use UTC
     }
 
     #[test]
@@ -771,7 +783,7 @@ mod tests {
         let hash_params = HashParams {
             timestamp_ms: event_data.timestamp_ms,
             event_time_zone: event_data.event_time_zone,
-            team_time_zone: event_data.team_time_zone.unwrap_or(TIMEZONE_FALLBACK),
+            team_time_zone: event_data.team_time_zone,
             team_id: event_data.team_id,
             ip: event_data.ip,
             host: event_data.host,
@@ -890,5 +902,41 @@ mod tests {
                 assert_eq!(identifies_key, expected_identifies_key);
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_compute_cookieless_distinct_id_without_team_timezone() {
+        // Create a mock Redis client
+        let mut mock_redis = MockRedisClient::new();
+        let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let redis_key = format!("cookieless_salt:{}", today);
+        mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
+        let redis_client = Arc::new(mock_redis);
+
+        // Create a CookielessManager
+        let config = CookielessConfig::default();
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Create an event with no team_time_zone
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            team_id: 1,
+            team_time_zone: None,
+        };
+
+        // Process the event - this should use the TIMEZONE_FALLBACK
+        let result = manager
+            .compute_cookieless_distinct_id(event_data)
+            .await
+            .unwrap();
+
+        // Check that we got a distinct ID
+        assert!(result.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
     }
 }

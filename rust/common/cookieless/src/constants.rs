@@ -1,11 +1,12 @@
 // Constants shared between Rust and TypeScript implementations
+use chrono_tz::Tz;
 
 // String constants
 pub const COOKIELESS_SENTINEL_VALUE: &str = "$posthog_cookieless";
 pub const COOKIELESS_DISTINCT_ID_PREFIX: &str = "cookieless";
 pub const COOKIELESS_MODE_FLAG_PROPERTY: &str = "$cookieless_mode";
 pub const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY: &str = "$cookieless_extra";
-pub const TIMEZONE_FALLBACK: &str = "UTC";
+pub const TIMEZONE_FALLBACK: Tz = Tz::UTC;
 
 // Timezone constants
 pub const MAX_NEGATIVE_TIMEZONE_HOURS: i32 = 12; // Baker Island, Howland Island (UTC-12)
