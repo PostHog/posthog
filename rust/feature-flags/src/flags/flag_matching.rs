@@ -1,5 +1,5 @@
 use crate::api::errors::FlagError;
-use crate::api::types::{FlagValue, FlagsResponse};
+use crate::api::types::{FlagDetails, FlagsResponse, FromFeatureAndMatch};
 use crate::client::database::Client as DatabaseClient;
 use crate::cohort::cohort_cache_manager::CohortCacheManager;
 use crate::cohort::cohort_models::{Cohort, CohortId};
@@ -30,6 +30,9 @@ use std::{
 use tokio::time::{sleep, timeout};
 use tracing::{error, info};
 
+#[cfg(test)]
+use crate::api::types::{FlagValue, LegacyFlagsResponse}; // Only used in the tests
+
 pub type PersonId = i64;
 pub type GroupTypeIndex = i32;
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
@@ -42,7 +45,7 @@ struct SuperConditionEvaluation {
     reason: FeatureFlagMatchReason,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FeatureFlagMatch {
     pub matches: bool,
     pub variant: Option<String>,
@@ -307,13 +310,11 @@ impl FeatureFlagMatcher {
             )
             .await;
 
-        FlagsResponse {
-            errors_while_computing_flags: initial_error
-                || flags_response.errors_while_computing_flags,
-            feature_flags: flags_response.feature_flags,
-            feature_flag_payloads: flags_response.feature_flag_payloads,
-            quota_limited: None,
-        }
+        FlagsResponse::new(
+            initial_error || flags_response.errors_while_computing_flags,
+            flags_response.flags,
+            None,
+        )
     }
 
     /// Processes hash key overrides for feature flags with experience continuity enabled.
@@ -433,8 +434,7 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> FlagsResponse {
         let mut errors_while_computing_flags = false;
-        let mut feature_flags_map = HashMap::new();
-        let mut feature_flag_payloads_map = HashMap::new();
+        let mut flag_details_map = HashMap::new();
         let mut flags_needing_db_properties = Vec::new();
 
         // Step 1: Evaluate flags with locally computable property overrides first
@@ -453,12 +453,8 @@ impl FeatureFlagMatcher {
                 .await
             {
                 Ok(Some(flag_match)) => {
-                    let flag_value = self.flag_match_to_value(&flag_match);
-                    feature_flags_map.insert(flag.key.clone(), flag_value);
-
-                    if let Some(payload) = flag_match.payload {
-                        feature_flag_payloads_map.insert(flag.key.clone(), payload);
-                    }
+                    flag_details_map
+                        .insert(flag.key.clone(), FlagDetails::create(flag, &flag_match));
                 }
                 Ok(None) => {
                     flags_needing_db_properties.push(flag.clone());
@@ -556,12 +552,8 @@ impl FeatureFlagMatcher {
                     .await
                 {
                     Ok(flag_match) => {
-                        let flag_value = self.flag_match_to_value(&flag_match);
-                        feature_flags_map.insert(flag.key.clone(), flag_value);
-
-                        if let Some(payload) = flag_match.payload {
-                            feature_flag_payloads_map.insert(flag.key.clone(), payload);
-                        }
+                        flag_details_map
+                            .insert(flag.key.clone(), FlagDetails::create(&flag, &flag_match));
                     }
                     Err(e) => {
                         errors_while_computing_flags = true;
@@ -576,18 +568,14 @@ impl FeatureFlagMatcher {
                             &[("reason".to_string(), reason.to_string())],
                             1,
                         );
-                        feature_flags_map.insert(flag.key.clone(), FlagValue::Boolean(false));
+                        flag_details_map
+                            .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
                     }
                 }
             }
         }
 
-        FlagsResponse {
-            errors_while_computing_flags,
-            feature_flags: feature_flags_map,
-            feature_flag_payloads: feature_flag_payloads_map,
-            quota_limited: None,
-        }
+        FlagsResponse::new(errors_while_computing_flags, flag_details_map, None)
     }
 
     /// Matches a feature flag with property overrides.
@@ -673,17 +661,6 @@ impl FeatureFlagMatcher {
         person_property_overrides.as_ref().and_then(|overrides| {
             locally_computable_property_overrides(&Some(overrides.clone()), flag_property_filters)
         })
-    }
-
-    fn flag_match_to_value(&self, flag_match: &FeatureFlagMatch) -> FlagValue {
-        if flag_match.matches {
-            match &flag_match.variant {
-                Some(variant) => FlagValue::String(variant.clone()),
-                None => FlagValue::Boolean(true),
-            }
-        } else {
-            FlagValue::Boolean(false)
-        }
     }
 
     /// Determines if a feature flag matches for the current context.
@@ -2064,6 +2041,7 @@ mod tests {
             deleted: deleted.unwrap_or(false),
             active: active.unwrap_or(true),
             ensure_experience_continuity: ensure_experience_continuity.unwrap_or(false),
+            version: Some(1),
         }
     }
 
@@ -2219,8 +2197,8 @@ mod tests {
             .await;
         assert!(!result.errors_while_computing_flags);
         assert_eq!(
-            result.feature_flags.get("test_flag"),
-            Some(&FlagValue::Boolean(true))
+            result.flags.get("test_flag").unwrap().to_value(),
+            FlagValue::Boolean(true)
         );
     }
 
@@ -2294,9 +2272,10 @@ mod tests {
             .evaluate_all_feature_flags(flags, None, Some(group_overrides), None)
             .await;
 
-        assert!(!result.errors_while_computing_flags);
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
         assert_eq!(
-            result.feature_flags.get("test_flag"),
+            legacy_response.feature_flags.get("test_flag"),
             Some(&FlagValue::Boolean(true))
         );
     }
@@ -2448,6 +2427,7 @@ mod tests {
             deleted: false,
             active: true,
             ensure_experience_continuity: false,
+            version: Some(1),
         }
     }
 
@@ -2511,9 +2491,10 @@ mod tests {
             )
             .await;
 
-        assert!(!result.errors_while_computing_flags);
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
         assert_eq!(
-            result.feature_flags.get("test_flag"),
+            legacy_response.feature_flags.get("test_flag"),
             Some(&FlagValue::Boolean(true))
         );
 
@@ -4598,6 +4579,7 @@ mod tests {
             deleted: flag.deleted,
             active: flag.active,
             ensure_experience_continuity: flag.ensure_experience_continuity,
+            version: flag.version,
         };
 
         // Insert the feature flag into the database
@@ -4669,6 +4651,7 @@ mod tests {
             deleted: flag.deleted,
             active: flag.active,
             ensure_experience_continuity: flag.ensure_experience_continuity,
+            version: flag.version,
         };
 
         // Insert the feature flag into the database
@@ -4775,12 +4758,13 @@ mod tests {
         .evaluate_all_feature_flags(flags, None, None, Some("hash_key_continuity".to_string()))
         .await;
 
+        let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
-            !result.errors_while_computing_flags,
+            !legacy_response.errors_while_computing_flags,
             "No error should occur"
         );
         assert_eq!(
-            result.feature_flags.get("flag_continuity"),
+            legacy_response.feature_flags.get("flag_continuity"),
             Some(&FlagValue::Boolean(true)),
             "Flag should be evaluated as true with continuity"
         );
@@ -4849,12 +4833,15 @@ mod tests {
         .evaluate_all_feature_flags(flags, None, None, None)
         .await;
 
+        assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
+
+        let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
-            !result.errors_while_computing_flags,
+            !legacy_response.errors_while_computing_flags,
             "No error should occur"
         );
         assert_eq!(
-            result.feature_flags.get("flag_continuity_missing"),
+            legacy_response.feature_flags.get("flag_continuity_missing"),
             Some(&FlagValue::Boolean(true)),
             "Flag should be evaluated as true even without continuity override"
         );
@@ -4968,17 +4955,18 @@ mod tests {
         )
         .await;
 
+        let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
-            !result.errors_while_computing_flags,
+            !legacy_response.errors_while_computing_flags,
             "No error should occur"
         );
         assert_eq!(
-            result.feature_flags.get("flag_continuity_mix"),
+            legacy_response.feature_flags.get("flag_continuity_mix"),
             Some(&FlagValue::Boolean(true)),
             "Continuity flag should be evaluated as true"
         );
         assert_eq!(
-            result.feature_flags.get("flag_no_continuity_mix"),
+            legacy_response.feature_flags.get("flag_no_continuity_mix"),
             Some(&FlagValue::Boolean(true)),
             "Non-continuity flag should be evaluated based on properties"
         );

@@ -264,6 +264,7 @@ mod tests {
                     deleted: false,
                     active: true,
                     ensure_experience_continuity: false,
+                    version: Some(1),
                 },
                 FeatureFlag {
                     id: 2,
@@ -280,6 +281,7 @@ mod tests {
                     deleted: false,
                     active: false,
                     ensure_experience_continuity: false,
+                    version: Some(1),
                 },
                 FeatureFlag {
                     id: 3,
@@ -307,6 +309,7 @@ mod tests {
                     deleted: false,
                     active: true,
                     ensure_experience_continuity: false,
+                    version: Some(1),
                 },
             ],
         };
