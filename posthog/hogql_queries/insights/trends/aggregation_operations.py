@@ -132,7 +132,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             return ["person", *self.series.math_property.split(".")]
         return ["properties", self.series.math_property]
 
-    def _math_func(self, method: str, *, override_chain: Optional[list[str | int]]) -> ast.Call:
+    def _math_func(self, method: str, override_chain: Optional[list[str | int]]) -> ast.Call:
         if override_chain is not None:
             return ast.Call(name=method, args=[ast.Field(chain=override_chain)])
 

@@ -206,12 +206,13 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
     @snapshot_clickhouse_queries
-    def test_trends_avg_and_median(self):
+    def test_trends_avg(self):
         table_name = self.create_parquet_file()
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
+            interval="month",
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -219,7 +220,8 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     id_field="id",
                     timestamp_field="created",
                     distinct_id_field="customer_email",
-                    properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
+                    math="avg",
+                    math_property="id",
                 )
             ],
         )
@@ -229,7 +231,35 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
+        assert response.results[0][1] == [2.5]
+
+    @snapshot_clickhouse_queries
+    def test_trends_quartile(self):
+        table_name = self.create_parquet_file()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            interval="month",
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    timestamp_field="created",
+                    distinct_id_field="customer_email",
+                    math="p75",
+                    math_property="id",
+                )
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total"})
+        assert 3 < response.results[0][1][0] < 4
 
     @snapshot_clickhouse_queries
     def test_trends_query_properties(self):
