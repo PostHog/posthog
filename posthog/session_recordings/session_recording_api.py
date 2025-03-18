@@ -977,7 +977,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
             snapshot_lines = (
                 get_realtime_snapshots(
-                    team_id=self.team.pk,
+                    team_id=str(self.team.pk),
                     session_id=str(recording.session_id),
                 )
                 or []
@@ -1231,7 +1231,7 @@ def list_recordings_from_query(
 
     with timer("load_persons"):
         # Get the related persons for all the recordings
-        distinct_ids = sorted([x.distinct_id for x in recordings])
+        distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
         person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
             "person"
         )
@@ -1247,7 +1247,7 @@ def list_recordings_from_query(
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
             recording.viewers = other_viewers.get(recording.session_id, [])
-            person = distinct_id_to_person.get(recording.distinct_id)
+            person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
             if person:
                 recording.person = person
 
