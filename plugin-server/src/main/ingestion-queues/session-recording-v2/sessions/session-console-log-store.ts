@@ -16,10 +16,12 @@ export type ConsoleLogEntry = {
 }
 
 export class SessionConsoleLogStore {
+    private consoleLogsCount = 0
+
     constructor(private readonly producer: KafkaProducerWrapper, private readonly topic: string) {
-        logger.debug('🔍', 'session_console_log_store_created')
+        logger.debug('session_console_log_store_created')
         if (!this.topic) {
-            logger.warn('⚠️', 'session_console_log_store_no_topic_configured')
+            logger.warn('session_console_log_store_no_topic_configured')
         }
     }
 
@@ -36,10 +38,14 @@ export class SessionConsoleLogStore {
             })),
         })
 
+        this.consoleLogsCount += logs.length
+        logger.debug(`stored ${logs.length} console logs for session ${logs[0].log_source_id}`)
         SessionBatchMetrics.incrementConsoleLogsStored(logs.length)
     }
 
     public async flush(): Promise<void> {
+        logger.info(`flushing ${this.consoleLogsCount} console logs`)
+        this.consoleLogsCount = 0
         await this.producer.flush()
     }
 }
