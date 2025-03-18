@@ -13,7 +13,13 @@ from posthog.models.insight import Insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.notebook import Notebook
 
-MIXIN_MODELS = [FeatureFlag, Experiment, Insight, Dashboard, Notebook]
+MIXIN_MODELS = {
+    "feature_flag": FeatureFlag,
+    "experiment": Experiment,
+    "insight": Insight,
+    "dashboard": Dashboard,
+    "notebook": Notebook,
+}
 
 
 class UnfiledFileSaver:
@@ -43,7 +49,7 @@ class UnfiledFileSaver:
                     team=self.team,
                     path=path,
                     depth=len(split_path(path)),
-                    type=model_cls.file_system_type,
+                    type=rep.type,
                     ref=rep.ref,
                     href=rep.href,
                     meta=rep.meta,
@@ -65,7 +71,7 @@ class UnfiledFileSaver:
 
     def save_all_unfiled(self) -> list[FileSystem]:
         created_all = []
-        for model_cls in MIXIN_MODELS:
+        for model_cls in MIXIN_MODELS.items():
             created_all.extend(self.save_unfiled_for_model(model_cls))
         return created_all
 
@@ -75,7 +81,7 @@ def save_unfiled_files(team: Team, user: User, file_type: Optional[str] = None) 
     if file_type is None:
         return saver.save_all_unfiled()
 
-    found_cls = next((m for m in MIXIN_MODELS if m.file_system_type == file_type), None)
+    found_cls = MIXIN_MODELS.get(file_type)
     if not found_cls:
         return []
     return saver.save_unfiled_for_model(found_cls)
