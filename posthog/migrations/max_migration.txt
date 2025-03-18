@@ -1,1 +1,1 @@
-0688_update_default_version
+0689_survey_enable_partial_responses

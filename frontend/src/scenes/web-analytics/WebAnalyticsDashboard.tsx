@@ -214,8 +214,8 @@ export const WebTabs = ({
     activeTabId: string
     tabs: {
         id: string
-        title: string
-        linkText: string
+        title: string | JSX.Element
+        linkText: string | JSX.Element
         content: React.ReactNode
         canOpenModal?: boolean
         canOpenInsight: boolean
