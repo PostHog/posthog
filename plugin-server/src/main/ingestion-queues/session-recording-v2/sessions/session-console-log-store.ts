@@ -45,7 +45,7 @@ export class SessionConsoleLogStore {
 
     public async flush(): Promise<void> {
         logger.info(`flushing ${this.consoleLogsCount} console logs`)
-        this.consoleLogsCount = 0
         await this.producer.flush()
+        this.consoleLogsCount = 0
     }
 }
