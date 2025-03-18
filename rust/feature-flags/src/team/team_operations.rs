@@ -1,19 +1,18 @@
-use std::sync::Arc;
-use tracing::instrument;
-
 use crate::{
     api::errors::FlagError,
     client::database::Client as DatabaseClient,
-    client::redis::Client as RedisClient,
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
+use common_redis::Client as RedisClient;
+use std::sync::Arc;
+use tracing::instrument;
 
 impl Team {
     /// Validates a token, and returns a team if it exists.
     #[instrument(skip_all)]
     pub async fn from_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
-        token: String,
+        token: &str,
     ) -> Result<Team, FlagError> {
         // NB: if this lookup fails, we fall back to the database before returning an error
         let serialized_team = client
@@ -26,7 +25,7 @@ impl Team {
             FlagError::RedisDataParsingError
         })?;
         if team.project_id == 0 {
-            // If `project_id` is 0, this means the payload is from before December 2025, which we correct for here
+            // If `project_id` is 0, this means the payload is from before December 2024, which we correct for here
             team.project_id = team.id as i64;
         }
 
@@ -59,13 +58,13 @@ impl Team {
 
     pub async fn from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
-        token: String,
+        token: &str,
     ) -> Result<Team, FlagError> {
         let mut conn = client.get_connection().await?;
 
         let query = "SELECT id, name, api_token, project_id FROM posthog_team WHERE api_token = $1";
         let row = sqlx::query_as::<_, Team>(query)
-            .bind(&token)
+            .bind(token)
             .fetch_one(&mut *conn)
             .await?;
 
@@ -94,7 +93,7 @@ mod tests {
 
         let target_token = team.api_token;
 
-        let team_from_redis = Team::from_redis(client.clone(), target_token.clone())
+        let team_from_redis = Team::from_redis(client.clone(), &target_token)
             .await
             .unwrap();
         assert_eq!(team_from_redis.api_token, target_token);
@@ -106,7 +105,7 @@ mod tests {
     async fn test_fetch_invalid_team_from_redis() {
         let client = setup_redis_client(None);
 
-        match Team::from_redis(client.clone(), "banana".to_string()).await {
+        match Team::from_redis(client.clone(), "banana").await {
             Err(FlagError::TokenValidationError) => (),
             _ => panic!("Expected TokenValidationError"),
         };
@@ -116,7 +115,7 @@ mod tests {
     async fn test_cant_connect_to_redis_error_is_not_token_validation_error() {
         let client = setup_redis_client(Some("redis://localhost:1111/".to_string()));
 
-        match Team::from_redis(client.clone(), "banana".to_string()).await {
+        match Team::from_redis(client.clone(), "banana").await {
             Err(FlagError::RedisUnavailable) => (),
             _ => panic!("Expected RedisUnavailable"),
         };
@@ -124,7 +123,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_corrupted_data_in_redis_is_handled() {
-        // TODO: Extend this test with fallback to pg
         let id = rand::thread_rng().gen_range(1..10_000_000);
         let token = random_string("phc_", 12);
         let team = Team {
@@ -152,7 +150,7 @@ mod tests {
         // now get client connection for data
         let client = setup_redis_client(None);
 
-        match Team::from_redis(client.clone(), team.api_token.clone()).await {
+        match Team::from_redis(client.clone(), team.api_token.as_str()).await {
             Err(FlagError::RedisDataParsingError) => (),
             Err(other) => panic!("Expected DataParsingError, got {:?}", other),
             Ok(_) => panic!("Expected DataParsingError"),
@@ -176,7 +174,7 @@ mod tests {
             .await
             .expect("Failed to write data to redis");
 
-        let team_from_redis = Team::from_redis(client.clone(), target_token.clone())
+        let team_from_redis = Team::from_redis(client.clone(), target_token.as_str())
             .await
             .expect("Failed to fetch team from redis");
 
@@ -195,7 +193,7 @@ mod tests {
 
         let target_token = team.api_token;
 
-        let team_from_pg = Team::from_pg(client.clone(), target_token.clone())
+        let team_from_pg = Team::from_pg(client.clone(), target_token.as_str())
             .await
             .expect("Failed to fetch team from pg");
 
@@ -212,7 +210,7 @@ mod tests {
         let client = setup_pg_reader_client(None).await;
         let target_token = "xxxx".to_string();
 
-        match Team::from_pg(client.clone(), target_token.clone()).await {
+        match Team::from_pg(client.clone(), target_token.as_str()).await {
             Err(FlagError::RowNotFound) => (),
             _ => panic!("Expected RowNotFound"),
         };

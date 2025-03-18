@@ -12,7 +12,7 @@ import { FeatureFlagReleaseType } from '~/types'
 import { RelatedFeatureFlag, relatedFeatureFlagsLogic } from './relatedFeatureFlagsLogic'
 
 interface Props {
-    distinctId: string
+    distinctId: string | null
     groupTypeIndex?: number
     groups?: { [key: string]: string }
 }
@@ -92,11 +92,11 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
         },
         {
             title: (
-                <div className="inline-flex items-center space-x-1">
-                    <div className="">Match evaluation</div>
+                <div className="inline-flex items-center deprecated-space-x-1">
+                    <div>Match evaluation</div>
                     <Tooltip
                         title={
-                            <div className="space-y-2">
+                            <div className="deprecated-space-y-2">
                                 <div>
                                     This column simulates the feature flag evaluation based on the selected distinct ID,
                                     current properties, and groups associated with the user. If the actual flag value
@@ -114,7 +114,7 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                         }
                         closeDelayMs={200}
                     >
-                        <IconInfo className="text-muted-alt text-base ml-1" />
+                        <IconInfo className="text-secondary text-base ml-1" />
                     </Tooltip>
                 </div>
             ),

@@ -1,5 +1,3 @@
-import './Elements.scss'
-
 import { useActions, useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 import { Fragment } from 'react'
@@ -12,6 +10,7 @@ import { FocusRect } from '~/toolbar/elements/FocusRect'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
 
+import { toolbarLogic } from '../bar/toolbarLogic'
 import { Heatmap } from './Heatmap'
 import { ScrollDepth } from './ScrollDepth'
 
@@ -30,14 +29,24 @@ export function Elements(): JSX.Element {
     const { highestClickCount, shiftPressed } = useValues(heatmapLogic)
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
 
+    const { theme } = useValues(toolbarLogic)
+
+    // KLUDGE: if we put theme directly on the div then
+    // linting and typescript complain about it not being
+    // a valid attribute. So we put it in a variable and
+    // spread it in. 🤷‍
+    const themeProps = { theme }
+
     return (
         <>
             <div
                 id="posthog-infowindow-container"
                 className="w-full h-full absolute top-0 left-0 pointer-events-none z-[2147483021]"
+                {...themeProps}
             >
                 <ElementInfoWindow />
             </div>
+
             <div
                 id="posthog-toolbar-elements"
                 className="w-full h-full absolute top-0 pointer-events-none z-[2147483010]"
@@ -50,29 +59,31 @@ export function Elements(): JSX.Element {
                 <Heatmap />
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
-                {elementsToDisplay.map(({ rect, element }, index) => (
-                    <AutocaptureElement
-                        key={`inspect-${index}`}
-                        rect={rect}
-                        style={{
-                            pointerEvents: heatmapPointerEvents,
-                            cursor: 'pointer',
-                            zIndex: hoverElement === element ? 2 : 1,
-                            opacity:
-                                (!hoverElement && !selectedElement) ||
-                                selectedElement === element ||
-                                hoverElement === element
-                                    ? 1
-                                    : 0.4,
-                            transition: 'opacity 0.2s, box-shadow 0.2s',
-                            borderRadius: 5,
-                            ...getBoxColors('blue', hoverElement === element || selectedElement === element),
-                        }}
-                        onClick={() => selectElement(element)}
-                        onMouseOver={() => selectedElement === null && setHoverElement(element)}
-                        onMouseOut={() => selectedElement === null && setHoverElement(null)}
-                    />
-                ))}
+                {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {
+                    return (
+                        <AutocaptureElement
+                            key={`inspect-${index}`}
+                            rect={rect}
+                            style={{
+                                pointerEvents: heatmapPointerEvents,
+                                cursor: 'pointer',
+                                zIndex: apparentZIndex ? apparentZIndex : hoverElement === element ? 2 : 1,
+                                opacity:
+                                    (!hoverElement && !selectedElement) ||
+                                    selectedElement === element ||
+                                    hoverElement === element
+                                        ? 1
+                                        : 0.4,
+                                transition: 'opacity 0.2s, box-shadow 0.2s',
+                                borderRadius: 5,
+                                ...getBoxColors('blue', hoverElement === element || selectedElement === element),
+                            }}
+                            onClick={() => selectElement(element)}
+                            onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                            onMouseOut={() => selectedElement === null && setHoverElement(null)}
+                        />
+                    )
+                })}
 
                 {heatmapElements.map(({ rect, count, clickCount, rageclickCount, element }, index) => {
                     return (

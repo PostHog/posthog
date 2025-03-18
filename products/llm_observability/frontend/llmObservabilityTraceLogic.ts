@@ -1,11 +1,11 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataTableNode, NodeKind, TracesQuery, TracesQueryResponse } from '~/queries/schema'
+import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import type { llmObservabilityTraceLogicType } from './llmObservabilityTraceLogicType'
@@ -30,7 +30,7 @@ export function getDataNodeLogicProps({
         query: query.source,
         key: vizKey,
         dataNodeCollectionId: traceId,
-        alwaysRefresh: false,
+        refresh: false,
         cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps
@@ -38,13 +38,6 @@ export function getDataNodeLogicProps({
 
 export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     path(['scenes', 'llm-observability', 'llmObservabilityTraceLogic']),
-
-    connect(() => ({
-        values: [
-            dataNodeLogic({ key: 'InsightViz.new-AdHoc.DataNode.llm-observability-traces' } as DataNodeLogicProps),
-            ['response as cachedTracesResults'],
-        ],
-    })),
 
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
@@ -83,28 +76,20 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
                 }
             },
         ],
-        cachedTraceResponse: [
-            (s) => [s.cachedTracesResults, s.traceId],
-            (cachedTracesResults, traceId) => {
-                if (!cachedTracesResults) {
-                    return null
-                }
-                const response = cachedTracesResults as TracesQueryResponse
 
-                return {
-                    ...response,
-                    results: response.results.filter((trace) => trace.id === traceId),
-                }
-            },
-        ],
         breadcrumbs: [
             (s) => [s.traceId],
             (traceId): Breadcrumb[] => {
                 return [
                     {
                         key: 'LLMObservability',
+                        name: 'LLM observability',
+                        path: urls.llmObservabilityDashboard(),
+                    },
+                    {
+                        key: 'LLMObservability',
                         name: 'Traces',
-                        path: urls.llmObservability('traces'),
+                        path: urls.llmObservabilityTraces(),
                     },
                     {
                         key: ['LLMObservability', traceId || ''],

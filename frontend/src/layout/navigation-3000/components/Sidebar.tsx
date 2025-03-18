@@ -29,6 +29,7 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
 
     const {
         sidebarWidth: width,
+        isSidebarShown: isShown,
         isResizeInProgress,
         sidebarOverslideDirection: overslideDirection,
         isSearchShown,
@@ -43,10 +44,11 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
                 isResizeInProgress && 'Sidebar3000--resizing',
                 overslideDirection && `Sidebar3000--overslide-${overslideDirection}`
             )}
+            aria-hidden={!isShown}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
-                    '--sidebar-width': `${width}px`,
+                    '--sidebar-width': `${isShown ? width : 0}px`,
                 } as React.CSSProperties
             }
         >
@@ -72,7 +74,7 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
                 }}
             />
             {sidebarOverlay && (
-                <SidebarOverlay {...sidebarOverlayProps} isOpen={sidebarOverlayProps?.isOpen} width={width}>
+                <SidebarOverlay {...sidebarOverlayProps} isOpen={sidebarOverlayProps?.isOpen && isShown} width={width}>
                     {sidebarOverlay}
                 </SidebarOverlay>
             )}
@@ -102,7 +104,6 @@ function SidebarSearchBar({
     return (
         <div className="h-10">
             <LemonInput
-                className="h-full"
                 inputRef={inputElementRef}
                 type="search"
                 value={localSearchTerm}
@@ -163,7 +164,7 @@ function SidebarOverlay({
 
     return (
         <div
-            className={clsx('absolute top-0 left-0 h-full bg-bg-3000 z-10', className)}
+            className={clsx('absolute top-0 left-0 h-full bg-primary z-10', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: `${width}px` }}
         >

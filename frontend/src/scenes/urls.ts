@@ -1,23 +1,16 @@
 import { combineUrl } from 'kea-router'
-import { AlertType } from 'lib/components/Alerts/types'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
-import { HogQLFilters, HogQLVariable, Node } from '~/queries/schema'
 import {
     ActionType,
     ActivityTab,
     AnnotationType,
-    DashboardType,
-    InsightShortId,
-    InsightType,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
     ProductKey,
-    RecordingUniversalFilters,
-    ReplayTabs,
     SDKKey,
 } from '~/types'
 
@@ -37,25 +30,12 @@ import { SurveysTabs } from './surveys/surveysLogic'
  * Sync the paths with AutoProjectMiddleware!
  */
 
-export type LLMObservabilityTab = 'dashboard' | 'traces' | 'generations'
-
 export const urls = {
     ...productUrls,
     absolute: (path = ''): string => window.location.origin + path,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
-    dashboards: (): string => '/dashboard',
-    dashboard: (id: string | number, highlightInsightId?: string): string =>
-        combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
-    dashboardTextTile: (id: string | number, textTileId: string | number): string =>
-        `${urls.dashboard(id)}/text-tiles/${textTileId}`,
-    dashboardSharing: (id: string | number): string => `/dashboard/${id}/sharing`,
-    dashboardSubcriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
-    dashboardSubcription: (id: string | number, subscriptionId: string): string =>
-        `/dashboard/${id}/subscriptions/${subscriptionId}`,
-
-    sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     createAction: (): string => `/data-management/actions/new`,
     duplicateAction: (action: ActionType | null): string => {
         const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
@@ -75,68 +55,8 @@ export const urls = {
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
-    insights: (): string => '/insights',
-    insightNew: (type?: InsightType, dashboardId?: DashboardType['id'] | null, query?: Node): string =>
-        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
-            ...(type ? { insight: type } : {}),
-            ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-        }).url,
-    insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
-        combineUrl(
-            `/data-warehouse`,
-            {},
-            {
-                q: JSON.stringify({
-                    kind: 'DataTableNode',
-                    full: true,
-                    source: { kind: 'HogQLQuery', query, filters },
-                }),
-            }
-        ).url,
-    insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
-    insightView: (
-        id: InsightShortId,
-        dashboardId?: number,
-        variablesOverride?: Record<string, HogQLVariable>
-    ): string => {
-        const params = [
-            { param: 'dashboard', value: dashboardId },
-            { param: 'variables_override', value: variablesOverride },
-        ]
-            .filter((n) => Boolean(n.value))
-            .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
-            .join('&')
-        return `/insights/${id}${params.length ? `?${params}` : ''}`
-    },
-    insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
-    insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
-        `/insights/${id}/subscriptions/${subscriptionId}`,
-    insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
-    savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
+    revenue: (): string => '/data-management/revenue',
 
-    webAnalytics: (): string => `/web`,
-    webAnalyticsWebVitals: (): string => `/web/web-vitals`,
-
-    replay: (
-        tab?: ReplayTabs,
-        filters?: Partial<RecordingUniversalFilters>,
-        sessionRecordingId?: string,
-        order?: string
-    ): string =>
-        combineUrl(tab ? `/replay/${tab}` : '/replay/home', {
-            ...(filters ? { filters } : {}),
-            ...(sessionRecordingId ? { sessionRecordingId } : {}),
-            ...(order ? { order } : {}),
-        }).url,
-    replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
-    replaySingle: (id: string): string => `/replay/${id}`,
-    replayFilePlayback: (): string => '/replay/file-playback',
-
-    personByDistinctId: (id: string, encode: boolean = true): string =>
-        encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
-    personByUUID: (uuid: string, encode: boolean = true): string =>
-        encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
-    persons: (): string => '/persons',
     pipelineNodeNew: (stage: PipelineStage | ':stage', id?: string | number): string => {
         return `/pipeline/new/${stage}${id ? `/${id}` : ''}`
     },
@@ -150,24 +70,15 @@ export const urls = {
         `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
             nodeTab ? `/${nodeTab}` : ''
         }`,
-    groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
-    // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
-    group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
-        `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
-    experiment: (id: string | number): string => `/experiments/${id}`,
-    experiments: (): string => '/experiments',
-    experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
-    experimentsSharedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,
-    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
-    featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
     errorTracking: (): string => '/error_tracking',
     errorTrackingConfiguration: (): string => '/error_tracking/configuration',
     /** @param id A UUID or 'new'. ':id' for routing. */
     errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
-    errorTrackingIssue: (id: string): string => `/error_tracking/${id}`,
+    errorTrackingIssue: (id: string, fingerprint?: string): string =>
+        combineUrl(`/error_tracking/${id}`, { fingerprint }).url,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
@@ -245,16 +156,9 @@ export const urls = {
     debugHog: (): string => '/debug/hog',
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
-    notebooks: (): string => '/notebooks',
-    notebook: (shortId: string): string => `/notebooks/${shortId}`,
-    canvas: (): string => `/canvas`,
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
-    alerts: (): string => `/insights?tab=alerts`,
-    insightAlerts: (insightShortId: InsightShortId): string => `/insights/${insightShortId}/alerts`,
-    insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
-        `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
+    wizard: (): string => `/wizard`,
 }

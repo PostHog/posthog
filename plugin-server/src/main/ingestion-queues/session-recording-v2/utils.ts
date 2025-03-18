@@ -1,7 +1,7 @@
-import { captureException } from '@sentry/node'
 import { KafkaConsumer, PartitionMetadata } from 'node-rdkafka'
 
-import { status } from '../../../utils/status'
+import { logger } from '../../../utils/logger'
+import { captureException } from '../../../utils/posthog'
 
 export const getPartitionsForTopic = (
     kafkaConsumer: KafkaConsumer | undefined,
@@ -14,7 +14,7 @@ export const getPartitionsForTopic = (
         kafkaConsumer.getMetadata({ topic }, (err, meta) => {
             if (err) {
                 captureException(err)
-                status.error('🔥', 'Failed to get partition metadata', err)
+                logger.error('🔥', 'Failed to get partition metadata', err)
                 return reject(err)
             }
 

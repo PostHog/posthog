@@ -1,7 +1,8 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="client-side",
+    status="beta",
+    free=True,
     type="site_app",
     id="template-hogdesk",
     name="HogDesk",

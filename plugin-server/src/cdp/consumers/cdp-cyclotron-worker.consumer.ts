@@ -1,10 +1,22 @@
 import { CyclotronJob, CyclotronWorker } from '@posthog/cyclotron'
+import { Counter, Gauge } from 'prom-client'
 
-import { runInstrumentedFunction } from '../../main/utils'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
-import { CdpConsumerBase, counterJobsProcessed, gaugeBatchUtilization } from './cdp-base.consumer'
+import { CdpConsumerBase } from './cdp-base.consumer'
+
+const cyclotronBatchUtilizationGauge = new Gauge({
+    name: 'cdp_cyclotron_batch_utilization',
+    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
+    labelNames: ['queue'],
+})
+
+const counterJobsProcessed = new Counter({
+    name: 'cdp_cyclotron_jobs_processed',
+    help: 'The number of jobs we are managing to process',
+    labelNames: ['queue'],
+})
 
 /**
  * The future of the CDP consumer. This will be the main consumer that will handle all hog jobs from Cyclotron
@@ -13,42 +25,37 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     private cyclotronWorker?: CyclotronWorker
     private runningWorker: Promise<void> | undefined
-    protected queue: 'hog' | 'fetch' = 'hog'
+    protected queue: 'hog' | 'fetch' | 'plugin' = 'hog'
     protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
 
-    public async processBatch(invocations: HogFunctionInvocation[]): Promise<void> {
-        if (!invocations.length) {
-            return
-        }
-
-        const invocationResults = await runInstrumentedFunction({
-            statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
-            func: async () => {
-                // NOTE: this service will never do fetching (unless we decide we want to do it in node at some point, its only used for e2e testing)
-                // fetchExecutor would use rusty-hook to send a fetch request but thats no longer the case
-                // we are currentyl going to execute the fetch locally for testing purposes
-                // as nothing should ever land on the deprecated fetch queue this should be safe.
-                const fetchQueue = invocations.filter((item) => item.queue === 'fetch')
-                const fetchResults = await this.runManyWithHeartbeat(fetchQueue, (item) =>
-                    this.fetchExecutor.execute(item)
-                )
-                const hogQueue = invocations.filter((item) => item.queue === 'hog')
-                const hogResults = await this.runManyWithHeartbeat(hogQueue, (item) => this.hogExecutor.execute(item))
-                return [...hogResults, ...(fetchResults.filter(Boolean) as HogFunctionInvocationResult[])]
-            },
-        })
-
-        await this.processInvocationResults(invocationResults)
-        await this.updateJobs(invocationResults)
-        await this.produceQueuedMessages()
+    public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
+        return await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
     }
 
-    private async updateJobs(invocations: HogFunctionInvocationResult[]) {
+    public async processBatch(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
+        if (!invocations.length) {
+            return []
+        }
+
+        const invocationResults = await this.runInstrumented(
+            'handleEachBatch.executeInvocations',
+            async () => await this.processInvocations(invocations)
+        )
+
+        await this.hogWatcher.observeResults(invocationResults)
+        await this.hogFunctionMonitoringService.processInvocationResults(invocationResults)
+        await this.updateJobs(invocationResults)
+        await this.hogFunctionMonitoringService.produceQueuedMessages()
+
+        return invocationResults
+    }
+
+    protected async updateJobs(invocations: HogFunctionInvocationResult[]) {
         await Promise.all(
             invocations.map((item) => {
                 if (item.invocation.queue === 'fetch') {
                     // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
-                    this.produceAppMetric({
+                    this.hogFunctionMonitoringService.produceAppMetric({
                         team_id: item.invocation.teamId,
                         app_source_id: item.invocation.hogFunction.id,
                         metric_kind: 'other',
@@ -59,13 +66,13 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
                 const id = item.invocation.id
                 if (item.error) {
-                    status.debug('⚡️', 'Updating job to failed', id)
+                    logger.debug('⚡️', 'Updating job to failed', id)
                     this.cyclotronWorker?.updateJob(id, 'failed')
                 } else if (item.finished) {
-                    status.debug('⚡️', 'Updating job to completed', id)
+                    logger.debug('⚡️', 'Updating job to completed', id)
                     this.cyclotronWorker?.updateJob(id, 'completed')
                 } else {
-                    status.debug('⚡️', 'Updating job to available', id)
+                    logger.debug('⚡️', 'Updating job to available', id)
 
                     const updates = invocationToCyclotronJobUpdate(item.invocation)
 
@@ -77,24 +84,44 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     private async handleJobBatch(jobs: CyclotronJob[]) {
-        gaugeBatchUtilization.labels({ queue: this.queue }).set(jobs.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
+        cyclotronBatchUtilizationGauge
+            .labels({ queue: this.queue })
+            .set(jobs.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
         if (!this.cyclotronWorker) {
             throw new Error('No cyclotron worker when trying to handle batch')
         }
         const invocations: HogFunctionInvocation[] = []
         // A list of all the promises related to job releasing that we need to await
         const failReleases: Promise<void>[] = []
+
+        const hogFunctionIds: string[] = []
+
         for (const job of jobs) {
-            // NOTE: This is all a bit messy and might be better to refactor into a helper
             if (!job.functionId) {
                 throw new Error('Bad job: ' + JSON.stringify(job))
             }
-            const hogFunction = this.hogFunctionManager.getHogFunction(job.functionId)
+
+            hogFunctionIds.push(job.functionId)
+        }
+
+        if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && hogFunctionIds.length > 0) {
+            const hogFunctions = await this.hogFunctionManagerLazy.getHogFunctions(hogFunctionIds)
+            if (Object.keys(hogFunctions).length !== hogFunctionIds.length) {
+                logger.warn('Lazy loaded different number of functions', {
+                    lazy: Object.keys(hogFunctions).length,
+                    eager: hogFunctionIds.length,
+                })
+            }
+        }
+
+        for (const job of jobs) {
+            // NOTE: This is all a bit messy and might be better to refactor into a helper
+            const hogFunction = this.hogFunctionManager.getHogFunction(job.functionId!)
 
             if (!hogFunction) {
                 // Here we need to mark the job as failed
 
-                status.error('Error finding hog function', {
+                logger.error('⚠️', 'Error finding hog function', {
                     id: job.functionId,
                 })
                 this.cyclotronWorker.updateJob(job.id, 'failed')
@@ -140,4 +167,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 export class CdpCyclotronWorkerFetch extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerFetch'
     protected queue = 'fetch' as const
+
+    public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
+        // NOTE: this service will never do fetching (unless we decide we want to do it in node at some point, its only used for e2e testing)
+        return (await this.runManyWithHeartbeat(invocations, (item) => this.fetchExecutor.execute(item))).filter(
+            Boolean
+        ) as HogFunctionInvocationResult[]
+    }
 }

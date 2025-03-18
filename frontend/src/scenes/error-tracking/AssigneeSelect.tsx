@@ -1,13 +1,13 @@
 import { IconPlusSmall, IconX } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '../../queries/schema'
-import { assigneeSelectLogic } from './assigneeSelectLogic'
+import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 
-type AssigneeDisplayType = { id: string | number; icon: JSX.Element; displayName?: string }
+import { AssigneeDisplay } from './AssigneeDisplay'
+import { AssigneeDisplayType, assigneeSelectLogic } from './assigneeSelectLogic'
 
 export const AssigneeSelect = ({
     assignee,
@@ -23,9 +23,8 @@ export const AssigneeSelect = ({
     showIcon?: boolean
     unassignedLabel?: string
 } & Partial<Pick<LemonButtonProps, 'type' | 'size'>>): JSX.Element => {
-    const logic = assigneeSelectLogic({ assignee })
-    const { computeAssignee, search, groupOptions, memberOptions, userGroupsLoading, membersLoading } = useValues(logic)
-    const { setSearch, ensureAssigneeTypesLoaded } = useActions(logic)
+    const { search, groupOptions, memberOptions, userGroupsLoading, membersLoading } = useValues(assigneeSelectLogic)
+    const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const [showPopover, setShowPopover] = useState(false)
 
     const _onChange = (value: ErrorTrackingIssue['assignee']): void => {
@@ -35,12 +34,8 @@ export const AssigneeSelect = ({
     }
 
     useEffect(() => {
-        if (showPopover) {
-            ensureAssigneeTypesLoaded()
-        }
-    }, [showPopover, ensureAssigneeTypesLoaded])
-
-    const displayAssignee = useMemo(() => computeAssignee(assignee), [assignee])
+        ensureAssigneeTypesLoaded()
+    }, [])
 
     return (
         <LemonDropdown
@@ -49,7 +44,7 @@ export const AssigneeSelect = ({
             matchWidth={false}
             onVisibilityChange={(visible) => setShowPopover(visible)}
             overlay={
-                <div className="max-w-100 space-y-2 overflow-hidden">
+                <div className="max-w-100 deprecated-space-y-2 overflow-hidden">
                     <LemonInput
                         type="search"
                         placeholder="Search"
@@ -58,7 +53,7 @@ export const AssigneeSelect = ({
                         onChange={setSearch}
                         fullWidth
                     />
-                    <ul className="space-y-2">
+                    <ul className="deprecated-space-y-2">
                         {assignee && (
                             <li>
                                 <LemonButton
@@ -88,7 +83,7 @@ export const AssigneeSelect = ({
                                     icon={<IconPlusSmall />}
                                     to={urls.settings('environment-error-tracking', 'user-groups')}
                                 >
-                                    <div className="text-muted-alt">Create user group</div>
+                                    <div className="text-secondary">Create user group</div>
                                 </LemonButton>
                             }
                         />
@@ -106,13 +101,25 @@ export const AssigneeSelect = ({
                 </div>
             }
         >
-            <LemonButton
-                tooltip={displayAssignee.displayName}
-                icon={showIcon ? displayAssignee.icon : null}
-                {...buttonProps}
-            >
-                {showName ? <span className="pl-1">{displayAssignee.displayName ?? unassignedLabel}</span> : null}
-            </LemonButton>
+            <div>
+                <AssigneeDisplay assignee={assignee}>
+                    {({ displayAssignee }) => (
+                        <LemonButton
+                            tooltip={displayAssignee.displayName}
+                            icon={showIcon ? displayAssignee.icon : null}
+                            {...buttonProps}
+                        >
+                            {showName ? (
+                                <span className="pl-1">
+                                    {displayAssignee.id === 'unassigned'
+                                        ? unassignedLabel
+                                        : displayAssignee.displayName}
+                                </span>
+                            ) : null}
+                        </LemonButton>
+                    )}
+                </AssigneeDisplay>
+            </div>
         </LemonDropdown>
     )
 }
@@ -138,7 +145,7 @@ const Section = ({
 }): JSX.Element => {
     return (
         <li>
-            <section className="space-y-px">
+            <section className="deprecated-space-y-px">
                 <h5 className="mx-2 my-0.5">{title}</h5>
                 {items.map((item) => (
                     <li key={item.id}>
@@ -158,10 +165,10 @@ const Section = ({
                 ))}
 
                 {loading ? (
-                    <div className="p-2 text-muted-alt italic truncate border-t">Loading...</div>
+                    <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
                 ) : items.length === 0 ? (
                     search ? (
-                        <div className="p-2 text-muted-alt italic truncate border-t">
+                        <div className="p-2 text-secondary italic truncate border-t">
                             <span>No matches</span>
                         </div>
                     ) : (

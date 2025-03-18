@@ -8,7 +8,7 @@ from collections.abc import Callable, Generator
 
 from dateutil.parser import parse
 from prometheus_client import Counter
-from sentry_sdk.api import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.session_recordings.models.metadata import (
@@ -103,12 +103,31 @@ def split_replay_events(events: list[Event]) -> tuple[list[Event], list[Event]]:
 
 
 # TODO is this covered by enough tests post-blob ingester rollout
-def preprocess_replay_events_for_blob_ingestion(events: list[Event], max_size_bytes=1024 * 1024) -> list[Event]:
-    return _process_windowed_events(events, lambda x: preprocess_replay_events(x, max_size_bytes=max_size_bytes))
+def preprocess_replay_events_for_blob_ingestion(
+    events: list[Event], max_size_bytes=1024 * 1024, user_agent: str | None = None
+) -> list[Event]:
+    return _process_windowed_events(
+        events, lambda x: preprocess_replay_events(x, max_size_bytes=max_size_bytes, user_agent=user_agent)
+    )
+
+
+def snapshot_library_fallback_from(user_agent: str | None) -> str | None:
+    try:
+        if user_agent is None:
+            fallback = None
+        else:
+            fallback = "web"
+            if "posthog" in user_agent.lower() and "/" in user_agent:
+                # mobile SDKs send e.g. posthog-android/1.0.0
+                fallback = user_agent.split("/")[0]
+
+        return fallback
+    except:
+        return None
 
 
 def preprocess_replay_events(
-    _events: list[Event] | Generator[Event, None, None], max_size_bytes=1024 * 1024
+    _events: list[Event] | Generator[Event, None, None], max_size_bytes=1024 * 1024, user_agent: str | None = None
 ) -> Generator[Event, None, None]:
     """
     The events going to blob ingestion are uncompressed (the compression happens in the Kafka producer)
@@ -135,6 +154,10 @@ def preprocess_replay_events(
     session_id = events[0]["properties"]["$session_id"]
     window_id = events[0]["properties"].get("$window_id")
     snapshot_source = events[0]["properties"].get("$snapshot_source", "web")
+    # truncate to 1000 chars just in case
+    lib_property = events[0]["properties"].get("$lib", snapshot_library_fallback_from(user_agent))
+    if (lib_property is not None) and (len(lib_property) > 1000):
+        lib_property = lib_property[:997] + "..."
 
     def new_event(items: list[dict] | None = None) -> Event:
         return {
@@ -147,6 +170,7 @@ def preprocess_replay_events(
                 # We instantiate here instead of in the arg to avoid mutable default args
                 "$snapshot_items": items or [],
                 "$snapshot_source": snapshot_source,
+                "$lib": lib_property,
             },
         }
 

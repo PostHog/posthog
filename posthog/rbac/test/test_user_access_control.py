@@ -39,8 +39,8 @@ class BaseUserAccessControlTest(BaseTest):
         super().setUp()
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.PROJECT_BASED_PERMISSIONING,
-                "name": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
             },
             {
                 "key": AvailableFeature.ROLE_BASED_ACCESS,
@@ -260,8 +260,10 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         )
 
         # NOTE: This is different to the API queries as the TeamAndOrgViewsetMixing takes care of filtering out based on the parent org
-        filtered_teams = list(self.user_access_control.filter_queryset_by_access_level(Team.objects.all()))
-        assert filtered_teams == [self.team, team3]
+        filtered_teams = list(
+            self.user_access_control.filter_queryset_by_access_level(Team.objects.all()).order_by("id")
+        )
+        assert [self.team, team3] == filtered_teams
 
         other_user_filtered_teams = list(
             self.other_user_access_control.filter_queryset_by_access_level(Team.objects.all())
@@ -279,11 +281,11 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         self.organization_membership.save()
 
         filtered_teams = list(
-            self.user_access_control.filter_queryset_by_access_level(Team.objects.all(), include_all_if_admin=True)
+            self.user_access_control.filter_queryset_by_access_level(
+                Team.objects.all(), include_all_if_admin=True
+            ).order_by("id")
         )
-        assert sorted(filtered_teams, key=lambda team: team.id) == sorted(
-            [self.team, team2, team3], key=lambda team: team.id
-        )
+        self.assertListEqual([self.team, team2, team3], filtered_teams)
 
     def test_organization_access_control(self):
         # A team isn't always available like for organization level routing
@@ -524,7 +526,6 @@ class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
 # class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
 #     def test_dashboard_efficiency(self):
 #         self.organization.available_product_features = [
-#             {"key": AvailableFeature.PROJECT_BASED_PERMISSIONING, "name": AvailableFeature.PROJECT_BASED_PERMISSIONING},
 #             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
 #         ]
 #         self.organization.save()
@@ -565,7 +566,7 @@ class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
 #             membership.save()  # type: ignore
 
 #             organization.available_product_features = [
-#                 {"key": AvailableFeature.PROJECT_BASED_PERMISSIONING, "name": AvailableFeature.PROJECT_BASED_PERMISSIONING},
+#                 {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
 #             ]
 #             organization.save()
 

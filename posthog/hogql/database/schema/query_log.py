@@ -14,26 +14,27 @@ from posthog.hogql.database.models import (
 )
 
 QUERY_LOG_FIELDS: dict[str, FieldOrTable] = {
-    "query_id": StringDatabaseField(name="query_id"),
-    "endpoint": StringDatabaseField(name="endpoint"),
-    "query": StringDatabaseField(name="query"),  #
-    "query_start_time": DateTimeDatabaseField(name="event_time"),  #
-    "query_duration_ms": FloatDatabaseField(name="query_duration_ms"),  #
-    "created_by": IntegerDatabaseField(name="created_by"),
-    "read_rows": IntegerDatabaseField(name="read_rows"),
-    "read_bytes": IntegerDatabaseField(name="read_bytes"),
-    "result_rows": IntegerDatabaseField(name="result_rows"),
-    "result_bytes": IntegerDatabaseField(name="result_bytes"),
-    "memory_usage": IntegerDatabaseField(name="memory_usage"),
-    "status": StringDatabaseField(name="type"),
-    "is_personal_api_key_request": BooleanDatabaseField(name="is_personal_api_key_request"),
+    "query_id": StringDatabaseField(name="query_id", nullable=False),
+    "endpoint": StringDatabaseField(name="endpoint", nullable=False),
+    "query": StringDatabaseField(name="query", nullable=False),  #
+    "query_start_time": DateTimeDatabaseField(name="event_time", nullable=False),  #
+    "query_duration_ms": FloatDatabaseField(name="query_duration_ms", nullable=False),  #
+    "hogql_name": StringDatabaseField(name="hogql_name", nullable=False),
+    "created_by": IntegerDatabaseField(name="created_by", nullable=False),
+    "read_rows": IntegerDatabaseField(name="read_rows", nullable=False),
+    "read_bytes": IntegerDatabaseField(name="read_bytes", nullable=False),
+    "result_rows": IntegerDatabaseField(name="result_rows", nullable=False),
+    "result_bytes": IntegerDatabaseField(name="result_bytes", nullable=False),
+    "memory_usage": IntegerDatabaseField(name="memory_usage", nullable=False),
+    "status": StringDatabaseField(name="type", nullable=False),
+    "is_personal_api_key_request": BooleanDatabaseField(name="is_personal_api_key_request", nullable=False),
 }
 
 RAW_QUERY_LOG_FIELDS: dict[str, FieldOrTable] = QUERY_LOG_FIELDS | {
     # below fields are necessary to compute some of the resulting fields
-    "type": StringDatabaseField(name="type"),
-    "is_initial_query": BooleanDatabaseField(name="is_initial_query"),
-    "log_comment": StringDatabaseField(name="log_comment"),
+    "type": StringDatabaseField(name="type", nullable=False),
+    "is_initial_query": BooleanDatabaseField(name="is_initial_query", nullable=False),
+    "log_comment": StringDatabaseField(name="log_comment", nullable=False),
 }
 
 STRING_FIELDS = {
@@ -41,6 +42,7 @@ STRING_FIELDS = {
     "query_id": ["client_query_id"],
     "query": ["query", "query"],
     "kind": ["query", "kind"],
+    "hogql_name": ["query", "name"],
 }
 INT_FIELDS = {"created_by": ["user_id"]}
 

@@ -2,7 +2,10 @@ import dataclasses
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
-from posthog import settings
+
+TableName = str
+PropertySourceColumnName = str
+PropertyGroupName = str
 
 
 @dataclass
@@ -11,74 +14,100 @@ class PropertyGroupDefinition:
     key_filter_function: Callable[[str], bool]
     codec: str = "ZSTD(1)"
     is_materialized: bool = True
+    column_type_name: str = "map"
+    hidden: bool = (
+        False  # whether or not this column should be returned when searching for groups containing a property key
+    )
 
     def contains(self, property_key: str) -> bool:
-        return self.key_filter_function(property_key)
+        if self.hidden:
+            return False
+        else:
+            return self.key_filter_function(property_key)
 
+    def get_column_name(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName) -> str:
+        return f"{source_column}_{self.column_type_name}_{group_name}"
 
-TableName = str
-ColumnName = str
-PropertyGroupName = str
+    def get_column_definition(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName) -> str:
+        column_definition = f"{self.get_column_name(source_column, group_name)} Map(String, String)"
+        if not self.is_materialized:
+            return column_definition
+
+        return f"""\
+            {column_definition}
+            MATERIALIZED mapSort(
+                mapFilter((key, _) -> {self.key_filter_expression},
+                CAST(JSONExtractKeysAndValues({source_column}, 'String'), 'Map(String, String)'))
+            )
+            CODEC({self.codec})
+        """
+
+    def get_index_definitions(
+        self, source_column: PropertySourceColumnName, group_name: PropertyGroupName
+    ) -> Iterable[str]:
+        if not self.is_materialized:
+            return
+
+        map_column_name = self.get_column_name(source_column, group_name)
+        yield f"{map_column_name}_keys_bf mapKeys({map_column_name}) TYPE bloom_filter"
+        yield f"{map_column_name}_values_bf mapValues({map_column_name}) TYPE bloom_filter"
 
 
 class PropertyGroupManager:
     def __init__(
         self,
-        cluster: str,
-        groups: Mapping[TableName, Mapping[ColumnName, Mapping[PropertyGroupName, PropertyGroupDefinition]]],
+        groups: Mapping[
+            TableName, Mapping[PropertySourceColumnName, Mapping[PropertyGroupName, PropertyGroupDefinition]]
+        ],
     ) -> None:
-        self.__cluster = cluster
         self.__groups = groups
 
-    def __get_map_column_name(self, column: ColumnName, group_name: PropertyGroupName) -> str:
-        return f"{column}_group_{group_name}"
-
-    def get_property_group_columns(self, table: TableName, column: ColumnName, property_key: str) -> Iterable[str]:
-        if (table_groups := self.__groups.get(table)) and (column_groups := table_groups.get(column)):
+    def get_property_group_columns(
+        self, table: TableName, source_column: PropertySourceColumnName, property_key: str
+    ) -> Iterable[str]:
+        """
+        Returns an iterable of column names for the map columns responsible for the provided property key and source
+        column. The iterable may contain zero items if no maps contain the property key, or multiple items if more than
+        one map if the keyspaces of the defined groups for that source column are overlapping.
+        """
+        if (table_groups := self.__groups.get(table)) and (column_groups := table_groups.get(source_column)):
             for group_name, group_definition in column_groups.items():
                 if group_definition.contains(property_key):
-                    yield self.__get_map_column_name(column, group_name)
-
-    def __get_column_definition(self, table: TableName, column: ColumnName, group_name: PropertyGroupName) -> str:
-        group_definition = self.__groups[table][column][group_name]
-        map_column_name = self.__get_map_column_name(column, group_name)
-        column_definition = f"{map_column_name} Map(String, String)"
-        if not group_definition.is_materialized:
-            return column_definition
-        else:
-            return f"""\
-                {column_definition}
-                MATERIALIZED mapSort(
-                    mapFilter((key, _) -> {group_definition.key_filter_expression},
-                    CAST(JSONExtractKeysAndValues({column}, 'String'), 'Map(String, String)'))
-                )
-                CODEC({group_definition.codec})
-            """
-
-    def __get_index_definitions(
-        self, table: TableName, column: ColumnName, group_name: PropertyGroupName
-    ) -> Iterable[str]:
-        group_definition = self.__groups[table][column][group_name]
-        if not group_definition.is_materialized:
-            return
-
-        map_column_name = self.__get_map_column_name(column, group_name)
-        yield f"{map_column_name}_keys_bf mapKeys({map_column_name}) TYPE bloom_filter"
-        yield f"{map_column_name}_values_bf mapValues({map_column_name}) TYPE bloom_filter"
+                    yield group_definition.get_column_name(source_column, group_name)
 
     def get_create_table_pieces(self, table: TableName) -> Iterable[str]:
-        for column, groups in self.__groups[table].items():
-            for group_name in groups:
-                yield self.__get_column_definition(table, column, group_name)
-                for index_definition in self.__get_index_definitions(table, column, group_name):
+        """
+        Returns an iterable of SQL DDL chunks that can be used to define all property groups for the provided table as
+        part of a CREATE TABLE statement.
+        """
+        for source_column, groups in self.__groups[table].items():
+            for group_name, group_definition in groups.items():
+                yield group_definition.get_column_definition(source_column, group_name)
+                for index_definition in group_definition.get_index_definitions(source_column, group_name):
                     yield f"INDEX {index_definition}"
 
     def get_alter_create_statements(
-        self, table: TableName, column: ColumnName, group_name: PropertyGroupName
+        self,
+        table: TableName,
+        source_column: PropertySourceColumnName,
+        group_name: PropertyGroupName,
+        cluster: str | None = None,
     ) -> Iterable[str]:
-        yield f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD COLUMN IF NOT EXISTS {self.__get_column_definition(table, column, group_name)}"
-        for index_definition in self.__get_index_definitions(table, column, group_name):
-            yield f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD INDEX IF NOT EXISTS {index_definition}"
+        """
+        Returns an iterable of ALTER TABLE statements that can be used to create the property group (e.g. as part of a
+        migration) if it doesn't already exist.
+        """
+        prefix = f"ALTER TABLE {table}"
+        if cluster is not None:
+            prefix += f" ON CLUSTER {cluster}"
+
+        group_definition = self.__groups[table][source_column][group_name]
+
+        commands = [f"ADD COLUMN IF NOT EXISTS {group_definition.get_column_definition(source_column, group_name)}"]
+        for index_definition in group_definition.get_index_definitions(source_column, group_name):
+            commands.append(f"ADD INDEX IF NOT EXISTS {index_definition}")
+
+        yield f"{prefix} " + ", ".join(commands)
 
 
 ignore_custom_properties = [
@@ -117,24 +146,33 @@ event_property_group_definitions = {
         "custom": PropertyGroupDefinition(
             f"key NOT LIKE '$%' AND key NOT IN (" + f", ".join(f"'{name}'" for name in ignore_custom_properties) + f")",
             lambda key: not key.startswith("$") and key not in ignore_custom_properties,
+            column_type_name="group",
         ),
         "feature_flags": PropertyGroupDefinition(
             "key like '$feature/%'",
             lambda key: key.startswith("$feature/"),
+            column_type_name="group",
         ),
-    }
+    },
+    "person_properties": {
+        "custom": PropertyGroupDefinition(
+            f"key NOT LIKE '$%'",
+            lambda key: not key.startswith("$"),
+        ),
+    },
 }
 
 property_groups = PropertyGroupManager(
-    settings.CLICKHOUSE_CLUSTER,
     {
         "sharded_events": event_property_group_definitions,
         "events": {
+            # the events distributed table shares the same property group names and types as the sharded_events table,
+            # just without the materialize statements
             column_name: {
                 group_name: dataclasses.replace(group_definition, is_materialized=False)
                 for group_name, group_definition in column_group_definitions.items()
             }
             for column_name, column_group_definitions in event_property_group_definitions.items()
         },
-    },
+    }
 )

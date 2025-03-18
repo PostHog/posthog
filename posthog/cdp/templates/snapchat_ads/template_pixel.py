@@ -27,7 +27,8 @@ common_inputs = [
 ]
 
 template_snapchat_pixel: HogFunctionTemplate = HogFunctionTemplate(
-    status="client-side",
+    status="beta",
+    free=False,
     type="site_destination",
     id="template-snapchat-pixel",
     name="Snapchat Pixel",
@@ -53,6 +54,9 @@ export function onLoad({ inputs }) {
             userProperties[key] = value;
         }
     };
+    if (posthog.config.debug) {
+        console.log('[PostHog] snaptr init', inputs.pixelId, userProperties);
+    }
     snaptr('init', inputs.pixelId, userProperties);
 }
 export function onEvent({ inputs }) {
@@ -62,6 +66,9 @@ export function onEvent({ inputs }) {
             eventProperties[key] = value;
         }
     };
+    if (posthog.config.debug) {
+        console.log('[PostHog] snaptr track', inputs.eventType, eventProperties);
+    }
     snaptr('track', inputs.eventType, eventProperties);
 }
 """.strip(),

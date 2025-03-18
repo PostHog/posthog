@@ -1264,5 +1264,6 @@ export const dashboard: DashboardType = {
     effective_restriction_level: 37,
     effective_privilege_level: 37,
     user_access_level: 'editor',
+    access_control_version: 'v1',
     tags: [],
 }

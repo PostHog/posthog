@@ -1,5 +1,6 @@
 import json
 
+import os
 from typing import Any
 
 from django.http import HttpResponse
@@ -19,6 +20,7 @@ from posthog.models.integration import (
     SlackIntegration,
     GoogleCloudIntegration,
     GoogleAdsIntegration,
+    LinkedInAdsIntegration,
 )
 
 
@@ -74,11 +76,15 @@ class IntegrationViewSet(
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         kind = request.GET.get("kind")
         next = request.GET.get("next", "")
+        token = os.urandom(33).hex()
 
         if kind in OauthIntegration.supported_kinds:
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next)
-                return redirect(auth_url)
+                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
+                response = redirect(auth_url)
+                response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
+
+                return response
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
 
@@ -88,16 +94,25 @@ class IntegrationViewSet(
     def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         slack = SlackIntegration(instance)
+        authed_user = instance.config["authed_user"]["id"]
+
+        channel_id = request.query_params.get("channel_id")
+        if channel_id:
+            channel = slack.get_channel_by_id(channel_id)
+            if channel:
+                return Response({"channels": [channel]})
+            else:
+                return Response({"channels": []})
 
         channels = [
             {
                 "id": channel["id"],
                 "name": channel["name"],
                 "is_private": channel["is_private"],
-                "is_member": channel["is_member"],
+                "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
             }
-            for channel in slack.list_channels()
+            for channel in slack.list_channels(authed_user)
         ]
 
         return Response({"channels": channels})
@@ -107,8 +122,9 @@ class IntegrationViewSet(
         instance = self.get_object()
         google_ads = GoogleAdsIntegration(instance)
         customer_id = request.query_params.get("customerId")
+        parent_id = request.query_params.get("parentId")
 
-        conversion_actions = google_ads.list_google_ads_conversion_actions(customer_id)
+        conversion_actions = google_ads.list_google_ads_conversion_actions(customer_id, parent_id)
 
         if len(conversion_actions) == 0:
             return Response({"conversionActions": []})
@@ -119,7 +135,7 @@ class IntegrationViewSet(
                 "name": conversionAction["conversionAction"]["name"],
                 "resourceName": conversionAction["conversionAction"]["resourceName"],
             }
-            for conversionAction in google_ads.list_google_ads_conversion_actions(customer_id)[0]["results"]
+            for conversionAction in google_ads.list_google_ads_conversion_actions(customer_id, parent_id)[0]["results"]
         ]
 
         return Response({"conversionActions": conversion_actions})
@@ -138,3 +154,36 @@ class IntegrationViewSet(
         response_data = {"accessibleAccounts": google_ads.list_google_ads_accessible_accounts()}
         cache.set(key, response_data, 60)
         return Response(response_data)
+
+    @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
+    def linkedin_ad_conversion_rules(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        linkedin_ads = LinkedInAdsIntegration(instance)
+        account_id = request.query_params.get("accountId")
+
+        response = linkedin_ads.list_linkedin_ads_conversion_rules(account_id)
+        conversion_rules = [
+            {
+                "id": conversionRule["id"],
+                "name": conversionRule["name"],
+            }
+            for conversionRule in response.get("elements", [])
+        ]
+
+        return Response({"conversionRules": conversion_rules})
+
+    @action(methods=["GET"], detail=True, url_path="linkedin_ads_accounts")
+    def linkedin_ad_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        linkedin_ads = LinkedInAdsIntegration(instance)
+
+        accounts = [
+            {
+                "id": account["id"],
+                "name": account["name"],
+                "reference": account["reference"],
+            }
+            for account in linkedin_ads.list_linkedin_ads_accounts()["elements"]
+        ]
+
+        return Response({"adAccounts": accounts})

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Not;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -46,6 +47,8 @@ pub struct CapturedEvent {
     )]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
+    #[serde(skip_serializing_if = "<&bool>::not")] // only store if true
+    pub is_cookieless_mode: bool,
 }
 
 // Used when we want to bypass token checks when emitting events from rust
@@ -59,7 +62,11 @@ pub struct InternallyCapturedEvent {
 
 impl CapturedEvent {
     pub fn key(&self) -> String {
-        format!("{}:{}", self.token, self.distinct_id)
+        if self.is_cookieless_mode {
+            format!("{}:{}", self.token, self.ip)
+        } else {
+            format!("{}:{}", self.token, self.distinct_id)
+        }
     }
 }
 
@@ -102,19 +109,14 @@ pub struct ClickHouseEvent {
     pub group3_properties: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group4_properties: Option<String>,
-    // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group0_created_at: Option<String>,
-    // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group1_created_at: Option<String>,
-    // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group2_created_at: Option<String>,
-    // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group3_created_at: Option<String>,
-    // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group4_created_at: Option<String>,
     pub person_mode: PersonMode,
@@ -123,10 +125,18 @@ pub struct ClickHouseEvent {
 impl ClickHouseEvent {
     pub fn take_raw_properties(&mut self) -> Result<HashMap<String, Value>, serde_json::Error> {
         // Sometimes properties are REALLY big, so we may as well do this.
-        let props = self.properties.take();
-        match props {
-            Some(properties) => serde_json::from_str(&properties),
+        let props_str = self.properties.take();
+        let parsed = match &props_str {
+            Some(properties) => serde_json::from_str(properties),
             None => Ok(HashMap::new()),
+        };
+
+        match parsed {
+            Ok(properties) => Ok(properties),
+            Err(e) => {
+                self.properties = props_str;
+                Err(e)
+            }
         }
     }
 
@@ -173,6 +183,26 @@ impl RawEvent {
             0 => None,
             1..=200 => Some(distinct_id),
             _ => Some(distinct_id.chars().take(200).collect()),
+        }
+    }
+
+    // Extracts the cookieless mode from the event properties. If the value is not
+    // present, it is assumed to be false, and if it is some invalid value then we
+    // return None.
+    pub fn extract_is_cookieless_mode(&self) -> Option<bool> {
+        match self.properties.get("$cookieless_mode") {
+            Some(Value::Bool(b)) => Some(*b),
+            Some(_) => None,
+            None => Some(false),
+        }
+    }
+
+    pub fn map_property<F>(&mut self, key: &str, f: F)
+    where
+        F: FnOnce(Value) -> Value,
+    {
+        if let Some(value) = self.properties.get_mut(key) {
+            *value = f(value.take());
         }
     }
 }

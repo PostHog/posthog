@@ -1,117 +1,220 @@
-import { IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { IconArrowDown, IconArrowUp, IconExclamation } from 'lib/lemon-ui/icons'
+import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { useState } from 'react'
+import { isObject } from 'lib/utils'
+import React from 'react'
 
-import { EventType } from '~/types'
-
-import { CompatMessage } from '../types'
+import { LLMInputOutput } from '../LLMInputOutput'
+import { CompatMessage, VercelSDKImageMessage } from '../types'
 import { normalizeMessages } from '../utils'
 
 export function ConversationMessagesDisplay({
-    eventProperties,
+    input,
+    output,
+    tools,
+    httpStatus,
+    raisedError,
+    bordered = false,
 }: {
-    eventProperties: EventType['properties']
+    input: any
+    output: any
+    tools?: any
+    httpStatus?: number
+    raisedError?: boolean
+    bordered?: boolean
 }): JSX.Element {
-    const input = normalizeMessages(eventProperties.$ai_input, 'user')
-    const output = normalizeMessages(eventProperties.$ai_output_choices || eventProperties.$ai_output, 'assistant')
-    const { $ai_http_status: httpStatus } = eventProperties
+    const inputNormalized = normalizeMessages(input, 'user', tools)
+    const outputNormalized = normalizeMessages(output, 'assistant')
 
-    return (
-        <div className="bg-bg-light rounded-lg border p-2">
-            <h4 className="flex items-center gap-x-1.5 text-xs font-semibold mb-2">
-                <IconArrowUp className="text-base" />
-                Input
-            </h4>
-            {input?.map((message, i) => (
-                <>
-                    <MessageDisplay key={i} message={message} />
-                    {i < input.length - 1 && <div className="border-l ml-2 h-2" /> /* Spacer connecting messages */}
-                </>
-            )) || (
-                <div className="rounded border text-default p-2 italic bg-[var(--background-danger-subtle)]">
-                    Missing input
-                </div>
-            )}
-            <h4 className="flex items-center gap-x-1.5 text-xs font-semibold my-2">
-                <IconArrowDown className="text-base" />
-                Output{output && output.length > 1 ? ' (multiple choices)' : ''}
-            </h4>
-            {output?.map((message, i) => (
-                <>
-                    <MessageDisplay key={i} message={message} isOutput />
-                    {i < output.length - 1 && (
-                        <div className="border-l ml-4 h-2" /> /* Spacer connecting messages visually */
-                    )}
-                </>
-            )) || (
-                <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--background-danger-subtle)]">
-                    <IconExclamation className="text-base" />
-                    {httpStatus ? `Generation failed with HTTP status ${httpStatus}` : 'Missing output'}
-                </div>
+    const outputDisplay = raisedError ? (
+        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-scroll">
+            <IconExclamation className="text-base" />
+            {isObject(output) ? (
+                <JSONViewer src={output} collapsed={4} />
+            ) : (
+                <span className="font-mono">
+                    {(() => {
+                        try {
+                            const parsedJson = JSON.parse(output)
+                            return isObject(parsedJson) ? (
+                                <JSONViewer src={parsedJson} collapsed={5} />
+                            ) : (
+                                JSON.stringify(output ?? null)
+                            )
+                        } catch {
+                            return JSON.stringify(output ?? null)
+                        }
+                    })()}
+                </span>
             )}
         </div>
+    ) : outputNormalized.length > 0 ? (
+        outputNormalized.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />)
+    ) : (
+        <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
+    )
+
+    return (
+        <LLMInputOutput
+            inputDisplay={
+                inputNormalized.length > 0 ? (
+                    inputNormalized.map((message, i) => (
+                        <React.Fragment key={i}>
+                            <LLMMessageDisplay message={message} />
+                            {i < inputNormalized.length - 1 && (
+                                <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
+                            )}
+                        </React.Fragment>
+                    ))
+                ) : (
+                    <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">
+                        No input
+                    </div>
+                )
+            }
+            outputDisplay={outputDisplay}
+            outputHeading={
+                raisedError
+                    ? `Error (${httpStatus})`
+                    : `Output${outputNormalized.length > 1 ? ' (multiple choices)' : ''}`
+            }
+            bordered={bordered}
+        />
     )
 }
 
-function MessageDisplay({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element {
-    const [isRenderingMarkdown, setIsRenderingMarkdown] = useState(!!message.content)
+export const ImageMessageDisplay = ({
+    message,
+}: {
+    message: { content: string | { type: string; image: string } }
+}): JSX.Element => {
+    const { content } = message
+    if (typeof content === 'string') {
+        return <span>{content}</span>
+    }
+    return <img src={content.image} alt="User sent image" />
+}
 
-    const { role, content, ...additionalKwargs } = message
-    const additionalKwargsEntries = Object.entries(additionalKwargs).filter(([, value]) => value !== undefined)
+export const LLMMessageDisplay = React.memo(
+    ({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element => {
+        const { role, content, ...additionalKwargs } = message
+        const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(true)
+        const [show, setShow] = React.useState(role !== 'system' && role !== 'tool')
 
-    return (
-        <div
-            className={clsx(
-                'rounded border text-default',
-                isOutput
-                    ? 'bg-[var(--background-success-subtle)]'
-                    : role === 'system'
-                    ? 'bg-[var(--background-secondary)]'
-                    : role === 'user'
-                    ? 'bg-bg-light'
-                    : 'bg-[var(--blue-50)] dark:bg-[var(--blue-800)]' // We don't have a semantic color using blue
-            )}
-        >
-            <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
-                <span className="grow">{role}</span>
-                {content && (
-                    <LemonButton
-                        size="small"
-                        noPadding
-                        icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
-                        tooltip="Toggle Markdown rendering"
-                        onClick={() => setIsRenderingMarkdown(!isRenderingMarkdown)}
-                    />
+        // Compute whether the content looks like Markdown.
+        // (Heuristic: looks for code blocks, blockquotes, or headings)
+        const isMarkdownCandidate =
+            content && typeof content === 'string' ? /(\n\s*```|^>\s|#{1,6}\s)/.test(content) : false
+
+        // Render any additional keyword arguments as JSON.
+        const additionalKwargsEntries = Array.isArray(additionalKwargs.tools)
+            ? // Tools are a special case of input - and we want name and description to show first for them!
+              additionalKwargs.tools.map((tool) => {
+                  // Handle both formats: {function: {name, description, ...}} and {toolName, toolCallType, ...}
+                  if (tool.function) {
+                      const { function: { name = undefined, description = undefined, ...func } = {}, ...rest } = tool
+                      return {
+                          function: { name, description, ...func },
+                          ...rest,
+                      }
+                  }
+                  return tool
+              })
+            : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
+
+        const renderMessageContent = (
+            content: string | { type: string; content: string } | VercelSDKImageMessage
+        ): JSX.Element | null => {
+            if (!content) {
+                return null
+            }
+            const trimmed = typeof content === 'string' ? content.trim() : JSON.stringify(content).trim()
+
+            // If content is valid JSON (we only check when it starts and ends with {} or [] to avoid false positives)
+            if (
+                (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+                (trimmed.startsWith('[') && trimmed.endsWith(']'))
+            ) {
+                try {
+                    const parsed = typeof content === 'string' ? JSON.parse(content) : content
+                    //check if special type
+                    if (parsed.type === 'image') {
+                        return <ImageMessageDisplay message={parsed} />
+                    }
+                    if (typeof parsed === 'object' && parsed !== null) {
+                        return <JSONViewer src={parsed} name={null} collapsed={5} />
+                    }
+                } catch {
+                    // Not valid JSON. Fall through to Markdown/plain text handling.
+                }
+            }
+
+            // If the content appears to be Markdown, render based on the toggle.
+            if (isMarkdownCandidate) {
+                return isRenderingMarkdown ? (
+                    <LemonMarkdown>{content as string}</LemonMarkdown>
+                ) : (
+                    <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
+                )
+            }
+
+            // Fallback: render as plain text.
+            return <span className="text-xs whitespace-pre-wrap">{content}</span>
+        }
+
+        return (
+            <div
+                className={clsx(
+                    'rounded border text-default',
+                    isOutput
+                        ? 'bg-[var(--bg-fill-success-tertiary)]'
+                        : role === 'user'
+                        ? 'bg-[var(--bg-fill-tertiary)]'
+                        : role === 'assistant'
+                        ? 'bg-[var(--bg-fill-info-tertiary)]'
+                        : null
                 )}
-                <CopyToClipboardInline iconSize="small" description="message content" explicitValue={content} />
+            >
+                <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
+                    <span className="grow">{role}</span>
+                    {content && (
+                        <>
+                            <LemonButton
+                                size="small"
+                                noPadding
+                                icon={show ? <IconEyeHidden /> : <IconEye />}
+                                tooltip="Toggle message content"
+                                onClick={() => setShow((prev) => !prev)}
+                            />
+                            {isMarkdownCandidate && (
+                                <LemonButton
+                                    size="small"
+                                    noPadding
+                                    icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                                    tooltip="Toggle markdown rendering"
+                                    onClick={() => setIsRenderingMarkdown((prev) => !prev)}
+                                />
+                            )}
+                            <CopyToClipboardInline
+                                iconSize="small"
+                                description="message content"
+                                explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
+                            />
+                        </>
+                    )}
+                </div>
+                {show && !!content && <div className="p-2 border-t">{renderMessageContent(content)}</div>}
+                {show && Object.keys(additionalKwargsEntries).length > 0 && (
+                    <div className="p-2 text-xs border-t">
+                        <JSONViewer src={additionalKwargsEntries} name={null} collapsed={5} />
+                    </div>
+                )}
             </div>
-            {!!content && (
-                <div className={clsx('p-2 whitespace-pre-wrap border-t', !isRenderingMarkdown && 'font-mono text-xs')}>
-                    {isRenderingMarkdown ? <LemonMarkdown>{content}</LemonMarkdown> : content}
-                </div>
-            )}
-            {!!additionalKwargsEntries && additionalKwargsEntries.length > 0 && (
-                <div className="p-2 text-xs border-t">
-                    {additionalKwargsEntries.map(([key, value]) => (
-                        <JSONViewer
-                            key={key}
-                            name={key}
-                            src={value}
-                            collapseStringsAfterLength={200}
-                            displayDataTypes={false}
-                            // shouldCollapse limits depth shown at first. `> 4` is chosen so that we do show
-                            // function arguments in `tool_calls`, but if an argument is an object,
-                            // its child objects are collapsed by default
-                            shouldCollapse={({ namespace }) => namespace.length > 5}
-                        />
-                    ))}
-                </div>
-            )}
-        </div>
-    )
-}
+        )
+    }
+)
+LLMMessageDisplay.displayName = 'LLMMessageDisplay'

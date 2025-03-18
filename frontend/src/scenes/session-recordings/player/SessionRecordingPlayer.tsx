@@ -6,7 +6,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { BuilderHog2 } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useMemo, useRef } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -14,14 +14,14 @@ import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNot
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
-import { NetworkView } from '../apm/NetworkView'
 import { PlayerController } from './controller/PlayerController'
+import { PlayerMeta } from './player-meta/PlayerMeta'
 import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
-import { PlayerMeta } from './PlayerMeta'
-import { PlaybackMode, playerSettingsLogic } from './playerSettingsLogic'
+import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
+import { SessionRecordingNextConfirmation } from './SessionRecordingNextConfirmation'
 import {
     ONE_FRAME_MS,
     PLAYBACK_SPEEDS,
@@ -70,6 +70,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         matchingEventsMatchType,
         sessionRecordingData,
         autoPlay,
+        noInspector,
         playlistLogic,
         mode,
         playerRef,
@@ -91,7 +92,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const { isFullScreen, explorerMode, isBuffering } = useValues(sessionRecordingPlayerLogic(logicProps))
     const { setPlayNextAnimationInterrupted } = useActions(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
-    const { isVerticallyStacked, sidebarOpen, playbackMode } = useValues(playerSettingsLogic)
+    const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
 
     useKeyboardHotkeys(
         {
@@ -129,7 +130,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         [isFullScreen]
     )
 
-    usePageVisibility((pageIsVisible) => {
+    usePageVisibilityCb((pageIsVisible) => {
         if (!pageIsVisible) {
             setPause()
         }
@@ -143,15 +144,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         },
         {
             ref: playerRef,
-        }
-    )
-    const { size: playerMainSize } = useResizeBreakpoints(
-        {
-            0: 'small',
-            750: 'medium',
-        },
-        {
-            ref: playerMainRef,
         }
     )
 
@@ -207,25 +199,17 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 ) : (
                                     <div className="flex w-full h-full">
                                         <div className="flex flex-col flex-1 w-full">
-                                            {playbackMode === PlaybackMode.Recording ? (
-                                                <>
-                                                    {!noMeta || isFullScreen ? (
-                                                        <PlayerMeta iconsOnly={playerMainSize === 'small'} />
-                                                    ) : null}
+                                            {!noMeta || isFullScreen ? <PlayerMeta /> : null}
 
-                                                    <div
-                                                        className="SessionRecordingPlayer__body"
-                                                        draggable={draggable}
-                                                        {...elementProps}
-                                                    >
-                                                        <PlayerFrame />
-                                                        <PlayerFrameOverlay />
-                                                    </div>
-                                                    <PlayerController />
-                                                </>
-                                            ) : (
-                                                <NetworkView sessionRecordingId={sessionRecordingId} />
-                                            )}
+                                            <div
+                                                className="SessionRecordingPlayer__body"
+                                                draggable={draggable}
+                                                {...elementProps}
+                                            >
+                                                <PlayerFrame />
+                                                <PlayerFrameOverlay />
+                                            </div>
+                                            <PlayerController />
                                         </div>
                                     </div>
                                 )}
@@ -236,6 +220,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     )}
                 </FloatingContainerContext.Provider>
             </div>
+            <SessionRecordingNextConfirmation />
         </BindLogic>
     )
 }

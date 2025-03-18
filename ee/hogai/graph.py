@@ -11,6 +11,7 @@ from ee.hogai.funnels.nodes import (
     FunnelPlannerNode,
     FunnelPlannerToolsNode,
 )
+from ee.hogai.inkeep_docs.nodes import InkeepDocsNode
 from ee.hogai.memory.nodes import (
     MemoryCollectorNode,
     MemoryCollectorToolsNode,
@@ -18,14 +19,15 @@ from ee.hogai.memory.nodes import (
     MemoryInitializerNode,
     MemoryOnboardingNode,
 )
+from ee.hogai.query_executor.nodes import QueryExecutorNode
+from ee.hogai.rag.nodes import InsightRagContextNode
 from ee.hogai.retention.nodes import (
     RetentionGeneratorNode,
     RetentionGeneratorToolsNode,
     RetentionPlannerNode,
     RetentionPlannerToolsNode,
 )
-from ee.hogai.router.nodes import RouterNode
-from ee.hogai.summarizer.nodes import SummarizerNode
+from ee.hogai.root.nodes import RootNode, RootNodeTools
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
     TrendsGeneratorToolsNode,
@@ -62,59 +64,76 @@ class AssistantGraph:
             raise ValueError("Start node not added to the graph")
         return self._graph.compile(checkpointer=checkpointer)
 
-    def add_router(
+    def add_root(
         self,
         path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
     ):
         builder = self._graph
         path_map = path_map or {
-            "trends": AssistantNodeName.TRENDS_PLANNER,
-            "funnel": AssistantNodeName.FUNNEL_PLANNER,
-            "retention": AssistantNodeName.RETENTION_PLANNER,
+            "insights": AssistantNodeName.INSIGHT_RAG_CONTEXT,
+            "docs": AssistantNodeName.INKEEP_DOCS,
+            "root": AssistantNodeName.ROOT,
+            "end": AssistantNodeName.END,
         }
-        router_node = RouterNode(self._team)
-        builder.add_node(AssistantNodeName.ROUTER, router_node.run)
+        root_node = RootNode(self._team)
+        builder.add_node(AssistantNodeName.ROOT, root_node)
+        root_node_tools = RootNodeTools(self._team)
+        builder.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
+        builder.add_edge(AssistantNodeName.ROOT, AssistantNodeName.ROOT_TOOLS)
         builder.add_conditional_edges(
-            AssistantNodeName.ROUTER,
-            router_node.router,
-            path_map=cast(dict[Hashable, str], path_map),
+            AssistantNodeName.ROOT_TOOLS, root_node_tools.router, path_map=cast(dict[Hashable, str], path_map)
         )
         return self
 
-    def add_trends_planner(self, next_node: AssistantNodeName = AssistantNodeName.TRENDS_GENERATOR):
+    def add_product_analytics_retriever(self):
+        builder = self._graph
+        retriever = InsightRagContextNode(self._team)
+        builder.add_node(AssistantNodeName.INSIGHT_RAG_CONTEXT, retriever)
+        builder.add_conditional_edges(
+            AssistantNodeName.INSIGHT_RAG_CONTEXT,
+            retriever.router,
+            path_map={
+                "trends": AssistantNodeName.TRENDS_PLANNER,
+                "funnel": AssistantNodeName.FUNNEL_PLANNER,
+                "retention": AssistantNodeName.RETENTION_PLANNER,
+                "end": AssistantNodeName.ROOT,
+            },
+        )
+        return self
+
+    def add_trends_planner(
+        self,
+        next_node: AssistantNodeName = AssistantNodeName.TRENDS_GENERATOR,
+        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+    ):
         builder = self._graph
 
         create_trends_plan_node = TrendsPlannerNode(self._team)
-        builder.add_node(AssistantNodeName.TRENDS_PLANNER, create_trends_plan_node.run)
-        builder.add_conditional_edges(
-            AssistantNodeName.TRENDS_PLANNER,
-            create_trends_plan_node.router,
-            path_map={
-                "tools": AssistantNodeName.TRENDS_PLANNER_TOOLS,
-            },
-        )
+        builder.add_node(AssistantNodeName.TRENDS_PLANNER, create_trends_plan_node)
+        builder.add_edge(AssistantNodeName.TRENDS_PLANNER, AssistantNodeName.TRENDS_PLANNER_TOOLS)
 
         create_trends_plan_tools_node = TrendsPlannerToolsNode(self._team)
-        builder.add_node(AssistantNodeName.TRENDS_PLANNER_TOOLS, create_trends_plan_tools_node.run)
+        builder.add_node(AssistantNodeName.TRENDS_PLANNER_TOOLS, create_trends_plan_tools_node)
         builder.add_conditional_edges(
             AssistantNodeName.TRENDS_PLANNER_TOOLS,
             create_trends_plan_tools_node.router,
             path_map={
                 "continue": AssistantNodeName.TRENDS_PLANNER,
                 "plan_found": next_node,
+                "root": root_node,
             },
         )
 
         return self
 
-    def add_trends_generator(self, next_node: AssistantNodeName = AssistantNodeName.SUMMARIZER):
+    def add_trends_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
         builder = self._graph
 
         trends_generator = TrendsGeneratorNode(self._team)
-        builder.add_node(AssistantNodeName.TRENDS_GENERATOR, trends_generator.run)
+        builder.add_node(AssistantNodeName.TRENDS_GENERATOR, trends_generator)
 
         trends_generator_tools = TrendsGeneratorToolsNode(self._team)
-        builder.add_node(AssistantNodeName.TRENDS_GENERATOR_TOOLS, trends_generator_tools.run)
+        builder.add_node(AssistantNodeName.TRENDS_GENERATOR_TOOLS, trends_generator_tools)
 
         builder.add_edge(AssistantNodeName.TRENDS_GENERATOR_TOOLS, AssistantNodeName.TRENDS_GENERATOR)
         builder.add_conditional_edges(
@@ -128,40 +147,39 @@ class AssistantGraph:
 
         return self
 
-    def add_funnel_planner(self, next_node: AssistantNodeName = AssistantNodeName.FUNNEL_GENERATOR):
+    def add_funnel_planner(
+        self,
+        next_node: AssistantNodeName = AssistantNodeName.FUNNEL_GENERATOR,
+        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+    ):
         builder = self._graph
 
         funnel_planner = FunnelPlannerNode(self._team)
-        builder.add_node(AssistantNodeName.FUNNEL_PLANNER, funnel_planner.run)
-        builder.add_conditional_edges(
-            AssistantNodeName.FUNNEL_PLANNER,
-            funnel_planner.router,
-            path_map={
-                "tools": AssistantNodeName.FUNNEL_PLANNER_TOOLS,
-            },
-        )
+        builder.add_node(AssistantNodeName.FUNNEL_PLANNER, funnel_planner)
+        builder.add_edge(AssistantNodeName.FUNNEL_PLANNER, AssistantNodeName.FUNNEL_PLANNER_TOOLS)
 
         funnel_planner_tools = FunnelPlannerToolsNode(self._team)
-        builder.add_node(AssistantNodeName.FUNNEL_PLANNER_TOOLS, funnel_planner_tools.run)
+        builder.add_node(AssistantNodeName.FUNNEL_PLANNER_TOOLS, funnel_planner_tools)
         builder.add_conditional_edges(
             AssistantNodeName.FUNNEL_PLANNER_TOOLS,
             funnel_planner_tools.router,
             path_map={
                 "continue": AssistantNodeName.FUNNEL_PLANNER,
                 "plan_found": next_node,
+                "root": root_node,
             },
         )
 
         return self
 
-    def add_funnel_generator(self, next_node: AssistantNodeName = AssistantNodeName.SUMMARIZER):
+    def add_funnel_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
         builder = self._graph
 
         funnel_generator = FunnelGeneratorNode(self._team)
-        builder.add_node(AssistantNodeName.FUNNEL_GENERATOR, funnel_generator.run)
+        builder.add_node(AssistantNodeName.FUNNEL_GENERATOR, funnel_generator)
 
         funnel_generator_tools = FunnelGeneratorToolsNode(self._team)
-        builder.add_node(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, funnel_generator_tools.run)
+        builder.add_node(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, funnel_generator_tools)
 
         builder.add_edge(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, AssistantNodeName.FUNNEL_GENERATOR)
         builder.add_conditional_edges(
@@ -175,40 +193,39 @@ class AssistantGraph:
 
         return self
 
-    def add_retention_planner(self, next_node: AssistantNodeName = AssistantNodeName.RETENTION_GENERATOR):
+    def add_retention_planner(
+        self,
+        next_node: AssistantNodeName = AssistantNodeName.RETENTION_GENERATOR,
+        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+    ):
         builder = self._graph
 
         retention_planner = RetentionPlannerNode(self._team)
-        builder.add_node(AssistantNodeName.RETENTION_PLANNER, retention_planner.run)
-        builder.add_conditional_edges(
-            AssistantNodeName.RETENTION_PLANNER,
-            retention_planner.router,
-            path_map={
-                "tools": AssistantNodeName.RETENTION_PLANNER_TOOLS,
-            },
-        )
+        builder.add_node(AssistantNodeName.RETENTION_PLANNER, retention_planner)
+        builder.add_edge(AssistantNodeName.RETENTION_PLANNER, AssistantNodeName.RETENTION_PLANNER_TOOLS)
 
         retention_planner_tools = RetentionPlannerToolsNode(self._team)
-        builder.add_node(AssistantNodeName.RETENTION_PLANNER_TOOLS, retention_planner_tools.run)
+        builder.add_node(AssistantNodeName.RETENTION_PLANNER_TOOLS, retention_planner_tools)
         builder.add_conditional_edges(
             AssistantNodeName.RETENTION_PLANNER_TOOLS,
             retention_planner_tools.router,
             path_map={
                 "continue": AssistantNodeName.RETENTION_PLANNER,
                 "plan_found": next_node,
+                "root": root_node,
             },
         )
 
         return self
 
-    def add_retention_generator(self, next_node: AssistantNodeName = AssistantNodeName.SUMMARIZER):
+    def add_retention_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
         builder = self._graph
 
         retention_generator = RetentionGeneratorNode(self._team)
-        builder.add_node(AssistantNodeName.RETENTION_GENERATOR, retention_generator.run)
+        builder.add_node(AssistantNodeName.RETENTION_GENERATOR, retention_generator)
 
         retention_generator_tools = RetentionGeneratorToolsNode(self._team)
-        builder.add_node(AssistantNodeName.RETENTION_GENERATOR_TOOLS, retention_generator_tools.run)
+        builder.add_node(AssistantNodeName.RETENTION_GENERATOR_TOOLS, retention_generator_tools)
 
         builder.add_edge(AssistantNodeName.RETENTION_GENERATOR_TOOLS, AssistantNodeName.RETENTION_GENERATOR)
         builder.add_conditional_edges(
@@ -222,14 +239,14 @@ class AssistantGraph:
 
         return self
 
-    def add_summarizer(self, next_node: AssistantNodeName = AssistantNodeName.END):
+    def add_query_executor(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
         builder = self._graph
-        summarizer_node = SummarizerNode(self._team)
-        builder.add_node(AssistantNodeName.SUMMARIZER, summarizer_node.run)
-        builder.add_edge(AssistantNodeName.SUMMARIZER, next_node)
+        query_executor_node = QueryExecutorNode(self._team)
+        builder.add_node(AssistantNodeName.QUERY_EXECUTOR, query_executor_node)
+        builder.add_edge(AssistantNodeName.QUERY_EXECUTOR, next_node)
         return self
 
-    def add_memory_initializer(self, next_node: AssistantNodeName = AssistantNodeName.ROUTER):
+    def add_memory_initializer(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
         builder = self._graph
         self._has_start_node = True
 
@@ -237,9 +254,9 @@ class AssistantGraph:
         memory_initializer = MemoryInitializerNode(self._team)
         memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team)
 
-        builder.add_node(AssistantNodeName.MEMORY_ONBOARDING, memory_onboarding.run)
-        builder.add_node(AssistantNodeName.MEMORY_INITIALIZER, memory_initializer.run)
-        builder.add_node(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, memory_initializer_interrupt.run)
+        builder.add_node(AssistantNodeName.MEMORY_ONBOARDING, memory_onboarding)
+        builder.add_node(AssistantNodeName.MEMORY_INITIALIZER, memory_initializer)
+        builder.add_node(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, memory_initializer_interrupt)
 
         builder.add_conditional_edges(
             AssistantNodeName.START,
@@ -270,7 +287,7 @@ class AssistantGraph:
 
         memory_collector = MemoryCollectorNode(self._team)
         builder.add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_COLLECTOR)
-        builder.add_node(AssistantNodeName.MEMORY_COLLECTOR, memory_collector.run)
+        builder.add_node(AssistantNodeName.MEMORY_COLLECTOR, memory_collector)
         builder.add_conditional_edges(
             AssistantNodeName.MEMORY_COLLECTOR,
             memory_collector.router,
@@ -281,8 +298,24 @@ class AssistantGraph:
     def add_memory_collector_tools(self):
         builder = self._graph
         memory_collector_tools = MemoryCollectorToolsNode(self._team)
-        builder.add_node(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, memory_collector_tools.run)
+        builder.add_node(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, memory_collector_tools)
         builder.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
+        return self
+
+    def add_inkeep_docs(self, path_map: Optional[dict[Hashable, AssistantNodeName]] = None):
+        """Add the Inkeep docs search node to the graph."""
+        builder = self._graph
+        path_map = path_map or {
+            "end": AssistantNodeName.END,
+            "root": AssistantNodeName.ROOT,
+        }
+        inkeep_docs_node = InkeepDocsNode(self._team)
+        builder.add_node(AssistantNodeName.INKEEP_DOCS, inkeep_docs_node)
+        builder.add_conditional_edges(
+            AssistantNodeName.INKEEP_DOCS,
+            inkeep_docs_node.router,
+            path_map=cast(dict[Hashable, str], path_map),
+        )
         return self
 
     def compile_full_graph(self):
@@ -290,13 +323,15 @@ class AssistantGraph:
             self.add_memory_initializer()
             .add_memory_collector()
             .add_memory_collector_tools()
-            .add_router()
+            .add_root()
+            .add_product_analytics_retriever()
             .add_trends_planner()
             .add_trends_generator()
             .add_funnel_planner()
             .add_funnel_generator()
             .add_retention_planner()
             .add_retention_generator()
-            .add_summarizer()
+            .add_query_executor()
+            .add_inkeep_docs()
             .compile()
         )

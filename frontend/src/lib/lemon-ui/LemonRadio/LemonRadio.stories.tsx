@@ -52,3 +52,8 @@ WithDescriptions.args = {
         },
     ],
 }
+
+export const WithTopPosition: Story = Template.bind({})
+WithTopPosition.args = {
+    radioPosition: 'top',
+}

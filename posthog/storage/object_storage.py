@@ -5,7 +5,7 @@ import structlog
 from boto3 import client
 from botocore.client import Config
 from django.conf import settings
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -64,10 +64,10 @@ class UnavailableStorage(ObjectStorageClient):
         pass
 
     def read(self, bucket: str, key: str) -> Optional[str]:
-        pass
+        return None
 
     def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
-        pass
+        return None
 
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
         pass
@@ -235,8 +235,9 @@ def read(file_name: str, bucket: str | None = None) -> Optional[str]:
     return object_storage_client().read(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
 
-def read_bytes(file_name: str) -> Optional[bytes]:
-    return object_storage_client().read_bytes(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
+def read_bytes(file_name: str, bucket: str | None = None) -> Optional[bytes]:
+    bucket = bucket or settings.OBJECT_STORAGE_BUCKET
+    return object_storage_client().read_bytes(bucket, file_name)
 
 
 def list_objects(prefix: str) -> Optional[list[str]]:

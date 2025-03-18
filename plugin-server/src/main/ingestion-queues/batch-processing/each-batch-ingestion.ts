@@ -4,8 +4,9 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { PipelineEvent, ValueMatcher } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
+import { logger } from '../../../utils/logger'
+import { captureException } from '../../../utils/posthog'
 import { retryIfRetriable } from '../../../utils/retries'
-import { status } from '../../../utils/status'
 import { ConfiguredLimiter, LoggingLimiter } from '../../../utils/token-bucket'
 import { EventPipelineRunner } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
@@ -53,7 +54,7 @@ async function handleProcessingError(
     pluginEvent: PipelineEvent,
     queue: IngestionConsumer
 ) {
-    status.error('🔥', `Error processing message`, {
+    logger.error('🔥', `Error processing message`, {
         stack: error.stack,
         error: error,
     })
@@ -66,10 +67,10 @@ async function handleProcessingError(
     // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
     // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
     //
-    // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
+    // TODO: properly abstract out this `isRetriable` error logic. This is currently relying on the
     // fact that node-rdkafka adheres to the `isRetriable` interface.
     if (error?.isRetriable === false) {
-        const sentryEventId = Sentry.captureException(error)
+        const sentryEventId = captureException(error)
         const headers: MessageHeader[] = message.headers ?? []
         headers.push({ ['sentry-event-id']: sentryEventId })
         headers.push({ ['event-id']: pluginEvent.uuid })
@@ -84,7 +85,7 @@ async function handleProcessingError(
             // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
             // offset and move on.
             if (error?.isRetriable === false) {
-                status.error('🔥', `Error pushing to DLQ`, {
+                logger.error('🔥', `Error pushing to DLQ`, {
                     stack: error.stack,
                     error: error,
                 })
@@ -167,8 +168,10 @@ export async function eachBatchParallelIngestion(
                 // Process every message sequentially, stash promises to await on later
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
+                        // TODO: this is the old way of doing it, we don't need to pass the hogTransformer down
+                        // TODO: as we will switch to the new ingestion flow and this will be removed
+                        const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent, null)
                         const result = (await retryIfRetriable(async () => {
-                            const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent)
                             return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 
@@ -187,7 +190,7 @@ export async function eachBatchParallelIngestion(
                 processedBatches++
                 batchSpan.finish()
             }
-            status.debug('🧩', `Stopping worker after processing ${processedBatches} micro-batches`)
+            logger.debug('🧩', `Stopping worker after processing ${processedBatches} micro-batches`)
             return Promise.resolve()
         }
 
@@ -247,7 +250,7 @@ export async function eachBatchParallelIngestion(
         }
         kafkaBatchOffsetCommitted.inc() // successfully processed batch, consumer will commit offsets
 
-        status.debug(
+        logger.debug(
             '🧩',
             `Kafka batch of ${messages.length} events completed in ${
                 new Date().valueOf() - batchStartTimer.valueOf()
@@ -352,7 +355,7 @@ export function splitIngestionBatch(
             // Local overflow detection triggering, reroute to overflow topic too
             ingestionPartitionKeyOverflowed.labels(`${pluginEvent.team_id ?? pluginEvent.token}`).inc()
             if (LoggingLimiter.consume(eventKey, 1)) {
-                status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
+                logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
             }
             output.toOverflow.push(message)
             continue

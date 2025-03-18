@@ -1,20 +1,25 @@
+import { IconInfo } from '@posthog/icons'
 import {
     LemonButton,
+    LemonInput,
     LemonModal,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
     LemonTable,
     LemonTag,
+    LemonTagType,
     Link,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect } from 'react'
-import { defaultQuery } from 'scenes/data-warehouse/utils'
+import { defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DataWarehouseSyncInterval, ExternalDataSourceSchema } from '~/types'
@@ -42,16 +47,19 @@ interface SchemaTableProps {
     isLoading: boolean
 }
 
-const StatusTagSetting = {
+const StatusTagSetting: Record<string, LemonTagType> = {
     Running: 'primary',
     Completed: 'success',
     Error: 'danger',
     Failed: 'danger',
+    Suspended: 'warning',
     'Billing limits': 'danger',
 }
 
 export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Element => {
-    const { updateSchema, reloadSchema, resyncSchema } = useActions(dataWarehouseSourceSettingsLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { updateSchema, reloadSchema, resyncSchema, setIsProjectTime } = useActions(dataWarehouseSourceSettingsLogic)
+    const { isProjectTime } = useValues(dataWarehouseSourceSettingsLogic)
     const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
 
     return (
@@ -69,12 +77,71 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         },
                     },
                     {
+                        title: (
+                            <div className="flex items-center gap-2">
+                                <span>Anchor Time</span>
+                                <div className="flex items-center gap-1">
+                                    <span>UTC</span>
+                                    {currentTeam?.timezone !== 'UTC' && currentTeam?.timezone !== 'GMT' && (
+                                        <>
+                                            <LemonSwitch checked={isProjectTime} onChange={setIsProjectTime} />
+                                            <span>{currentTeam?.timezone || 'UTC'}</span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        ),
+                        tooltip: `Time of day in which the first sync will run. The sync frequency will be offset from the anchor time. This will not apply to sync intervals one hour or less.`,
+                        key: 'sync_time_of_day',
+                        render: function RenderSyncTimeOfDayLocal(_, schema) {
+                            const utcTime = schema.sync_time_of_day || '00:00:00'
+                            const localTime = isProjectTime
+                                ? dayjs
+                                      .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
+                                      .local()
+                                      .tz(currentTeam?.timezone || 'UTC')
+                                      .format('HH:mm:00')
+                                : utcTime
+
+                            return (
+                                <LemonInput
+                                    type="time"
+                                    disabled={
+                                        !schema.should_sync ||
+                                        schema.sync_frequency === '5min' ||
+                                        schema.sync_frequency === '30min' ||
+                                        schema.sync_frequency === '1hour'
+                                    }
+                                    value={localTime.substring(0, 5)}
+                                    onChange={(value) => {
+                                        const newValue = `${value}:00`
+                                        const utcValue = isProjectTime
+                                            ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
+                                                  .tz(currentTeam?.timezone || 'UTC')
+                                                  .utc()
+                                                  .format('HH:mm:00')
+                                            : newValue
+                                        updateSchema({ ...schema, sync_time_of_day: utcValue })
+                                    }}
+                                    suffix={
+                                        <Tooltip
+                                            title={syncAnchorIntervalToHumanReadable(utcTime, schema.sync_frequency)}
+                                        >
+                                            {schema.should_sync && <IconInfo className="text-muted-alt" />}
+                                        </Tooltip>
+                                    }
+                                />
+                            )
+                        },
+                    },
+                    {
                         title: 'Sync Frequency',
                         key: 'frequency',
                         render: function RenderFrequency(_, schema) {
                             return (
                                 <LemonSelect
                                     className="my-1"
+                                    disabled={!schema.should_sync}
                                     value={schema.sync_frequency || '6hour'}
                                     onChange={(value) =>
                                         updateSchema({ ...schema, sync_frequency: value as DataWarehouseSyncInterval })
@@ -203,13 +270,22 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                     {
                         title: 'Status',
                         key: 'status',
-                        render: function RenderStatus(_, schema) {
+                        render: (_, schema) => {
                             if (!schema.status) {
                                 return null
                             }
-
-                            return (
-                                <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
+                            const isSuspended = schema.status === 'Error' && !schema.should_sync
+                            const tagContent = (
+                                <LemonTag
+                                    type={StatusTagSetting[isSuspended ? 'Suspended' : schema.status] || 'default'}
+                                >
+                                    {isSuspended ? 'Suspended' : schema.status}
+                                </LemonTag>
+                            )
+                            return schema.latest_error && schema.status === 'Error' ? (
+                                <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>
+                            ) : (
+                                tagContent
                             )
                         },
                     },
@@ -295,7 +371,11 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
 
     return (
         <LemonModal
-            title={`Sync method for ${currentSyncMethodModalSchema.name}`}
+            title={
+                <>
+                    Sync method for <span className="font-mono">{currentSyncMethodModalSchema.name}</span>
+                </>
+            }
             isOpen={syncMethodModalIsOpen}
             onClose={closeSyncMethodModal}
             footer={
@@ -308,19 +388,19 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
             }
         >
             {schemaLoading && (
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton.Row repeat={3} />
                 </div>
             )}
             {showForm && (
                 <SyncMethodForm
-                    showRefreshMessageOnChange={currentSyncMethodModalSchema.sync_type !== null}
                     saveButtonIsLoading={saveButtonIsLoading}
                     schema={{
                         table: currentSyncMethodModalSchema.name,
                         should_sync: currentSyncMethodModalSchema.should_sync,
                         sync_type: currentSyncMethodModalSchema.sync_type,
+                        sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
                         incremental_field: currentSyncMethodModalSchema.incremental_field ?? null,
                         incremental_field_type: currentSyncMethodModalSchema.incremental_field_type ?? null,
                         incremental_available: !!schemaIncrementalFields.length,
@@ -338,6 +418,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                                 sync_type: syncType,
                                 incremental_field: null,
                                 incremental_field_type: null,
+                                sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
                             })
                         } else {
                             updateSchema({
@@ -346,6 +427,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                                 sync_type: syncType,
                                 incremental_field: incrementalField,
                                 incremental_field_type: incrementalFieldType,
+                                sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
                             })
                         }
                     }}

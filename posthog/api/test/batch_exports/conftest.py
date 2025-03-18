@@ -115,7 +115,7 @@ def start_test_worker_async(temporal: TemporalClient):
         yield
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def temporal():
     """Return a TemporalClient instance."""
     client = sync_connect()

@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import {
     AnthropicInputMessage,
@@ -11,6 +11,8 @@ import {
     CompatToolCall,
     OpenAICompletionMessage,
     OpenAIToolCall,
+    VercelSDKImageMessage,
+    VercelSDKTextMessage,
 } from './types'
 
 function formatUsage(inputTokens: number, outputTokens?: number | null): string | null {
@@ -41,6 +43,25 @@ const usdFormatter = new Intl.NumberFormat('en-US', {
 
 export function formatLLMCost(cost: number): string {
     return usdFormatter.format(cost)
+}
+
+export function isLLMTraceEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
+    return 'properties' in item
+}
+
+export function hasSessionID(event: LLMTrace | LLMTraceEvent): boolean {
+    if (isLLMTraceEvent(event)) {
+        return 'properties' in event && typeof event.properties.$session_id === 'string'
+    }
+    return '$session_id' in event
+}
+
+export function getSessionID(event: LLMTrace | LLMTraceEvent): string | null {
+    if (isLLMTraceEvent(event)) {
+        return event.properties.$session_id || null
+    }
+
+    return event.events.find((e) => e.properties.$session_id !== null)?.properties.$session_id || null
 }
 
 export function isOpenAICompatToolCall(input: unknown): input is OpenAIToolCall {
@@ -85,7 +106,7 @@ export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCal
 }
 
 export function isAnthropicTextMessage(output: unknown): output is AnthropicTextMessage {
-    return !!output && typeof output === 'object' && 'type' in output && output.type === 'text'
+    return !!output && typeof output === 'object' && 'type' in output && output.type === 'text' && 'text' in output
 }
 
 export function isAnthropicToolCallMessage(output: unknown): output is AnthropicToolCallMessage {
@@ -106,6 +127,30 @@ export function isAnthropicRoleBasedMessage(input: unknown): input is AnthropicI
     )
 }
 
+export function isVercelSDKTextMessage(input: unknown): input is VercelSDKTextMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'text' &&
+        'content' in input &&
+        typeof input.content === 'string'
+    )
+}
+
+export function isVercelSDKImageMessage(input: unknown): input is VercelSDKImageMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'image' &&
+        'content' in input &&
+        typeof input.content === 'object' &&
+        input.content !== null &&
+        'image' in input.content &&
+        typeof input.content.image === 'string'
+    )
+}
 /**
  * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Observability schema.
  *
@@ -115,6 +160,16 @@ export function isAnthropicRoleBasedMessage(input: unknown): input is AnthropicI
  */
 export function normalizeMessage(output: unknown, defaultRole?: string): CompatMessage[] {
     const role = defaultRole || 'assistant'
+
+    // Vercel SDK
+    if (isVercelSDKTextMessage(output)) {
+        return [
+            {
+                role,
+                content: output.content,
+            },
+        ]
+    }
 
     // OpenAI
     if (isOpenAICompatMessage(output)) {
@@ -197,7 +252,6 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
             },
         ]
     }
-
     // Unsupported message.
     return [
         {
@@ -207,22 +261,45 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     ]
 }
 
-export function normalizeMessages(output: unknown, defaultRole?: string): CompatMessage[] | null {
-    if (!output) {
-        return null
+export function normalizeMessages(messages: unknown, defaultRole?: string, tools?: unknown): CompatMessage[] {
+    const normalizedMessages: CompatMessage[] = []
+
+    if (tools) {
+        normalizedMessages.push({
+            role: 'tools',
+            content: '',
+            tools,
+        })
     }
 
-    if (Array.isArray(output)) {
-        return output.map((message) => normalizeMessage(message, defaultRole)).flat()
+    if (Array.isArray(messages)) {
+        normalizedMessages.push(...messages.map((message) => normalizeMessage(message, defaultRole)).flat())
     }
 
-    if (typeof output === 'object' && 'choices' in output && Array.isArray(output.choices)) {
-        return output.choices.map((message) => normalizeMessage(message, defaultRole)).flat()
+    if (typeof messages === 'object' && messages && 'choices' in messages && Array.isArray(messages.choices)) {
+        normalizedMessages.push(...messages.choices.map((message) => normalizeMessage(message, defaultRole)).flat())
     }
 
-    return null
+    return normalizedMessages
 }
 
 export function removeMilliseconds(timestamp: string): string {
     return dayjs(timestamp).utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
+}
+
+export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
+    if (isLLMTraceEvent(event)) {
+        if (event.event === '$ai_generation') {
+            const title = event.properties.$ai_model || 'Generation'
+            if (event.properties.$ai_provider) {
+                return `${title} (${event.properties.$ai_provider})`
+            }
+
+            return title
+        }
+
+        return event.properties.$ai_span_name ?? 'Span'
+    }
+
+    return event.traceName ?? 'Trace'
 }

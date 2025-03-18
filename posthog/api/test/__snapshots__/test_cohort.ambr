@@ -21,7 +21,7 @@
   FROM
     (SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
      FROM
-       (SELECT pdi.person_id AS person_id,
+       (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
                countIf(timestamp > now() - INTERVAL 1 day
                        AND timestamp < now()
                        AND event = '$pageview'
@@ -152,8 +152,8 @@
                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
             WHERE ifNull(equals(persons.`properties___$some_prop`, 'something'), 0)
             ORDER BY persons.id ASC
-            LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                               join_algorithm='auto'))
+            LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                      join_algorithm='auto'))
         UNION DISTINCT (
                           (SELECT source.id AS id
                            FROM
@@ -174,12 +174,12 @@
                                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                     GROUP BY person_distinct_id_overrides.distinct_id
                                     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-01-22 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2025-01-23 23:59:59.999999', 6, 'UTC')), equals(e.event, '$pageview')))
+                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                               GROUP BY actor_id) AS source
                            ORDER BY source.id ASC
-                           LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                                              join_algorithm='auto'))) as person SETTINGS optimize_aggregation_in_order = 1,
-                                                                                          join_algorithm = 'auto'
+                           LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                                     join_algorithm='auto'))) as person SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                 join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.5
@@ -273,8 +273,8 @@
               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
            WHERE ifNull(equals(persons.`properties___$some_prop`, 'something'), 0)
            ORDER BY persons.id ASC
-           LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                              join_algorithm='auto')) as person SETTINGS optimize_aggregation_in_order = 1,
-                                                                         join_algorithm = 'auto'
+           LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                     join_algorithm='auto')) as person SETTINGS optimize_aggregation_in_order = 1,
+                                                                                join_algorithm = 'auto'
   '''
 # ---

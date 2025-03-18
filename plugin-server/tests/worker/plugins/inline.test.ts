@@ -19,7 +19,7 @@ describe('Inline plugin', () => {
     beforeAll(async () => {
         console.info = jest.fn() as any
         console.warn = jest.fn() as any
-        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
+        hub = await createHub({ LOG_LEVEL: LogLevel.Info })
         await resetTestDatabase()
     })
 
@@ -66,7 +66,6 @@ describe('Inline plugin', () => {
             expect(row.error).toBeNull()
             expect(row.organization_id).toBeNull()
             expect(row.metrics).toBeNull()
-            expect(row.public_jobs).toBeNull()
         }
     })
 
@@ -76,7 +75,8 @@ describe('Inline plugin', () => {
             expected: VersionParts
         }
 
-        const config: PluginConfig = {
+        // @ts-expect-error TODO: Make it type correctly
+        const config = {
             plugin: {
                 id: null,
                 organization_id: null,
@@ -94,7 +94,7 @@ describe('Inline plugin', () => {
             team_id: null,
             order: null,
             created_at: null,
-        }
+        } as PluginConfig
 
         const instance: PluginInstance = constructInlinePluginInstance(hub, config)
 
@@ -143,21 +143,21 @@ describe('Inline plugin', () => {
         const method = await instance.getPluginMethod('processEvent')
 
         for (const { versionString, expected } of versionExamples) {
-            test_event.properties.version = versionString
-            test_event.properties.version2 = versionString
-            const flattened = await method(test_event)
+            test_event.properties!.version = versionString
+            test_event.properties!.version2 = versionString
+            const flattened = await method!(test_event)
 
-            expect(flattened.properties.version__major).toEqual(expected.major)
-            expect(flattened.properties.version__minor).toEqual(expected.minor)
-            expect(flattened.properties.version__patch).toEqual(expected.patch)
-            expect(flattened.properties.version__preRelease).toEqual(expected.preRelease)
-            expect(flattened.properties.version__build).toEqual(expected.build)
+            expect(flattened.properties!.version__major).toEqual(expected.major)
+            expect(flattened.properties!.version__minor).toEqual(expected.minor)
+            expect(flattened.properties!.version__patch).toEqual(expected.patch)
+            expect(flattened.properties!.version__preRelease).toEqual(expected.preRelease)
+            expect(flattened.properties!.version__build).toEqual(expected.build)
 
-            expect(flattened.properties.version2__major).toEqual(expected.major)
-            expect(flattened.properties.version2__minor).toEqual(expected.minor)
-            expect(flattened.properties.version2__patch).toEqual(expected.patch)
-            expect(flattened.properties.version2__preRelease).toEqual(expected.preRelease)
-            expect(flattened.properties.version2__build).toEqual(expected.build)
+            expect(flattened.properties!.version2__major).toEqual(expected.major)
+            expect(flattened.properties!.version2__minor).toEqual(expected.minor)
+            expect(flattened.properties!.version2__patch).toEqual(expected.patch)
+            expect(flattened.properties!.version2__preRelease).toEqual(expected.preRelease)
+            expect(flattened.properties!.version2__build).toEqual(expected.build)
 
             // reset the event for the next iteration
             test_event.properties = {}

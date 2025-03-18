@@ -9,18 +9,12 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
+import { LegacyOneventCompareService } from '../../cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
-import { KAFKA_JOBS } from '../../config/kafka-topics'
+import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { getObjectStorage } from '../../main/services/object_storage'
-import {
-    EnqueuedPluginJob,
-    Hub,
-    KafkaSecurityProtocol,
-    PluginServerCapabilities,
-    PluginsServerConfig,
-} from '../../types'
+import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
@@ -29,7 +23,9 @@ import { OrganizationManager } from '../../worker/ingestion/organization-manager
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
-import { status } from '../status'
+import { GeoIPService } from '../geoip'
+import { logger } from '../logger'
+import { getObjectStorage } from '../object_storage'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
@@ -68,7 +64,7 @@ export async function createHub(
     config: Partial<PluginsServerConfig> = {},
     capabilities: PluginServerCapabilities | null = null
 ): Promise<Hub> {
-    status.info('ℹ️', `Connecting to all services:`)
+    logger.info('ℹ️', `Connecting to all services:`)
 
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
@@ -77,10 +73,9 @@ export async function createHub(
     if (capabilities === null) {
         capabilities = getPluginServerCapabilities(serverConfig)
     }
-    status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     const instanceId = new UUIDT()
 
-    status.info('🤔', `Connecting to ClickHouse...`)
+    logger.info('🤔', `Connecting to ClickHouse...`)
     const clickhouse = new ClickHouse({
         // We prefer to run queries on the offline cluster.
         host: serverConfig.CLICKHOUSE_OFFLINE_CLUSTER_HOST ?? serverConfig.CLICKHOUSE_HOST,
@@ -98,29 +93,29 @@ export async function createHub(
             : undefined,
         rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
     })
-    status.info('👍', `ClickHouse ready`)
+    logger.info('👍', `ClickHouse ready`)
 
-    status.info('🤔', `Connecting to Kafka...`)
+    logger.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
     const kafkaProducer = await KafkaProducerWrapper.create(serverConfig)
-    status.info('👍', `Kafka ready`)
+    logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)
     // TODO: assert tables are reachable (async calls that cannot be in a constructor)
-    status.info('👍', `Postgres Router ready`)
+    logger.info('👍', `Postgres Router ready`)
 
-    status.info('🤔', `Connecting to Redis...`)
+    logger.info('🤔', `Connecting to Redis...`)
     const redisPool = createRedisPool(serverConfig, 'ingestion')
-    status.info('👍', `Redis ready`)
+    logger.info('👍', `Redis ready`)
 
-    status.info('🤔', `Connecting to object storage...`)
+    logger.info('🤔', `Connecting to object storage...`)
 
     const objectStorage = getObjectStorage(serverConfig)
     if (objectStorage) {
-        status.info('👍', 'Object storage ready')
+        logger.info('👍', 'Object storage ready')
     } else {
-        status.warn('🪣', `Object storage could not be created`)
+        logger.warn('🪣', `Object storage could not be created`)
     }
 
     const db = new DB(
@@ -131,35 +126,19 @@ export async function createHub(
         serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
         serverConfig.PERSON_INFO_CACHE_TTL
     )
-    const teamManager = new TeamManager(postgres, serverConfig)
+    const teamManager = new TeamManager(postgres)
     const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const rustyHook = new RustyHook(serverConfig)
 
     const actionManager = new ActionManager(postgres, serverConfig)
-    const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
+    const actionMatcher = new ActionMatcher(postgres, actionManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
-    const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
-        // NOTE: we use the producer directly here rather than using the wrapper
-        // such that we can a response immediately on error, and thus bubble up
-        // any errors in producing. It's important that we ensure that we have
-        // an acknowledgement as for instance there are some jobs that are
-        // chained, and if we do not manage to produce then the chain will be
-        // broken.
-        await kafkaProducer.queueMessages({
-            topic: KAFKA_JOBS,
-            messages: [
-                {
-                    value: Buffer.from(JSON.stringify(job)),
-                    key: Buffer.from(job.pluginConfigTeam.toString()),
-                },
-            ],
-        })
-    }
+    const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
-    const hub: Hub = {
+    const hub: Omit<Hub, 'legacyOneventCompareService'> = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -169,7 +148,6 @@ export async function createHub(
         clickhouse,
         kafka,
         kafkaProducer,
-        enqueuePluginJob,
         objectStorage: objectStorage,
         groupTypeManager,
 
@@ -187,6 +165,7 @@ export async function createHub(
         rustyHook,
         actionMatcher,
         actionManager,
+        geoipService: new GeoIPService(serverConfig),
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
         eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
@@ -199,9 +178,13 @@ export async function createHub(
         ),
         encryptedFields: new EncryptedFields(serverConfig),
         celery: new Celery(serverConfig),
+        cookielessManager,
     }
 
-    return hub as Hub
+    return {
+        ...hub,
+        legacyOneventCompareService: new LegacyOneventCompareService(hub as Hub),
+    }
 }
 
 export const closeHub = async (hub: Hub): Promise<void> => {
@@ -210,6 +193,7 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     }
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
+    hub.cookielessManager.shutdown()
 
     if (isTestEnv()) {
         // Break circular references to allow the hub to be GCed when running unit tests

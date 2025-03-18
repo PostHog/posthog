@@ -1,8 +1,12 @@
-use crate::limiters::redis::RedisLimiter;
+use crate::api::CaptureError;
+use crate::config::KafkaConfig;
+use crate::prometheus::report_dropped_events;
+use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
-
 use health::HealthHandle;
+use limiters::overflow::OverflowLimiter;
+use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::message::{Header, OwnedHeaders};
@@ -14,12 +18,6 @@ use tokio::task::JoinSet;
 use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
 
-use crate::api::CaptureError;
-use crate::config::KafkaConfig;
-use crate::limiters::overflow::OverflowLimiter;
-use crate::prometheus::report_dropped_events;
-use crate::sinks::Event;
-
 struct KafkaContext {
     liveness: HealthHandle,
 }
@@ -27,7 +25,10 @@ struct KafkaContext {
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, stats: rdkafka::Statistics) {
         // Signal liveness, as the main rdkafka loop is running and calling us
-        self.liveness.report_healthy_blocking();
+        let brokers_up = stats.brokers.values().any(|broker| broker.state == "UP");
+        if brokers_up {
+            self.liveness.report_healthy_blocking();
+        }
 
         // Update exported metrics
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
@@ -121,7 +122,7 @@ pub struct KafkaSink {
 }
 
 impl KafkaSink {
-    pub fn new(
+    pub async fn new(
         config: KafkaConfig,
         liveness: HealthHandle,
         partition: Option<OverflowLimiter>,
@@ -170,14 +171,23 @@ impl KafkaSink {
 
         debug!("rdkafka configuration: {:?}", client_config);
         let producer: FutureProducer<KafkaContext> =
-            client_config.create_with_context(KafkaContext { liveness })?;
+            client_config.create_with_context(KafkaContext {
+                liveness: liveness.clone(),
+            })?;
 
         // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
-        drop(producer.client().fetch_metadata(
-            Some("__consumer_offsets"),
-            Timeout::After(Duration::new(10, 0)),
-        )?);
-        info!("connected to Kafka brokers");
+        // Note: we don't error if we fail to connect as there may be other sinks that report healthy
+        if producer
+            .client()
+            .fetch_metadata(
+                Some("__consumer_offsets"),
+                Timeout::After(Duration::new(10, 0)),
+            )
+            .is_ok()
+        {
+            liveness.report_healthy().await;
+            info!("connected to Kafka brokers");
+        };
 
         Ok(KafkaSink {
             producer,
@@ -364,13 +374,13 @@ impl Event for KafkaSink {
 mod tests {
     use crate::api::CaptureError;
     use crate::config;
-    use crate::limiters::overflow::OverflowLimiter;
     use crate::sinks::kafka::KafkaSink;
     use crate::sinks::Event;
     use crate::utils::uuid_v7;
     use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use health::HealthRegistry;
+    use limiters::overflow::OverflowLimiter;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
     use rdkafka::mocking::MockCluster;
@@ -411,7 +421,9 @@ mod tests {
             kafka_producer_max_retries: 2,
             kafka_producer_acks: "all".to_string(),
         };
-        let sink = KafkaSink::new(config, handle, limiter, None).expect("failed to create sink");
+        let sink = KafkaSink::new(config, handle, limiter, None)
+            .await
+            .expect("failed to create sink");
         (cluster, sink)
     }
 
@@ -430,6 +442,7 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            is_cookieless_mode: false,
         };
 
         let metadata = ProcessedEventMetadata {
@@ -471,6 +484,7 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            is_cookieless_mode: false,
         };
 
         let big_event = ProcessedEvent {
@@ -498,6 +512,7 @@ mod tests {
                 now: "".to_string(),
                 sent_at: None,
                 token: "token1".to_string(),
+                is_cookieless_mode: false,
             },
             metadata: metadata.clone(),
         };

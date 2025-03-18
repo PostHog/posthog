@@ -109,7 +109,7 @@ export function Tooltip({
     )
 
     if (!title) {
-        return <>{children}</>
+        return <>{child}</>
     }
 
     return (
@@ -129,7 +129,7 @@ export function Tooltip({
                     >
                         <div
                             className={clsx(
-                                'bg-[var(--tooltip-bg)] py-1.5 px-2 break-words rounded text-start text-white',
+                                'bg-surface-tooltip text-primary-inverse py-1.5 px-2 break-words rounded text-start',
                                 className
                             )}
                             // eslint-disable-next-line react/forbid-dom-props
@@ -142,7 +142,7 @@ export function Tooltip({
                                 width={8}
                                 height={4}
                                 staticOffset={arrowOffset}
-                                fill="var(--tooltip-bg)"
+                                fill="var(--bg-surface-tooltip)"
                             />
                         </div>
                     </div>

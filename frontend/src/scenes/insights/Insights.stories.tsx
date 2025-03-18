@@ -11,7 +11,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         testOptions: {
-            snapshotBrowsers: ['chromium', 'webkit'],
+            snapshotBrowsers: ['chromium'],
             viewport: {
                 // needs a slightly larger width to push the rendered scene away from breakpoint boundary
                 width: 1300,
@@ -342,20 +342,6 @@ RetentionEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
-export const RetentionBreakdown: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/retentionBreakdown.json')
-)
-RetentionBreakdown.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
-export const RetentionBreakdownEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/retentionBreakdown.json'),
-    'edit'
-)
-RetentionBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
-
 // Lifecycle
 
 export const Lifecycle: Story = createInsightStory(
@@ -373,20 +359,19 @@ LifecycleEdit.parameters = {
 }
 
 // Stickiness
-
-export const Stickiness: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/stickiness.json')
-)
-Stickiness.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
-export const StickinessEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'),
-    'edit'
-)
-StickinessEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
+// export const Stickiness: Story = createInsightStory(
+//     require('../../mocks/fixtures/api/projects/team_id/insights/stickiness.json')
+// )
+// Stickiness.parameters = {
+//     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+// }
+// export const StickinessEdit: Story = createInsightStory(
+//     require('../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'),
+//     'edit'
+// )
+// StickinessEdit.parameters = {
+//     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+// }
 
 // User Paths
 

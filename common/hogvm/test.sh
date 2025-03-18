@@ -4,6 +4,9 @@ set -e
 # List of test files to skip the compiledjs tests
 SKIP_COMPILEDJS_FILES=("crypto.hog")
 
+# Files on which we only want to run Node.js tests
+ONLY_NODEJS_FILES=("sql.hog")
+
 # Navigate to the script's directory
 cd "$(dirname "$0")"
 
@@ -36,7 +39,7 @@ is_in_array() {
     return 1
 }
 
-# Check if an argument is provided
+# Collect test files based on optional argument
 if [ "$#" -eq 1 ]; then
     test_file="$1"
     # Adjust the test file path if it doesn't start with 'common/hogvm/'
@@ -74,13 +77,24 @@ for file in "${test_files[@]}"; do
     basename=$(get_basename "$file")
     filename=$(basename "$file")
 
+    # Compile to .hoge
     ./bin/hoge "$file" "$basename.hoge"
+
+    # Always run Node.js test
     ./bin/hog --nodejs "$basename.hoge" > "$basename.stdout.nodejs"
+
+    # If this file is in ONLY_NODEJS_FILES, skip python + compiledjs
+    if is_in_array "$filename" "${ONLY_NODEJS_FILES[@]}"; then
+        mv "$basename.stdout.nodejs" "$basename.stdout"
+        echo "Test passed (only nodejs tested)."
+        continue
+    fi
+
+    # Otherwise, run Python
     ./bin/hog --python "$basename.hoge" > "$basename.stdout.python"
 
-    # Check if the current file should skip the compiledjs tests
+    # Check if compiledjs is skipped
     if is_in_array "$filename" "${SKIP_COMPILEDJS_FILES[@]}"; then
-        # Skip compiledjs steps for this file
         echo "Skipping compiledjs tests for $filename"
         set +e
         diff "$basename.stdout.nodejs" "$basename.stdout.python"
@@ -93,12 +107,13 @@ for file in "${test_files[@]}"; do
         fi
         set -e
     else
-        # Proceed with compiledjs tests
+        # Run compiledjs
         set +e
         ./bin/hoge "$file" "$basename.js"
         node "$basename.js" > "$basename.stdout.compiledjs" 2>&1
         set -e
 
+        # Compare outputs
         set +e
         diff "$basename.stdout.nodejs" "$basename.stdout.compiledjs"
         if [ $? -eq 0 ]; then

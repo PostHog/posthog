@@ -212,7 +212,7 @@ export type HogFunctionInvocation = {
     teamId: Team['id']
     hogFunction: HogFunctionType
     priority: number
-    queue: 'hog' | 'fetch'
+    queue: 'hog' | 'fetch' | 'plugins'
     queueParameters?: HogFunctionInvocationQueueParameters
     // The current vmstate (set if the invocation is paused)
     vmState?: VMState
@@ -232,6 +232,7 @@ export type HogFunctionInvocationResult = {
     error?: any
     // asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
     logs: LogEntry[]
+    metrics?: HogFunctionAppMetric[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
     execResult?: unknown
 }
@@ -265,12 +266,14 @@ export type HogFunctionInputSchemaType = {
     required?: boolean
     default?: any
     secret?: boolean
+    hidden?: boolean
     description?: string
     integration?: string
     integration_key?: string
     requires_field?: string
     integration_field?: string
     requiredScopes?: string
+    templating?: boolean
 }
 
 export type HogFunctionTypeType =
@@ -296,15 +299,20 @@ export type HogFunctionType = {
     team_id: number
     name: string
     enabled: boolean
+    deleted: boolean
     hog: string
     bytecode: HogBytecode
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, HogFunctionInputType>
+    inputs?: Record<string, HogFunctionInputType | null>
     encrypted_inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
+    template_id?: string
+    execution_order?: number
+    created_at: string
+    updated_at: string
 }
 
 export type HogFunctionInputType = {

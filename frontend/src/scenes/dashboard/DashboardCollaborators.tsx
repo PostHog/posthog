@@ -15,7 +15,13 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
-import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
+import {
+    AccessControlResourceType,
+    AvailableFeature,
+    DashboardType,
+    FusedDashboardCollaboratorType,
+    UserType,
+} from '~/types'
 
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 
@@ -48,9 +54,11 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
         return null
     }
 
-    if (newAccessControl) {
+    // Only render the new access control if they are not using the old dashboard permissions (v1) and have the feature flag enabled
+    if (newAccessControl && dashboard.access_control_version === 'v2') {
         return (
             <AccessControlPopoutCTA
+                resourceType={AccessControlResourceType.Dashboard}
                 callback={() => {
                     push(urls.dashboard(dashboard.id))
                 }}
@@ -60,6 +68,13 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
 
     return (
         <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+            {newAccessControl && (
+                <LemonBanner type="warning" className="mb-4">
+                    We've upgraded our access control system but this dashboard is using a legacy version that can't be
+                    automatically upgraded. Please reach out to support if you're interested in migrating to the new
+                    system.
+                </LemonBanner>
+            )}
             {(!canEditDashboard || !canRestrictDashboard) && (
                 <LemonBanner type="info" className="mb-4">
                     {canEditDashboard

@@ -1,6 +1,6 @@
 import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
 
-import { DataNode, InsightQueryNode, Node } from '~/queries/schema'
+import { DataNode, InsightQueryNode, Node } from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     filterKeyForQuery,
@@ -126,7 +126,7 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
     }
 
     if (opts?.ignoreVisualizationOnlyChanges) {
-        // Keep this in sync with the backend side clean_insight_queries method
+        // Keep this in sync with posthog/schema_helpers.py `serialize_query` method
         const insightFilter = filterForQuery(cleanedQuery)
         const insightFilterKey = filterKeyForQuery(cleanedQuery)
         cleanedQuery[insightFilterKey] = {
@@ -142,12 +142,14 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             toggledLifecycles: undefined,
             showLabelsOnSeries: undefined,
             showMean: undefined,
-            cumulative: undefined,
+            meanRetentionCalculation: undefined,
             yAxisScaleType: undefined,
             hiddenLegendIndexes: undefined,
             hiddenLegendBreakdowns: undefined,
             resultCustomizations: undefined,
             resultCustomizationBy: undefined,
+            goalLines: undefined,
+            dashboardDisplay: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined

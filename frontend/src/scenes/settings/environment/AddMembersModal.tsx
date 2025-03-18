@@ -28,10 +28,9 @@ export function AddMembersModalWithButton({ disabledReason }: { disabledReason: 
                 type="primary"
                 data-attr="add-project-members-button"
                 onClick={() =>
-                    guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () => openAddMembersModal(), {
+                    guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () => openAddMembersModal(), {
                         isGrandfathered:
-                            !hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) &&
-                            currentTeam?.access_control,
+                            !hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS) && currentTeam?.access_control,
                     })
                 }
                 icon={<IconPlus />}
@@ -44,7 +43,7 @@ export function AddMembersModalWithButton({ disabledReason }: { disabledReason: 
                     <LemonModal.Header>
                         <h3>{`Adding members${currentTeam?.name ? ` to project ${currentTeam.name}` : ''}`}</h3>
                     </LemonModal.Header>
-                    <LemonModal.Content className="space-y-2">
+                    <LemonModal.Content className="deprecated-space-y-2">
                         <LemonField name="userUuids">
                             <LemonInputSelect
                                 mode="multiple"

@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
@@ -7,7 +6,8 @@ import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
-import { status } from '../../../../utils/status'
+import { logger } from '../../../../utils/logger'
+import { captureException } from '../../../../utils/posthog'
 import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'
 import { createSessionReplayEvent, RRWebEventType } from '../process-event'
@@ -66,7 +66,7 @@ export class ReplayEventsIngester {
             try {
                 await produceRequest
             } catch (error) {
-                status.error('🔁', '[replay-events] main_loop_error', { error })
+                logger.error('🔁', '[replay-events] main_loop_error', { error })
 
                 if (error?.isRetriable) {
                     // We assume that if the error is retriable, then we
@@ -128,7 +128,8 @@ export class ReplayEventsIngester {
                 event.distinct_id,
                 event.session_id,
                 rrwebEvents,
-                event.snapshot_source
+                event.snapshot_source,
+                event.snapshot_library
             )
 
             try {
@@ -193,7 +194,7 @@ export class ReplayEventsIngester {
                 }),
             ]
         } catch (error) {
-            status.error('⚠️', '[replay-events] processing_error', {
+            logger.error('⚠️', '[replay-events] processing_error', {
                 error: error,
             })
         }

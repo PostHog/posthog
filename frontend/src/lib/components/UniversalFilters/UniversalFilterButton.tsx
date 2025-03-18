@@ -43,7 +43,7 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
                     'ph-no-capture': true,
                 })}
             >
-                <div className="flex flex-1 truncate">
+                <div className="flex items-center flex-1 truncate gap-1">
                     {isEvent ? (
                         <EventLabel filter={filter} onClick={onClick} />
                     ) : isAction ? (
@@ -108,7 +108,7 @@ const EventLabel = ({
     onClick: UniversalFilterButtonProps['onClick']
 }): JSX.Element => {
     return (
-        <div className="flex truncate  items-center space-x-1">
+        <div className="flex truncate  items-center deprecated-space-x-1">
             <EntityFilterInfo filter={filter} />
             <LemonButton
                 size="xsmall"

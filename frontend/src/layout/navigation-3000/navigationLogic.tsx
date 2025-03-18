@@ -1,5 +1,6 @@
 import {
     IconAI,
+    IconArrowUpRight,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
@@ -42,7 +43,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { ProductKey, ReplayTabs } from '~/types'
+import { ReplayTabs } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
@@ -74,7 +75,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             navigationLogic,
             ['mobileLayout'],
             teamLogic,
-            ['currentTeam', 'hasOnboardedAnyProduct'],
+            ['hasOnboardedAnyProduct'],
             replayLandingPageLogic,
             ['replayLandingPage'],
             savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }),
@@ -286,6 +287,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             }
             actions.setSidebarWidth(newWidth)
             actions.setSidebarOverslide(newWidthRaw - newWidth)
+            if (newWidthRaw < MINIMUM_SIDEBAR_WIDTH_PX / 2) {
+                if (values.isSidebarShown) {
+                    actions.hideSidebar()
+                }
+            } else {
+                if (!values.isSidebarShown) {
+                    actions.showSidebar()
+                }
+            }
         },
         syncSidebarWidthWithViewport: () => {
             if (values.sidebarWidth > window.innerWidth * (MAXIMUM_SIDEBAR_WIDTH_PERCENTAGE / 100)) {
@@ -344,7 +354,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 featureFlagLogic.selectors.featureFlags,
                 dashboardsModel.selectors.dashboardsLoading,
                 dashboardsModel.selectors.pinnedDashboards,
-                s.currentTeam,
                 s.hasOnboardedAnyProduct,
                 s.replayLandingPage,
                 s.playlists,
@@ -354,14 +363,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 featureFlags,
                 dashboardsLoading,
                 pinnedDashboards,
-                currentTeam,
                 hasOnboardedAnyProduct,
                 replayLandingPage,
                 playlists,
                 playlistsLoading
             ): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
-                const hasOnboardedFeatureFlags = currentTeam?.has_completed_onboarding_for?.[ProductKey.FEATURE_FLAGS]
 
                 const sectionOne: NavbarItem[] = hasOnboardedAnyProduct
                     ? [
@@ -392,7 +399,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                                     to: urls.dashboard(dashboard.id),
                                                                 })),
                                                                 footer: dashboardsLoading && (
-                                                                    <div className="px-2 py-1 text-text-secondary-3000">
+                                                                    <div className="px-2 py-1 text-tertiary">
                                                                         <Spinner /> Loading…
                                                                     </div>
                                                                 ),
@@ -444,8 +451,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
                     sectionOne.splice(1, 0, {
                         identifier: Scene.Max,
-                        label: 'Max AI',
+                        label: 'Max',
                         icon: <IconSparkles />,
+                        onClick: () =>
+                            lemonToast.info(
+                                'Max now lives in the top right corner of the app – he will soon disappear from the navbar',
+                                { icon: <IconArrowUpRight /> }
+                            ),
                         to: urls.max(),
                         tag: 'beta' as const,
                     })
@@ -482,36 +494,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Web analytics',
                             icon: <IconPieChart />,
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
-                            sideAction: featureFlags[FEATURE_FLAGS.WEB_VITALS]
-                                ? {
-                                      identifier: 'web-analytics-dropdown',
-                                      dropdown: {
-                                          overlay: (
-                                              <LemonMenuOverlay
-                                                  items={[
-                                                      {
-                                                          items: [
-                                                              {
-                                                                  label: 'Web vitals',
-                                                                  to: urls.webAnalyticsWebVitals(),
-                                                                  tag: 'beta' as const,
-                                                              },
-                                                          ],
-                                                      },
-                                                  ]}
-                                              />
-                                          ),
-                                          placement: 'bottom-end',
-                                      },
-                                  }
-                                : undefined,
                         },
                         featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
                             ? {
                                   identifier: 'LLMObservability',
                                   label: 'LLM observability',
                                   icon: <IconAI />,
-                                  to: urls.llmObservability('dashboard'),
+                                  to: urls.llmObservabilityDashboard(),
                                   tag: 'beta' as const,
                               }
                             : null,
@@ -538,7 +527,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                                   to: urls.replayPlaylist(playlist.short_id),
                                                               })),
                                                               footer: playlistsLoading && (
-                                                                  <div className="px-2 py-1 text-text-secondary-3000">
+                                                                  <div className="px-2 py-1 text-tertiary">
                                                                       <Spinner /> Loading…
                                                                   </div>
                                                               ),
@@ -567,7 +556,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Error tracking',
                                   icon: <IconWarning />,
                                   to: urls.errorTracking(),
-                                  tag: 'alpha' as const,
+                                  tag: 'beta' as const,
                               }
                             : null,
                         featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
@@ -599,28 +588,19 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconMessage />,
                             to: urls.surveys(),
                         },
-                        featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
-                            ? {
-                                  identifier: 'EarlyAccessFeatures',
-                                  label: 'Early access features',
-                                  icon: <IconRocket />,
-                                  to: urls.earlyAccessFeatures(),
-                              }
-                            : null,
-                        featureFlags[FEATURE_FLAGS.SQL_EDITOR]
-                            ? {
-                                  identifier: Scene.SQLEditor,
-                                  label: 'SQL editor',
-                                  icon: <IconServer />,
-                                  to: urls.sqlEditor(),
-                                  logic: editorSidebarLogic,
-                              }
-                            : {
-                                  identifier: Scene.DataWarehouse,
-                                  label: 'Data warehouse',
-                                  icon: <IconDatabase />,
-                                  to: isUsingSidebar ? undefined : urls.dataWarehouse(),
-                              },
+                        {
+                            identifier: 'EarlyAccessFeatures',
+                            label: 'Early access features',
+                            icon: <IconRocket />,
+                            to: urls.earlyAccessFeatures(),
+                        },
+                        {
+                            identifier: Scene.SQLEditor,
+                            label: 'SQL editor',
+                            icon: <IconServer />,
+                            to: urls.sqlEditor(),
+                            logic: editorSidebarLogic,
+                        },
                         hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.Pipeline,
@@ -718,7 +698,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         activeNavbarItemId: [
             (s) => [s.activeNavbarItemIdRaw, featureFlagLogic.selectors.featureFlags],
             (activeNavbarItemIdRaw, featureFlags): string | null => {
-                if (featureFlags[FEATURE_FLAGS.SQL_EDITOR] && activeNavbarItemIdRaw === Scene.SQLEditor) {
+                if (activeNavbarItemIdRaw === Scene.SQLEditor) {
                     return Scene.SQLEditor
                 }
                 if (!featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]) {

@@ -24,6 +24,7 @@ from posthog.settings.access import *
 from posthog.settings.async_migrations import *
 from posthog.settings.celery import *
 from posthog.settings.data_stores import *
+from posthog.settings.dagster import *
 from posthog.settings.demo import *
 from posthog.settings.dynamic_settings import *
 from posthog.settings.ee import *
@@ -41,6 +42,7 @@ from posthog.settings.temporal import *
 from posthog.settings.web import *
 from posthog.settings.data_warehouse import *
 from posthog.settings.session_replay import *
+from posthog.settings.session_replay_v2 import *
 from posthog.settings.integrations import *
 from posthog.settings.pagerduty import *
 

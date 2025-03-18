@@ -10,14 +10,14 @@ import temporalio.common
 import temporalio.workflow
 from django.conf import settings
 
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 
 SELECT_QUERY = """
     SELECT id
     FROM posthog_person
-    WHERE team_id=%(team_id)s {person_id_filter}
+    WHERE team_id=%(team_id)s {person_ids_filter}
     ORDER BY id ASC
     LIMIT %(limit)s
 """
@@ -52,8 +52,15 @@ class MogrifyDeleteQueriesActivityInputs:
     """Inputs for the `mogrify_delete_queries_activity`."""
 
     team_id: int
-    person_ids: list[str] = dataclasses.field(default_factory=list)
+    person_ids: list[int] = dataclasses.field(default_factory=list)
     batch_size: int = 1000
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "batch_size": self.batch_size,
+        }
 
 
 @temporalio.activity.defn
@@ -63,7 +70,7 @@ async def mogrify_delete_queries_activity(inputs: MogrifyDeleteQueriesActivityIn
         logger = get_internal_logger()
 
         select_query = SELECT_QUERY.format(
-            person_ids_filter=f"AND id IN ({inputs.person_ids})" if inputs.person_ids else ""
+            person_ids_filter=f"AND id IN {tuple(inputs.person_ids)}" if inputs.person_ids else ""
         )
         delete_query_person_distinct_ids = DELETE_QUERY_PERSON_DISTINCT_IDS.format(select_query=select_query)
         delete_query_person_override = DELETE_QUERY_PERSON_OVERRIDE.format(select_query=select_query)
@@ -103,10 +110,19 @@ class DeletePersonsActivityInputs:
     """Inputs for the `delete_persons_activity`."""
 
     team_id: int
-    person_ids: list[str] = dataclasses.field(default_factory=list)
+    person_ids: list[int] = dataclasses.field(default_factory=list)
     batch_number: int = 1
     batches: int = 1
     batch_size: int = 1000
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "batch_size": self.batch_size,
+            "batch_number": self.batch_number,
+            "batches": self.batches,
+        }
 
 
 @temporalio.activity.defn
@@ -116,7 +132,7 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
         logger = get_internal_logger()
 
         select_query = SELECT_QUERY.format(
-            person_ids_filter=f"AND id IN ({inputs.person_ids})" if inputs.person_ids else ""
+            person_ids_filter=f"AND id IN {tuple(inputs.person_ids)}" if inputs.person_ids else ""
         )
         delete_query_person_distinct_ids = DELETE_QUERY_PERSON_DISTINCT_IDS.format(select_query=select_query)
         delete_query_person_override = DELETE_QUERY_PERSON_OVERRIDE.format(select_query=select_query)
@@ -126,7 +142,9 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
         conn = await psycopg.AsyncConnection.connect(settings.DATABASE_URL)
         async with conn:
             async with conn.cursor() as cursor:
-                await logger.ainfo("Deleting batch %d of {batches} (%d rows)", inputs.batch_number, inputs.batch_size)
+                await logger.ainfo(
+                    "Deleting batch %d of %d (%d rows)", inputs.batch_number, inputs.batches, inputs.batch_size
+                )
 
                 await cursor.execute(
                     delete_query_person_distinct_ids,
@@ -150,7 +168,7 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
                     delete_query_person,
                     {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
                 )
-                await logger.info("Deleted %d persons", cursor.rowcount)
+                await logger.ainfo("Deleted %d persons", cursor.rowcount)
 
                 should_continue = True
                 if cursor.rowcount < inputs.batch_size:
@@ -165,9 +183,17 @@ class DeletePersonsWorkflowInputs:
     """Inputs for the `DeletePersonsWorkflow`."""
 
     team_id: int
-    person_ids: list[str] = dataclasses.field(default_factory=list)
+    person_ids: list[int] = dataclasses.field(default_factory=list)
     batches: int = 1
     batch_size: int = 1000
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "batch_size": self.batch_size,
+            "batches": self.batches,
+        }
 
 
 @temporalio.workflow.defn(name="delete-persons")
@@ -205,11 +231,11 @@ class DeletePersonsWorkflow(PostHogWorkflow):
             mogrify_delete_queries_activity,
             mogrify_delete_queries_activity_inputs,
             heartbeat_timeout=dt.timedelta(seconds=30),
-            start_to_close_timeout=dt.timedelta(hours=2),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=1,
+                maximum_attempts=0,
                 non_retryable_error_types=[],
             ),
         )
@@ -233,8 +259,8 @@ class DeletePersonsWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(hours=2),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=1,
+                    maximum_interval=dt.timedelta(seconds=360),
+                    maximum_attempts=0,
                     non_retryable_error_types=[],
                 ),
             )

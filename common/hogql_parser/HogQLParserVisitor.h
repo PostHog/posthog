@@ -93,6 +93,8 @@ public:
 
     virtual std::any visitProjectionOrderByClause(HogQLParser::ProjectionOrderByClauseContext *context) = 0;
 
+    virtual std::any visitLimitByClause(HogQLParser::LimitByClauseContext *context) = 0;
+
     virtual std::any visitLimitAndOffsetClause(HogQLParser::LimitAndOffsetClauseContext *context) = 0;
 
     virtual std::any visitOffsetOnlyClause(HogQLParser::OffsetOnlyClauseContext *context) = 0;
@@ -118,6 +120,8 @@ public:
     virtual std::any visitJoinConstraintClause(HogQLParser::JoinConstraintClauseContext *context) = 0;
 
     virtual std::any visitSampleClause(HogQLParser::SampleClauseContext *context) = 0;
+
+    virtual std::any visitLimitExpr(HogQLParser::LimitExprContext *context) = 0;
 
     virtual std::any visitOrderExprList(HogQLParser::OrderExprListContext *context) = 0;
 
@@ -187,6 +191,8 @@ public:
 
     virtual std::any visitColumnExprInterval(HogQLParser::ColumnExprIntervalContext *context) = 0;
 
+    virtual std::any visitColumnExprCallSelect(HogQLParser::ColumnExprCallSelectContext *context) = 0;
+
     virtual std::any visitColumnExprIsNull(HogQLParser::ColumnExprIsNullContext *context) = 0;
 
     virtual std::any visitColumnExprWinFunctionTarget(HogQLParser::ColumnExprWinFunctionTargetContext *context) = 0;
@@ -240,6 +246,8 @@ public:
     virtual std::any visitColumnExprAsterisk(HogQLParser::ColumnExprAsteriskContext *context) = 0;
 
     virtual std::any visitColumnLambdaExpr(HogQLParser::ColumnLambdaExprContext *context) = 0;
+
+    virtual std::any visitHogqlxChildElement(HogQLParser::HogqlxChildElementContext *context) = 0;
 
     virtual std::any visitHogqlxTagElementClosed(HogQLParser::HogqlxTagElementClosedContext *context) = 0;
 

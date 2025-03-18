@@ -1,19 +1,27 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useMemo, useState } from 'react'
-import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import {
     AnyResponseType,
     WebVitalsMetricBand,
     WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownQueryResponse,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { PropertyFilterType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { computePositionInBand, getValueWithUnit, ICON_PER_BAND } from './definitions'
+import {
+    computePositionInBand,
+    getValueWithUnit,
+    ICON_PER_BAND,
+    WEB_VITALS_COLORS,
+    WEB_VITALS_THRESHOLDS,
+} from './definitions'
 
 let uniqueNode = 0
 export function WebVitalsPathBreakdown(props: {
@@ -39,24 +47,22 @@ export function WebVitalsPathBreakdown(props: {
     const webVitalsQueryResponse = response as WebVitalsPathBreakdownQueryResponse | undefined
 
     return (
-        <div className="border rounded bg-bg-muted flex-1 flex flex-col min-h-60 h-full">
-            <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x h-full">
-                <div className="p-4">
-                    <Header band="good" label="Good" />
-                    <Content band="good" response={webVitalsQueryResponse} responseLoading={responseLoading} />
-                </div>
-                <div className="p-4">
-                    <Header band="needs_improvements" label="Needs Improvements" />
-                    <Content
-                        band="needs_improvements"
-                        response={webVitalsQueryResponse}
-                        responseLoading={responseLoading}
-                    />
-                </div>
-                <div className="p-4">
-                    <Header band="poor" label="Poor" />
-                    <Content band="poor" response={webVitalsQueryResponse} responseLoading={responseLoading} />
-                </div>
+        <div className="border rounded bg-surface-primary grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
+            <div className="p-4">
+                <Header band="good" label="Good" />
+                <Content band="good" response={webVitalsQueryResponse} responseLoading={responseLoading} />
+            </div>
+            <div className="p-4">
+                <Header band="needs_improvements" label="Needs Improvements" />
+                <Content
+                    band="needs_improvements"
+                    response={webVitalsQueryResponse}
+                    responseLoading={responseLoading}
+                />
+            </div>
+            <div className="p-4">
+                <Header band="poor" label="Poor" />
+                <Content band="poor" response={webVitalsQueryResponse} responseLoading={responseLoading} />
             </div>
         </div>
     )
@@ -69,10 +75,9 @@ const Header = ({ band, label }: { band: WebVitalsMetricBand; label: string }): 
 
     const thresholdText = useMemo(() => {
         const threshold = WEB_VITALS_THRESHOLDS[webVitalsTab]
-        const inSeconds = webVitalsTab !== 'CLS'
 
-        const { value: poorValue, unit: poorUnit } = getValueWithUnit(threshold.poor, inSeconds)
-        const { value: goodValue, unit: goodUnit } = getValueWithUnit(threshold.good, inSeconds)
+        const { value: poorValue, unit: poorUnit } = getValueWithUnit(threshold.poor, webVitalsTab)
+        const { value: goodValue, unit: goodUnit } = getValueWithUnit(threshold.good, webVitalsTab)
 
         if (band === 'poor') {
             return (
@@ -108,11 +113,11 @@ const Header = ({ band, label }: { band: WebVitalsMetricBand; label: string }): 
     return (
         <div className="flex flex-row justify-between">
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <span className="flex flex-row gap-1 items-center" style={{ color: WEB_VITALS_COLORS[band] }}>
-                <Icon />
+            <span className="flex flex-row gap-1 items-center font-semibold" style={{ color: WEB_VITALS_COLORS[band] }}>
+                <Icon className="w-6 h-6" />
                 {label}
             </span>
-            <span className="text-sm text-muted">{thresholdText}</span>
+            <span className="text-sm text-secondary">{thresholdText}</span>
         </div>
     )
 }
@@ -132,10 +137,10 @@ const Content = ({
     response: WebVitalsPathBreakdownQueryResponse | undefined
     responseLoading: boolean
 }): JSX.Element => {
-    const { webVitalsTab } = useValues(webAnalyticsLogic)
+    const { webVitalsTab, isPathCleaningEnabled } = useValues(webAnalyticsLogic)
+    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
 
     const values = response?.results[0][band]
-    const threshold = WEB_VITALS_THRESHOLDS[webVitalsTab]
 
     const loadedValues = values != null
     const hasNoValues = values?.length === 0
@@ -147,7 +152,9 @@ const Content = ({
                     <LemonSkeleton fade className={clsx('w-full', SKELETON_HEIGHT[band])} />
                 ) : values?.length ? (
                     values?.map(({ path, value }) => {
-                        const width = computePositionInBand(value, threshold) * 100
+                        const width = computePositionInBand(value, webVitalsTab) * 100
+
+                        const { value: parsedValue, unit } = getValueWithUnit(value, webVitalsTab)
 
                         return (
                             <div
@@ -155,15 +162,22 @@ const Content = ({
                                 key={path}
                             >
                                 <div
-                                    className="absolute top-0 left-0 h-full"
+                                    className="absolute top-0 left-0 h-full opacity-80 bg-surface-secondary"
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width, backgroundColor: 'var(--neutral-250)', opacity: 0.5 }}
+                                    style={{ width }}
                                 />
-                                <span title={path} className="relative z-10 truncate mr-2 flex-1">
-                                    {path}
+                                <span
+                                    title={path}
+                                    className="relative z-10 truncate mr-2 flex-1 cursor-pointer hover:underline"
+                                    onClick={() => {
+                                        togglePropertyFilter(PropertyFilterType.Event, '$pathname', path)
+                                    }}
+                                >
+                                    {isPathCleaningEnabled ? parseAliasToReadable(path) : path}
                                 </span>
                                 <span className="relative z-10 flex-shrink-0">
-                                    {value >= 1 ? value.toFixed(0) : value.toFixed(2)}
+                                    {parsedValue}
+                                    {unit}
                                 </span>
                             </div>
                         )
@@ -171,7 +185,7 @@ const Content = ({
                 ) : (
                     <div className="text-center">
                         <span>{band === 'good' ? '😿' : '🚀'}</span>
-                        <span className="text-muted">No scores in this band</span>
+                        <span className="text-secondary">No scores in this band</span>
                     </div>
                 )}
             </div>

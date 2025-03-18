@@ -16,7 +16,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
 import {
     EntityTypes,
@@ -96,6 +99,56 @@ const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
 
 export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFilters => {
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
+}
+
+/**
+ * Checks if the filters are valid.
+ * @param filters - The filters to check.
+ * @returns True if the filters are valid, false otherwise.
+ */
+export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters>): boolean {
+    if (!filters || typeof filters !== 'object') {
+        return false
+    }
+
+    if ('date_from' in filters && filters.date_from !== null && typeof filters.date_from !== 'string') {
+        return false
+    }
+    if ('date_to' in filters && filters.date_to !== null && typeof filters.date_to !== 'string') {
+        return false
+    }
+
+    if ('filter_test_accounts' in filters && typeof filters.filter_test_accounts !== 'boolean') {
+        return false
+    }
+
+    if ('duration' in filters) {
+        if (!Array.isArray(filters.duration)) {
+            return false
+        }
+        if (
+            filters.duration.length > 0 &&
+            (!filters.duration[0]?.type || !filters.duration[0]?.key || !filters.duration[0]?.operator)
+        ) {
+            return false
+        }
+    }
+
+    if ('filter_group' in filters) {
+        const group = filters.filter_group
+        if (!group || typeof group !== 'object') {
+            return false
+        }
+        if (!('type' in group) || !('values' in group) || !Array.isArray(group.values)) {
+            return false
+        }
+    }
+
+    if ('order' in filters && typeof filters.order !== 'string') {
+        return false
+    }
+
+    return true
 }
 
 export function convertUniversalFiltersToRecordingsQuery(universalFilters: RecordingUniversalFilters): RecordingsQuery {
@@ -202,7 +255,12 @@ export function convertLegacyFiltersToUniversalFilters(
                 ? DEFAULT_RECORDING_FILTERS['filter_test_accounts']
                 : filters.filter_test_accounts,
         duration: filters.session_recording_duration
-            ? [{ ...filters.session_recording_duration, key: filters.duration_type_filter || 'active_seconds' }]
+            ? [
+                  {
+                      ...filters.session_recording_duration,
+                      key: filters.duration_type_filter || filters.session_recording_duration.key || 'active_seconds',
+                  },
+              ]
             : DEFAULT_RECORDING_FILTERS['duration'],
         filter_group: {
             type: FilterLogicalOperator.And,
@@ -260,13 +318,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         (props: SessionRecordingPlaylistLogicProps) =>
             `${props.logicKey}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
     ),
-
     connect({
         actions: [
             eventUsageLogic,
             ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
+            playerSettingsLogic,
+            ['setHideViewedRecordings'],
         ],
         values: [
             featureFlagLogic,
@@ -401,7 +460,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
     })),
-    reducers(({ props }) => ({
+    reducers(({ props, key }) => ({
         unusableEventsInFilter: [
             [] as string[],
             {
@@ -414,11 +473,23 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
         filters: [
             props.filters ?? getDefaultFilters(props.personUUID),
+            { persist: true, prefix: `${getCurrentTeamId()}__${key}` },
             {
                 setFilters: (state, { filters }) => {
-                    return {
-                        ...state,
-                        ...filters,
+                    try {
+                        if (!isValidRecordingFilters(filters)) {
+                            posthog.captureException(new Error('Invalid filters provided'), {
+                                filters,
+                            })
+                            return getDefaultFilters(props.personUUID)
+                        }
+                        return {
+                            ...state,
+                            ...filters,
+                        }
+                    } catch (e) {
+                        posthog.captureException(e)
+                        return getDefaultFilters(props.personUUID)
                     }
                 },
                 resetFilters: () => getDefaultFilters(props.personUUID),
@@ -530,6 +601,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             if (recordingIndex === values.sessionRecordings.length - 1) {
                 actions.maybeLoadSessionRecordings('older')
             }
+
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.WatchSessionRecording)
+        },
+
+        setHideViewedRecordings: () => {
+            actions.maybeLoadSessionRecordings('older')
         },
     })),
     selectors({
@@ -640,7 +717,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         return false
                     }
 
-                    if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
+                    if (hideViewedRecordings === 'current-user' && rec.viewed && rec.id !== selectedRecordingId) {
+                        return false
+                    }
+
+                    if (
+                        hideViewedRecordings === 'any-user' &&
+                        (rec.viewed || !!rec.viewers.length) &&
+                        rec.id !== selectedRecordingId
+                    ) {
                         return false
                     }
 

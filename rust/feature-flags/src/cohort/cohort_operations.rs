@@ -13,16 +13,35 @@ impl Cohort {
     #[instrument(skip_all)]
     pub async fn list_from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
-        team_id: i32,
+        project_id: i64,
     ) -> Result<Vec<Cohort>, FlagError> {
         let mut conn = client.get_connection().await.map_err(|e| {
             tracing::error!("Failed to get database connection: {}", e);
             FlagError::DatabaseUnavailable
         })?;
 
-        let query = "SELECT id, name, description, team_id, deleted, filters, query, version, pending_version, count, is_calculating, is_static, errors_calculating, groups, created_by_id FROM posthog_cohort WHERE team_id = $1";
+        let query = r#"
+            SELECT c.id,
+                  c.name,
+                  c.description,
+                  c.team_id,
+                  c.deleted,
+                  c.filters,
+                  c.query,
+                  c.version,
+                  c.pending_version,
+                  c.count,
+                  c.is_calculating,
+                  c.is_static,
+                  c.errors_calculating,
+                  c.groups,
+                  c.created_by_id
+              FROM posthog_cohort AS c
+              JOIN posthog_team AS t ON (c.team_id = t.id)
+            WHERE t.project_id = $1
+        "#;
         let cohorts = sqlx::query_as::<_, Cohort>(query)
-            .bind(team_id)
+            .bind(project_id)
             .fetch_all(&mut *conn)
             .await
             .map_err(|e| {
@@ -38,8 +57,13 @@ impl Cohort {
     // https://github.com/PostHog/posthog/blob/feat/dynamic-cohorts-rust/posthog/models/cohort/cohort.py#L114-L169
     // I'll handle that in a separate PR.
     pub fn parse_filters(&self) -> Result<Vec<PropertyFilter>, FlagError> {
-        let cohort_property: CohortProperty = serde_json::from_value(self.filters.clone())
-            .map_err(|e| {
+        let filters = match &self.filters {
+            Some(filters) => filters,
+            None => return Ok(Vec::new()), // Return empty vec if no filters
+        };
+
+        let cohort_property: CohortProperty =
+            serde_json::from_value(filters.to_owned()).map_err(|e| {
                 tracing::error!("Failed to parse filters for cohort {}: {}", self.id, e);
                 FlagError::CohortFiltersParsingError
             })?;
@@ -51,8 +75,13 @@ impl Cohort {
 
     /// Extracts dependent CohortIds from the cohort's filters
     pub fn extract_dependencies(&self) -> Result<HashSet<CohortId>, FlagError> {
-        let cohort_property: CohortProperty = serde_json::from_value(self.filters.clone())
-            .map_err(|e| {
+        let filters = match &self.filters {
+            Some(filters) => filters,
+            None => return Ok(HashSet::new()), // Return empty set if no filters
+        };
+
+        let cohort_property: CohortProperty =
+            serde_json::from_value(filters.clone()).map_err(|e| {
                 tracing::error!("Failed to parse filters for cohort {}: {}", self.id, e);
                 FlagError::CohortFiltersParsingError
             })?;
@@ -190,7 +219,7 @@ mod tests {
         .await
         .expect("Failed to insert cohort2");
 
-        let cohorts = Cohort::list_from_pg(reader, team.id)
+        let cohorts = Cohort::list_from_pg(reader, team.project_id)
             .await
             .expect("Failed to list cohorts");
 
@@ -208,7 +237,9 @@ mod tests {
             description: None,
             team_id: 1,
             deleted: false,
-            filters: json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$initial_browser_version", "type": "person", "value": ["125"], "negation": false, "operator": "exact"}]}]}}),
+            filters: Some(
+                json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$initial_browser_version", "type": "person", "value": ["125"], "negation": false, "operator": "exact"}]}]}}),
+            ),
             query: None,
             version: None,
             pending_version: None,
@@ -293,7 +324,7 @@ mod tests {
             .await
             .expect("Failed to insert main_cohort");
 
-        let cohorts = Cohort::list_from_pg(reader.clone(), team.id)
+        let cohorts = Cohort::list_from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch cohorts");
 

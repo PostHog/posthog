@@ -20,7 +20,7 @@ from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
-from posthog.plugins.access import can_configure_plugins, can_install_plugins
+from posthog.plugins.access import can_install_plugins
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
 from posthog.plugins.site import get_decide_site_apps, get_decide_site_functions
 from posthog.plugins.utils import (
@@ -34,7 +34,7 @@ from posthog.plugins.utils import (
 from .utils import UUIDModel, sane_repr
 
 try:
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 except ImportError:
     pass
 
@@ -273,6 +273,18 @@ class PluginAttachment(models.Model):
     file_name = models.CharField(max_length=200)
     file_size = models.IntegerField()
     contents = models.BinaryField()
+
+    def parse_contents(self) -> str | None:
+        contents: bytes | None = self.contents
+        if not contents:
+            return None
+
+        try:
+            if self.content_type == "application/json" or self.content_type == "text/plain":
+                return contents.decode("utf-8")
+            return None
+        except Exception:
+            return None
 
 
 class PluginStorage(models.Model):
@@ -554,19 +566,6 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
                     f"⚠️ Cannot preinstall plugin from {plugin_url}, skipping it for organization {instance.name}:\n",
                     e,
                 )
-
-
-@receiver(models.signals.post_save, sender=Team)
-def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    if created and can_configure_plugins(instance.organization):
-        for order, preinstalled_plugin in enumerate(Plugin.objects.filter(is_preinstalled=True)):
-            PluginConfig.objects.create(
-                team=instance,
-                plugin=preinstalled_plugin,
-                enabled=True,
-                order=order,
-                config=preinstalled_plugin.get_default_config(),
-            )
 
 
 @mutable_receiver([post_save, post_delete], sender=Plugin)

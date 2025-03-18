@@ -1,6 +1,7 @@
 import { HogFunctionTemplate, SUB_TEMPLATE_COMMON } from '../../types'
 
 export const template: HogFunctionTemplate = {
+    free: false,
     status: 'beta',
     type: 'destination',
     id: 'template-webhook',

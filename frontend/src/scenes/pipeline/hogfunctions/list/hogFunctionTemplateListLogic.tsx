@@ -42,6 +42,18 @@ export const shouldShowHogFunctionTemplate = (
     return true
 }
 
+const getFunctionFilters = (
+    filters: HogFunctionTemplateListFilters,
+    template: HogFunctionTemplateType['id']
+): Record<string, any> | undefined => {
+    if (template.includes('error-tracking-issue-created')) {
+        return { events: [{ id: '$error_tracking_issue_created', type: 'events' }] }
+    } else if (template.includes('error-tracking-issue-reopened')) {
+        return { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] }
+    }
+    return filters.filters
+}
+
 export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType>([
     props({} as HogFunctionTemplateListLogicProps),
     key(
@@ -121,7 +133,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             (s) => [s.canEnableNewDestinations],
             (canEnableNewDestinations): ((template: HogFunctionTemplateType) => boolean) => {
                 return (template: HogFunctionTemplateType) => {
-                    return template?.status === 'free' || canEnableNewDestinations
+                    return template?.free || canEnableNewDestinations
                 }
             },
         ],
@@ -136,7 +148,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                         {},
                         {
                             configuration: {
-                                filters: filters.filters,
+                                filters: getFunctionFilters(filters, template.id),
                             },
                         }
                     ).url

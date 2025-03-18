@@ -62,7 +62,7 @@ const featureFlagActionsMapping: Record<
             } else {
                 filtersAfter.payloads &&
                     Object.keys(filtersAfter.payloads).forEach((key: string) => {
-                        const changedPayload = filtersAfter.payloads[key]?.toString() || null
+                        const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
                         changes.push(<SentenceList listParts={[changedPayload]} prefix="changed payload to" />)
                     })
 
@@ -142,10 +142,22 @@ const featureFlagActionsMapping: Record<
             }
         }
 
-        if (isMultivariateFlag) {
+        if (filtersBefore?.multivariate?.variants?.length && !filtersAfter?.multivariate?.variants?.length) {
+            changes.push(
+                <SentenceList
+                    key="remove-variants-list"
+                    listParts={[
+                        <span key="remove-variants">
+                            removed{' '}
+                            {filtersBefore.multivariate.variants.length === 1 ? 'the last variant' : 'all variants'}
+                        </span>,
+                    ]}
+                />
+            )
+        } else if (isMultivariateFlag) {
             filtersAfter.payloads &&
                 Object.keys(filtersAfter.payloads).forEach((key: string) => {
-                    const changedPayload = filtersAfter.payloads[key]?.toString() || null
+                    const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
                     changes.push(
                         <SentenceList
                             listParts={[
@@ -162,6 +174,12 @@ const featureFlagActionsMapping: Record<
                     )
                 })
 
+            // Identify removed variants
+            const beforeVariants = new Set((filtersBefore?.multivariate?.variants || []).map((v) => v.key))
+            const afterVariants = new Set((filtersAfter?.multivariate?.variants || []).map((v) => v.key))
+            const removedVariants = [...beforeVariants].filter((key) => !afterVariants.has(key))
+
+            // First add the rollout percentage changes
             changes.push(
                 <SentenceList
                     listParts={(filtersAfter.multivariate?.variants || []).map((v) => (
@@ -172,6 +190,25 @@ const featureFlagActionsMapping: Record<
                     prefix="changed the rollout percentage for the variants to"
                 />
             )
+
+            // Then add removed variants if any
+            if (removedVariants.length > 0) {
+                changes.push(
+                    <SentenceList
+                        listParts={removedVariants.map((key) => (
+                            <span key={key} className="highlighted-activity">
+                                <strong>{key}</strong>
+                            </span>
+                        ))}
+                        prefix={`removed ${pluralize(
+                            removedVariants.length,
+                            'variant',
+                            undefined,
+                            /* includeNumber: */ false
+                        )}`}
+                    />
+                )
+            }
         }
 
         if (changes.length > 0) {
@@ -253,6 +290,11 @@ const featureFlagActionsMapping: Record<
     has_enriched_analytics: () => null,
     surveys: () => null,
     user_access_level: () => null,
+    is_remote_configuration: () => null,
+    has_encrypted_payloads: () => null,
+    status: () => null,
+    version: () => null,
+    last_modified_by: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

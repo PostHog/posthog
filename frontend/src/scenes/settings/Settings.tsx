@@ -1,8 +1,10 @@
 import './Settings.scss'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -85,7 +87,7 @@ export function Settings({
                       active={selectedLevel === level && !selectedSectionId}
                       onClick={() => selectLevel(level)}
                   >
-                      <span className="text-muted-alt">{capitalizeFirstLetter(level)}</span>
+                      <span className="text-secondary">{capitalizeFirstLetter(level)}</span>
                   </OptionButton>
               ),
               items: sections
@@ -94,10 +96,17 @@ export function Settings({
                       key: section.id,
                       content: (
                           <OptionButton
-                              to={urls.settings(section.id)}
+                              to={section.to ?? urls.settings(section.id)}
                               handleLocally={handleLocally}
                               active={selectedSectionId === section.id}
-                              onClick={() => selectSection(section.id, level)}
+                              isLink={!!section.to}
+                              onClick={() => {
+                                  if (section.to) {
+                                      router.actions.push(section.to)
+                                  } else {
+                                      selectSection(section.id, level)
+                                  }
+                              }}
                           >
                               {section.title}
                           </OptionButton>
@@ -110,7 +119,7 @@ export function Settings({
     ) : (
         <>
             {capitalizeFirstLetter(selectedLevel)}
-            {selectedSection ? ` / ${selectedSection.title}` : null}
+            {selectedSection ? <>` / `{selectedSection.title}</> : null}
         </>
     )
 
@@ -132,7 +141,7 @@ export function Settings({
             )}
 
             <AuthenticationAreaComponent>
-                <div className="flex-1 w-full space-y-2 min-w-0">
+                <div className="flex-1 w-full deprecated-space-y-2 min-w-0">
                     {!hideSections && selectedLevel === 'project' && (
                         <LemonBanner type="info">
                             These settings only apply to the current project{' '}
@@ -161,7 +170,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
     const settings = settingsInSidebar ? [selectedSetting] : allSettings
 
     return (
-        <div className="space-y-8">
+        <div className="deprecated-space-y-8">
             {settings.length ? (
                 settings.map((x) => (
                     <div key={x.id} className="relative">
@@ -181,7 +190,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                                 )}
                             </h2>
                         )}
-                        {x.description && <p>{x.description}</p>}
+                        {x.description && <p className="max-w-160">{x.description}</p>}
 
                         {x.component}
                     </div>
@@ -199,7 +208,7 @@ const depthMap: Record<number, string> = {
 
 const OptionGroup = ({ options, depth = 0 }: { options: SettingOption[]; depth?: number }): JSX.Element => {
     return (
-        <ul className="space-y-px">
+        <ul className="deprecated-space-y-px">
             {options.map((option) => (
                 <>
                     <li key={option.key} className={depthMap[depth]}>
@@ -218,9 +227,11 @@ const OptionButton = ({
     onClick,
     children,
     handleLocally,
+    isLink = false,
 }: Pick<LemonButtonProps, 'to' | 'children' | 'active'> & {
     handleLocally: boolean
     onClick: () => void
+    isLink?: boolean
 }): JSX.Element => {
     return (
         <LemonButton
@@ -234,6 +245,7 @@ const OptionButton = ({
                     : undefined
             }
             size="small"
+            sideIcon={isLink ? <IconExternal /> : undefined}
             fullWidth
             active={active}
         >

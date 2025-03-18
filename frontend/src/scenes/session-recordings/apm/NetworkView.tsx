@@ -15,6 +15,7 @@ import { NetworkBar } from 'scenes/session-recordings/apm/waterfall/NetworkBar'
 
 import { PerformanceEvent } from '~/types'
 
+import { sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
 import { networkViewLogic } from './networkViewLogic'
 
 function SimpleURL({ name, entryType }: { name: string | undefined; entryType: string | undefined }): JSX.Element {
@@ -29,7 +30,7 @@ function SimpleURL({ name, entryType }: { name: string | undefined; entryType: s
         return (
             <Tooltip
                 title={
-                    <div className="flex flex-col space-y-2">
+                    <div className="flex flex-col deprecated-space-y-2">
                         <div>
                             {url.protocol}://{url.hostname}
                             {url.port.length ? `:${url.port}` : null}
@@ -71,7 +72,7 @@ function Pager(): JSX.Element {
     const { prevPage, nextPage } = useActions(networkViewLogic)
 
     return (
-        <div className="flex space-x-2">
+        <div className="flex deprecated-space-x-2">
             <LemonButton
                 onClick={prevPage}
                 icon={<IconChevronLeft />}
@@ -106,7 +107,7 @@ function WaterfallMeta(): JSX.Element | null {
 
     return (
         <>
-            <div className="flex space-x-12 px-4 justify-between">
+            <div className="flex deprecated-space-x-12 px-4 justify-between">
                 <span className="flex items-center gap-1 truncate">
                     <Link to={pageUrl} target="_blank" className="truncate">
                         {pageUrl}
@@ -116,7 +117,7 @@ function WaterfallMeta(): JSX.Element | null {
                             <CopyToClipboardInline
                                 description={pageUrl}
                                 explicitValue={pageUrl}
-                                iconStyle={{ color: 'var(--muted-alt)' }}
+                                iconStyle={{ color: 'var(--text-secondary)' }}
                                 selectable={true}
                             />
                         </span>
@@ -135,24 +136,25 @@ function WaterfallMeta(): JSX.Element | null {
     )
 }
 
-export function NetworkView({ sessionRecordingId }: { sessionRecordingId: string }): JSX.Element {
-    const logic = networkViewLogic({ sessionRecordingId })
+export function NetworkView(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const logic = networkViewLogic({ sessionRecordingId: logicProps.sessionRecordingId })
     const { isLoading, currentPage, hasPageViews } = useValues(logic)
 
     if (isLoading) {
         return (
-            <div className="flex flex-col px-4 py-2 space-y-2">
+            <div className="flex flex-col px-4 py-2 deprecated-space-y-2">
                 <LemonSkeleton repeat={10} fade={true} />
             </div>
         )
     }
 
     return (
-        <BindLogic logic={networkViewLogic} props={{ sessionRecordingId }}>
-            <div className="NetworkView overflow-auto py-2">
+        <BindLogic logic={networkViewLogic} props={{ sessionRecordingId: logicProps.sessionRecordingId }}>
+            <div className="NetworkView overflow-auto py-2 px-4">
                 <WaterfallMeta />
                 <LemonDivider />
-                <div className="space-y-1 px-4">
+                <div className="deprecated-space-y-1 px-0">
                     <LemonTable
                         className="NetworkView__table"
                         size="small"

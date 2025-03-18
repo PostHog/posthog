@@ -72,7 +72,6 @@ describe('cohortsModel', () => {
         it('loads cohorts on mount', async () => {
             await expectLogic(logic).toDispatchActions(['loadCohorts', 'loadCohortsSuccess'])
             expect(logic.values.cohorts.results).toHaveLength(2)
-            expect(logic.values.cohortsWithAllUsers).toHaveLength(3) // includes "All Users"
         })
 
         it('sets polling timeout for calculating cohorts when on cohorts page', async () => {

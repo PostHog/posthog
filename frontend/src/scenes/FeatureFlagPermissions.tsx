@@ -8,11 +8,12 @@ import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInpu
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
-import { AccessLevel, AvailableFeature, FeatureFlagType, Resource, RoleType } from '~/types'
+import { AccessControlResourceType, AccessLevel, AvailableFeature, FeatureFlagType, Resource, RoleType } from '~/types'
 
 import { featureFlagPermissionsLogic } from './feature-flags/featureFlagPermissionsLogic'
 import { permissionsLogic } from './settings/organization/Permissions/permissionsLogic'
 import { rolesLogic } from './settings/organization/Permissions/Roles/rolesLogic'
+import { teamLogic } from './teamLogic'
 import { urls } from './urls'
 
 interface ResourcePermissionProps {
@@ -46,13 +47,15 @@ export function FeatureFlagPermissions({ featureFlag }: { featureFlag: FeatureFl
     const { setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
     )
+    const { currentTeam } = useValues(teamLogic)
 
-    const newAccessControls = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
-    if (newAccessControls) {
+    const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
+    // Only render the new access control if they have been migrated and have the feature flag enabled
+    if (newAccessControl && currentTeam?.access_control_version === 'v2') {
         if (!featureFlag.id) {
             return <p>Please save the feature flag before changing the access controls.</p>
         }
-        return <AccessControlPopoutCTA />
+        return <AccessControlPopoutCTA resourceType={AccessControlResourceType.FeatureFlag} />
     }
 
     return (

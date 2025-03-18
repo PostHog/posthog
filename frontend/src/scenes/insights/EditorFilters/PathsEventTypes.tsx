@@ -4,7 +4,7 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
-import { PathsFilter } from '~/queries/schema'
+import { PathsFilter } from '~/queries/schema/schema-general'
 import { EditorFilterProps, PathType } from '~/types'
 
 import { humanizePathsEventTypes } from '../utils'
@@ -36,7 +36,7 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
         },
         {
             type: PathType.HogQL,
-            label: 'HogQL expression',
+            label: 'SQL expression',
             selected: includeEventTypes?.includes(PathType.HogQL),
         },
     ]

@@ -1,10 +1,16 @@
 from django.test import override_settings
 from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns, materialize
+from parameterized import parameterized
 from posthog.hogql_queries.experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
+from posthog.models.action.action import Action
+from posthog.models.cohort.cohort import Cohort
 from posthog.hogql_queries.experiments.types import ExperimentMetricType
 from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.group.util import create_group
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
+    ActionsNode,
     BaseMathType,
     DataWarehouseNode,
     EventsNode,
@@ -28,6 +34,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 from freezegun import freeze_time
 from typing import cast, Any
@@ -281,23 +288,169 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         return table_name
 
+    def create_data_warehouse_table_with_subscriptions(self):
+        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
+            raise Exception("Missing vars")
+
+        fs = s3fs.S3FileSystem(
+            client_kwargs={
+                "region_name": "us-east-1",
+                "endpoint_url": OBJECT_STORAGE_ENDPOINT,
+                "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
+                "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            },
+        )
+
+        path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
+
+        credential = DataWarehouseCredential.objects.create(
+            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
+            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            team=self.team,
+        )
+
+        subscription_table_data = [
+            {
+                "subscription_id": "1",
+                "subscription_created_at": datetime(2023, 1, 2),
+                "subscription_customer_id": "user_control_0",
+                "subscription_amount": 100,
+            },
+            {
+                "subscription_id": "2",
+                "subscription_created_at": datetime(2023, 1, 3),
+                "subscription_customer_id": "user_test_1",
+                "subscription_amount": 50,
+            },
+            {
+                "subscription_id": "3",
+                "subscription_created_at": datetime(2023, 1, 4),
+                "subscription_customer_id": "user_test_2",
+                "subscription_amount": 75,
+            },
+            {
+                "subscription_id": "4",
+                "subscription_created_at": datetime(2023, 1, 5),
+                "subscription_customer_id": "user_test_3",
+                "subscription_amount": 80,
+            },
+            {
+                "subscription_id": "5",
+                "subscription_created_at": datetime(2023, 1, 6),
+                "subscription_customer_id": "user_extra",
+                "subscription_amount": 90,
+            },
+        ]
+
+        pq.write_to_dataset(
+            pa.Table.from_pylist(subscription_table_data),
+            path_to_s3_object,
+            filesystem=fs,
+            use_dictionary=True,
+            compression="snappy",
+        )
+
+        subscription_table_name = "subscriptions"
+
+        DataWarehouseTable.objects.create(
+            name=subscription_table_name,
+            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={
+                "subscription_id": "String",
+                "subscription_created_at": "DateTime64(3, 'UTC')",
+                "subscription_customer_id": "String",
+                "subscription_amount": "Int64",
+            },
+            credential=credential,
+        )
+
+        customer_table_data = [
+            {
+                "customer_id": "user_control_0",
+                "customer_created_at": datetime(2023, 1, 1),
+                "customer_name": "John Doe",
+                "customer_email": "john.doe@example.com",
+            },
+            {
+                "customer_id": "user_test_1",
+                "customer_created_at": datetime(2023, 1, 2),
+                "customer_name": "Jane Doe",
+                "customer_email": "jane.doe@example.com",
+            },
+            {
+                "customer_id": "user_test_2",
+                "customer_created_at": datetime(2023, 1, 3),
+                "customer_name": "John Smith",
+                "customer_email": "john.smith@example.com",
+            },
+            {
+                "customer_id": "user_test_3",
+                "customer_created_at": datetime(2023, 1, 6),
+                "customer_name": "Jane Smith",
+                "customer_email": "jane.smith@example.com",
+            },
+            {
+                "customer_id": "user_extra",
+                "customer_created_at": datetime(2023, 1, 7),
+                "customer_name": "John Doe Jr",
+                "customer_email": "john.doejr@example.com",
+            },
+        ]
+
+        pq.write_to_dataset(
+            pa.Table.from_pylist(customer_table_data),
+            path_to_s3_object,
+            filesystem=fs,
+            use_dictionary=True,
+            compression="snappy",
+        )
+
+        customer_table_name = "customers"
+
+        DataWarehouseTable.objects.create(
+            name=customer_table_name,
+            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={
+                "customer_id": "String",
+                "customer_created_at": "DateTime64(3, 'UTC')",
+                "customer_name": "String",
+                "customer_email": "String",
+            },
+            credential=credential,
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=subscription_table_name,
+            source_table_key="subscription_customer_id",
+            joining_table_name=customer_table_name,
+            joining_table_key="customer_id",
+            field_name="subscription_customer",
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=subscription_table_name,
+            source_table_key="subscription_customer.customer_email",
+            joining_table_name="events",
+            joining_table_key="person.properties.email",
+            field_name="events",
+            configuration={"experiments_optimized": True, "experiments_timestamp_key": "subscription_created_at"},
+        )
+
+        return subscription_table_name
+
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
 
-        self.team.test_account_filters = [
-            {
-                "key": "$host",
-                "type": "event",
-                "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
-                "operator": "not_regex",
-            },
-        ]
-        self.team.save()
-
         feature_flag_property = f"$feature/{feature_flag.key}"
-        count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=True)
+        count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
 
         experiment_query = ExperimentTrendsQuery(
             experiment_id=experiment.id,
@@ -333,18 +486,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     },
                 )
 
-        # Extraneous internal user exposure event
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id="internal_test_1",
-            properties={
-                "$feature_flag_response": "test",
-                "$feature_flag": feature_flag.key,
-                "$host": "localhost",
-            },
-        )
-
         flush_persons_and_events()
 
         query_runner = ExperimentTrendsQueryRunner(
@@ -361,34 +502,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_result.count, 15)
         self.assertEqual(control_result.absolute_exposure, 7)
         self.assertEqual(test_result.absolute_exposure, 9)
-
-        # Run again with filterTestAccounts=False
-        count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=False)
-
-        experiment_query = ExperimentTrendsQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentTrendsQuery",
-            count_query=count_query,
-            exposure_query=None,
-        )
-
-        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
-        experiment.save()
-
-        query_runner = ExperimentTrendsQueryRunner(
-            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
-        )
-        result = query_runner.calculate()
-
-        self.assertEqual(len(result.variants), 2)
-
-        control_result = next(variant for variant in result.variants if variant.key == "control")
-        test_result = next(variant for variant in result.variants if variant.key == "test")
-
-        self.assertEqual(control_result.count, 11)
-        self.assertEqual(test_result.count, 15)
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 10)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_custom_exposure(self):
@@ -773,6 +886,102 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_result.absolute_exposure, 2)
 
     @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_action(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        action = Action.objects.create(name="pageview", team=self.team, steps_json=[{"event": "$pageview"}])
+        action.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+        count_query = TrendsQuery(series=[ActionsNode(id=action.id)])
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=None,  # No exposure query provided
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        journeys_for(
+            {
+                "user_control_1": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature_flag_response": "control", "$feature_flag": feature_flag.key},
+                    },
+                ],
+                "user_control_2": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature_flag_response": "control", "$feature_flag": feature_flag.key},
+                    },
+                ],
+                "user_test_1": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature_flag_response": "test", "$feature_flag": feature_flag.key},
+                    },
+                ],
+                "user_test_2": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature_flag_response": "test", "$feature_flag": feature_flag.key},
+                    },
+                ],
+                "user_out_of_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-02"},
+                ],
+                "user_out_of_control_exposure": [
+                    {"event": "$feature_flag_called", "timestamp": "2020-01-02"},
+                ],
+                "user_out_of_date_range": [
+                    {"event": "$pageview", "timestamp": "2019-01-01", "properties": {ff_property: "control"}},
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2019-01-01",
+                        "properties": {"$feature_flag_response": "control", "$feature_flag": feature_flag.key},
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        result = query_runner.calculate()
+
+        trend_result = cast(ExperimentTrendsQueryResponse, result)
+
+        control_result = next(variant for variant in trend_result.variants if variant.key == "control")
+        test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+
+        self.assertEqual(control_result.count, 3)
+        self.assertEqual(test_result.count, 5)
+
+        self.assertEqual(control_result.absolute_exposure, 2)
+        self.assertEqual(test_result.absolute_exposure, 2)
+
+    @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_holdout(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -834,6 +1043,271 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.absolute_exposure, 7)
         self.assertEqual(test_result.absolute_exposure, 9)
         self.assertEqual(holdout_result.absolute_exposure, 4)
+
+    @parameterized.expand(
+        [
+            [
+                "person_properties",
+                {
+                    "key": "email",
+                    "value": "@posthog.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_absolute_exposure": 12,
+                    "test_absolute_exposure": 15,
+                },
+            ],
+            [
+                "event_properties",
+                {
+                    "key": "$host",
+                    "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
+                    "operator": "not_regex",
+                    "type": "event",
+                },
+                {
+                    "control_absolute_exposure": 6,
+                    "test_absolute_exposure": 6,
+                },
+            ],
+            [
+                "feature_flags",
+                {
+                    "key": "$feature/flag_doesnt_exist",
+                    "type": "event",
+                    "value": ["test", "control"],
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 0,
+                    "test_absolute_exposure": 0,
+                },
+            ],
+            [
+                "cohort_static",
+                {
+                    "key": "id",
+                    "type": "static-cohort",
+                    # value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 2,
+                    "test_absolute_exposure": 1,
+                },
+            ],
+            [
+                "cohort_dynamic",
+                {
+                    "key": "id",
+                    "type": "cohort",
+                    # value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 2,
+                    "test_absolute_exposure": 1,
+                },
+            ],
+            [
+                "group",
+                {
+                    "key": "name",
+                    "type": "group",
+                    # Value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                    "group_type_index": 0,
+                },
+                {
+                    "control_absolute_exposure": 8,
+                    "test_absolute_exposure": 10,
+                },
+            ],
+            [
+                "element",
+                {
+                    "key": "tag_name",
+                    "type": "element",
+                    "value": ["button"],
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 0,
+                    "test_absolute_exposure": 0,
+                },
+            ],
+        ]
+    )
+    def test_query_runner_with_internal_filters(self, name: str, filter: dict, expected_results: dict):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        cohort = None
+        if name == "cohort_static":
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="cohort_static",
+                is_static=True,
+            )
+            filter["value"] = cohort.pk
+        elif name == "cohort_dynamic":
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="cohort_dynamic",
+                groups=[
+                    {
+                        "properties": [
+                            {"key": "email", "operator": "not_icontains", "value": "@posthog.com", "type": "person"},
+                        ]
+                    }
+                ],
+            )
+            filter["value"] = cohort.pk
+        elif name == "group":
+            GroupTypeMapping.objects.create(
+                team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="my_awesome_group",
+                properties={"name": "Test Group"},
+            )
+            filter["value"] = ["Test Group"]
+
+        self.team.test_account_filters = [filter]
+        self.team.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=True)
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=None,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        # Populate count events
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                extra_properties = {"$host": "localhost", "$group_0": "my_awesome_group"} if i > 5 else {}
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_{variant}_{i}",
+                    properties={feature_flag_property: variant, **extra_properties},
+                )
+
+        # Populate exposure events
+        for variant, count in [("control", 14), ("test", 16)]:
+            for i in range(count):
+                extra_properties = {"$host": "localhost", "$group_0": "my_awesome_group"} if i > 5 else {}
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                        **extra_properties,
+                    },
+                )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_1"],
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_2"],
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_3"],
+            properties={"email": "user_control_3@posthog.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_6"],
+            properties={"email": "user_control_6@posthog.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_test_2"],
+            properties={"email": "user_test_2@posthog.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_test_3"],
+        )
+
+        flush_persons_and_events()
+
+        if name == "cohort_static" and cohort:
+            cohort.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
+            self.assertEqual(cohort.people.count(), 3)
+        elif name == "cohort_dynamic" and cohort:
+            cohort.calculate_people_ch(pending_version=0)
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        # "feature_flags" and "element" filter out all events
+        if name == "feature_flags" or name == "element":
+            with self.assertRaises(ValidationError) as context:
+                query_runner.calculate()
+
+            expected_errors = json.dumps(
+                {
+                    ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
+                    ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                    ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+                }
+            )
+            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        else:
+            result = query_runner.calculate()
+            trend_result = cast(ExperimentTrendsQueryResponse, result)
+
+            control_result = next(variant for variant in trend_result.variants if variant.key == "control")
+            test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+
+            self.assertEqual(control_result.absolute_exposure, expected_results["control_absolute_exposure"])
+            self.assertEqual(test_result.absolute_exposure, expected_results["test_absolute_exposure"])
+
+        ## Run again with filterTestAccounts=False
+        count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=False)
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=None,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        result = query_runner.calculate()
+
+        trend_result = cast(ExperimentTrendsQueryResponse, result)
+
+        control_result = next(variant for variant in trend_result.variants if variant.key == "control")
+        test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+
+        self.assertEqual(control_result.absolute_exposure, 14)
+        self.assertEqual(test_result.absolute_exposure, 16)
 
     def test_query_runner_with_data_warehouse_series_total_count(self):
         table_name = self.create_data_warehouse_table_with_payments()
@@ -1065,6 +1539,351 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [0.0, 50.0, 125.0, 125.0, 125.0, 205.0, 205.0, 205.0, 205.0, 205.0],
         )
 
+    @parameterized.expand(
+        [
+            [
+                "person_properties",
+                {
+                    "key": "email",
+                    "value": "@posthog.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_absolute_exposure": 8,
+                    "test_absolute_exposure": 9,
+                },
+            ],
+            [
+                "event_properties",
+                {
+                    "key": "$host",
+                    "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
+                    "operator": "not_regex",
+                    "type": "event",
+                },
+                {
+                    "control_absolute_exposure": 8,
+                    "test_absolute_exposure": 9,
+                },
+            ],
+            [
+                "feature_flags",
+                {
+                    "key": "$feature/flag_doesnt_exist",
+                    "type": "event",
+                    "value": ["test", "control"],
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 0,
+                    "test_absolute_exposure": 0,
+                },
+            ],
+            [
+                "cohort_static",
+                {
+                    "key": "id",
+                    "type": "cohort",
+                    # value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 1,
+                    "test_absolute_exposure": 1,
+                },
+            ],
+            [
+                "cohort_dynamic",
+                {
+                    "key": "id",
+                    "type": "cohort",
+                    # value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 2,
+                    "test_absolute_exposure": 1,
+                },
+            ],
+            [
+                "group",
+                {
+                    "key": "name",
+                    "type": "group",
+                    # Value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                    "group_type_index": 0,
+                },
+                {
+                    "control_absolute_exposure": 7,
+                    "test_absolute_exposure": 9,
+                },
+            ],
+            [
+                "element",
+                {
+                    "key": "tag_name",
+                    "type": "element",
+                    "value": ["button"],
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 0,
+                    "test_absolute_exposure": 0,
+                },
+            ],
+        ]
+    )
+    def test_query_runner_with_data_warehouse_internal_filters(self, name, filter: dict, filter_expected: dict):
+        table_name = self.create_data_warehouse_table_with_usage()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2023, 1, 1),
+        )
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        cohort = None
+        if name == "cohort_static":
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="cohort_static",
+                is_static=True,
+            )
+            filter["value"] = cohort.pk
+        elif name == "cohort_dynamic":
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="cohort_dynamic",
+                groups=[
+                    {
+                        "properties": [
+                            {"key": "email", "operator": "not_icontains", "value": "@posthog.com", "type": "person"}
+                        ]
+                    }
+                ],
+            )
+            filter["value"] = cohort.pk
+        elif name == "group":
+            GroupTypeMapping.objects.create(
+                team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="my_awesome_group",
+                properties={"name": "Test Group"},
+            )
+            filter["value"] = ["Test Group"]
+
+        self.team.test_account_filters = [filter]
+        self.team.save()
+        count_query = TrendsQuery(
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    distinct_id_field="userid",
+                    id_field="id",
+                    table_name=table_name,
+                    timestamp_field="ds",
+                    math="avg",
+                    math_property="usage",
+                    math_property_type="data_warehouse_properties",
+                )
+            ],
+            filterTestAccounts=True,
+        )
+        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")], filterTestAccounts=True)
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=exposure_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        # Populate exposure events
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"distinct_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                        "$user_id": f"user_{variant}_{i}",
+                        "$group_0": "my_awesome_group",
+                    },
+                    timestamp=datetime(2023, 1, i + 1),
+                )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_control_0"],
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_test_3"],
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["internal_test_1"],
+            properties={"email": "internal_test_1@posthog.com"},
+        )
+        # 10th exposure for 'test'
+        # filtered out by "event_properties" , "person_properties", and "group"
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="internal_test_1",
+            properties={
+                feature_flag_property: "test",
+                "$feature_flag_response": "test",
+                "$feature_flag": feature_flag.key,
+                "$user_id": "internal_test_1",
+                "$host": "127.0.0.1",
+            },
+            timestamp=datetime(2023, 1, 3),
+        )
+
+        # "user_test_3" first exposure (feature_flag_property="control") is on 2023-01-03
+        # "user_test_3" relevant exposure (feature_flag_property="test") is on 2023-01-04
+        # "user_test_3" other event (feature_flag_property="control" is on 2023-01-05
+        # "user_test_3" purchase is on 2023-01-06
+        # "user_test_3" second exposure (feature_flag_property="control") is on 2023-01-09
+        # "user_test_3" should fall into the "test" variant, not the "control" variant
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="distinct_test_3",
+            properties={
+                "$feature_flag_response": "control",
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+                "$user_id": "user_test_3",
+            },
+            timestamp=datetime(2023, 1, 3),
+        )
+        _create_event(
+            team=self.team,
+            event="Some other event",
+            distinct_id="distinct_test_3",
+            properties={
+                "$feature_flag_response": "control",
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+                "$user_id": "user_test_3",
+            },
+            timestamp=datetime(2023, 1, 5),
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="distinct_test_3",
+            properties={
+                "$feature_flag_response": "control",
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+                "$user_id": "user_test_3",
+            },
+            timestamp=datetime(2023, 1, 9),
+        )
+
+        flush_persons_and_events()
+
+        if name == "cohort_static" and cohort:
+            cohort.insert_users_by_list(["distinct_control_0", "internal_test_1"])
+            self.assertEqual(cohort.people.count(), 2)
+        elif name == "cohort_dynamic" and cohort:
+            cohort.calculate_people_ch(pending_version=0)
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        # "feature_flags" and "element" filter out all events
+        if name == "feature_flags" or name == "element":
+            with freeze_time("2023-01-07"), self.assertRaises(ValidationError) as context:
+                query_runner.calculate()
+
+            expected_errors = json.dumps(
+                {
+                    ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
+                    ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                    ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+                }
+            )
+            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        else:
+            with freeze_time("2023-01-07"):
+                result = query_runner.calculate()
+
+            trend_result = cast(ExperimentTrendsQueryResponse, result)
+
+            self.assertEqual(len(result.variants), 2)
+
+            control_result = next(variant for variant in trend_result.variants if variant.key == "control")
+            test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+
+            self.assertEqual(control_result.absolute_exposure, filter_expected["control_absolute_exposure"])
+            self.assertEqual(test_result.absolute_exposure, filter_expected["test_absolute_exposure"])
+
+        # Run the query again without filtering
+        count_query = TrendsQuery(
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    distinct_id_field="userid",
+                    id_field="id",
+                    table_name=table_name,
+                    timestamp_field="ds",
+                    math="avg",
+                    math_property="usage",
+                    math_property_type="data_warehouse_properties",
+                )
+            ],
+            filterTestAccounts=False,
+        )
+        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")], filterTestAccounts=False)
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=exposure_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        with freeze_time("2023-01-07"):
+            result = query_runner.calculate()
+
+        trend_result = cast(ExperimentTrendsQueryResponse, result)
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_result = next(variant for variant in trend_result.variants if variant.key == "control")
+        test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+
+        self.assertEqual(control_result.absolute_exposure, 8)
+        self.assertEqual(test_result.absolute_exposure, 10)
+
     def test_query_runner_with_data_warehouse_series_no_end_date_and_nested_id(self):
         table_name = self.create_data_warehouse_table_with_usage()
 
@@ -1213,7 +2032,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
             # Assert the expected join condition in the clickhouse SQL
-            expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_9)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_10)s, 6, %(hogql_val_11)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_12)s, 6, %(hogql_val_13)s))))) AS e__events ON"
+            expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_9)s), greaterOrEquals(timestamp, assumeNotNull(toDateTime(%(hogql_val_10)s, %(hogql_val_11)s))), lessOrEquals(timestamp, assumeNotNull(toDateTime(%(hogql_val_12)s, %(hogql_val_13)s))))) AS e__events ON"
             self.assertIn(
                 expected_join_condition,
                 str(response.clickhouse),
@@ -1320,7 +2139,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         feature_flag_property = f"$feature/{feature_flag.key}"
-
         self.team.test_account_filters = [
             {
                 "key": "email",
@@ -1460,7 +2278,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             materialized_columns = get_enabled_materialized_columns("events")
             self.assertIn("mat_pp_email", [col.name for col in materialized_columns.values()])
             # Assert the expected email where statement in the clickhouse SQL
-            expected_email_where_statement = "ifNull(notILike(e__events.poe___properties___email, %(hogql_val_25)s), 1)"
+            expected_email_where_statement = "notILike(toString(e__events.poe___properties___email), %(hogql_val_25)s"
             self.assertIn(
                 expected_email_where_statement,
                 str(response.clickhouse),
@@ -1618,13 +2436,108 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
             # Assert the expected join condition in the clickhouse SQL
-            expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_7)s), greaterOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_8)s, 6, %(hogql_val_9)s))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_10)s, 6, %(hogql_val_11)s))))) AS e__events ON"
+            expected_join_condition = f"and(equals(events.team_id, {query_runner.count_query_runner.team.id}), equals(event, %(hogql_val_7)s), greaterOrEquals(timestamp, assumeNotNull(toDateTime(%(hogql_val_8)s, %(hogql_val_9)s))), lessOrEquals(timestamp, assumeNotNull(toDateTime(%(hogql_val_10)s, %(hogql_val_11)s))))) AS e__events ON"
             self.assertIn(
                 expected_join_condition,
                 str(response.clickhouse),
                 "Please check to make sure the timestamp statements are included in the ASOF LEFT JOIN select statement. This may also fail if the placeholder numbers have changed.",
             )
 
+            result = query_runner.calculate()
+
+        trend_result = cast(ExperimentTrendsQueryResponse, result)
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_result = next(variant for variant in trend_result.variants if variant.key == "control")
+        test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+
+        self.assertEqual(control_result.count, 1)
+        self.assertEqual(test_result.count, 3)
+        self.assertEqual(control_result.absolute_exposure, 7)
+        self.assertEqual(test_result.absolute_exposure, 9)
+
+    def test_query_runner_with_data_warehouse_subscriptions_table(self):
+        table_name = self.create_data_warehouse_table_with_subscriptions()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2023, 1, 1),
+            end_date=datetime(2023, 1, 10),
+        )
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        count_query = TrendsQuery(
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    distinct_id_field="subscription_customer_id",
+                    id_field="id",
+                    table_name=table_name,
+                    timestamp_field="subscription_created_at",
+                    math="total",
+                )
+            ]
+        )
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=None,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        # Populate exposure events
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                    timestamp=datetime(2023, 1, i + 1),
+                )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_0"],
+            properties={"email": "john.doe@example.com"},
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_test_1"],
+            properties={"email": "jane.doe@example.com"},
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_test_2"],
+            properties={"email": "john.smith@example.com"},
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_test_3"],
+            properties={"email": "jane.smith@example.com"},
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+
+        with freeze_time("2023-01-10"):
             result = query_runner.calculate()
 
         trend_result = cast(ExperimentTrendsQueryResponse, result)
@@ -2150,33 +3063,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.exposure, 1.0)
 
     @freeze_time("2020-01-01T12:00:00Z")
-    def test_validate_event_variants_no_events(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-
-        count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
-        experiment_query = ExperimentTrendsQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentTrendsQuery",
-            count_query=count_query,
-        )
-
-        query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
-            query_runner.calculate()
-
-        expected_errors = json.dumps(
-            {
-                ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                ExperimentNoResultsErrorKeys.NO_EVENTS: True,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
-                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-            }
-        )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
-
-    @freeze_time("2020-01-01T12:00:00Z")
     def test_validate_event_variants_no_control(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -2207,8 +3093,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         expected_errors = json.dumps(
             {
                 ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
                 ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
             }
@@ -2254,66 +3138,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         expected_errors = json.dumps(
             {
                 ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
-                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
                 ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: False,
-                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-            }
-        )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
-
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_validate_event_variants_no_flag_info(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-
-        journeys_for(
-            {
-                "user_no_flag_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": feature_flag.key,
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                    {"event": "$pageview", "timestamp": "2020-01-02"},
-                ],
-                "user_no_flag_2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": feature_flag.key,
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                ],
-            },
-            self.team,
-        )
-
-        flush_persons_and_events()
-
-        count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
-        experiment_query = ExperimentTrendsQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentTrendsQuery",
-            count_query=count_query,
-        )
-
-        query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
-            query_runner.calculate()
-
-        expected_errors = json.dumps(
-            {
-                ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
-                ExperimentNoResultsErrorKeys.NO_EVENTS: True,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
-                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
             }
         )
@@ -2359,8 +3184,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         expected_errors = json.dumps(
             {
                 ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
                 ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: False,
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
             }

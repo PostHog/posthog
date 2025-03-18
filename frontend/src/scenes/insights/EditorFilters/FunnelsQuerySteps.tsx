@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -10,7 +8,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery } from '~/queries/schema'
+import { FunnelsQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
 import { EditorFilterProps, FilterType } from '~/types'
 
@@ -25,15 +23,10 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     const { series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const mathAvailability = featureFlags[FEATURE_FLAGS.FIRST_TIME_FOR_USER_MATH]
-        ? MathAvailability.FunnelsOnly
-        : MathAvailability.None
-
     const actionFilters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
     const setActionFilters = (payload: Partial<FilterType>): void => {
         updateQuerySource({
-            series: actionsAndEventsToSeries(payload as any, true, mathAvailability),
+            series: actionsAndEventsToSeries(payload as any, true, MathAvailability.FunnelsOnly),
         } as FunnelsQuery)
     }
 
@@ -53,7 +46,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 <LemonLabel>Query Steps</LemonLabel>
 
                 <div className="flex items-center gap-2">
-                    <span className="text-muted">Graph type</span>
+                    <span className="text-secondary">Graph type</span>
                     <FunnelVizType insightProps={insightProps} />
                 </div>
             </div>
@@ -62,7 +55,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 filters={actionFilters}
                 setFilters={setActionFilters}
                 typeKey={keyForInsightLogicProps('new')(insightProps)}
-                mathAvailability={mathAvailability}
+                mathAvailability={MathAvailability.FunnelsOnly}
                 hideDeleteBtn={filterSteps.length === 1}
                 buttonCopy="Add step"
                 showSeriesIndicator={showSeriesIndicator}
@@ -81,7 +74,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     TaxonomicFilterGroupType.HogQLExpression,
                 ]}
             />
-            <div className="mt-4 space-y-4">
+            <div className="mt-4 deprecated-space-y-4">
                 {showGroupsOptions && (
                     <div className="flex items-center w-full gap-2">
                         <span>Aggregating by</span>

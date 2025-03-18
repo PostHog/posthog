@@ -64,10 +64,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "name": AvailableFeature.TAGGING,
             },
             {
-                "key": AvailableFeature.PROJECT_BASED_PERMISSIONING,
-                "name": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
             },
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
         ]
 
         self.organization.save()

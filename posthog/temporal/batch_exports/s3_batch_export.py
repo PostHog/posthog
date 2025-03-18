@@ -19,11 +19,9 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
-    BatchExportModel,
-    BatchExportSchema,
+    BatchExportInsertInputs,
     S3BatchExportInputs,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -43,6 +41,7 @@ from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
+    resolve_batch_exports_model,
     run_consumer,
     wait_for_schema_or_producer,
 )
@@ -52,6 +51,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     WriterFormat,
 )
 from posthog.temporal.batch_exports.utils import set_status_to_running_task
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
     bind_temporal_worker_logger,
@@ -91,8 +91,8 @@ COMPRESSION_EXTENSIONS = {
 }
 
 
-@dataclasses.dataclass
-class S3InsertInputs:
+@dataclasses.dataclass(kw_only=True)
+class S3InsertInputs(BatchExportInsertInputs):
     """Inputs for S3 exports."""
 
     # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
@@ -102,25 +102,15 @@ class S3InsertInputs:
     bucket_name: str
     region: str
     prefix: str
-    team_id: int
-    data_interval_start: str | None
-    data_interval_end: str
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     compression: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
     endpoint_url: str | None = None
     # TODO: In Python 3.11, this could be a enum.StrEnum.
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    # TODO: Remove after updating existing batch exports
-    batch_export_schema: BatchExportSchema | None = None
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:
@@ -743,25 +733,9 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         details = S3HeartbeatDetails()
         done_ranges: list[DateRange] = details.done_ranges
 
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export_schema is None and "batch_export_model" in {
-            field.name for field in dataclasses.fields(inputs)
-        }:
-            model = inputs.batch_export_model
-            if model is not None:
-                model_name = model.name
-                extra_query_parameters = model.schema["values"] if model.schema is not None else None
-                fields = model.schema["fields"] if model.schema is not None else None
-            else:
-                model_name = "events"
-                extra_query_parameters = None
-                fields = None
-        else:
-            model = inputs.batch_export_schema
-            model_name = "custom"
-            extra_query_parameters = model["values"] if model is not None else {}
-            fields = model["fields"] if model is not None else None
-
+        _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
+            inputs.team_id, inputs.is_backfill, inputs.batch_export_model, inputs.batch_export_schema
+        )
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
         )
@@ -769,21 +743,22 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer()
-        producer_task = producer.start(
+        producer = Producer(record_batch_model)
+        producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
-            is_backfill=inputs.is_backfill,
+            is_backfill=inputs.get_is_backfill(),
+            backfill_details=inputs.backfill_details,
             team_id=inputs.team_id,
             full_range=full_range,
             done_ranges=done_ranges,
             fields=fields,
+            filters=filters,
             destination_default_fields=s3_default_fields(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
-            use_latest_schema=True,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -807,7 +782,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             writer_format=WriterFormat.from_str(inputs.file_format, "S3"),
             s3_inputs=inputs,
         )
-        await run_consumer(
+        _ = await run_consumer(
             consumer=consumer,
             queue=queue,
             producer_task=producer_task,
@@ -839,8 +814,10 @@ class S3BatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: S3BatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
+        is_backfill = inputs.get_is_backfill()
+        is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
+        should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -849,7 +826,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            is_backfill=inputs.is_backfill,
+            backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -888,7 +865,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             file_format=inputs.file_format,
             max_file_size_mb=inputs.max_file_size_mb,
             run_id=run_id,
-            is_backfill=inputs.is_backfill,
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,

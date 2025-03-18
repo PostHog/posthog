@@ -1,10 +1,15 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional, TypeAlias
-from django.db import models
+from typing import TYPE_CHECKING, Any, Optional, TypeAlias
+from uuid import UUID
 
-from posthog.client import sync_execute
-from posthog.errors import wrap_query_error
+from django.db import models
+from django.db.models import Q
+
+from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_query_error
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     FieldOrTable,
 )
@@ -13,24 +18,26 @@ from posthog.models.team import Team
 from posthog.models.utils import (
     CreatedMetaFields,
     DeletedMetaFields,
-    UUIDModel,
     UpdatedMetaFields,
+    UUIDModel,
     sane_repr,
 )
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
-from posthog.warehouse.models.util import remove_named_tuples
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from django.db.models import Q
-from .credential import DataWarehouseCredential
-from uuid import UUID
-from sentry_sdk import capture_exception
+from posthog.warehouse.models.util import (
+    CLICKHOUSE_HOGQL_MAPPING,
+    STR_TO_HOGQL_MAPPING,
+    clean_type,
+    remove_named_tuples,
+)
 from posthog.warehouse.util import database_sync_to_async
-from posthog.warehouse.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type, STR_TO_HOGQL_MAPPING
+
+from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables
-from posthog.hogql.context import HogQLContext
 
 if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataJob
+    pass
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
@@ -143,7 +150,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     def get_columns(
         self,
-        pipeline_version: Optional["ExternalDataJob.PipelineVersion"] = None,
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableColumns:
         try:
@@ -154,7 +160,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
-                pipeline_version=pipeline_version,
             )
 
             result = sync_execute(
@@ -186,6 +191,27 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
         return columns
 
+    def get_max_value_for_column(self, column: str) -> Any | None:
+        try:
+            placeholder_context = HogQLContext(team_id=self.team.pk)
+            s3_table_func = build_function_call(
+                url=self.url_pattern,
+                format=self.format,
+                access_key=self.credential.access_key,
+                access_secret=self.credential.access_secret,
+                context=placeholder_context,
+            )
+
+            result = sync_execute(
+                f"SELECT max(`{column}`) FROM {s3_table_func}",
+                args=placeholder_context.values,
+            )
+
+            return result[0][0]
+        except Exception as err:
+            capture_exception(err)
+            return None
+
     def get_count(self, safe_expose_ch_error=True) -> int:
         try:
             placeholder_context = HogQLContext(team_id=self.team.pk)
@@ -209,6 +235,22 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 raise
 
         return result[0][0]
+
+    def get_function_call(self) -> tuple[str, HogQLContext]:
+        try:
+            placeholder_context = HogQLContext(team_id=self.team.pk)
+            s3_table_func = build_function_call(
+                url=self.url_pattern,
+                format=self.format,
+                access_key=self.credential.access_key,
+                access_secret=self.credential.access_secret,
+                context=placeholder_context,
+            )
+
+        except Exception as err:
+            capture_exception(err)
+            raise
+        return s3_table_func, placeholder_context
 
     def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> S3Table:
         columns = self.columns or {}
@@ -263,13 +305,25 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 del fields["_dlt_id"]
                 del fields["_dlt_load_id"]
                 fields = {**fields, **default_fields}
+            if fields.get("_ph_debug"):
+                del fields["_ph_debug"]
+                fields = {**fields, **default_fields}
+            if fields.get(PARTITION_KEY):
+                del fields[PARTITION_KEY]
+                fields = {**fields, **default_fields}
+
+        access_key: str | None = None
+        access_secret: str | None = None
+        if self.credential:
+            access_key = self.credential.access_key
+            access_secret = self.credential.access_secret
 
         return S3Table(
             name=self.name,
             url=self.url_pattern,
             format=self.format,
-            access_key=self.credential.access_key,
-            access_secret=self.credential.access_secret,
+            access_key=access_key,
+            access_secret=access_secret,
             fields=fields,
             structure=", ".join(structure),
         )
@@ -290,6 +344,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         for key, value in ExtractErrors.items():
             if key in err.message:
                 raise Exception(value)
+
+        if isinstance(err, CHQueryErrorTooManySimultaneousQueries):
+            raise err
+
         raise Exception("Could not get columns")
 
 

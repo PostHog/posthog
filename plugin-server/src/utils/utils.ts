@@ -1,6 +1,6 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
+import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
@@ -14,7 +14,8 @@ import {
     PluginsServerConfig,
     TimestampFormat,
 } from '../types'
-import { status } from './status'
+import { logger } from './logger'
+import { captureException } from './posthog'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
 const GRACEFUL_EXIT_PERIOD_SECONDS = 5
@@ -22,10 +23,10 @@ const GRACEFUL_EXIT_PERIOD_SECONDS = 5
 export class NoRowsUpdatedError extends Error {}
 
 export function killGracefully(): void {
-    status.error('⏲', 'Shutting plugin server down gracefully with SIGTERM...')
+    logger.error('⏲', 'Shutting plugin server down gracefully with SIGTERM...')
     process.kill(process.pid, 'SIGTERM')
     setTimeout(() => {
-        status.error('⏲', `Plugin server still running after ${GRACEFUL_EXIT_PERIOD_SECONDS} s, killing it forcefully!`)
+        logger.error('⏲', `Plugin server still running after ${GRACEFUL_EXIT_PERIOD_SECONDS} s, killing it forcefully!`)
         process.exit(1)
     }, GRACEFUL_EXIT_PERIOD_SECONDS * 1000)
 }
@@ -43,6 +44,36 @@ export function bufferToStream(binary: Buffer): Readable {
     })
 
     return readableInstanceStream
+}
+
+export function bufferToUint32ArrayLE(buffer: Buffer): Uint32Array {
+    const dataView = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+    const length = buffer.byteLength / 4
+    const result = new Uint32Array(length)
+
+    for (let i = 0; i < length; i++) {
+        // explicitly set little-endian
+        result[i] = dataView.getUint32(i * 4, true)
+    }
+
+    return result
+}
+
+export function uint32ArrayLEToBuffer(uint32Array: Uint32Array): Buffer {
+    const buffer = new ArrayBuffer(uint32Array.length * 4)
+    const dataView = new DataView(buffer)
+
+    for (let i = 0; i < uint32Array.length; i++) {
+        // explicitly set little-endian
+        dataView.setUint32(i * 4, uint32Array[i], true)
+    }
+    return Buffer.from(buffer)
+}
+
+export function createRandomUint32x4(): Uint32Array {
+    const randomArray = new Uint32Array(4)
+    crypto.webcrypto.getRandomValues(randomArray)
+    return randomArray
 }
 
 export function cloneObject<T>(obj: T): T {
@@ -367,7 +398,7 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
         const response = await Promise.race([timeout, callback()])
         return response as T
     } catch (error) {
-        Sentry.captureMessage(`Had to run twice: ${errorMessage}`)
+        captureException(`Had to run twice: ${errorMessage}`)
         // try one more time
         return await callback()
     }
@@ -409,8 +440,8 @@ export function createPostgresPool(
     const handleError =
         onError ||
         ((error) => {
-            Sentry.captureException(error)
-            status.error('🔴', 'PostgreSQL error encountered!\n', error)
+            captureException(error)
+            logger.error('🔴', 'PostgreSQL error encountered!\n', error)
         })
 
     pgPool.on('error', handleError)
@@ -441,12 +472,12 @@ export function pluginConfigIdFromStack(
 }
 
 export function logOrThrowJobQueueError(server: PluginsServerConfig, error: Error, message: string): void {
-    Sentry.captureException(error)
+    captureException(error)
     if (server.CRASH_IF_NO_PERSISTENT_JOB_QUEUE) {
-        status.error('🔴', message)
+        logger.error('🔴', message)
         throw error
     } else {
-        status.info('🟡', message)
+        logger.info('🟡', message)
     }
 }
 

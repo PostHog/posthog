@@ -5,7 +5,8 @@ import { ReactNode } from 'react'
 interface OverviewItemBase {
     icon?: ReactNode
     label: string
-    tooltipTitle?: string
+    valueTooltip?: ReactNode
+    keyTooltip?: ReactNode
 }
 
 type TextOverviewItem = OverviewItemBase & {
@@ -24,7 +25,7 @@ export type OverviewItem = TextOverviewItem | PropertyOverviewItem
 export function OverviewGrid({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="@container/og">
-            <div className="grid grid-cols-1 place-items-center gap-4 px-2 py-1 @xs/og:grid-cols-2 @md/og:grid-cols-3 ">
+            <div className="grid grid-cols-1 place-items-center gap-4 px-2 py-1 @xs/og:grid-cols-2 @lg/og:grid-cols-3">
                 {children}
             </div>
         </div>
@@ -37,20 +38,24 @@ export function OverviewGridItem({
     label,
     icon,
     fadeLabel,
+    itemKeyTooltip,
 }: {
     children?: ReactNode
     description: ReactNode
     label: ReactNode
     icon?: ReactNode
     fadeLabel?: boolean
+    itemKeyTooltip?: ReactNode
 }): JSX.Element {
     return (
-        <div className="flex flex-1 w-full justify-between items-center ">
+        <div className="flex flex-1 w-full justify-between items-center deprecated-space-x-4">
             <div className={clsx('text-sm', fadeLabel && 'font-light')}>
-                {icon} {label}
+                <Tooltip title={itemKeyTooltip}>
+                    {icon} {label}
+                </Tooltip>
             </div>
             <Tooltip title={description}>
-                <div>{children}</div>
+                <div className="overflow-x-scroll">{children}</div>
             </Tooltip>
         </div>
     )

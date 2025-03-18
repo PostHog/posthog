@@ -1,20 +1,20 @@
-from freezegun import freeze_time
-from posthog.models.project import Project
-from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
-from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
 import uuid
 from unittest.mock import patch
+
+import psycopg
+from django.conf import settings
+from django.test import override_settings
+from freezegun import freeze_time
+from rest_framework import status
+
+from posthog.models import Team
+from posthog.models.project import Project
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
-from django.test import override_settings
-from django.conf import settings
-from posthog.models import Team
-import psycopg
-from rest_framework import status
-
-
+from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
+from posthog.test.base import APIBaseTest
+from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 
@@ -370,11 +370,134 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 400
         assert len(ExternalDataSource.objects.all()) == 0
 
+    def test_create_external_data_source_bigquery_removes_project_id_prefix(self):
+        """Test we remove the `project_id` prefix of a `dataset_id`."""
+        with patch("posthog.warehouse.api.external_data_source.get_bigquery_schemas") as mocked_get_bigquery_schemas:
+            mocked_get_bigquery_schemas.return_value = {"my_schema": "something"}
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "BigQuery",
+                    "payload": {
+                        "schemas": [
+                            {
+                                "name": "my_schema",
+                                "should_sync": True,
+                                "sync_type": "incremental",
+                                "incremental_field": "id",
+                                "incremental_field_type": "integer",
+                            },
+                        ],
+                        "dataset_id": "my_project.my_dataset",
+                        "key_file": {
+                            "project_id": "my_project",
+                            "private_key": "my_private_key",
+                            "private_key_id": "my_private_key_id",
+                            "token_uri": "https://google.com",
+                            "client_email": "test@posthog.com",
+                        },
+                    },
+                },
+            )
+        assert response.status_code == 201
+        assert len(ExternalDataSource.objects.all()) == 1
+
+        source = response.json()
+        source_model = ExternalDataSource.objects.get(id=source["id"])
+
+        assert source_model.job_inputs["project_id"] == "my_project"
+        assert source_model.job_inputs["dataset_id"] == "my_dataset"
+        assert source_model.job_inputs["private_key"] == "my_private_key"
+        assert source_model.job_inputs["private_key_id"] == "my_private_key_id"
+
+    def test_create_external_data_source_missing_required_bigquery_job_input(self):
+        """Test we fail source creation when missing inputs."""
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "BigQuery",
+                "payload": {
+                    "dataset_id": "my_dataset",
+                    "key_file": {
+                        "project_id": "my_project",
+                        "token_uri": "https://google.com",
+                        "client_email": "test@posthog.com",
+                    },
+                },
+            },
+        )
+        assert response.status_code == 400
+        assert len(ExternalDataSource.objects.all()) == 0
+        assert response.json()["detail"].startswith("Missing required BigQuery inputs")
+        assert "'private_key'" in response.json()["detail"]
+        assert "'private_key_id'" in response.json()["detail"]
+
+    def test_partial_update_of_bigquery_external_data_source(self):
+        """Test we can partially update a BigQuery source."""
+        with patch("posthog.warehouse.api.external_data_source.get_bigquery_schemas") as mocked_get_bigquery_schemas:
+            mocked_get_bigquery_schemas.return_value = {"my_schema": "something"}
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "BigQuery",
+                    "payload": {
+                        "schemas": [
+                            {
+                                "name": "my_schema",
+                                "should_sync": True,
+                                "sync_type": "incremental",
+                                "incremental_field": "id",
+                                "incremental_field_type": "integer",
+                            },
+                        ],
+                        "dataset_id": "my_old_dataset",
+                        "key_file": {
+                            "project_id": "my_project",
+                            "private_key": "my_private_key",
+                            "private_key_id": "my_private_key_id",
+                            "token_uri": "https://google.com",
+                            "client_email": "test@posthog.com",
+                        },
+                    },
+                },
+            )
+        assert response.status_code == 201
+        assert len(ExternalDataSource.objects.all()) == 1
+
+        source = response.json()
+        source_model = ExternalDataSource.objects.get(id=source["id"])
+        source_model.refresh_from_db()
+        assert source_model.job_inputs["dataset_id"] == "my_old_dataset"
+        assert source_model.job_inputs["private_key"] == "my_private_key"
+        assert source_model.job_inputs["private_key_id"] == "my_private_key_id"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/external_data_sources/{str(source_model.pk)}/",
+            data={
+                "job_inputs": {
+                    "dataset_id": "my_new_dataset",
+                    "key_file": {
+                        "project_id": "my_project",
+                        "token_uri": "https://google.com",
+                    },
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        assert len(ExternalDataSource.objects.all()) == 1
+        source_model.refresh_from_db()
+        assert source_model.job_inputs["dataset_id"] == "my_new_dataset"
+        assert source_model.job_inputs["private_key"] == "my_private_key"
+        assert source_model.job_inputs["private_key_id"] == "my_private_key_id"
+
     def test_list_external_data_source(self):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        with self.assertNumQueries(19):
+        with self.assertNumQueries(21):
             response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
@@ -391,7 +514,8 @@ class TestExternalDataSource(APIBaseTest):
         assert len(results) == 1
 
         result = results[0]
-        assert result.get("job_inputs") is None
+        # we should scrape out `stripe_secret_key` from job_inputs
+        assert result.get("job_inputs") == {}
 
     def test_get_external_data_source_with_schema(self):
         source = self._create_external_data_source()
@@ -409,9 +533,11 @@ class TestExternalDataSource(APIBaseTest):
                 "created_by",
                 "status",
                 "source_type",
+                "latest_error",
                 "prefix",
                 "last_run_at",
                 "schemas",
+                "job_inputs",
             ],
         )
         self.assertEqual(
@@ -424,12 +550,13 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field_type": None,
                     "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
-                    "should_sync": schema.should_sync,
                     "latest_error": schema.latest_error,
+                    "should_sync": schema.should_sync,
                     "status": schema.status,
                     "sync_type": schema.sync_type,
                     "table": schema.table,
-                    "sync_frequency": sync_frequency_interval_to_sync_frequency(schema),
+                    "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
+                    "sync_time_of_day": schema.sync_time_of_day,
                 }
             ],
         )
@@ -485,7 +612,7 @@ class TestExternalDataSource(APIBaseTest):
                 "source_type": "Postgres",
                 "host": settings.PG_HOST,
                 "port": int(settings.PG_PORT),
-                "dbname": settings.PG_DATABASE,
+                "database": settings.PG_DATABASE,
                 "user": settings.PG_USER,
                 "password": settings.PG_PASSWORD,
                 "schema": "public",
@@ -619,7 +746,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
-                    "dbname": settings.PG_DATABASE,
+                    "database": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
                     "schema": "public",
@@ -646,7 +773,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
-                    "dbname": settings.PG_DATABASE,
+                    "database": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
                     "schema": "public",
@@ -664,7 +791,7 @@ class TestExternalDataSource(APIBaseTest):
                     "host": "172.16.0.0",
                     "rows": 42,
                     "port": int(settings.PG_PORT),
-                    "dbname": settings.PG_DATABASE,
+                    "database": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
                     "schema": "public",
@@ -692,7 +819,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
-                    "dbname": settings.PG_DATABASE,
+                    "database": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
                     "schema": "public",
@@ -825,8 +952,8 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "client_secret": "  sk_test_123   ",
-                    "account_id": "  blah   ",
+                    "stripe_secret_key": "  sk_test_123   ",
+                    "stripe_account_id": "  blah   ",
                     "schemas": [
                         {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
                     ],

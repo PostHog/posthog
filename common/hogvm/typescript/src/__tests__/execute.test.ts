@@ -2582,4 +2582,28 @@ describe('hogvm execute', () => {
         })
         expect(res.result).toEqual('tomato')
     })
+
+    test('printing sql with sql chunks', () => {
+        const bytecode = JSON.parse(
+            '["_H", 1, 32, "__hx_ast", 32, "Field", 32, "chain", 32, "event", 43, 1, 42, 2, 32, "__hx_ast", 32, "Field", 32,\n' +
+                '"chain", 32, "uuid", 43, 1, 42, 2, 33, 3, 32, "__hx_ast", 32, "SelectQuery", 32, "select", 32, "__hx_ast", 32,\n' +
+                '"Field", 32, "chain", 32, "*", 43, 1, 42, 2, 33, 0, 36, 2, 13, 40, 4, 36, 0, 39, 2, 36, 1, 43, 2, 32, "select_from", 32,\n' +
+                '"__hx_ast", 32, "JoinExpr", 32, "table", 32, "__hx_ast", 32, "Field", 32, "chain", 32, "events", 43, 1, 42, 2, 42, 2,\n' +
+                '42, 3, 2, "toString", 1, 38, 35, 35, 35]'
+        )
+        const result = exec(bytecode).result
+        expect(result).toEqual('sql(SELECT *, event FROM events)')
+    })
+
+    test('printing sql with inlined constants', () => {
+        const bytecode = JSON.parse(
+            '["_H", 1, 32, "$pageview", 32, "__hx_ast", 32, "SelectQuery", 32, "select", 32, "__hx_ast", 32, "Field", 32, "chain",\n' +
+                '32, "*", 43, 1, 42, 2, 43, 1, 32, "select_from", 32, "__hx_ast", 32, "JoinExpr", 32, "table", 32, "__hx_ast", 32,\n' +
+                '"Field", 32, "chain", 32, "events", 43, 1, 42, 2, 42, 2, 32, "where", 32, "__hx_ast", 32, "CompareOperation", 32,\n' +
+                '"left", 32, "__hx_ast", 32, "Field", 32, "chain", 32, "event", 43, 1, 42, 2, 32, "right", 36, 0, 32, "op", 32, "==",\n' +
+                '42, 4, 42, 4, 36, 1, 2, "toString", 1, 38, 35, 35]'
+        )
+        const result = exec(bytecode).result
+        expect(result).toEqual("sql(SELECT * FROM events WHERE equals(event, '$pageview'))")
+    })
 })

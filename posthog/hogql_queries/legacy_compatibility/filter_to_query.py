@@ -492,6 +492,7 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
                 showPercentStackView=filter.get("show_percent_stack_view"),
                 showLabelsOnSeries=filter.get("show_label_on_series"),
                 yAxisScaleType=filter.get("y_axis_scale_type"),
+                showMultipleYAxes=filter.get("show_multiple_y_axes"),
             )
         }
     elif _insight_type(filter) == "FUNNELS":
@@ -538,6 +539,8 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
                 ),
                 period=filter.get("period"),
                 showMean=filter.get("show_mean"),
+                meanRetentionCalculation=filter.get("mean_retention_calculation")
+                or ("simple" if filter.get("show_mean") else "none" if filter.get("show_mean") is False else "simple"),
                 cumulative=filter.get("cumulative"),
             )
         }

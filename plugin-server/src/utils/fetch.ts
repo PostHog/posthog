@@ -9,8 +9,11 @@ import net from 'node:net'
 import fetch, { type RequestInfo, type RequestInit, type Response, FetchError, Request } from 'node-fetch'
 import { URL } from 'url'
 
-import { runInSpan } from '../sentry'
+export type { Response }
+
+import { runInstrumentedFunction } from '../main/utils'
 import { isProdEnv } from './env-utils'
+import { runInSpan } from './sentry'
 
 const staticLookup: net.LookupFunction = async (hostname, options, cb) => {
     let addrinfo: LookupAddress[]
@@ -42,17 +45,23 @@ export async function trackedFetch(url: RequestInfo, init?: RequestInit): Promis
             description: `${request.method} ${request.url}`,
         },
         async () => {
-            if (isProdEnv() && !process.env.NODE_ENV?.includes('functional-tests')) {
-                await raiseIfUserProvidedUrlUnsafe(request.url)
-                return await fetch(url, {
-                    ...init,
-                    agent: ({ protocol }: URL) =>
-                        protocol === 'http:'
-                            ? new http.Agent({ lookup: staticLookup })
-                            : new https.Agent({ lookup: staticLookup }),
-                })
-            }
-            return await fetch(url, init)
+            return runInstrumentedFunction({
+                statsKey: 'trackedFetch',
+                func: async () => {
+                    if (isProdEnv() && !process.env.NODE_ENV?.includes('functional-tests')) {
+                        await raiseIfUserProvidedUrlUnsafe(request.url)
+                        return await fetch(url, {
+                            ...init,
+                            agent: ({ protocol }: URL) =>
+                                protocol === 'http:'
+                                    ? new http.Agent({ lookup: staticLookup })
+                                    : new https.Agent({ lookup: staticLookup }),
+                        })
+                    }
+
+                    return await fetch(url, init)
+                },
+            })
         }
     )
 }

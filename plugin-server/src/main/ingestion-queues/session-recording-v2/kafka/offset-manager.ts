@@ -1,49 +1,14 @@
 import { TopicPartitionOffset } from 'node-rdkafka'
 
-import { SessionBatchRecorderInterface } from '../sessions/session-batch-recorder'
-import { MessageWithTeam } from '../teams/types'
-
-interface PartitionOffset {
-    partition: number
-    offset: number
-}
+import { logger } from '../../../../utils/logger'
+import { PartitionOffset } from '../types'
 
 type CommitOffsetsCallback = (offsets: TopicPartitionOffset[]) => Promise<void>
-
-class OffsetTrackingSessionBatchRecorderWrapper implements SessionBatchRecorderInterface {
-    constructor(
-        private readonly recorder: SessionBatchRecorderInterface,
-        private readonly offsetManager: KafkaOffsetManager
-    ) {}
-
-    public record(message: MessageWithTeam): number {
-        const bytesWritten = this.recorder.record(message)
-        this.offsetManager.trackOffset(message.message.metadata)
-        return bytesWritten
-    }
-
-    public async flush(): Promise<void> {
-        await this.recorder.flush()
-    }
-
-    public discardPartition(partition: number): void {
-        this.recorder.discardPartition(partition)
-        this.offsetManager.discardPartition(partition)
-    }
-
-    public get size(): number {
-        return this.recorder.size
-    }
-}
 
 export class KafkaOffsetManager {
     private partitionOffsets: Map<number, number> = new Map()
 
     constructor(private readonly commitOffsets: CommitOffsetsCallback, private readonly topic: string) {}
-
-    public wrapBatch(recorder: SessionBatchRecorderInterface): SessionBatchRecorderInterface {
-        return new OffsetTrackingSessionBatchRecorderWrapper(recorder, this)
-    }
 
     public trackOffset({ partition, offset }: PartitionOffset): void {
         // We track the next offset to process
@@ -66,6 +31,10 @@ export class KafkaOffsetManager {
         }
 
         if (topicPartitionOffsets.length > 0) {
+            logger.info('🔁', 'offset_manager_committing_offsets', {
+                topic: this.topic,
+                offsets: topicPartitionOffsets.map(({ partition, offset }) => ({ partition, offset })),
+            })
             await this.commitOffsets(topicPartitionOffsets)
             this.partitionOffsets.clear()
         }

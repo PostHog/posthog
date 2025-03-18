@@ -182,6 +182,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Product analytics (incl. insights, dashboards, annotations)',
             },
             {
+                value: 'group_analytics',
+                'data-attr': `support-form-target-area-group-analytics`,
+                label: 'Group analytics',
+            },
+            {
                 value: 'session_replay',
                 'data-attr': `support-form-target-area-session_replay`,
                 label: 'Session replay (incl. recordings)',
@@ -199,12 +204,17 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'web_analytics',
                 'data-attr': `support-form-target-area-web_analytics`,
-                label: 'Web Analytics',
+                label: 'Web analytics',
             },
             {
                 value: 'error_tracking',
                 'data-attr': `support-form-target-area-error_tracking`,
                 label: 'Error tracking',
+            },
+            {
+                value: 'llm-observability',
+                'data-attr': `support-form-target-area-llm-observability`,
+                label: 'LLM observability',
             },
         ],
     },
@@ -325,6 +335,8 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
+        openMaxChatInterface: true,
+        closeMaxChatInterface: true,
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -332,6 +344,7 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openSupportForm: () => true,
                 closeSupportForm: () => false,
+                openMaxChatInterface: () => false,
             },
         ],
         isEmailFormOpen: [
@@ -339,6 +352,14 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
+            },
+        ],
+        isMaxChatInterfaceOpen: [
+            false,
+            {
+                openMaxChatInterface: () => true,
+                closeMaxChatInterface: () => false,
+                openEmailForm: () => false,
             },
         ],
     })),
@@ -562,6 +583,19 @@ export const supportLogic = kea<supportLogicType>([
         },
 
         setSendSupportRequestValue: () => {
+            actions.updateUrlParams()
+        },
+        openMaxChatInterface: async () => {
+            const panelOptions = [
+                'max-chat',
+                '', // No target area needed for Max (yet)
+                '', // No severity level needed for Max
+                'false', // Make sure we don't open the email form instead
+            ].join(':')
+
+            if (values.sidePanelAvailable) {
+                actions.setSidePanelOptions(panelOptions)
+            }
             actions.updateUrlParams()
         },
     })),

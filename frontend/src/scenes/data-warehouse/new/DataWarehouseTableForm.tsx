@@ -1,4 +1,4 @@
-import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -44,7 +44,11 @@ const ProviderMappings: Record<
     },
 }
 
-export function DatawarehouseTableForm(): JSX.Element {
+interface Props {
+    onUpdate?: () => void
+}
+
+export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
     const { manualLinkingProvider } = useValues(sourceWizardLogic)
 
     const provider = manualLinkingProvider ?? 'aws'
@@ -53,74 +57,94 @@ export function DatawarehouseTableForm(): JSX.Element {
         <Form
             formKey="table"
             logic={dataWarehouseTableLogic}
-            className="space-y-4"
+            className="deprecated-space-y-4"
             enableFormOnSubmit
             autoComplete="off"
         >
-            <div className="flex flex-col gap-2 max-w-160">
+            <div className="flex flex-col gap-2">
                 <LemonField name="name" label="Table name">
-                    <LemonInput
-                        data-attr="table-name"
-                        className="ph-ignore-input"
-                        placeholder="Examples: stripe_invoice, hubspot_contacts, users"
-                        autoComplete="off"
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                        spellCheck={false}
-                    />
+                    {({ value = '', onChange }) => (
+                        <LemonInput
+                            data-attr="table-name"
+                            className="ph-ignore-input"
+                            placeholder="Examples: stripe_invoice, hubspot_contacts, users"
+                            autoComplete="off"
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            value={value}
+                            onChange={onChange}
+                        />
+                    )}
                 </LemonField>
-                <div className="text-muted text-xs mb-4">This will be the table name used when writing queries</div>
+                <div className="text-secondary text-xs mb-4">This will be the table name used when writing queries</div>
                 <LemonField name="url_pattern" label="Files URL pattern">
-                    <LemonInput
-                        data-attr="table-name"
-                        className="ph-ignore-input"
-                        placeholder={ProviderMappings[provider].fileUrlPatternPlaceholder}
-                        autoComplete="off"
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                        spellCheck={false}
-                    />
+                    {({ value = '', onChange }) => (
+                        <LemonInput
+                            data-attr="table-url-pattern"
+                            className="ph-ignore-input"
+                            placeholder={ProviderMappings[provider].fileUrlPatternPlaceholder}
+                            autoComplete="off"
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            value={value}
+                            onChange={onChange}
+                        />
+                    )}
                 </LemonField>
-                <div className="text-muted text-xs mb-4">
+                <div className="text-secondary text-xs mb-4">
                     You can use <strong>*</strong> to select multiple files.
                 </div>
                 <LemonField name="format" label="File format" className="w-max mb-4">
-                    <LemonSelect
-                        data-attr="table-format"
-                        options={[
-                            { label: 'Parquet (recommended)', value: 'Parquet' },
-                            { label: 'CSV', value: 'CSV' },
-                            { label: 'CSV with headers', value: 'CSVWithNames' },
-                            { label: 'JSON', value: 'JSONEachRow' },
-                            { label: 'Delta', value: 'Delta' },
-                        ]}
-                    />
+                    {({ value = '', onChange }) => (
+                        <LemonSelect
+                            data-attr="table-format"
+                            options={[
+                                { label: 'Parquet (recommended)', value: 'Parquet' },
+                                { label: 'CSV', value: 'CSV' },
+                                { label: 'CSV with headers', value: 'CSVWithNames' },
+                                { label: 'JSON', value: 'JSONEachRow' },
+                                { label: 'Delta', value: 'Delta' },
+                            ]}
+                            value={value}
+                            onChange={onChange}
+                        />
+                    )}
                 </LemonField>
                 <LemonField name={['credential', 'access_key']} label={ProviderMappings[provider].accessKeyLabel}>
-                    <LemonInput
-                        data-attr="access-key"
-                        className="ph-ignore-input"
-                        placeholder={ProviderMappings[provider].accessKeyPlaceholder}
-                        autoComplete="off"
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                        spellCheck={false}
-                    />
+                    {({ value = '', onChange }) => (
+                        <LemonInput
+                            data-attr="access-key"
+                            className="ph-ignore-input"
+                            placeholder={ProviderMappings[provider].accessKeyPlaceholder}
+                            autoComplete="off"
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            value={value}
+                            onChange={onChange}
+                        />
+                    )}
                 </LemonField>
                 <LemonField name={['credential', 'access_secret']} label={ProviderMappings[provider].accessSecretLabel}>
-                    <LemonInput
-                        data-attr="access-secret"
-                        className="ph-ignore-input"
-                        type="password"
-                        placeholder="eg: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-                        autoComplete="off"
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                        spellCheck={false}
-                    />
+                    {({ value = '', onChange }) => (
+                        <LemonInput
+                            data-attr="access-secret"
+                            className="ph-ignore-input"
+                            type="password"
+                            placeholder="eg: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                            autoComplete="off"
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            value={value}
+                            onChange={onChange}
+                        />
+                    )}
                 </LemonField>
                 {provider === 'google-cloud' && (
-                    <div className="text-muted text-xs">
+                    <div className="text-secondary text-xs">
                         We use HMAC keys to access your Google Cloud Storage. Find more about generating them{' '}
                         <Link to="https://cloud.google.com/storage/docs/authentication/hmackeys" target="_new">
                             here
@@ -128,6 +152,13 @@ export function DatawarehouseTableForm(): JSX.Element {
                     </div>
                 )}
             </div>
+            {!!onUpdate && (
+                <div className="flex justify-end">
+                    <LemonButton type="primary" onClick={onUpdate}>
+                        Save
+                    </LemonButton>
+                </div>
+            )}
         </Form>
     )
 }

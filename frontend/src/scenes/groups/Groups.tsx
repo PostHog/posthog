@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -10,11 +11,13 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { urls } from 'scenes/urls'
 
+import { Query } from '~/queries/Query/Query'
 import { Group, PropertyDefinitionType } from '~/types'
 
 import { groupsListLogic } from './groupsListLogic'
@@ -25,9 +28,12 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
         groups,
         groupsLoading,
         search,
+        query,
     } = useValues(groupsListLogic({ groupTypeIndex }))
-    const { loadGroups, setSearch } = useActions(groupsListLogic({ groupTypeIndex }))
+    const { loadGroups, setSearch, setQuery } = useActions(groupsListLogic({ groupTypeIndex }))
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
@@ -42,6 +48,20 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
             <>
                 <GroupsIntroduction />
             </>
+        )
+    }
+
+    if (featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
+        return (
+            <Query
+                query={query}
+                setQuery={setQuery}
+                context={{
+                    refresh: 'blocking',
+                    emptyStateHeading: 'No groups found',
+                }}
+                dataAttr="groups-table"
+            />
         )
     }
 
@@ -115,7 +135,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
                             </Link>
                         </LemonBanner>
                         <CodeSnippet language={Language.JavaScript} wrap>
-                            {`posthog.group('${singular}', 'id:5', {\n` +
+                            {`posthog.group('${singular}', your_${singular}_id, {\n` +
                                 `    name: 'Awesome ${singular}',\n` +
                                 '    value: 11\n' +
                                 '});'}

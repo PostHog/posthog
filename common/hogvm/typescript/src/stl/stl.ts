@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
+import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
 import { getNestedValue, like } from '../utils'
 import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
@@ -18,6 +18,7 @@ import {
     toUnixTimestampMilli,
 } from './date'
 import { printHogStringOutput } from './print'
+import { isIPAddressInRange } from './ip'
 
 // TODO: this file should be generated from or mergred with posthog/hogql/compiler/javascript_stl.py
 
@@ -315,11 +316,12 @@ function startsWithFn([str, prefix]: any[]): boolean {
     return typeof str === 'string' && typeof prefix === 'string' && str.startsWith(prefix)
 }
 
-function substringFn([s, start, length]: any[]): string {
+function substringFn([s, start, optionalLength]: any[]): string {
     if (typeof s !== 'string') {
         return ''
     }
     const startIdx = start - 1
+    const length = typeof optionalLength === 'number' ? optionalLength : s.length - startIdx
     if (startIdx < 0 || length < 0) {
         return ''
     }
@@ -605,6 +607,7 @@ export const STL: Record<string, STLFunction> = {
     },
     lower: {
         fn: (args) => {
+            if (args[0] === null || args[0] === undefined) return null
             return args[0].toLowerCase()
         },
         minArgs: 1,
@@ -684,7 +687,7 @@ export const STL: Record<string, STLFunction> = {
                         if (Array.isArray(x)) {
                             return x.map((v) => convert(v, marked))
                         }
-                        if (isHogDateTime(x) || isHogDate(x) || isHogError(x)) {
+                        if (isHogDateTime(x) || isHogDate(x) || isHogError(x) || isHogAST(x)) {
                             return x
                         }
                         if (isHogCallable(x) || isHogClosure(x)) {
@@ -976,6 +979,11 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 1,
         maxArgs: 1,
     },
+    isIPAddressInRange: {
+        fn: ([address, prefix]) => isIPAddressInRange(address, prefix),
+        minArgs: 2,
+        maxArgs: 2,
+    },
     keys: {
         fn: ([obj]) => {
             if (typeof obj === 'object') {
@@ -1201,6 +1209,8 @@ export const STL: Record<string, STLFunction> = {
                 return 'error'
             } else if (isHogCallable(args[0]) || isHogClosure(args[0])) {
                 return 'function'
+            } else if (isHogAST(args[0])) {
+                return 'sql'
             } else if (Array.isArray(args[0])) {
                 if ((args[0] as any).__isHogTuple) {
                     return 'tuple'
@@ -1251,7 +1261,7 @@ export const STL: Record<string, STLFunction> = {
     range: { fn: rangeFn, minArgs: 1, maxArgs: 2 },
     round: { fn: roundFn, minArgs: 1, maxArgs: 1 },
     startsWith: { fn: startsWithFn, minArgs: 2, maxArgs: 2 },
-    substring: { fn: substringFn, minArgs: 3, maxArgs: 3 },
+    substring: { fn: substringFn, minArgs: 2, maxArgs: 3 },
     toIntervalDay: { fn: toIntervalDayFn, minArgs: 1, maxArgs: 1 },
     toIntervalHour: { fn: toIntervalHourFn, minArgs: 1, maxArgs: 1 },
     toIntervalMinute: { fn: toIntervalMinuteFn, minArgs: 1, maxArgs: 1 },

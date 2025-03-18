@@ -2,7 +2,7 @@ import pprint
 
 from django.core.management.base import BaseCommand
 
-from ee.billing.quota_limiting import update_all_org_billing_quotas
+from ee.billing.quota_limiting import update_all_orgs_billing_quotas
 
 
 class Command(BaseCommand):
@@ -15,7 +15,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
 
-        quota_limited_orgs, quota_limiting_suspended_orgs = update_all_org_billing_quotas(dry_run)
+        quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas(dry_run)
 
         if options["print_reports"]:
             print("")  # noqa T201

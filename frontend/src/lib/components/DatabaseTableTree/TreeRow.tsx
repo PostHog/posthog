@@ -5,7 +5,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useState } from 'react'
 
-import { DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
 import { DatabaseTableTree, TreeItemFolder, TreeItemLeaf, TreeTableItemLeaf } from './DatabaseTableTree'
 
@@ -21,7 +21,7 @@ export function TreeRow({ item, menuItems }: TreeRowProps): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
 
     return (
-        <li className={clsx('relative flex items-center', isMenuOpen && 'bg-bg-light')}>
+        <li className={clsx('relative flex items-center', isMenuOpen && 'bg-surface-primary')}>
             <LemonButton
                 onClick={() => {
                     void copyToClipboard(item.name, item.name)
@@ -33,7 +33,7 @@ export function TreeRow({ item, menuItems }: TreeRowProps): JSX.Element {
             >
                 <span className="flex-1 flex gap-2">
                     <span className="truncate">{item.name}</span>
-                    <span className="italic text-muted">{item.type}</span>
+                    <span className="italic text-secondary">{item.type}</span>
                 </span>
             </LemonButton>
             {menuItems && menuItems.length > 0 && (
@@ -112,10 +112,10 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
         return ''
     }
 
-    const getIconColor = (): 'text-primary' | 'text-danger' | 'text-warning' | 'text-success' => {
+    const getIconColor = (): 'text-accent-primary' | 'text-danger' | 'text-warning' | 'text-success' => {
         if (item.table?.type === 'materialized_view') {
             if (item.table.status === 'Running') {
-                return 'text-primary'
+                return 'text-accent-primary'
             }
             if (item.table.status === 'Failed') {
                 return 'text-danger'
@@ -178,7 +178,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                         ) : emptyLabel ? (
                             emptyLabel
                         ) : (
-                            <span className="text-muted">No tables found</span>
+                            <span className="text-secondary">No tables found</span>
                         )}
                     </div>
                 ))}

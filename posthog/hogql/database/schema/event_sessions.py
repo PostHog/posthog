@@ -16,8 +16,8 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 class EventsSessionSubTable(VirtualTable):
     fields: dict[str, FieldOrTable] = {
-        "id": StringDatabaseField(name="$session_id"),
-        "duration": IntegerDatabaseField(name="session_duration"),
+        "id": StringDatabaseField(name="$session_id", nullable=False),
+        "duration": IntegerDatabaseField(name="session_duration", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):
@@ -120,7 +120,7 @@ class WhereClauseExtractor:
             next_chain = chain_to_parse.pop(0)
             loop_type = loop_type.get_child(str(next_chain), self.context)
             if loop_type is None:
-                return False
+                return False  # type: ignore
 
         return True
 

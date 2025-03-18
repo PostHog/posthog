@@ -8,7 +8,8 @@
         "skipLibCheck": true, // Skip type checking of declaration files.
         "forceConsistentCasingInFileNames": true, // Disallow inconsistently-cased references to the same file.
         "resolveJsonModule": true, // Allow importing .json files as modules.
-        "moduleResolution": "node" // Use Node.js-style module resolution.
+        "moduleResolution": "node", // Use Node.js-style module resolution.
+        "types": ["node"]
     },
     "include": [
         "src/**/*.ts", // Include all TypeScript files in the 'src' directory and its subdirectories.

@@ -1,22 +1,19 @@
-import { captureException } from '@sentry/node'
 import * as schedule from 'node-schedule'
 
 import { Hub, Team } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
+import { parseJSON } from '../../utils/json-parse'
+import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { PubSub } from '../../utils/pubsub'
-import { status } from '../../utils/status'
 import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../types'
-
-type HogFunctionCache = {
-    functions: Record<HogFunctionType['id'], HogFunctionType | undefined>
-    teams: Record<Team['id'], HogFunctionType['id'][] | undefined>
-}
 
 const HOG_FUNCTION_FIELDS = [
     'id',
     'team_id',
     'name',
     'enabled',
+    'deleted',
     'inputs',
     'encrypted_inputs',
     'inputs_schema',
@@ -25,37 +22,40 @@ const HOG_FUNCTION_FIELDS = [
     'bytecode',
     'masking',
     'type',
+    'template_id',
+    'execution_order',
+    'created_at',
+    'updated_at',
 ]
 
 export class HogFunctionManagerService {
     private started: boolean
     private ready: boolean
-    private cache: HogFunctionCache
+    private hogFunctions: Record<HogFunctionType['id'], HogFunctionType | undefined>
+    private orderedHogFunctionsCache: Record<Team['id'], HogFunctionType[] | undefined>
+
     private pubSub: PubSub
     private refreshJob?: schedule.Job
+    private refreshIntegrationsJob?: schedule.Job
     private hogTypes: HogFunctionTypeType[] = []
+    private lastUpdatedAt: string | null = null
 
     constructor(private hub: Hub) {
         this.started = false
         this.ready = false
-        this.cache = {
-            functions: {},
-            teams: {},
-        }
+        this.hogFunctions = {}
+        this.orderedHogFunctionsCache = {}
 
         this.pubSub = new PubSub(this.hub, {
-            'reload-hog-functions': async (message) => {
-                const { hogFunctionIds, teamId } = JSON.parse(message)
-                await this.reloadHogFunctions(teamId, hogFunctionIds)
+            'reload-integrations': async (message) => {
+                const { integrationIds, teamId } = parseJSON(message)
+                await this.reloadIntegrations(teamId, integrationIds)
             },
-
-            'reload-all-hog-functions': async () => {
+            'reload-hog-functions': async () => {
                 await this.reloadAllHogFunctions()
             },
-
-            'reload-integrations': async (message) => {
-                const { integrationIds, teamId } = JSON.parse(message)
-                await this.reloadIntegrations(teamId, integrationIds)
+            'reload-all-hog-functions': async () => {
+                await this.reloadAllHogFunctions()
             },
         })
     }
@@ -71,10 +71,18 @@ export class HogFunctionManagerService {
         await this.pubSub.start()
         await this.reloadAllHogFunctions()
 
-        // every 5 minutes all HogFunctionManagerService caches are reloaded for eventual consistency
-        this.refreshJob = schedule.scheduleJob('*/5 * * * *', async () => {
+        // every 1 minute we reload all updated hog functions
+        this.refreshJob = schedule.scheduleJob('*/1 * * * *', async () => {
             await this.reloadAllHogFunctions().catch((error) => {
-                status.error('🍿', 'Error reloading hog functions:', error)
+                logger.error('🍿', 'Error reloading hog functions:', error)
+            })
+        })
+
+        // every 1 minute we reload all updated hog functions
+        this.refreshIntegrationsJob = schedule.scheduleJob('*/5 * * * *', async () => {
+            logger.info('🍿', 'Refreshing integrations')
+            await this.reloadAllIntegrations().catch((error) => {
+                logger.error('🍿', 'Error reloading integrations:', error)
             })
         })
         this.ready = true
@@ -84,18 +92,50 @@ export class HogFunctionManagerService {
         if (this.refreshJob) {
             schedule.cancelJob(this.refreshJob)
         }
-
+        if (this.refreshIntegrationsJob) {
+            schedule.cancelJob(this.refreshIntegrationsJob)
+        }
         await this.pubSub.stop()
     }
 
     public getTeamHogFunctions(teamId: Team['id']): HogFunctionType[] {
-        if (!this.ready) {
-            throw new Error('HogFunctionManagerService is not ready! Run HogFunctionManagerService.start() before this')
+        if (!this.orderedHogFunctionsCache[teamId]) {
+            const functions = Object.values(this.hogFunctions).filter((x) => x?.team_id === teamId) as HogFunctionType[]
+            this.orderedHogFunctionsCache[teamId] = this.sortHogFunctions(functions)
         }
 
-        return Object.values(this.cache.teams[teamId] || [])
-            .map((id) => this.cache.functions[id])
-            .filter((x) => !!x) as HogFunctionType[]
+        return this.orderedHogFunctionsCache[teamId] || []
+    }
+
+    /**
+     * Sorts HogFunctions by their execution_order and creation date.
+     * Functions with no execution_order are placed at the end.
+     * When execution_order is the same, earlier created functions come first.
+     */
+    private sortHogFunctions(functions: HogFunctionType[]): HogFunctionType[] {
+        return [...functions].sort((a, b) => {
+            // If either execution_order is null/undefined, it should go last
+            if (a.execution_order == null && b.execution_order == null) {
+                // Both are null/undefined, sort by creation date
+                return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            }
+
+            // Null/undefined values go last
+            if (a.execution_order == null) {
+                return 1
+            }
+            if (b.execution_order == null) {
+                return -1
+            }
+
+            // If execution orders are different, sort by them
+            if (a.execution_order !== b.execution_order) {
+                return a.execution_order - b.execution_order
+            }
+
+            // If execution orders are the same, sort by creation date
+            return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        })
     }
 
     public getHogFunction(id: HogFunctionType['id']): HogFunctionType | undefined {
@@ -103,83 +143,67 @@ export class HogFunctionManagerService {
             throw new Error('HogFunctionManagerService is not ready! Run HogFunctionManagerService.start() before this')
         }
 
-        return this.cache.functions[id]
-    }
-
-    public getTeamHogFunction(teamId: Team['id'], hogFunctionId: HogFunctionType['id']): HogFunctionType | undefined {
-        if (!this.ready) {
-            throw new Error('HogFunctionManagerService is not ready! Run HogFunctionManagerService.start() before this')
-        }
-
-        const fn = this.cache.functions[hogFunctionId]
-        if (fn?.team_id === teamId) {
-            return fn
-        }
+        return this.hogFunctions[id]
     }
 
     public teamHasHogDestinations(teamId: Team['id']): boolean {
         return !!Object.keys(this.getTeamHogFunctions(teamId)).length
     }
 
+    /**
+     * Reloads all hog functions that have updates since the last full reload.
+     * If we have never loaded then we only load enabled hog functions
+     * Otherwise we load all hog functions that have been updated so we can also remove
+     */
     public async reloadAllHogFunctions(): Promise<void> {
+        logger.info('🍿', 'Reloading all hog functions')
+
         const items = (
-            await this.hub.postgres.query<HogFunctionType>(
-                PostgresUse.COMMON_READ,
-                `
-            SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
-            FROM posthog_hogfunction
-            WHERE deleted = FALSE AND enabled = TRUE AND type = ANY($1)
-        `,
-                [this.hogTypes],
-                'fetchAllHogFunctions'
-            )
+            this.lastUpdatedAt
+                ? // If we have the latest updated at timestamp for a hog function then we load all updated hog functions
+                  // Whether deleted/enabled or not
+                  await this.hub.postgres.query<HogFunctionType>(
+                      PostgresUse.COMMON_READ,
+                      `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE type = ANY($1)
+                       AND updated_at > $2
+                       ORDER BY updated_at ASC`,
+                      [this.hogTypes, this.lastUpdatedAt],
+                      'fetchUpdatedHogFunctions'
+                  )
+                : // Otherwise just load all enabled functions
+                  await this.hub.postgres.query<HogFunctionType>(
+                      PostgresUse.COMMON_READ,
+                      `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE type = ANY($1)
+                        AND deleted = FALSE AND enabled = TRUE
+                        ORDER BY updated_at ASC`,
+                      [this.hogTypes],
+                      'fetchAllHogFunctions'
+                  )
         ).rows
 
-        this.sanitize(items)
-        await this.enrichWithIntegrations(items)
-
-        const cache: HogFunctionCache = {
-            functions: {},
-            teams: {},
+        if (!items.length) {
+            logger.debug('🍿', 'No updated hog functions found')
+            return
         }
 
+        // Add all new functions and remove all deleted or disabled functions
         for (const item of items) {
-            cache.functions[item.id] = item
-            cache.teams[item.team_id] = cache.teams[item.team_id] || []
-            cache.teams[item.team_id]!.push(item.id)
+            // Clear the cache for this team in case the order changed
+            delete this.orderedHogFunctionsCache[item.team_id]
+            if (item.enabled && !item.deleted) {
+                this.hogFunctions[item.id] = item
+            } else {
+                delete this.hogFunctions[item.id]
+            }
         }
 
-        this.cache = cache
-        status.info('🍿', 'Fetched all hog functions from DB anew')
-    }
+        const functions = Object.values(this.hogFunctions).filter((x) => !!x) as HogFunctionType[]
+        this.sanitize(functions)
+        await this.enrichWithIntegrations(functions)
 
-    public async reloadHogFunctions(teamId: Team['id'], ids: HogFunctionType['id'][]): Promise<void> {
-        status.info('🍿', `Reloading hog functions ${ids} from DB`)
-
-        const items: HogFunctionType[] = (
-            await this.hub.postgres.query(
-                PostgresUse.COMMON_READ,
-                `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
-                FROM posthog_hogfunction
-                WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE AND type = ANY($2)`,
-                [ids, this.hogTypes],
-                'fetchEnabledHogFunctions'
-            )
-        ).rows
-
-        this.sanitize(items)
-        await this.enrichWithIntegrations(items)
-
-        for (const id of ids) {
-            delete this.cache.functions[id]
-            this.cache.teams[teamId] = this.cache.teams[teamId]?.filter((x) => x !== id)
-        }
-
-        for (const item of items) {
-            this.cache.functions[item.id] = item
-            this.cache.teams[teamId] = this.cache.teams[teamId] || []
-            this.cache.teams[teamId]!.push(item.id)
-        }
+        // The query is sorted by updated_at so we can just take the last one
+        this.lastUpdatedAt = items[items.length - 1].updated_at
+        logger.info('🍿', 'Fetched all hog functions from DB anew')
     }
 
     public async fetchHogFunction(id: HogFunctionType['id']): Promise<HogFunctionType | null> {
@@ -200,7 +224,11 @@ export class HogFunctionManagerService {
     }
 
     public reloadIntegrations(teamId: Team['id'], ids: IntegrationType['id'][]): Promise<void> {
+        logger.info('🍿', 'Reloading integrations', { teamId, integrationCount: ids.length })
+
         // We need to find all hog functions that depend on these integrations and re-enrich them
+
+        // TODO: Change this to be like the reloadAllHogFunctions so we can also update the cache
 
         const items = this.getTeamHogFunctions(teamId)
         const itemsToReload = items.filter((item) => ids.some((id) => item.depends_on_integration_ids?.has(id)))
@@ -208,49 +236,70 @@ export class HogFunctionManagerService {
         return this.enrichWithIntegrations(itemsToReload)
     }
 
+    public async reloadAllIntegrations(): Promise<void> {
+        logger.info('🍿', 'Reloading all integrations')
+        // Reload all integrations for all hog functions in use
+        await this.enrichWithIntegrations(Object.values(this.hogFunctions).filter((x) => !!x) as HogFunctionType[])
+    }
+
     public sanitize(items: HogFunctionType[]): void {
         items.forEach((item) => {
-            const encryptedInputsString = item.encrypted_inputs as string | undefined
+            const encryptedInputs = item.encrypted_inputs
 
             if (!Array.isArray(item.inputs_schema)) {
                 // NOTE: The sql lib can sometimes return an empty object instead of an empty array
                 item.inputs_schema = []
             }
 
-            if (encryptedInputsString) {
+            // Handle case where encrypted_inputs is already an object
+            if (encryptedInputs && typeof encryptedInputs === 'object' && !Array.isArray(encryptedInputs)) {
+                return
+            }
+
+            // Handle case where encrypted_inputs is a string that needs decryption
+            if (typeof encryptedInputs === 'string') {
                 try {
-                    const decrypted = this.hub.encryptedFields.decrypt(encryptedInputsString || '')
-                    item.encrypted_inputs = decrypted ? JSON.parse(decrypted) : {}
+                    const decrypted = this.hub.encryptedFields.decrypt(encryptedInputs)
+                    if (decrypted) {
+                        item.encrypted_inputs = parseJSON(decrypted)
+                    }
                 } catch (error) {
-                    status.error('🍿', 'Error parsing encrypted inputs:', error)
-                    captureException(error)
-                    // Quietly fail - not ideal but better then crashing out
+                    if (encryptedInputs) {
+                        logger.warn('🍿', 'Could not parse encrypted inputs - preserving original value', {
+                            error: error instanceof Error ? error.message : 'Unknown error',
+                        })
+                        captureException(error)
+                    }
                 }
             }
+            // For any other case (null, undefined, unexpected types), leave as-is
         })
-
-        return
     }
 
     public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
+        logger.info('🍿', 'Enriching with integrations', { functionCount: items.length })
         const integrationIds: number[] = []
 
         items.forEach((item) => {
             item.inputs_schema?.forEach((schema) => {
                 if (schema.type === 'integration') {
                     const input = item.inputs?.[schema.key]
-                    if (input && typeof input.value === 'number') {
-                        integrationIds.push(input.value)
+                    const value = input?.value?.integrationId ?? input?.value
+                    if (value && typeof value === 'number') {
+                        integrationIds.push(value)
                         item.depends_on_integration_ids = item.depends_on_integration_ids || new Set()
-                        item.depends_on_integration_ids.add(input.value)
+                        item.depends_on_integration_ids.add(value)
                     }
                 }
             })
         })
 
-        if (!items.length) {
+        if (!integrationIds.length) {
+            logger.info('🍿', 'No integrations to enrich with')
             return
         }
+
+        logger.info('🍿', 'Fetching integrations', { integrationCount: integrationIds.length })
 
         const integrations: IntegrationType[] = (
             await this.hub.postgres.query(
@@ -263,6 +312,8 @@ export class HogFunctionManagerService {
             )
         ).rows
 
+        logger.info('🍿', 'Decrypting integrations', { integrationCount: integrations.length })
+
         const integrationConfigsByTeamAndId: Record<string, Record<string, any>> = integrations.reduce(
             (acc, integration) => {
                 // Decrypt the sensitive config here
@@ -273,12 +324,15 @@ export class HogFunctionManagerService {
                         ...this.hub.encryptedFields.decryptObject(integration.sensitive_config || {}, {
                             ignoreDecryptionErrors: true,
                         }),
+                        integrationId: integration.id,
                     },
                 }
             },
             {}
         )
+        logger.info('🍿', 'Enriching hog functions', { functionCount: items.length })
 
+        let updatedValuesCount = 0
         items.forEach((item) => {
             item.inputs_schema?.forEach((schema) => {
                 if (schema.type === 'integration') {
@@ -286,13 +340,15 @@ export class HogFunctionManagerService {
                     if (!input) {
                         return
                     }
-                    const integrationId = input.value
+                    const integrationId = input.value?.integrationId ?? input.value
                     const integrationConfig = integrationConfigsByTeamAndId[`${item.team_id}:${integrationId}`]
                     if (integrationConfig) {
                         input.value = integrationConfig
+                        updatedValuesCount++
                     }
                 }
             })
         })
+        logger.info('🍿', 'Enriched hog functions', { functionCount: items.length, updatedValuesCount })
     }
 }

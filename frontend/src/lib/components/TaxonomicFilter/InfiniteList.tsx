@@ -16,6 +16,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
@@ -188,13 +189,17 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         totalListCount,
         expandedCount,
         showPopover,
+        hasRemoteDataSource,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
-
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
-
     const isActiveTab = listGroupType === activeTab
-    const showEmptyState = totalListCount === 0 && !isLoading
+
+    // Only show empty state if:
+    // 1. There are no results
+    // 2. We're not currently loading
+    // 3. We have a search query (otherwise if hasRemoteDataSource=true, we're just waiting for data)
+    const showEmptyState = totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource)
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         const item = results[rowIndex]
@@ -220,52 +225,73 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                 : null,
         }
 
-        return item && group ? (
+        // If there's an item to render
+        if (item && group) {
+            return (
+                <div
+                    {...commonDivProps}
+                    data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
+                    onClick={() => {
+                        return canSelectItem(listGroupType) && selectItem(group, itemValue ?? null, item)
+                    }}
+                >
+                    {renderItemContents({
+                        item,
+                        listGroupType,
+                        group,
+                        eventNames,
+                    })}
+                </div>
+            )
+        }
+
+        // Check if this row should be the "show more" expand row:
+        // - !item: No actual item data exists at this index
+        // - rowIndex === totalListCount - 1: This is the last row in the visible list
+        // - isExpandable: There are more items available to load/show
+        // - !isLoading: We're not currently in the middle of loading data
+        const isExpandRow = !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading
+        if (isExpandRow) {
+            return (
+                <div
+                    {...commonDivProps}
+                    className={clsx(commonDivProps.className, 'expand-row')}
+                    data-attr={`expand-list-${listGroupType}`}
+                    onClick={expand}
+                >
+                    {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
+                        `See ${expandedCount - totalResultCount} more ${pluralize(
+                            expandedCount - totalResultCount,
+                            'row',
+                            'rows',
+                            false
+                        )}`}
+                </div>
+            )
+        }
+
+        // Otherwise show a skeleton loader
+        return (
             <div
                 {...commonDivProps}
-                data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                onClick={() => {
-                    return canSelectItem(listGroupType) && selectItem(group, itemValue ?? null, item)
-                }}
-            >
-                {renderItemContents({
-                    item,
-                    listGroupType,
-                    group,
-                    eventNames,
-                })}
-            </div>
-        ) : !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading ? (
-            <div
-                {...commonDivProps}
-                className={`${commonDivProps.className} expand-row`}
-                data-attr={`expand-list-${listGroupType}`}
-                onClick={expand}
-            >
-                {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
-                    `See ${expandedCount - totalResultCount} more ${pluralize(
-                        expandedCount - totalResultCount,
-                        'row',
-                        'rows',
-                        false
-                    )}`}
-            </div>
-        ) : (
-            <div
-                {...commonDivProps}
-                className={commonDivProps.className}
+                className={clsx(commonDivProps.className, 'skeleton-row')}
                 data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
             >
-                <LemonSkeleton />
+                <div className="taxonomic-list-row-contents">
+                    <div className="taxonomic-list-row-contents-icon">
+                        <Spinner className="h-4 w-4" speed="0.8s" />
+                    </div>
+                    <LemonSkeleton className="h-4 flex-1" />
+                </div>
             </div>
         )
     }
 
     return (
-        <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}>
+        <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list', 'h-full')}>
             {showEmptyState ? (
-                <div className="no-infinite-results flex flex-col space-y-1 items-center">
-                    <IconArchive className="text-5xl text-secondary-3000" />
+                <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
+                    <IconArchive className="text-5xl text-tertiary" />
                     <span>
                         {searchQuery ? (
                             <>
@@ -276,13 +302,20 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         )}
                     </span>
                 </div>
+            ) : isLoading &&
+              (!results ||
+                  results.length === 0 ||
+                  (results.length === 1 && (!results[0].id || results[0].id === ''))) ? (
+                <div className="flex items-center justify-center h-full">
+                    <Spinner className="text-3xl" />
+                </div>
             ) : (
                 <AutoSizer>
                     {({ height, width }) => (
                         <List
                             width={width}
                             height={height}
-                            rowCount={isLoading && totalListCount === 0 ? 7 : totalListCount}
+                            rowCount={Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)}
                             overscanRowCount={100}
                             rowHeight={36} // LemonRow heights
                             rowRenderer={renderItem}

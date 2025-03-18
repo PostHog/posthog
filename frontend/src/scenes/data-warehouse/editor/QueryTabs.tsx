@@ -47,7 +47,7 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
 
     useEffect(() => {
         setTabName(model.view?.name || model.name || NEW_QUERY)
-    }, [model])
+    }, [model.view?.name])
 
     const handleRename = (): void => {
         setIsEditing(false)
@@ -58,8 +58,10 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
         <div
             onClick={() => onClick?.(model)}
             className={clsx(
-                'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--bg-light)] cursor-pointer',
-                active ? 'bg-[var(--bg-light)] border-t border-l border-r' : 'bg-bg-3000',
+                'deprecated-space-y-px rounded-t p-1 flex border-b-2 flex-row items-center gap-1 hover:bg-surface-primary cursor-pointer',
+                active
+                    ? 'bg-surface-primary border-b-2 !border-brand-yellow'
+                    : 'bg-surface-secondary border-transparent',
                 onClear ? 'pl-3 pr-2' : 'px-3'
             )}
         >

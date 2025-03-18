@@ -21,8 +21,9 @@
             "main/*": ["./src/main/*"],
             "worker/*": ["./src/worker/*"],
             "utils/*": ["./src/utils/*"]
-        }
+        },
+        "skipLibCheck": true
     },
-    "include": ["src"],
+    "include": ["src", "tests"],
     "exclude": ["node_modules", "dist", "bin"]
 }

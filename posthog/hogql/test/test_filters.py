@@ -153,5 +153,5 @@ class TestFilters(BaseTest):
         )
         self.assertEqual(
             self._print_ast(select),
-            f"SELECT event FROM events WHERE notILike(person.properties.email, '%posthog.com%') LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT event FROM events WHERE notILike(toString(person.properties.email), '%posthog.com%') LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )

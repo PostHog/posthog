@@ -18,6 +18,7 @@ const Template: StoryFn<typeof PathCleanFilters> = (props: Partial<PathCleanFilt
         { regex: '/feature_flags/d+$' },
         { alias: 'recordings' },
     ])
+
     return <PathCleanFilters filters={filters} setFilters={setFilters} {...props} />
 }
 

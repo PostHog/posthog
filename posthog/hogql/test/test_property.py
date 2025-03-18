@@ -40,7 +40,7 @@ class TestProperty(BaseTest):
         self,
         property: Union[PropertyGroup, Property, dict, list],
         team: Optional[Team] = None,
-        scope: Optional[Literal["event", "person"]] = None,
+        scope: Optional[Literal["event", "person", "group"]] = None,
     ):
         return clear_locations(property_to_expr(property, team=team or self.team, scope=scope or "event"))
 
@@ -89,6 +89,28 @@ class TestProperty(BaseTest):
         )
 
         self.assertEqual(self._property_to_expr({"type": "group", "key": "a", "value": "b"}), self._parse_expr("1"))
+
+    def test_property_to_expr_group_scope(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "group", "group_type_index": 0, "key": "name", "value": "Hedgebox Inc."}, scope="group"
+            ),
+            self._parse_expr("properties.name = 'Hedgebox Inc.'"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr(
+                Property(type="group", group_type_index=0, key="a", value=["b", "c"]), scope="group"
+            ),
+            self._parse_expr("properties.a = 'b' OR properties.a = 'c'"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr(
+                Property(type="group", group_type_index=0, key="arr", operator="gt", value=100), scope="group"
+            ),
+            self._parse_expr("properties.arr > 100"),
+        )
 
     def test_property_to_expr_group_booleans(self):
         PropertyDefinition.objects.create(
@@ -146,11 +168,11 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "icontains"}),
-            self._parse_expr("properties.a ilike '%3%'"),
+            self._parse_expr("toString(properties.a) ilike '%3%'"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_icontains"}),
-            self._parse_expr("properties.a not ilike '%3%'"),
+            self._parse_expr("toString(properties.a) not ilike '%3%'"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
@@ -233,7 +255,7 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("properties.a ilike '%b%' or properties.a ilike '%c%'"),
+            self._parse_expr("toString(properties.a) ilike '%b%' or toString(properties.a) ilike '%c%'"),
         )
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         self.assertEqual(
@@ -258,7 +280,7 @@ class TestProperty(BaseTest):
                     "operator": "not_icontains",
                 }
             ),
-            self._parse_expr("properties.a not ilike '%b%' and properties.a not ilike '%c%'"),
+            self._parse_expr("toString(properties.a) not ilike '%b%' and toString(properties.a) not ilike '%c%'"),
         )
         a = self._property_to_expr(
             {
@@ -353,7 +375,7 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("elements_chain_href ilike '%href-text.%'"),
+            self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
         self.assertEqual(
             self._property_to_expr(

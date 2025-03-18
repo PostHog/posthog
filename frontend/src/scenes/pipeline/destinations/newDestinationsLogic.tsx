@@ -8,32 +8,17 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    BATCH_EXPORT_SERVICE_NAMES,
-    BatchExportService,
-    HogFunctionTemplateStatus,
-    HogFunctionTemplateType,
-    PipelineStage,
-} from '~/types'
+import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, HogFunctionTemplateType, PipelineStage } from '~/types'
 
 import { humanizeBatchExportName } from '../batch-exports/utils'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { shouldShowHogFunctionTemplate } from '../hogfunctions/list/hogFunctionTemplateListLogic'
 import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
-import { PipelineBackend } from '../types'
+import { NewDestinationItemType, PipelineBackend } from '../types'
 import { RenderBatchExportIcon } from '../utils'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { PipelineDestinationsLogicProps } from './destinationsLogic'
 import type { newDestinationsLogicType } from './newDestinationsLogicType'
-
-export type NewDestinationItemType = {
-    icon: JSX.Element
-    url: string
-    name: string
-    description: string
-    backend: PipelineBackend.HogFunction | PipelineBackend.BatchExport
-    status?: HogFunctionTemplateStatus
-}
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<NewDestinationItemType> {}
@@ -113,6 +98,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                                 hashParams
                             ).url,
                             status: hogFunction.status,
+                            free: hogFunction.free,
                         })),
                     ...batchExportServiceNames.map((service) => ({
                         icon: <RenderBatchExportIcon type={service} />,
@@ -120,6 +106,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         description: `${service} batch export`,
                         backend: PipelineBackend.BatchExport as const,
                         url: urls.pipelineNodeNew(PipelineStage.Destination, `${service}`),
+                        free: false,
                     })),
                 ]
             },

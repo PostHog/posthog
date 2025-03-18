@@ -1,10 +1,8 @@
-import { IconAIText, IconCheckCircle, IconCode, IconMessage, IconPencil } from '@posthog/icons'
-import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { IconCursorClick } from '@posthog/icons'
+import { LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { useState } from 'react'
 
 import {
     ElementSelectorButtonTypes,
@@ -15,215 +13,110 @@ import { WebExperimentTransform } from '~/toolbar/types'
 
 interface WebExperimentTransformFieldProps {
     variant: string
-    tIndex: number
+    transformIndex: number
     transform: WebExperimentTransform
 }
 
 export function WebExperimentTransformField({
     variant,
-    tIndex,
+    transformIndex,
     transform,
 }: WebExperimentTransformFieldProps): JSX.Element {
-    const [transformSelected, setTransformSelected] = useState(
-        transform.html && transform.html.length > 0 ? 'html' : 'text'
-    )
     const { experimentForm, inspectingElement, selectedVariant, selectedElementType } = useValues(experimentsTabLogic)
     const { setExperimentFormValue, selectVariant, selectElementType, inspectForElementWithIndex } =
         useActions(experimentsTabLogic)
 
-    const [editSelectorShowing, setEditSelectorShowing] = useState(false)
-
     return (
         <>
-            <div className="flex-1 mb-2">
+            <div className="inline-flex deprecated-space-x-2">
                 <LemonButton
+                    icon={<IconCursorClick />}
                     size="small"
-                    type={inspectingElement === tIndex && selectedVariant === variant ? 'primary' : 'secondary'}
-                    sideAction={{
-                        dropdown: {
-                            overlay: (
-                                <>
-                                    {Object.entries(ElementSelectorButtonTypes).map(([key, value]) => {
-                                        return (
-                                            <LemonButton
-                                                key={'element-selector-' + key}
-                                                fullWidth
-                                                type={
-                                                    inspectingElement === tIndex &&
-                                                    selectedVariant === variant &&
-                                                    selectedElementType === key
-                                                        ? 'primary'
-                                                        : 'tertiary'
-                                                }
-                                                onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    selectVariant(variant)
-                                                    selectElementType(key as ElementSelectorType)
-                                                    inspectForElementWithIndex(
-                                                        variant,
-                                                        key as ElementSelectorType,
-                                                        inspectingElement === tIndex ? null : tIndex
-                                                    )
-                                                }}
-                                            >
-                                                {value}
-                                            </LemonButton>
-                                        )
-                                    })}
-                                    <LemonDivider className="my-1" />
-                                    <LemonButton
-                                        fullWidth
-                                        type="tertiary"
-                                        icon={<IconPencil />}
-                                        onClick={() => {
-                                            setEditSelectorShowing(true)
-                                        }}
-                                    >
-                                        Edit selector
-                                    </LemonButton>
-                                </>
-                            ),
-                            placement: 'bottom',
-                            matchWidth: true,
-                        },
+                    type={inspectingElement === transformIndex && selectedVariant === variant ? 'primary' : 'secondary'}
+                    onClick={() => {
+                        selectVariant(variant)
+                        inspectForElementWithIndex(
+                            variant,
+                            selectedElementType as ElementSelectorType,
+                            inspectingElement === transformIndex ? null : transformIndex
+                        )
                     }}
                 >
-                    {transform.selector ? 'Change element' : 'Select element'}
+                    {inspectingElement === transformIndex && selectedVariant === variant
+                        ? 'Selecting…'
+                        : 'Select element'}
                 </LemonButton>
-            </div>
-            {editSelectorShowing && (
-                <div className="mb-2">
-                    <LemonInput
-                        value={transform.selector}
-                        onChange={(value) => {
-                            if (experimentForm.variants) {
-                                const variants = { ...experimentForm.variants }
-                                variants[variant].transforms[tIndex].selector = value
-                                setExperimentFormValue('variants', variants)
-                            }
-                        }}
-                        placeholder="HTML element selector"
-                    />
-                </div>
-            )}
-            <LemonSegmentedButton
-                fullWidth
-                options={[
-                    {
-                        value: 'text',
-                        label: 'Text',
-                        icon:
-                            transform.text && transform.text.length > 0 ? (
-                                <IconCheckCircle className="text-success" />
-                            ) : (
-                                <IconMessage />
-                            ),
-                    },
-                    {
-                        value: 'css',
-                        label: 'CSS',
-                        icon:
-                            transform.css && transform.css.length > 0 ? (
-                                <IconCheckCircle className="text-success" />
-                            ) : (
-                                <IconAIText />
-                            ),
-                    },
-                    {
-                        value: 'html',
-                        label: 'HTML',
-                        icon:
-                            transform.html && transform.html.length > 0 ? (
-                                <IconCheckCircle className="text-success" />
-                            ) : (
-                                <IconCode />
-                            ),
-                    },
-                ]}
-                onChange={(e) => {
-                    setTransformSelected(e)
-                    if (experimentForm.variants) {
-                        const webVariant = experimentForm.variants[variant]
-                        if (webVariant && transform.selector) {
-                            const element = document.querySelector(transform.selector) as HTMLElement
-                            switch (e) {
-                                case 'html':
-                                    if (transform.html === '') {
-                                        transform.html = element.innerHTML
-                                    }
-                                    break
-
-                                case 'text':
-                                    if (transform.text === '' && element.textContent) {
-                                        transform.text = element.textContent
-                                    }
-                                    break
-                                case 'css':
-                                    if (transform.css === '' && element.hasAttribute('style')) {
-                                        transform.css = element.getAttribute('style')!
-                                    }
-                                    break
-                            }
-                            setExperimentFormValue('variants', experimentForm.variants)
-                        }
-                    }
-                }}
-                value={transformSelected}
-            />
-            {transformSelected == 'text' && (
-                <LemonTextArea
+                <LemonSelect
+                    placeholder="Select element type"
+                    value={selectedElementType}
+                    options={Object.entries(ElementSelectorButtonTypes).map(([key, value]) => ({
+                        label: value,
+                        value: key,
+                    }))}
                     onChange={(value) => {
-                        if (experimentForm.variants) {
-                            const webVariant = experimentForm.variants[variant]
-                            if (webVariant && transform.selector) {
-                                webVariant.transforms[tIndex].text = value
-                                const element = document.querySelector(transform.selector) as HTMLElement
-                                if (element) {
-                                    element.innerText = value
-                                }
-                            }
-                        }
-                        setExperimentFormValue('variants', experimentForm.variants)
+                        selectElementType(value as ElementSelectorType)
                     }}
-                    value={transform.text}
                 />
-            )}
+            </div>
+            {transform.selector && (
+                <div>
+                    <div className="mt-4">
+                        <LemonLabel>Inner HTML</LemonLabel>
+                        <LemonTextArea
+                            onChange={(value) => {
+                                // Update state
+                                const updatedVariants = {
+                                    ...experimentForm.variants,
+                                    [variant]: {
+                                        ...experimentForm.variants[variant],
+                                        transforms: experimentForm.variants[variant].transforms.map((t, i) =>
+                                            i === transformIndex ? { ...t, html: value } : t
+                                        ),
+                                    },
+                                }
+                                setExperimentFormValue('variants', updatedVariants)
 
-            {transformSelected == 'html' && (
-                <LemonTextArea
-                    onChange={(value) => {
-                        transform.html = value
-                        if (experimentForm.variants) {
-                            const webVariant = experimentForm.variants[variant]
-                            if (webVariant && transform.selector) {
-                                webVariant.transforms[tIndex].html = value
-                                const element = document.querySelector(transform.selector) as HTMLElement
+                                // Update DOM
+                                const element = transform.selector
+                                    ? (document.querySelector(transform.selector) as HTMLElement)
+                                    : null
                                 if (element) {
                                     element.innerHTML = value
                                 }
-                            }
-                        }
-                        setExperimentFormValue('variants', experimentForm.variants)
-                    }}
-                    value={transform.html}
-                />
-            )}
+                            }}
+                            value={transform.html}
+                        />
+                    </div>
+                    <div className="mt-4">
+                        <LemonLabel>CSS</LemonLabel>
+                        <LemonTextArea
+                            onChange={(value) => {
+                                if (experimentForm.variants) {
+                                    // Create new variants object with updated CSS
+                                    const updatedVariants = {
+                                        ...experimentForm.variants,
+                                        [variant]: {
+                                            ...experimentForm.variants[variant],
+                                            transforms: experimentForm.variants[variant].transforms.map((t, i) =>
+                                                i === transformIndex ? { ...t, css: value } : t
+                                            ),
+                                        },
+                                    }
+                                    setExperimentFormValue('variants', updatedVariants)
 
-            {transformSelected == 'css' && (
-                <LemonTextArea
-                    onChange={(value) => {
-                        if (experimentForm.variants) {
-                            const webVariant = experimentForm.variants[variant]
-                            if (webVariant && transform.selector) {
-                                webVariant.transforms[tIndex].css = value
-                                const element = document.querySelector(transform.selector) as HTMLElement
-                                element.setAttribute('style', value)
-                            }
-                        }
-                        setExperimentFormValue('variants', experimentForm.variants)
-                    }}
-                    value={transform.css || ''}
-                />
+                                    // Update DOM
+                                    const element = transform.selector
+                                        ? (document.querySelector(transform.selector) as HTMLElement)
+                                        : null
+                                    if (element) {
+                                        element.setAttribute('style', value)
+                                    }
+                                }
+                            }}
+                            value={transform.css || ''}
+                        />
+                    </div>
+                </div>
             )}
         </>
     )
