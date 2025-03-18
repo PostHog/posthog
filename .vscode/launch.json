@@ -6,7 +6,7 @@
     "configurations": [
         {
             "name": "Frontend",
-            "command": "bin/turbo --filter=@posthog/frontend start",
+            "command": "bin/start-frontend",
             "request": "launch",
             "type": "node-terminal",
             "cwd": "${workspaceFolder}",
@@ -17,21 +17,24 @@
         },
         {
             "name": "Frontend (no typegen)",
-            "command": "pnpm start-http",
+            "command": "bin/start-frontend",
             "request": "launch",
             "type": "node-terminal",
-            "cwd": "${workspaceFolder}/frontend",
+            "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
             },
-            "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"]
+            "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"],
+            "env": {
+                "SKIP_TYPEGEN": "1"
+            }
         },
         {
             "name": "Frontend (https)",
-            "command": "bin/turbo --filter=@posthog/frontend start",
+            "command": "bin/start-frontend",
             "request": "launch",
             "type": "node-terminal",
-            "cwd": "${workspaceFolder}/frontend",
+            "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
             },
@@ -254,6 +257,19 @@
             },
             "autoStartBrowser": false,
             "program": "${workspaceFolder}/manage.py"
+        },
+        {
+            "name": "Dagster: Debug Dagit UI",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "dagster",
+            "justMyCode": true,
+            "args": ["dev"],
+            "env": {
+                "DAGSTER_HOME": "${workspaceFolder}/.dagster_home",
+                "DEBUG": "1",
+                "AWS_PROFILE": "dev"
+            }
         }
     ],
     "inputs": [
@@ -276,7 +292,6 @@
             ],
             "stopAll": true,
             "presentation": {
-                "order": 1,
                 "group": "compound"
             }
         },
@@ -292,7 +307,21 @@
             ],
             "stopAll": true,
             "presentation": {
-                "order": 1,
+                "group": "compound"
+            }
+        },
+        {
+            "name": "PostHog (https)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend (https)",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
                 "group": "compound"
             }
         },
@@ -307,22 +336,6 @@
             ],
             "stopAll": true,
             "presentation": {
-                "order": 2,
-                "group": "compound"
-            }
-        },
-        {
-            "name": "PostHog (https)",
-            "configurations": [
-                "Backend",
-                "Celery Threaded Pool",
-                "Frontend (https)",
-                "Plugin Server",
-                "Temporal Worker"
-            ],
-            "stopAll": true,
-            "presentation": {
-                "order": 2,
                 "group": "compound"
             }
         }

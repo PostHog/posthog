@@ -1,9 +1,10 @@
+import { LegacyOneventCompareService } from '../../../src/cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher } from '../../../src/config/config'
 import { Hub, ISOTimestamp, PluginConfig, PostIngestionEvent } from '../../../src/types'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { runComposeWebhook, runOnEvent } from '../../../src/worker/plugins/run'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 jest.mock('../../../src/utils/db/error')
 
 describe('runOnEvent', () => {
@@ -56,6 +57,7 @@ describe('runOnEvent', () => {
                 queueError: jest.fn(),
             },
         }
+        mockHub.legacyOneventCompareService = new LegacyOneventCompareService(mockHub)
     })
 
     it('calls onEvent', async () => {

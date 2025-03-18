@@ -13,7 +13,8 @@ concurrency:
 jobs:
     posthog_build:
         name: Build Docker image
-        runs-on: ubuntu-24.04
+        # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
+        runs-on: depot-ubuntu-latest-4
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -47,6 +48,7 @@ jobs:
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
+                  no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
 
     deploy_preview:
         name: Deploy preview environment
@@ -66,7 +68,7 @@ jobs:
 
             - name: Check if any Dockerfile has changed
               id: changed-files
-              uses: tj-actions/changed-files@v43
+              uses: step-security/changed-files@v45
               with:
                   files: |
                       **/Dockerfile

@@ -5,8 +5,9 @@ import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
 import { buildIntegerMatcher } from '../../config/config'
-import { Hub, ValueMatcher } from '../../types'
-import { status } from '../../utils/status'
+import { PluginsServerConfig, ValueMatcher } from '../../types'
+import { parseJSON } from '../../utils/json-parse'
+import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import {
     CyclotronFetchFailureInfo,
@@ -22,7 +23,6 @@ import {
     HogFunctionType,
 } from '../types'
 import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
-import { HogFunctionManagerService } from './hog-function-manager.service'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -118,13 +118,17 @@ export const buildGlobalsWithInputs = (
     }
 
     const orderedInputs = Object.entries(inputs ?? {}).sort(([_, input1], [__, input2]) => {
-        return (input1.order ?? -1) - (input2.order ?? -1)
+        return (input1?.order ?? -1) - (input2?.order ?? -1)
     })
 
     for (const [key, input] of orderedInputs) {
+        if (!input) {
+            continue
+        }
+
         newGlobals.inputs[key] = input.value
 
-        if (input.bytecode) {
+        if (input?.bytecode) {
             // Use the bytecode to compile the field
             newGlobals.inputs[key] = formatInput(input.bytecode, newGlobals, key)
         }
@@ -136,15 +140,8 @@ export const buildGlobalsWithInputs = (
 export class HogExecutorService {
     private telemetryMatcher: ValueMatcher<number>
 
-    constructor(private hub: Hub, private hogFunctionManager: HogFunctionManagerService) {
-        this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
-    }
-
-    findHogFunctionInvocations(triggerGlobals: HogFunctionInvocationGlobals) {
-        // Build and generate invocations for all the possible mappings
-        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(triggerGlobals.project.id)
-
-        return this.buildHogFunctionInvocations(allFunctionsForTeam, triggerGlobals)
+    constructor(private config: PluginsServerConfig) {
+        this.telemetryMatcher = buildIntegerMatcher(this.config.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
     buildHogFunctionInvocations(
@@ -175,7 +172,7 @@ export class HogExecutorService {
                         telemetry: this.telemetryMatcher(hogFunction.team_id),
                     })
                     if (filterResult.error) {
-                        status.error('🦔', `[HogExecutor] Error filtering function`, {
+                        logger.error('🦔', `[HogExecutor] Error filtering function`, {
                             hogFunctionId: hogFunction.id,
                             hogFunctionName: hogFunction.name,
                             teamId: hogFunction.team_id,
@@ -200,7 +197,7 @@ export class HogExecutorService {
 
                     return result
                 } catch (error) {
-                    status.error('🦔', `[HogExecutor] Error filtering function`, {
+                    logger.error('🦔', `[HogExecutor] Error filtering function`, {
                         hogFunctionId: hogFunction.id,
                         hogFunctionName: hogFunction.name,
                         teamId: hogFunction.team_id,
@@ -230,7 +227,7 @@ export class HogExecutorService {
                     hogFunctionFilterDuration.observe(performance.now() - start)
 
                     if (duration > DEFAULT_TIMEOUT_MS) {
-                        status.error('🦔', `[HogExecutor] Filter took longer than expected`, {
+                        logger.error('🦔', `[HogExecutor] Filter took longer than expected`, {
                             hogFunctionId: hogFunction.id,
                             hogFunctionName: hogFunction.name,
                             teamId: hogFunction.team_id,
@@ -339,7 +336,7 @@ export class HogExecutorService {
             hogFunctionUrl: invocation.globals.source?.url,
         }
 
-        status.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
+        logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
         const result: HogFunctionInvocationResult = {
             invocation,
@@ -405,7 +402,7 @@ export class HogExecutorService {
 
                 if (typeof body === 'string') {
                     try {
-                        body = JSON.parse(body)
+                        body = parseJSON(body)
                     } catch (e) {
                         // pass - if it isn't json we just pass it on
                     }
@@ -623,7 +620,7 @@ export class HogExecutorService {
 
                     if (execRes.state.maxMemUsed > 1024 * 1024) {
                         // If the memory used is more than a MB then we should log it
-                        status.warn('🦔', `[HogExecutor] Function used more than 1MB of memory`, {
+                        logger.warn('🦔', `[HogExecutor] Function used more than 1MB of memory`, {
                             hogFunctionId: invocation.hogFunction.id,
                             hogFunctionName: invocation.hogFunction.name,
                             teamId: invocation.teamId,
@@ -641,7 +638,7 @@ export class HogExecutorService {
         } catch (err) {
             result.error = err.message
             result.finished = true // Explicitly set to true to prevent infinite loops
-            status.error(
+            logger.error(
                 '🦔',
                 `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.globals.event?.url}'`,
                 err
@@ -684,14 +681,14 @@ export class HogExecutorService {
         request.headers = request.headers ?? {}
 
         if (request.url.startsWith('https://googleads.googleapis.com/') && !request.headers['developer-token']) {
-            request.headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
+            request.headers['developer-token'] = this.config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
         }
 
         return request
     }
 
     public redactFetchRequest(request: HogFunctionQueueParametersFetchRequest): HogFunctionQueueParametersFetchRequest {
-        if (request.headers && request.headers['developer-token'] === this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN) {
+        if (request.headers && request.headers['developer-token'] === this.config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN) {
             delete request.headers['developer-token']
         }
 

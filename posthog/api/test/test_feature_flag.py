@@ -779,7 +779,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                     ]
                                 },
                             },
-                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
+                            {"action": "changed", "after": 2, "before": 1, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
@@ -897,9 +897,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
             original_version = response.json()["version"]
-            self.assertEqual(original_version, 0)
+            self.assertEqual(original_version, 1)
             feature_flag = FeatureFlag.objects.get(id=flag_id)
-            self.assertEqual(feature_flag.version, 0)
+            self.assertEqual(feature_flag.version, 1)
             self.assertEqual(feature_flag.last_modified_by, original_user)
 
             frozen_datetime.tick(delta=timedelta(minutes=10))
@@ -918,9 +918,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             updated_version = response.json()["version"]
-            self.assertEqual(updated_version, 1)
+            self.assertEqual(updated_version, 2)
             feature_flag = FeatureFlag.objects.get(id=flag_id)
-            self.assertEqual(feature_flag.version, 1)
+            self.assertEqual(feature_flag.version, 2)
             self.assertEqual(feature_flag.last_modified_by, different_user)
 
             self.client.force_login(original_user)
@@ -1080,7 +1080,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["version"], 1)
+            self.assertEqual(response.json()["version"], 2)
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -1089,9 +1089,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["version"], 2)
+            self.assertEqual(response.json()["version"], 3)
             feature_flag = FeatureFlag.objects.get(id=flag_id)
-            self.assertEqual(feature_flag.version, 2)
+            self.assertEqual(feature_flag.version, 3)
             self.assertEqual(feature_flag.name, "Yet another updated name")
 
     def test_get_conflicting_changes(self):
@@ -1347,8 +1347,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "type": "FeatureFlag",
                                 "action": "changed",
                                 "field": "version",
-                                "before": 0,
-                                "after": 1,
+                                "before": 1,
+                                "after": 2,
                             },
                         ],
                         "trigger": None,
@@ -1730,7 +1730,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             },
-                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
+                            {"action": "changed", "after": 2, "before": 1, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
@@ -1836,7 +1836,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             },
-                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
+                            {"action": "changed", "after": 2, "before": 1, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
@@ -6306,10 +6306,6 @@ def slow_query(execute, sql, *args, **kwargs):
     return execute(f"SELECT pg_sleep(1); {sql}", *args, **kwargs)
 
 
-@patch(
-    "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-    return_value=True,
-)
 class TestResiliency(TransactionTestCase, QueryMatchingTest):
     def setUp(self) -> None:
         return super().setUp()
@@ -6523,7 +6519,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
                 mock_counter.labels.assert_not_called()
 
-    def test_feature_flags_v3_with_a_working_slow_db(self, mock_postgres_check):
+    def test_feature_flags_v3_with_a_working_slow_db(
+        self,
+    ):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
@@ -6595,7 +6593,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 500,
             ),
         ):
-            mock_postgres_check.return_value = False
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
@@ -6624,7 +6621,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
 
-    def test_feature_flags_v3_with_skip_database_setting(self, mock_postgres_check):
+    def test_feature_flags_v3_with_skip_database_setting(self):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
@@ -6681,7 +6678,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with self.assertNumQueries(0), self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True):
             # No queries because of config parameter
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
-            mock_postgres_check.assert_not_called()
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
             self.assertTrue(errors)
@@ -6696,13 +6692,11 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             ),
             self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True),
         ):
-            mock_postgres_check.return_value = False
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
             self.assertTrue(errors)
-            mock_postgres_check.assert_not_called()
 
             # decide was sent email parameter with correct email
             with self.assertNumQueries(0):
@@ -6714,7 +6708,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
-                mock_postgres_check.assert_not_called()
 
             # # now db is down, but decide was sent email parameter with different email
             with self.assertNumQueries(0):
@@ -6726,7 +6719,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertFalse(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
-                mock_postgres_check.assert_not_called()
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
     def test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again(self, mock_counter, *args):

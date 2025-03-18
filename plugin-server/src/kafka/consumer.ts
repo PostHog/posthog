@@ -12,7 +12,7 @@ import {
 } from 'node-rdkafka'
 
 import { kafkaRebalancePartitionCount, latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
-import { status } from '../utils/status'
+import { logger } from '../utils/logger'
 
 export const createKafkaConsumer = async (config: ConsumerGlobalConfig, topicConfig: ConsumerTopicConfig = {}) => {
     // Creates a node-rdkafka consumer and connects it to the brokers, resolving
@@ -22,35 +22,35 @@ export const createKafkaConsumer = async (config: ConsumerGlobalConfig, topicCon
         const consumer = new RdKafkaConsumer(config, topicConfig)
 
         consumer.on('event.log', (log) => {
-            status.info('📝', 'librdkafka log', { log: log })
+            logger.info('📝', 'librdkafka log', { log: log })
         })
 
         consumer.on('event.error', (error: LibrdKafkaError) => {
-            status.error('📝', 'librdkafka error', { log: error })
+            logger.error('📝', 'librdkafka error', { log: error })
         })
 
         consumer.on('subscribed', (topics) => {
-            status.info('📝', 'librdkafka consumer subscribed', { topics })
+            logger.info('📝', 'librdkafka consumer subscribed', { topics })
         })
 
         consumer.on('connection.failure', (error: LibrdKafkaError, metrics: ClientMetrics) => {
-            status.error('📝', 'librdkafka connection failure', { error, metrics })
+            logger.error('📝', 'librdkafka connection failure', { error, metrics })
         })
 
         consumer.on('offset.commit', (error: LibrdKafkaError, topicPartitionOffsets: TopicPartitionOffset[]) => {
             if (error) {
-                status.warn('📝', 'librdkafka_offet_commit_error', { error, topicPartitionOffsets })
+                logger.warn('📝', 'librdkafka_offet_commit_error', { error, topicPartitionOffsets })
             } else {
-                status.debug('📝', 'librdkafka_offset_commit', { topicPartitionOffsets })
+                logger.debug('📝', 'librdkafka_offset_commit', { topicPartitionOffsets })
             }
         })
 
         consumer.connect({}, (error, data) => {
             if (error) {
-                status.error('⚠️', 'connect_error', { error: error })
+                logger.error('⚠️', 'connect_error', { error: error })
                 reject(error)
             } else {
-                status.info('📝', 'librdkafka consumer connected', { brokers: data?.brokers })
+                logger.info('📝', 'librdkafka consumer connected', { brokers: data?.brokers })
                 resolve(consumer)
             }
         })
@@ -103,12 +103,12 @@ export const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: st
          * And when the balancing is completed the new assignments are received with ERR__ASSIGN_PARTITIONS
          */
         if (error.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
-            status.info('📝️', `librdkafka cooperative rebalance, partitions assigned`, { assignments })
+            logger.info('📝️', `librdkafka cooperative rebalance, partitions assigned`, { assignments })
             for (const [topic, count] of countPartitionsPerTopic(assignments)) {
                 kafkaRebalancePartitionCount.labels({ topic: topic }).inc(count)
             }
         } else if (error.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-            status.info('📝️', `librdkafka cooperative rebalance started, partitions revoked`, {
+            logger.info('📝️', `librdkafka cooperative rebalance started, partitions revoked`, {
                 revocations: assignments,
             })
             for (const [topic, count] of countPartitionsPerTopic(assignments)) {
@@ -116,7 +116,7 @@ export const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: st
             }
         } else {
             // We had a "real" error
-            status.error('⚠️', 'rebalance_error', { error })
+            logger.error('⚠️', 'rebalance_error', { error })
         }
 
         latestOffsetTimestampGauge.reset()
@@ -207,7 +207,7 @@ export const storeOffsetsForMessages = (messages: Message[], consumer: RdKafkaCo
     })
 
     if (topicPartitionOffsets.length > 0) {
-        status.debug('📝', 'Storing offsets', { topicPartitionOffsets })
+        logger.debug('📝', 'Storing offsets', { topicPartitionOffsets })
         consumer.offsetsStore(topicPartitionOffsets)
     }
 }
@@ -216,10 +216,10 @@ export const disconnectConsumer = async (consumer: RdKafkaConsumer) => {
     await new Promise((resolve, reject) => {
         consumer.disconnect((error, data) => {
             if (error) {
-                status.error('🔥', 'Failed to disconnect node-rdkafka consumer', { error })
+                logger.error('🔥', 'Failed to disconnect node-rdkafka consumer', { error })
                 reject(error)
             } else {
-                status.info('🔁', 'Disconnected node-rdkafka consumer')
+                logger.info('🔁', 'Disconnected node-rdkafka consumer')
                 resolve(data)
             }
         })
