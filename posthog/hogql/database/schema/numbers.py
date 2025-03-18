@@ -6,7 +6,7 @@ from posthog.hogql.database.models import (
     FunctionCallTable,
 )
 
-NUMBERS_TABLE_FIELDS = {
+NUMBERS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "number": IntegerDatabaseField(name="number", nullable=False),
 }
 
