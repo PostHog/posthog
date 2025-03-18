@@ -1455,6 +1455,7 @@ export interface PlaylistSavedFiltersCount {
     watched_count: number
     has_more?: boolean
     increased?: boolean
+    last_refreshed_at?: string
 }
 
 export interface PlaylistRecordingsCounts {

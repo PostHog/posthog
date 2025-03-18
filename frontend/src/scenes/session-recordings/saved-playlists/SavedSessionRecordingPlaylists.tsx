@@ -78,7 +78,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 const hasResults =
                     recordings_counts.collection.count !== null || recordings_counts.saved_filters?.count !== null
 
-                const totalPinnedCount = recordings_counts.collection.count
+                const totalPinnedCount: number | null = recordings_counts.collection.count
                 const unwatchedPinnedCount =
                     (recordings_counts.collection.count || 0) - (recordings_counts.collection.watched_count || 0)
                 const totalSavedFiltersCount = recordings_counts.saved_filters?.count || 0
@@ -87,30 +87,44 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     (recordings_counts.saved_filters?.watched_count || 0)
 
                 // we don't allow both saved filters and pinned anymore
-                const totalCount = totalPinnedCount || totalSavedFiltersCount
-                const unwatchedCount = unwatchedPinnedCount || unwatchedSavedFiltersCount
+                const isShowingSavedFilters = hasResults && !totalPinnedCount
+                const totalCount = isShowingSavedFilters ? totalSavedFiltersCount : totalPinnedCount
+                const unwatchedCount = isShowingSavedFilters ? unwatchedSavedFiltersCount : unwatchedPinnedCount
+                // if we're showing saved filters, then we might have more results
+                const hasMoreResults = isShowingSavedFilters && recordings_counts.saved_filters?.has_more
 
-                const description = recordings_counts.saved_filters?.count
-                    ? 'that match these saved filters'
-                    : 'in this collection'
+                const lastRefreshedAt = isShowingSavedFilters
+                    ? recordings_counts.saved_filters?.last_refreshed_at
+                    : null
+
+                const description = isShowingSavedFilters ? 'that match these saved filters' : 'in this collection'
 
                 const tooltip = (
-                    <div className="flex flex-col gap-y-1 items-center text-left">
+                    <div className="text-start">
                         {hasResults ? (
-                            <div>
-                                You have {unwatchedCount} unwatched recordings to watch out of a total of {totalCount}{' '}
-                                {description}.
-                            </div>
+                            totalCount > 0 ? (
+                                unwatchedCount > 0 ? (
+                                    <p>
+                                        You have {unwatchedCount} unwatched recordings to watch out of a total of{' '}
+                                        {hasMoreResults ? 'at least' : ''}
+                                        {totalCount} {description}.
+                                    </p>
+                                ) : (
+                                    <p>
+                                        You have watched all of the {totalCount} recordings {description}.
+                                    </p>
+                                )
+                            ) : (
+                                <p>No results found for this playlist.</p>
+                            )
                         ) : (
-                            <div>Counts have not yet been calculated for this playlist.</div>
+                            <p>Counts have not yet been calculated for this playlist.</p>
                         )}
-                        {recordings_counts.saved_filters?.increased ? (
-                            <div className="flex items-center gap-x-1">
-                                <span>The number of matched recordings is climbing</span>
-                                <IconArrowUp />
+                        {isShowingSavedFilters && lastRefreshedAt ? (
+                            <div className="text-xs items-center flex flex-row gap-x-1">
+                                Last refreshed: <TZLabel time={lastRefreshedAt} showPopover={false} />
                             </div>
                         ) : null}
-                        <span>Playlist counts are recalculated once a day.</span>
                     </div>
                 )
 
