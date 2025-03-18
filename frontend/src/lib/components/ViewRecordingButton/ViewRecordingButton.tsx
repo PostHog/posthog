@@ -18,6 +18,7 @@ export default function ViewRecordingButton({
     inModal = false,
     checkIfViewed = false,
     matchingEvents,
+    onClick = () => {},
     ...props
 }: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'disabledReason'> & {
     sessionId: string | undefined
@@ -26,6 +27,7 @@ export default function ViewRecordingButton({
     inModal?: boolean
     checkIfViewed?: boolean
     label?: ReactNode
+    onClick?: () => void
     matchingEvents?: MatchedRecording[]
 }): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
@@ -56,6 +58,7 @@ export default function ViewRecordingButton({
             disabledReason={sessionId ? undefined : 'No session ID provided'}
             to={inModal ? undefined : urls.replaySingle(sessionId ?? '')}
             onClick={() => {
+                onClick()
                 userClickedThrough()
                 if (inModal) {
                     const fiveSecondsBeforeEvent = timestamp ? dayjs(timestamp).valueOf() - 5000 : 0

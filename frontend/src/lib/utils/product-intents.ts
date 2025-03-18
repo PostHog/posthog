@@ -17,6 +17,20 @@ export enum ProductIntentContext {
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',
 
+    // Error Tracking
+    ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
+    ERROR_TRACKING_USER_GROUP_CREATED = 'error_tracking_user_group_created',
+    ERROR_TRACKING_ALERT_CREATED = 'error_tracking_alert_created',
+
+    // TODO: can only be tracked server side. Is there a helper or just copy logic from api/team.py
+    // ERROR_TRACKING_UPLOADED_SOURCE_MAP = 'error_tracking_uploaded_source_map',
+
+    // TODO: should these be intents or are they just regular product usage?
+    // ERROR_TRACKING_FILTERED_ISSUES = 'error_tracking_filtered_issues',
+    // ERROR_TRACKING_ISSUE_ASSIGN = 'error_tracking_issue_assign',
+    // ERROR_TRACKING_ISSUE_SET_STATUS = 'error_tracking_issue_set_status',
+    // ERROR_TRACKING_VIEWED_ISSUE = 'error_tracking_viewed_issue',
+
     /*
     Cross Sells
     */
@@ -24,6 +38,8 @@ export enum ProductIntentContext {
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = 'create_experiment_from_funnel_button',
+    PRODUCT_ANALYTICS_VIEW_ISSUE_FROM_EVENT = 'product_analytics_view_issue_from_event',
+    PRODUCT_ANALYTICS_VIEW_RECORDING_FROM_EVENT = 'product_analytics_view_recording_from_event',
 
     // Web Analytics
     WEB_ANALYTICS_INSIGHT = 'web_analytics_insight',

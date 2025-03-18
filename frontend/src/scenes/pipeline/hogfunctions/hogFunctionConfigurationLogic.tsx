@@ -61,6 +61,7 @@ export interface HogFunctionConfigurationLogicProps {
     logicKey?: string
     templateId?: string | null
     id?: string | null
+    onCreate?: () => void
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
@@ -324,6 +325,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         props.id && props.id !== 'new'
                             ? await api.hogFunctions.update(props.id, configuration)
                             : await api.hogFunctions.create(configuration)
+
+                    if (props.id === 'new') {
+                        props.onCreate?.()
+                    }
 
                     posthog.capture('hog function saved', {
                         id: res.id,

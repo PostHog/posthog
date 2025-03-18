@@ -42,6 +42,7 @@ export interface HogFunctionConfigurationProps {
     templateId?: string | null
     id?: string | null
     logicKey?: string
+    onCreate?: () => void
 
     displayOptions?: {
         embedded?: boolean
@@ -61,9 +62,10 @@ export function HogFunctionConfiguration({
     templateId,
     id,
     logicKey,
+    onCreate = undefined,
     displayOptions = {},
 }: HogFunctionConfigurationProps): JSX.Element {
-    const logicProps = { templateId, id, logicKey }
+    const logicProps = { templateId, id, logicKey, onCreate }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {
         isConfigurationSubmitting,
