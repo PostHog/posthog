@@ -219,7 +219,7 @@ class ExperimentQueryRunner(QueryRunner):
             if exposure_config.get("properties"):
                 for property in exposure_config.get("properties"):
                     exposure_property_filters.append(property_to_expr(property, self.team))
-            expsoure_event_criteria = ast.And(
+            exposure_event_criteria = ast.And(
                 exprs=[
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
@@ -231,7 +231,7 @@ class ExperimentQueryRunner(QueryRunner):
             )
         else:
             # The default $feature_flag_called event exposure event criteria
-            expsoure_event_criteria = ast.And(
+            exposure_event_criteria = ast.And(
                 exprs=[
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
@@ -292,7 +292,7 @@ class ExperimentQueryRunner(QueryRunner):
             where=ast.And(
                 exprs=[
                     common_exposure_criteria,
-                    expsoure_event_criteria,
+                    exposure_event_criteria,
                 ]
             ),
             group_by=cast(list[ast.Expr], exposure_query_group_by),
