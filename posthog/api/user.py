@@ -58,7 +58,6 @@ from posthog.event_usage import (
 )
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
-from ..models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications, ROLE_CHOICES
 from posthog.permissions import APIScopePermission
@@ -70,8 +69,6 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
-from posthog.models.team.util import delete_bulky_postgres_data
-from posthog.event_usage import report_organization_deleted
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
@@ -424,43 +421,14 @@ class UserViewSet(
         }
 
     def delete(self, request, *args, **kwargs):
-        instance = self.get_object()
+        user = self.get_object()
 
-        owner_memberships = OrganizationMembership.objects.filter(
-            user=instance, level=OrganizationMembership.Level.OWNER
-        )
+        memberships = OrganizationMembership.objects.filter(user=user)
 
-        orgs_to_delete = []
+        if memberships.count() > 0:
+            return Response(status=409, data={"detail": "Cannot delete user with active organization memberships."})
 
-        for membership in owner_memberships:
-            owner_count = OrganizationMembership.objects.filter(
-                organization=membership.organization, level=OrganizationMembership.Level.OWNER
-            ).count()
-
-            if owner_count == 1:
-                orgs_to_delete.append(membership.organization)
-
-        for org in orgs_to_delete:
-            organization = Organization.objects.get(id=org.id)
-            report_organization_deleted(instance, organization)
-            team_ids = [team.pk for team in organization.teams.all()]
-            delete_bulky_postgres_data(team_ids=team_ids)
-            Organization.objects.filter(id=org.id).delete()
-            # Once the organization is deleted, queue deletion of associated data
-            AsyncDeletion.objects.bulk_create(
-                [
-                    AsyncDeletion(
-                        deletion_type=DeletionType.Team,
-                        team_id=team_id,
-                        key=str(team_id),
-                        created_by=instance,
-                    )
-                    for team_id in team_ids
-                ],
-                ignore_conflicts=True,
-            )
-
-        instance.delete()
+        user.delete()
 
         return Response(status=204)
 

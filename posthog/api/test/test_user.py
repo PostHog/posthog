@@ -852,17 +852,31 @@ class TestUserAPI(APIBaseTest):
             response = self.client.patch("/api/users/@me/", {"organization_name": "new name"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    # DELETING USER
+    def test_cannot_delete_user_with_organization_memberships(self):
+        user = self._create_user("activeorgmemberships@posthog.com", password="test")
 
-    def test_deleting_current_user_is_not_supported(self):
-        """
-        Self-serve account deletion is currently not supported.
-        """
-        response = self.client.delete("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-        self.assertEqual(response.json(), self.method_not_allowed_response("DELETE"))
+        self.client.force_login(user)
+
+        assert OrganizationMembership.objects.filter(user=self.user, organization=self.new_org).exists()
+
+        response = self.client.delete(f"/api/users/@me/")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json() == {"detail": "Cannot delete user with active organization memberships."}
 
         self.user.refresh_from_db()
+
+    def test_can_delete_user_with_no_organization_memberships(self):
+        user = self._create_user("noactiveorgmemberships@posthog.com", password="test")
+
+        self.client.force_login(user)
+
+        OrganizationMembership.objects.filter(user=user).delete()
+
+        assert not OrganizationMembership.objects.filter(user=user).exists()
+
+        response = self.client.delete(f"/api/users/@me/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not User.objects.filter(uuid=user.uuid).exists()
 
     @patch("posthog.api.user.secrets.token_urlsafe")
     def test_redirect_user_to_site_with_toolbar(self, patched_token):

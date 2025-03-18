@@ -80,7 +80,7 @@ export function DeleteUserModal({
                                             <LemonButton
                                                 type="secondary"
                                                 size="small"
-                                                status="danger"
+                                                status="default"
                                                 onClick={() => {
                                                     if (organization.id === user?.organization?.id) {
                                                         push(urls.settings('organization-members'))
@@ -93,6 +93,23 @@ export function DeleteUserModal({
                                                 }}
                                             >
                                                 Transfer ownership
+                                            </LemonButton>
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                status="danger"
+                                                onClick={() => {
+                                                    if (organization.id === user?.organization?.id) {
+                                                        push(urls.settings('organization-danger-zone'))
+                                                    } else {
+                                                        updateCurrentOrganization(
+                                                            organization.id,
+                                                            urls.settings('organization-danger-zone')
+                                                        )
+                                                    }
+                                                }}
+                                            >
+                                                Delete organization
                                             </LemonButton>
                                         </div>
                                     )

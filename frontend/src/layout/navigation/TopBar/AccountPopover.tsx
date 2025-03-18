@@ -62,7 +62,7 @@ function AccountInfo(): JSX.Element {
     return (
         <div className="AccountInfo">
             <LemonButton
-                to={urls.settings('user')}
+                to={urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone')}
                 onClick={closeAccountPopover}
                 data-attr="top-menu-item-me"
                 fullWidth

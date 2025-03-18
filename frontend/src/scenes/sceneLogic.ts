@@ -143,7 +143,10 @@ export const sceneLogic = kea<sceneLogicType>([
         activeScene: [
             (s) => [s.scene, teamLogic.selectors.isCurrentTeamUnavailable],
             (scene, isCurrentTeamUnavailable) => {
-                return isCurrentTeamUnavailable && scene && sceneConfigurations[scene]?.projectBased
+                return isCurrentTeamUnavailable &&
+                    scene &&
+                    sceneConfigurations[scene]?.projectBased &&
+                    location.pathname !== urls.settings('user-danger-zone')
                     ? Scene.ErrorProjectUnavailable
                     : scene
             },
@@ -226,7 +229,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 // Redirect to org/project creation if there's no org/project respectively, unless using invite
                 if (scene !== Scene.InviteSignup) {
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
-                        if (location.pathname !== urls.organizationCreateFirst()) {
+                        if (
+                            location.pathname !== urls.organizationCreateFirst() &&
+                            location.pathname !== urls.settings('user-danger-zone')
+                        ) {
                             console.warn('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())
                             return
