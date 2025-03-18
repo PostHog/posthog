@@ -1,14 +1,13 @@
 import { offset } from '@floating-ui/react'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { forwardRef, memo, useEffect, useRef, useState } from 'react'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -406,11 +405,11 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
 
 export function MaxChatInterface(): JSX.Element {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const useFeatureFlagSupport = useFeatureFlag('SUPPORT_SIDEBAR_MAX')
+    const useFeatureFlagInKeep = useFeatureFlag('INKEEP_MAX_SUPPORT_SIDEBAR')
 
     // Check if either feature flag is enabled
-    const isMaxEnabled =
-        featureFlags[FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX] || featureFlags[FEATURE_FLAGS.INKEEP_MAX_SUPPORT_SIDEBAR]
+    const isMaxEnabled = useFeatureFlagSupport || useFeatureFlagInKeep
 
     if (!isMaxEnabled) {
         return <></>
