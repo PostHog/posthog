@@ -153,6 +153,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             "Paid Search",
         )
 
+    # TODO: restore once #session_id_uuid is migrated properly
     # @parameterized.expand([[SessionsV2JoinMode.STRING], [SessionsV2JoinMode.UUID]])
     # def test_event_dot_session_dot_channel_type(self, join_mode):
     #     session_id = str(uuid7())
