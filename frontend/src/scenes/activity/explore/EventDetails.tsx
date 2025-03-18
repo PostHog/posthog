@@ -69,7 +69,6 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                             ...displayedEventProperties,
                             ...visibleSystemProperties,
                         }}
-                        useDetectedPropertyType={true}
                         tableProps={tableProps}
                         filterable
                         searchable
@@ -106,7 +105,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             key: 'raw',
             label: 'Raw',
             content: (
-                <div className="mx-3 -mt-3 py-2">
+                <div className="py-2 mx-3 -mt-3">
                     <JSONViewer src={event} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
                 </div>
             ),
@@ -146,12 +145,12 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             key: 'conversation',
             label: 'Conversation',
             content: (
-                <div className="mx-3 -mt-2 mb-2 deprecated-space-y-2">
+                <div className="mx-3 mb-2 -mt-2 deprecated-space-y-2">
                     {event.properties.$session_id ? (
                         <div className="flex flex-row items-center gap-2">
                             <Link
                                 to={urls.replay(undefined, undefined, event.properties.$session_id)}
-                                className="flex flex-row gap-1 items-center"
+                                className="flex flex-row items-center gap-1"
                             >
                                 <IconOpenInNew />
                                 <span>View session recording</span>
@@ -169,13 +168,12 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             key: 'feature_flags',
             label: 'Feature flags',
             content: (
-                <div className="ml-10 mt-2">
+                <div className="mt-2 ml-10">
                     <PropertiesTable
                         type={PropertyDefinitionType.Event}
                         properties={{
                             ...featureFlagProperties,
                         }}
-                        useDetectedPropertyType={true}
                         tableProps={tableProps}
                         searchable
                     />
@@ -189,7 +187,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             key: 'set',
             label: 'Person properties',
             content: (
-                <div className="ml-10 mt-2">
+                <div className="mt-2 ml-10">
                     <p>
                         Person properties sent with this event. Will replace any property value that may have been set
                         on this person profile before now.{' '}
@@ -200,7 +198,6 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                         properties={{
                             ...setProperties,
                         }}
-                        useDetectedPropertyType={true}
                         tableProps={tableProps}
                         searchable
                     />
@@ -213,7 +210,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
         tabs.push({
             key: 'set_once',
             content: (
-                <div className="ml-10 mt-2">
+                <div className="mt-2 ml-10">
                     <p>
                         "Set once" person properties sent with this event. Will replace any property value that have
                         never been set on this person profile before now.{' '}
@@ -224,7 +221,6 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                         properties={{
                             ...setOnceProperties,
                         }}
-                        useDetectedPropertyType={true}
                         tableProps={tableProps}
                         searchable
                     />
