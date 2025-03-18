@@ -20,6 +20,8 @@ from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from loginas.utils import is_impersonated_session
 
+from posthog.models.user import User
+
 
 class GroupTypeSerializer(serializers.ModelSerializer):
     class Meta:
@@ -175,7 +177,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
-                user=request.user,
+                user=cast(User, request.user),
                 was_impersonated=is_impersonated_session(request),
                 item_id=group.pk,
                 scope="Group",
@@ -233,7 +235,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
-                user=request.user,
+                user=cast(User, request.user),
                 was_impersonated=is_impersonated_session(request),
                 item_id=group.pk,
                 scope="Group",
