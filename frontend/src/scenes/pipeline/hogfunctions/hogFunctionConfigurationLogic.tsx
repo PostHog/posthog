@@ -64,7 +64,7 @@ export interface HogFunctionConfigurationLogicProps {
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
-export const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
+const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
 
 const VALIDATION_RULES = {
     SITE_DESTINATION_REQUIRES_MAPPINGS: (data: HogFunctionConfigurationType) =>
