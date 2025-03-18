@@ -22,6 +22,7 @@ import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -108,7 +109,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onClick={() =>
                                 alert('global “new” button which would let you create a bunch of new things')
                             }
-                            className="hover:bg-fill-highlight-100 shrink-0"
+                            className="hover:bg-fill-highlight-50 shrink-0"
                             icon={
                                 <IconWrapper>
                                     <IconPlusSmall />
@@ -122,8 +123,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             <div className="pb-1">
                                 <LemonButton
                                     className={cn(
-                                        'hover:bg-fill-highlight-100',
-                                        activePanelIdentifier === 'project' && 'bg-fill-highlight-50'
+                                        'hover:bg-fill-highlight-50',
+                                        activePanelIdentifier === 'project' && 'bg-fill-highlight-100'
                                     )}
                                     icon={
                                         <IconWrapper>
@@ -147,7 +148,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     <span>Project</span>
                                 </LemonButton>
                                 <LemonButton
-                                    className="hover:bg-fill-highlight-100"
+                                    className="hover:bg-fill-highlight-50"
                                     fullWidth
                                     size="small"
                                     onClick={toggleSearchBar}
@@ -161,8 +162,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 </LemonButton>
                                 <LemonButton
                                     className={cn(
-                                        'hover:bg-fill-highlight-100',
-                                        activePanelIdentifier === 'activity' && 'bg-fill-highlight-50'
+                                        'hover:bg-fill-highlight-50',
+                                        activePanelIdentifier === 'activity' && 'bg-fill-highlight-100'
                                     )}
                                     fullWidth
                                     icon={
@@ -199,8 +200,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 <LemonButton
                                                     key={item.identifier}
                                                     className={cn(
-                                                        'hover:bg-fill-highlight-100',
-                                                        activeScene === item.identifier && 'bg-fill-highlight-50'
+                                                        'hover:bg-fill-highlight-50',
+                                                        (activeScene === item.identifier ||
+                                                            sceneBreadcrumbKeys.includes(item.identifier)) &&
+                                                            'bg-fill-highlight-100'
                                                     )}
                                                     icon={<IconWrapper>{item.icon}</IconWrapper>}
                                                     sideIcon={
@@ -235,8 +238,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         }
                                                     }}
                                                     active={
-                                                        activePanelIdentifier === item.identifier ||
-                                                        sceneBreadcrumbKeys.includes(item.identifier)
+                                                        (activePanelIdentifier === item.identifier ||
+                                                            sceneBreadcrumbKeys.includes(item.identifier)) &&
+                                                        activeScene === item.identifier
                                                     }
                                                 >
                                                     {item.label}
@@ -252,7 +256,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="pt-1 px-2">
                             <LemonButton
-                                className="hover:bg-fill-highlight-100"
+                                className={cn(
+                                    'hover:bg-fill-highlight-50',
+                                    (activeScene === Scene.ToolbarLaunch ||
+                                        sceneBreadcrumbKeys.includes(Scene.ToolbarLaunch)) &&
+                                        'bg-fill-highlight-100'
+                                )}
                                 icon={
                                     <IconWrapper>
                                         <IconToolbar />
@@ -264,14 +273,20 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 onClick={() => {
                                     clearActivePanelIdentifier()
                                 }}
+                                active={
+                                    activeScene === Scene.ToolbarLaunch ||
+                                    sceneBreadcrumbKeys.includes(Scene.ToolbarLaunch)
+                                }
                             >
                                 Toolbar
                             </LemonButton>
 
-                            {/* TODO: add other things from navbarBottom */}
-
                             <LemonButton
-                                className="hover:bg-fill-highlight-100"
+                                className={cn(
+                                    'hover:bg-fill-highlight-50',
+                                    (activeScene === Scene.Settings || sceneBreadcrumbKeys.includes(Scene.Settings)) &&
+                                        'bg-fill-highlight-100'
+                                )}
                                 icon={
                                     <IconWrapper>
                                         <IconGear />
@@ -283,6 +298,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 onClick={() => {
                                     clearActivePanelIdentifier()
                                 }}
+                                active={activeScene === Scene.Settings || sceneBreadcrumbKeys.includes(Scene.Settings)}
                             >
                                 Settings
                             </LemonButton>
@@ -295,6 +311,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 className="min-w-70"
                             >
                                 <LemonButton
+                                    className={cn(
+                                        'hover:bg-fill-highlight-50',
+                                        isAccountPopoverOpen && 'bg-fill-highlight-100'
+                                    )}
                                     fullWidth
                                     size="small"
                                     sideIcon={
@@ -306,7 +326,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
                                     onClick={toggleAccountPopover}
                                 >
-                                    <span>{user?.first_name ? <span>{user?.first_name}</span> : null}</span>
+                                    {user?.first_name ? <span>{user?.first_name}</span> : <span>{user?.email}</span>}
                                 </LemonButton>
                             </Popover>
                         </div>

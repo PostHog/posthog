@@ -193,8 +193,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     'cursor-pointer',
                                                     (focusedId === item.id || isContextMenuOpenForItem === item.id) &&
                                                         'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary',
-                                                    selectedId === item.id &&
-                                                        'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
+                                                    selectedId === item.id && 'bg-fill-highlight-50'
                                                 )}
                                                 onClick={() => {
                                                     handleClick(item)
