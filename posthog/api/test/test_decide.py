@@ -74,9 +74,6 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
     }
 
 
-# TODO: Add a derived version of decide that covers the new RemoteConfig option
-
-
 class TestDecide(BaseTest, QueryMatchingTest):
     """
     Tests the `/decide` endpoint.
@@ -1002,6 +999,97 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(
             {"color": "blue"},
             response.json()["featureFlagPayloads"]["multivariate-flag"],
+        )
+
+    def test_feature_flags_v4_json(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+        bf = FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=0,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=self.user,
+        )
+        mvFlag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
+                    ]
+                },
+                "payloads": {"first-variant": {"color": "blue"}},
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=self.user,
+            version=42,
+        )
+        self.assertEqual(mvFlag.version, 42)
+
+        response = self._post_decide(api_version=4, assert_num_queries=0)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flags = response.json()["flags"]
+        self.assertEqual(
+            flags["beta-feature"],
+            {
+                "key": "beta-feature",
+                "enabled": False,
+                "variant": None,
+                "reason": {
+                    "code": "out_of_rollout_bound",
+                    "condition_index": 0,
+                    "description": "Out of rollout bound",
+                },
+                "metadata": {
+                    "id": bf.id,
+                    "version": 1,
+                    "description": "Beta feature",
+                    "payload": None,
+                },
+            },
+        )
+        self.assertEqual(
+            flags["multivariate-flag"],
+            {
+                "key": "multivariate-flag",
+                "enabled": True,
+                "variant": "first-variant",
+                "reason": {
+                    "code": "condition_match",
+                    "condition_index": 0,
+                    "description": "Matched condition set 1",
+                },
+                "metadata": {
+                    "id": mvFlag.id,
+                    "version": 42,
+                    "description": "This is a feature flag with multiple variants.",
+                    "payload": {"color": "blue"},
+                },
+            },
         )
 
     def test_feature_flags_v2(self, *args):
@@ -3700,7 +3788,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertTrue(response.json()["defaultIdentifiedOnly"])
 
     @patch("ee.billing.quota_limiting.list_limited_team_attributes")
-    def test_decide_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
+    def test_decide_v1_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
         self, _fake_token_limiting, *args
     ):
         from ee.billing.quota_limiting import QuotaResource
@@ -3712,9 +3800,63 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             _fake_token_limiting.side_effect = fake_limiter
 
-            response = self._post_decide().json()
+            response = self._post_decide(api_version=1).json()
+            assert response["featureFlags"] == []
+            assert response["errorsWhileComputingFlags"] is False
+            assert "feature_flags" in response["quotaLimited"]
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_decide_v2_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
+        self, _fake_token_limiting, *args
+    ):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.FEATURE_FLAG_REQUESTS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            response = self._post_decide(api_version=2).json()
+            assert response["featureFlags"] == {}
+            assert response["errorsWhileComputingFlags"] is False
+            assert "feature_flags" in response["quotaLimited"]
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_decide_v3_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
+        self, _fake_token_limiting, *args
+    ):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.FEATURE_FLAG_REQUESTS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            response = self._post_decide(api_version=3).json()
             assert response["featureFlags"] == {}
             assert response["featureFlagPayloads"] == {}
+            assert response["errorsWhileComputingFlags"] is False
+            assert "feature_flags" in response["quotaLimited"]
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_decide_v4_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
+        self, _fake_token_limiting, *args
+    ):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.FEATURE_FLAG_REQUESTS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            response = self._post_decide(api_version=4).json()
+            assert response["flags"] == {}
             assert response["errorsWhileComputingFlags"] is False
             assert "feature_flags" in response["quotaLimited"]
 

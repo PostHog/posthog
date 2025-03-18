@@ -54,7 +54,7 @@ from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
 )
-from posthog.storage import object_storage
+from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.session_recordings.ai_data.ai_filter_schema import AiFilterSchema
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
@@ -944,7 +944,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 raise exceptions.NotFound("Invalid byte range")
 
             expected_length = end_byte - start_byte + 1
-            compressed_block = object_storage.read_bytes(key, first_byte=start_byte, last_byte=end_byte)
+            compressed_block = session_recording_v2_object_storage.client().read_bytes(
+                key, first_byte=start_byte, last_byte=end_byte
+            )
 
             if not compressed_block:
                 raise exceptions.NotFound("Block content not found")

@@ -290,9 +290,10 @@ def run_backup(
     )
 
     if latest_backup and latest_backup.path == backup.path:
-        raise ValueError(
+        context.log.warning(
             f"This backup directory exists in S3. Skipping its run, if you want to run it again, remove the data from {backup.path}"
         )
+        return
 
     if backup.shard:
         cluster.map_any_host_in_shards({backup.shard: backup.create}).result()
@@ -375,7 +376,7 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
 
 @dagster.schedule(
     job=sharded_backup,
-    cron_schedule="0 22 * * 5",
+    cron_schedule=settings.CLICKHOUSE_FULL_BACKUP_SCHEDULE,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
 def full_sharded_backup_schedule():
@@ -386,7 +387,7 @@ def full_sharded_backup_schedule():
 
 @dagster.schedule(
     job=non_sharded_backup,
-    cron_schedule="0 22 * * 5",
+    cron_schedule=settings.CLICKHOUSE_FULL_BACKUP_SCHEDULE,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
 def full_non_sharded_backup_schedule():
@@ -397,7 +398,7 @@ def full_non_sharded_backup_schedule():
 
 @dagster.schedule(
     job=sharded_backup,
-    cron_schedule="0 22 * * 0-4,6",
+    cron_schedule=settings.CLICKHOUSE_INCREMENTAL_BACKUP_SCHEDULE,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
 def incremental_sharded_backup_schedule():
@@ -408,7 +409,7 @@ def incremental_sharded_backup_schedule():
 
 @dagster.schedule(
     job=non_sharded_backup,
-    cron_schedule="0 22 * * 0-4,6",
+    cron_schedule=settings.CLICKHOUSE_INCREMENTAL_BACKUP_SCHEDULE,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
 def incremental_non_sharded_backup_schedule():

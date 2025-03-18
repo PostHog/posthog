@@ -1,4 +1,4 @@
-name: Lint PR
+name: Updated PR
 
 on:
     pull_request:
@@ -12,6 +12,6 @@ jobs:
         name: Validate PR title against Conventional Commits
         runs-on: ubuntu-24.04
         steps:
-            - uses: amannn/action-semantic-pull-request@v5
+            - uses: amannn/action-semantic-pull-request@0723387faaf9b38adef4775cd42cfd5155ed6017 # v5
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
