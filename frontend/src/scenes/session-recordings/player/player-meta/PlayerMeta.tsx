@@ -29,6 +29,7 @@ function URLOrScreen({ lastUrl }: { lastUrl: unknown }): JSX.Element | null {
     if (isObject(lastUrl)) {
         // regression protection, we saw a user whose site was sometimes sending the string-ified location object
         // this is a best-effort attempt to show the href in that case
+        // we've also seen lastUrl arrive as the empty object
         const maybeHref = lastUrl?.href
         if (typeof maybeHref === 'string') {
             urlToUse = maybeHref
