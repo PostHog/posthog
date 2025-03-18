@@ -60,7 +60,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                         </LemonBanner>
                     ) : (
                         <p>
-                            This {type === 'transformation' ? 'transformation' : 'destination'} would have triggered{' '}
+                            This {type} would have triggered{' '}
                             <strong>
                                 {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
                             </strong>{' '}
