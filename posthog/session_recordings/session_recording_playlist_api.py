@@ -74,7 +74,7 @@ def count_saved_filters(playlist: SessionRecordingPlaylist, user: User, team: Te
 
     if counts:
         count_data = json.loads(counts)
-        id_list: list[str] = count_data.get("session_ids", None)
+        id_list: Optional[list[str]] = count_data.get("session_ids", None)
         current_count = len(id_list) if id_list else 0
         previous_ids = count_data.get("previous_ids", None)
         return {
