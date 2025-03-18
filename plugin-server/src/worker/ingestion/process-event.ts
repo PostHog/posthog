@@ -1,4 +1,3 @@
-import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Counter, Summary } from 'prom-client'
