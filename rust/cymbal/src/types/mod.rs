@@ -77,19 +77,18 @@ pub struct OutputErrProps {
     pub proposed_fingerprint: String,
     #[serde(rename = "$exception_issue_id")]
     pub issue_id: Uuid,
+    #[serde(flatten)]
+    pub other: HashMap<String, Value>,
+
+    // Search metadata
     #[serde(rename = "$exception_types")]
     pub types: Vec<String>,
     #[serde(rename = "$exception_values")]
-    pub messages: Vec<String>,
-    #[serde(rename = "$exception_modules")]
-    pub modules: Vec<String>,
-    // // Pulled from stacktrace
-    // #[serde(rename = "$exception_sources")]
-    // pub sources: Vec<String>,
-    // #[serde(rename = "$exception_functions")]
-    // pub functions: Vec<String>,
-    #[serde(flatten)]
-    pub other: HashMap<String, Value>,
+    pub values: Vec<String>,
+    #[serde(rename = "$exception_sources")]
+    pub sources: Vec<String>,
+    #[serde(rename = "$exception_functions")]
+    pub functions: Vec<String>,
 }
 
 impl Exception {
@@ -147,11 +146,22 @@ impl RawErrProps {
 
 impl FingerprintedErrProps {
     pub fn to_output(self, issue_id: Uuid) -> OutputErrProps {
-        let frames: Vec<Frame> = self
+        let frames = self
             .exception_list
             .iter()
-            .flat_map(|e| e.stack.as_ref().map_or(Vec::new(), |s| s.frames.clone())) // Handle None safely
-            .collect();
+            .filter_map(|e| e.stack.as_ref())
+            .map(Stacktrace::get_frames)
+            .flatten();
+
+        let sources = unique_by(frames.clone(), |f| f.source.clone());
+        let functions = unique_by(frames, |f| f.resolved_name.clone());
+
+        let types = unique_by(self.exception_list.iter(), |e| {
+            Some(e.exception_type.clone())
+        });
+        let values = unique_by(self.exception_list.iter(), |e| {
+            Some(e.exception_message.clone())
+        });
 
         OutputErrProps {
             exception_list: self.exception_list,
@@ -160,22 +170,21 @@ impl FingerprintedErrProps {
             proposed_fingerprint: self.proposed_fingerprint,
             other: self.other,
 
-            types: unique_by(&self.exception_list, |e| Some(e.exception_type.clone())),
-            messages: unique_by(&self.exception_list, |e| Some(e.exception_message.clone())),
-            modules: unique_by(&self.exception_list, |e| e.module.clone()),
-            sources: unique_by(&frames, |f| Some(f.source.clone())),
-            functions: unique_by(&frames, |f| Some(f.resolved_name.clone())),
+            types,
+            values,
+            sources,
+            functions,
         }
     }
 }
 
-fn unique_by<T, F, K>(items: &[T], key_extractor: F) -> Vec<K>
+fn unique_by<T, I, F, K>(items: I, key_extractor: F) -> Vec<K>
 where
-    F: Fn(&T) -> Option<K>,
+    I: Iterator<Item = T>,
+    F: Fn(T) -> Option<K>,
     K: Eq + Hash + Clone,
 {
     items
-        .iter()
         .filter_map(|item| key_extractor(item))
         .collect::<HashSet<_>>()
         .into_iter()
@@ -223,6 +232,13 @@ impl Stacktrace {
         Some(Stacktrace::Resolved {
             frames: resolved_frames,
         })
+    }
+
+    pub fn get_frames(&self) -> &[Frame] {
+        match self {
+            Stacktrace::Resolved { frames } => frames,
+            _ => &[],
+        }
     }
 }
 
