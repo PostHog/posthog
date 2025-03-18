@@ -19,7 +19,7 @@ import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
 
 export interface OnboardingLogicProps {
-    onCompleteOnboarding?: () => void
+    onCompleteOnboarding?: (key: ProductKey) => void
 }
 
 export enum OnboardingStepKey {
@@ -317,6 +317,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
 
         completeOnboarding: ({ nextProductKey, redirectUrlOverride }) => {
+            props.onCompleteOnboarding?.(values.productKey)
             if (redirectUrlOverride) {
                 actions.setOnCompleteOnboardingRedirectUrl(redirectUrlOverride)
             }
@@ -334,7 +335,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     router.actions.push(urls.onboarding(nextProductKey))
                 }
             }
-            props.onCompleteOnboarding?.()
         },
         setAllOnboardingSteps: () => {
             if (values.isStepKeyInvalid) {

@@ -405,7 +405,13 @@ const ErrorTrackingOnboarding = (): JSX.Element => {
     const { updateCurrentTeam } = useActions(teamLogic)
 
     return (
-        <OnboardingWrapper onCompleteOnboarding={() => updateCurrentTeam({ autocapture_exceptions_opt_in: true })}>
+        <OnboardingWrapper
+            onCompleteOnboarding={(productKey) => {
+                if (productKey === ProductKey.ERROR_TRACKING) {
+                    updateCurrentTeam({ autocapture_exceptions_opt_in: true })
+                }
+            }}
+        >
             <OnboardingInstallStep
                 sdkInstructionMap={ErrorTrackingSDKInstructions}
                 stepKey={OnboardingStepKey.INSTALL}
