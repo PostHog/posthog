@@ -701,6 +701,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     ),
                     key=lambda x: x[0],
                 )
+                # If we started recording halfway through the session, we should not serve v2 sources
+                # as we don't have the complete recording from the start
+                if blocks and blocks[0][0] != v2_metadata["start_time"]:
+                    blocks = []
                 for i, (start_timestamp, end_timestamp, _) in enumerate(blocks):
                     sources.append(
                         {
