@@ -1857,7 +1857,7 @@ class TestPrinter(BaseTest):
             LIMIT {MAX_SELECT_RETURNED_ROWS}
         """
         )
-        assert printed == self.snapshot
+        assert printed == self.snapshot  # type: ignore
 
     def test_print_hidden_aliases_timestamp(self):
         query = parse_select("select * from (SELECT timestamp, timestamp FROM events)")

@@ -8,10 +8,11 @@ from posthog.hogql.errors import BaseHogQLError
 
 
 T = TypeVar("T")
+T_AST = TypeVar("T_AST", bound=AST)
 T_Expr = TypeVar("T_Expr", bound=Expr)
 
 
-def clone_expr(expr: Expr, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> Expr:
+def clone_expr(expr: T_AST, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> T_AST:
     """Clone an expression node."""
     return CloningVisitor(
         clear_types=clear_types,
@@ -20,7 +21,7 @@ def clone_expr(expr: Expr, clear_types=False, clear_locations=False, inline_subq
     ).visit(expr)
 
 
-def clear_locations(expr: T_Expr) -> T_Expr:
+def clear_locations(expr: T_AST) -> T_AST:
     return CloningVisitor(clear_locations=True).visit(expr)
 
 

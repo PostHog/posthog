@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 import pytest
 
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
@@ -745,9 +745,9 @@ def test_base_insights(filter: dict):
     filter_to_query(filter)
 
 
-properties_0 = []
-properties_1 = [{"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"}]
-properties_2 = [
+properties_0: list[Any] = []
+properties_1: list[Any] = [{"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"}]
+properties_2: list[Any] = [
     {"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"},
     {
         "key": "$current_url",
@@ -756,10 +756,10 @@ properties_2 = [
         "operator": "not_icontains",
     },
 ]
-properties_3 = {}
-properties_4 = {"type": "AND", "values": []}
-properties_5 = {"type": "AND", "values": [{"type": "AND", "values": []}]}
-properties_6 = {
+properties_3: dict[str, Any] = {}
+properties_4: dict[str, Any] = {"type": "AND", "values": []}
+properties_5: dict[str, Any] = {"type": "AND", "values": [{"type": "AND", "values": []}]}
+properties_6: dict[str, Any] = {
     "type": "AND",
     "values": [
         {
@@ -781,7 +781,7 @@ properties_6 = {
         }
     ],
 }
-properties_7 = {
+properties_7: dict[str, Any] = {
     "type": "AND",
     "values": [
         {
@@ -800,7 +800,7 @@ properties_7 = {
         },
     ],
 }
-properties_8 = {
+properties_8: dict[str, Any] = {
     "type": "AND",
     "values": [
         {
@@ -825,7 +825,7 @@ properties_8 = {
         },
     ],
 }
-properties_9 = {
+properties_9: dict[str, Any] = {
     "type": "AND",
     "values": [
         {
@@ -875,9 +875,9 @@ properties_9 = {
         {"type": "OR", "values": [{}]},
     ],
 }
-properties_10 = [{"key": "id", "type": "cohort", "value": 71, "operator": None}]
-properties_11 = [{"key": [498], "type": "cohort", "value": 498, "operator": None}]
-properties_12 = [
+properties_10: list[Any] = [{"key": "id", "type": "cohort", "value": 71, "operator": None}]
+properties_11: list[Any] = [{"key": [498], "type": "cohort", "value": 498, "operator": None}]
+properties_12: list[Any] = [
     {
         "key": "userId",
         "type": "event",
@@ -885,10 +885,10 @@ properties_12 = [
         "operator": "exact",
     }
 ]
-properties_13 = {"plan": "premium"}
-properties_14 = {"$current_url__icontains": "signin"}
+properties_13: dict[str, Any] = {"plan": "premium"}
+properties_14: dict[str, Any] = {"$current_url__icontains": "signin"}
 
-test_properties = [
+test_properties: list[Any] = [
     properties_0,
     properties_1,
     properties_2,
