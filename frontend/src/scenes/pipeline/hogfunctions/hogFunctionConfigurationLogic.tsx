@@ -90,6 +90,7 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
 
 export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
 export const TYPES_WITH_SPARKLINE: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
+export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     function sanitizeInputs(
@@ -370,31 +371,40 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     breakpoint()
 
                     const dataValues: number[] = result?.results?.[0]?.data ?? []
-                    const [underThreshold, overThreshold] = dataValues.reduce(
-                        (acc, val: number) => {
-                            acc[0].push(Math.min(val, EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
-                            acc[1].push(Math.max(0, val - EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
+                    const showVolumeWarning = TYPES_WITH_VOLUME_WARNING.includes(values.type)
 
-                            return acc
-                        },
-                        [[], []] as [number[], number[]]
-                    )
-
+                    if (showVolumeWarning) {
+                        const [underThreshold, overThreshold] = dataValues.reduce(
+                            (acc, val: number) => {
+                                acc[0].push(Math.min(val, EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
+                                acc[1].push(Math.max(0, val - EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
+                                return acc
+                            },
+                            [[], []] as [number[], number[]]
+                        )
+                        const data = [
+                            {
+                                name: 'Low volume',
+                                values: underThreshold,
+                                color: 'success',
+                            },
+                            {
+                                name: 'High volume',
+                                values: overThreshold,
+                                color: 'warning',
+                            },
+                        ]
+                        return { data, count: result?.results?.[0]?.count, labels: result?.results?.[0]?.labels }
+                    }
+                    // For transformations, just show the raw values without warning thresholds
                     const data = [
                         {
-                            name: 'Low volume',
-                            values: underThreshold,
+                            name: 'Volume',
+                            values: dataValues,
                             color: 'success',
                         },
-                        {
-                            name: 'High volume',
-                            values: overThreshold,
-                            color: 'warning',
-                        },
                     ]
-                    const count = result?.results?.[0]?.count
-                    const labels = result?.results?.[0]?.labels
-                    return { data, count, labels }
+                    return { data, count: result?.results?.[0]?.count, labels: result?.results?.[0]?.labels }
                 },
             },
         ],
