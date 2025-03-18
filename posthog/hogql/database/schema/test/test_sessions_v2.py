@@ -153,31 +153,30 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             "Paid Search",
         )
 
-    # TODO: restore once #session_id_uuid is migrated properly
-    # @parameterized.expand([[SessionsV2JoinMode.STRING], [SessionsV2JoinMode.UUID]])
-    # def test_event_dot_session_dot_channel_type(self, join_mode):
-    #     session_id = str(uuid7())
+    @parameterized.expand([[SessionsV2JoinMode.STRING], [SessionsV2JoinMode.UUID]])
+    def test_event_dot_session_dot_channel_type(self, join_mode):
+        session_id = str(uuid7())
 
-    #     _create_event(
-    #         event="$pageview",
-    #         team=self.team,
-    #         distinct_id="d1",
-    #         properties={"gad_source": "1", "$session_id": session_id},
-    #     )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"gad_source": "1", "$session_id": session_id},
+        )
 
-    #     response = self.__execute(
-    #         parse_select(
-    #             "select events.session.$channel_type from events where $session_id = {session_id}",
-    #             placeholders={"session_id": ast.Constant(value=session_id)},
-    #         ),
-    #         sessions_v2_join_mode=join_mode,
-    #     )
+        response = self.__execute(
+            parse_select(
+                "select events.session.$channel_type from events where $session_id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+            sessions_v2_join_mode=join_mode,
+        )
 
-    #     result = (response.results or [])[0]
-    #     self.assertEqual(
-    #         result[0],
-    #         "Paid Search",
-    #     )
+        result = (response.results or [])[0]
+        self.assertEqual(
+            result[0],
+            "Paid Search",
+        )
 
     def test_session_dot_channel_type(self):
         session_id = str(uuid7())
