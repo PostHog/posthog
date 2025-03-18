@@ -136,7 +136,7 @@ impl FromFeatureAndMatch for FlagDetails {
             reason: FlagEvaluationReason {
                 code: flag_match.reason.to_string(),
                 condition_index: flag_match.condition_index.map(|i| i as i32),
-                description: Self::get_reason_description(&flag_match),
+                description: Self::get_reason_description(flag_match),
             },
             metadata: FlagDetailsMetadata {
                 id: flag.id,
