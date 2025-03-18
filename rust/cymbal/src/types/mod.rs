@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{digest::Update, Sha512};
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use uuid::Uuid;
 
 use crate::frames::{Frame, RawFrame};
@@ -77,6 +77,17 @@ pub struct OutputErrProps {
     pub proposed_fingerprint: String,
     #[serde(rename = "$exception_issue_id")]
     pub issue_id: Uuid,
+    #[serde(rename = "$exception_types")]
+    pub types: Vec<String>,
+    #[serde(rename = "$exception_values")]
+    pub messages: Vec<String>,
+    #[serde(rename = "$exception_modules")]
+    pub modules: Vec<String>,
+    // // Pulled from stacktrace
+    // #[serde(rename = "$exception_sources")]
+    // pub sources: Vec<String>,
+    // #[serde(rename = "$exception_functions")]
+    // pub functions: Vec<String>,
     #[serde(flatten)]
     pub other: HashMap<String, Value>,
 }
@@ -136,14 +147,39 @@ impl RawErrProps {
 
 impl FingerprintedErrProps {
     pub fn to_output(self, issue_id: Uuid) -> OutputErrProps {
+        let frames: Vec<Frame> = self
+            .exception_list
+            .iter()
+            .flat_map(|e| e.stack.as_ref().map_or(Vec::new(), |s| s.frames.clone())) // Handle None safely
+            .collect();
+
         OutputErrProps {
             exception_list: self.exception_list,
             fingerprint: self.fingerprint,
             issue_id,
             proposed_fingerprint: self.proposed_fingerprint,
             other: self.other,
+
+            types: unique_by(&self.exception_list, |e| Some(e.exception_type.clone())),
+            messages: unique_by(&self.exception_list, |e| Some(e.exception_message.clone())),
+            modules: unique_by(&self.exception_list, |e| e.module.clone()),
+            sources: unique_by(&frames, |f| Some(f.source.clone())),
+            functions: unique_by(&frames, |f| Some(f.resolved_name.clone())),
         }
     }
+}
+
+fn unique_by<T, F, K>(items: &[T], key_extractor: F) -> Vec<K>
+where
+    F: Fn(&T) -> Option<K>,
+    K: Eq + Hash + Clone,
+{
+    items
+        .iter()
+        .filter_map(|item| key_extractor(item))
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 impl OutputErrProps {
