@@ -912,6 +912,8 @@ export type AnyPersonScopeFilter =
     | HogQLPropertyFilter
     | EmptyPropertyFilter
 
+export type AnyGroupScopeFilter = GroupPropertyFilter | HogQLPropertyFilter
+
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
 export type SessionRecordingId = SessionRecordingType['id']
@@ -1455,6 +1457,7 @@ export interface PlaylistSavedFiltersCount {
     watched_count: number
     has_more?: boolean
     increased?: boolean
+    last_refreshed_at?: string
 }
 
 export interface PlaylistRecordingsCounts {
