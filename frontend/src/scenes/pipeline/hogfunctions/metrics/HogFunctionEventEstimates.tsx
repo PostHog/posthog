@@ -67,6 +67,9 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                             in the last 7 days.
                         </p>
                     )}
+                    {'warning' in sparkline && sparkline.warning && (
+                        <LemonBanner type="info">{sparkline.warning}</LemonBanner>
+                    )}
                     <Sparkline type="bar" className="w-full h-20" data={sparkline.data} labels={sparkline.labels} />
                 </>
             ) : sparklineLoading ? (

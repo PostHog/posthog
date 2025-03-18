@@ -215,6 +215,13 @@ export function convertToHogFunctionInvocationGlobals(
     }
 }
 
+export type SparklineData = {
+    data: { name: string; values: number[]; color: string }[]
+    count: number
+    labels: string[]
+    warning?: string
+}
+
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
@@ -352,11 +359,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         sparkline: [
-            null as null | {
-                data: { name: string; values: number[]; color: string }[]
-                count: number
-                labels: string[]
-            },
+            null as null | SparklineData,
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
                     if (!TYPES_WITH_SPARKLINE.includes(values.type)) {
@@ -404,7 +407,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             color: 'success',
                         },
                     ]
-                    return { data, count: result?.results?.[0]?.count, labels: result?.results?.[0]?.labels }
+                    return {
+                        data,
+                        count: result?.results?.[0]?.count,
+                        labels: result?.results?.[0]?.labels,
+                        warning:
+                            values.type === 'transformation'
+                                ? 'Historical volume may not reflect future volume after transformation is applied.'
+                                : undefined,
+                    }
                 },
             },
         ],
