@@ -16,8 +16,9 @@ const MINIMUM_NAVIGATOR_WIDTH = 100
 const NAVIGATOR_DEFAULT_WIDTH = 350
 const MINIMUM_QUERY_PANE_HEIGHT = 100
 const DEFAULT_QUERY_PANE_HEIGHT = 300
-const MINIMUM_SIDEBAR_WIDTH = 250
-const SIDEBAR_DEFAULT_WIDTH = 350
+const MINIMUM_SIDEBAR_WIDTH = 150
+const SIDEBAR_DEFAULT_WIDTH = 300
+const MAXIMUM_SIDEBAR_WIDTH = 550
 
 export const editorSizingLogic = kea<editorSizingLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'editorSizingLogic']),
@@ -55,7 +56,8 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
         sidebarWidth: [
             // @ts-expect-error - We need to fix the typings later
             (s) => [s.sidebarDesiredSize],
-            (desiredSize: number | null) => Math.max(desiredSize || SIDEBAR_DEFAULT_WIDTH, MINIMUM_SIDEBAR_WIDTH),
+            (desiredSize: number | null) =>
+                Math.min(Math.max(desiredSize || SIDEBAR_DEFAULT_WIDTH, MINIMUM_SIDEBAR_WIDTH), MAXIMUM_SIDEBAR_WIDTH),
         ],
         sidebarResizerProps: [
             () => [(_, props) => props.sidebarResizerProps],

@@ -7,11 +7,12 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { Sidebar } from '~/layout/navigation-3000/components/Sidebar'
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { SidebarNavbarItem } from '~/layout/navigation-3000/types'
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 
@@ -31,7 +32,12 @@ export const EditorSidebar = ({
     const { sidebarOverlayOpen } = useValues(editorSceneLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { variablesForInsight } = useValues(variablesLogic)
+    const { setSidebarWidth } = useActions(navigation3000Logic)
     const editorSizingLogicProps = editorSizingLogic.props
+
+    useEffect(() => {
+        setSidebarWidth(sidebarWidth)
+    }, [sidebarWidth])
 
     // State to track active tab
     const [activeTab, setActiveTab] = useState('tab1')
