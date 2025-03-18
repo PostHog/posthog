@@ -28,7 +28,6 @@ export const EditorSidebar = ({
     codeEditorKey: string
 }): JSX.Element => {
     const { sidebarOverlayOpen } = useValues(editorSceneLogic)
-    // @ts-expect-error - The typings need to be fixed, but this works
     const { sidebarWidth } = useValues(editorSizingLogic)
     const editorSizingLogicProps = editorSizingLogic.props
 
