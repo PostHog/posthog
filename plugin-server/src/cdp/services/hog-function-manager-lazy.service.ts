@@ -120,7 +120,11 @@ export class HogFunctionManagerLazyService {
         teamIds: Team['id'][],
         types: HogFunctionTypeType[]
     ): Promise<Record<Team['id'], HogFunctionType[]>> {
-        const result: Record<Team['id'], HogFunctionType[]> = {}
+        const result: Record<Team['id'], HogFunctionType[]> = teamIds.reduce((acc, teamId) => {
+            acc[teamId] = []
+            return acc
+        }, {} as Record<Team['id'], HogFunctionType[]>)
+
         const teamHogFunctions = await this.lazyLoaderByTeam.getMany(teamIds.map((x) => x.toString()))
 
         if (!teamHogFunctions) {
