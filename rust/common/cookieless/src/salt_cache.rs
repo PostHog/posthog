@@ -206,7 +206,7 @@ impl SaltCache {
     }
 
     /// Clear the entire cache
-    pub fn clear_cache(&self) {
+    pub fn clear(&self) {
         self.cache.invalidate_all();
     }
 }
@@ -317,7 +317,7 @@ mod tests {
         let calls = redis_client.get_calls();
         assert_eq!(calls.len(), 1);
 
-        salt_cache.clear_cache();
+        salt_cache.clear();
 
         // Get the salt again to test caching
         let salt2 = salt_cache.get_salt_for_day(&today).await.unwrap();

@@ -153,8 +153,8 @@ impl CookielessManager {
     }
 
     /// Clear the salt cache
-    pub fn clear_cache(&self) {
-        self.salt_cache.clear_cache();
+    pub fn clear_salt_cache(&self) {
+        self.salt_cache.clear();
     }
 
     /// Compute a cookieless distinct ID for an event
