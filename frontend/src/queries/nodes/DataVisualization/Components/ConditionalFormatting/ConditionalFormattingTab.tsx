@@ -4,12 +4,12 @@ import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonColorGlyph, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { ColorPickerButton } from '~/queries/nodes/DataVisualization/Components/ColorPickerButton'
 import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { FORMATTING_TEMPLATES } from '../../types'
 import { conditionalFormattingLogic } from './conditionalFormattingLogic'
+import { LemonColorPicker } from 'lib/lemon-ui/LemonColor/LemonColorPicker'
 
 const getRuleHeader = (rule: ConditionalFormattingRule): string => {
     if (!rule.columnName || !rule.input) {
@@ -117,7 +117,7 @@ const RuleItem = ({ rule: propsRule }: { rule: ConditionalFormattingRule }): JSX
             />
 
             <div className="flex flex-1">
-                <ColorPickerButton color={rule.color} onColorSelect={selectColor} />
+                <LemonColorPicker selectedColor={rule.color} onSelectColor={selectColor} showCustomColor />
                 <LemonInput
                     placeholder="value"
                     className="ml-2 flex-1"
