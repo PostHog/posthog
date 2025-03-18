@@ -17,11 +17,11 @@ from posthog.utils import (
 )
 
 IntervalLiteral = Literal["minute", "hour", "day", "week", "month"]
-ORDERED_INTERVALS = ["minute", "hour", "day", "week", "month"]
+ORDERED_INTERVALS = [IntervalType.MINUTE, IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH]
 
 
 def compare_intervals(
-    interval1: IntervalLiteral, operator: Literal["<", "<=", "=", ">", ">="], interval2: IntervalLiteral
+    interval1: IntervalType, operator: Literal["<", "<=", "=", ">", ">="], interval2: IntervalType
 ) -> bool:
     if operator == "<":
         return ORDERED_INTERVALS.index(interval1) < ORDERED_INTERVALS.index(interval2)

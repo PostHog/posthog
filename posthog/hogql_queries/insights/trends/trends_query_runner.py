@@ -99,8 +99,10 @@ class TrendsQueryRunner(QueryRunner):
             # Convert WAU to DAU for week or longer intervals
             # Convert MAU to DAU for month or longer intervals
             if hasattr(series, "math") and (
-                (series.math == BaseMathType.WEEKLY_ACTIVE and compare_intervals(interval, ">=", "week"))
-                or (series.math == BaseMathType.MONTHLY_ACTIVE and compare_intervals(interval, ">=", "month"))
+                (series.math == BaseMathType.WEEKLY_ACTIVE and compare_intervals(interval, ">=", IntervalType.WEEK))
+                or (
+                    series.math == BaseMathType.MONTHLY_ACTIVE and compare_intervals(interval, ">=", IntervalType.MONTH)
+                )
             ):
                 series.math = BaseMathType.DAU
 
