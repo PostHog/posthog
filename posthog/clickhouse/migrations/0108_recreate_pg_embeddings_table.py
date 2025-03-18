@@ -6,7 +6,7 @@ from posthog.models.ai.pg_embeddings import (
 )
 
 operations = [
+    # The table had an engine ReplacingMergeTree.
     run_sql_with_exceptions(DROP_PG_EMBEDDINGS_TABLE_SQL(), node_role=NodeRole.DATA),
-    run_sql_with_exceptions(DROP_PG_EMBEDDINGS_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
     run_sql_with_exceptions(PG_EMBEDDINGS_TABLE_SQL(), node_role=NodeRole.ALL),
 ]
