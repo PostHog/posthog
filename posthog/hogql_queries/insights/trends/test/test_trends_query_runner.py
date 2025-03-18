@@ -1670,8 +1670,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
 
         for i, day in enumerate(options.day):
-            actors_query_runner = query_runner._get_trends_actors_query_builder(time_frame=day.value, series_index=0)
-            actors_query = actors_query_runner.build_actors_query()
+            actors_query = query_runner.to_actors_query(time_frame=day.value, series_index=0)
             result = execute_hogql_query(query=actors_query, team=self.team)
 
             actual_actor_ids = [row[2][0] for row in result.results]
