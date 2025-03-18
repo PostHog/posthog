@@ -1,4 +1,4 @@
-name: Vector Replay Capture Tests
+name: Vector Replay Capture CI
 
 on:
     workflow_dispatch:
@@ -21,7 +21,7 @@ jobs:
             KAFKA_OVERFLOW_TOPIC: session_recording_snapshot_item_overflow
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
             - name: Install Vector
               run: |

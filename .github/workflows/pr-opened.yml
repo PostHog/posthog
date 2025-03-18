@@ -1,4 +1,4 @@
-name: Lint new PR
+name: Opened PR
 
 on:
     pull_request:

@@ -164,6 +164,7 @@ export abstract class CdpConsumerBase {
         // NOTE: This is only for starting shared services
         await Promise.all([
             this.hogFunctionManager.start(this.hogTypes),
+            this.hogFunctionManagerLazy.start(),
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()

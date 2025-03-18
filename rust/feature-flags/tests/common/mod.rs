@@ -153,10 +153,18 @@ impl ServerHandle {
         ServerHandle { addr, shutdown }
     }
 
-    pub async fn send_flags_request<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+    pub async fn send_flags_request<T: Into<reqwest::Body>>(
+        &self,
+        body: T,
+        version: Option<&str>,
+    ) -> reqwest::Response {
         let client = reqwest::Client::new();
+        let url = match version {
+            Some(v) => format!("http://{:?}/flags?v={}", self.addr, v),
+            None => format!("http://{:?}/flags", self.addr),
+        };
         client
-            .post(format!("http://{:?}/flags", self.addr))
+            .post(url)
             .body(body)
             .header(CONTENT_TYPE, "application/json")
             .send()
