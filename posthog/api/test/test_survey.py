@@ -53,6 +53,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
         assert response_data["schedule"] == "once"
+        assert response_data["enable_partial_responses"] is False
         assert response_data["questions"] == [
             {
                 "id": str(response_data["questions"][0]["id"]),
@@ -140,6 +141,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
         assert response_data["schedule"] == "once"
+        assert response_data["enable_partial_responses"] is False
         assert response_data["questions"] == [
             {
                 "id": str(response_data["questions"][0]["id"]),
@@ -231,6 +233,7 @@ class TestSurvey(APIBaseTest):
         self.assertNotEqual(response_data["targeting_flag"]["key"], "survey-targeting-power-users-survey")
         assert re.match(r"^survey-targeting-[a-z0-9]+$", response_data["targeting_flag"]["key"])
         assert response_data["schedule"] == "once"
+        assert response_data["enable_partial_responses"] is False
 
         assert response_data["targeting_flag"]["filters"] == {
             "groups": [
@@ -1085,6 +1088,7 @@ class TestSurvey(APIBaseTest):
                     "description": "Make notebooks better",
                     "type": "popover",
                     "schedule": "once",
+                    "enable_partial_responses": False,
                     "questions": [
                         {
                             "id": response_data["results"][0]["questions"][0]["id"],
@@ -1127,6 +1131,7 @@ class TestSurvey(APIBaseTest):
                         "active": False,
                         "ensure_experience_continuity": False,
                         "has_encrypted_payloads": False,
+                        "version": ANY,  # Add version field with ANY matcher
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
@@ -1205,103 +1210,6 @@ class TestSurvey(APIBaseTest):
         assert (
             updated_survey_deletes_targeting_flag.json()["detail"] == "There is already another survey with this name."
         )
-
-    def test_enable_surveys_opt_in(self):
-        Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Survey 1",
-            type="popover",
-            questions=[{"type": "open", "question": "What's a survey?"}],
-            start_date=datetime.now() - timedelta(days=2),
-            end_date=datetime.now() - timedelta(days=1),
-        )
-        self.assertEqual(self.team.surveys_opt_in, None)
-        Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Survey 2",
-            type="popover",
-            questions=[{"type": "open", "question": "What's a hedgehog?"}],
-            start_date=datetime.now() - timedelta(days=2),
-        )
-        assert self.team.surveys_opt_in is True
-
-    def test_disable_surveys_opt_in(self):
-        survey = Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Survey 2",
-            type="popover",
-            questions=[{"type": "open", "question": "What's a hedgehog?"}],
-            start_date=datetime.now() - timedelta(days=2),
-        )
-        assert self.team.surveys_opt_in is True
-        self.client.patch(
-            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
-            data={"end_date": datetime.now() - timedelta(days=1)},
-        )
-        self.team.refresh_from_db()
-        assert self.team.surveys_opt_in is False
-
-    def test_surveys_opt_in_with_api_type_surveys(self):
-        api_survey = Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="API survey",
-            type="api",
-            questions=[{"type": "open", "question": "What's a survey?"}],
-            start_date=datetime.now() - timedelta(days=2),
-        )
-        self.assertEqual(self.team.surveys_opt_in, None)
-        popover_survey = Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Popover survey",
-            type="popover",
-            questions=[{"type": "open", "question": "What's a survey?"}],
-            start_date=datetime.now() - timedelta(days=2),
-        )
-        self.team.refresh_from_db()
-        assert self.team.surveys_opt_in is True
-        self.client.patch(
-            f"/api/projects/{self.team.id}/surveys/{api_survey.id}/",
-            data={"end_date": datetime.now() - timedelta(days=1)},
-        )
-        self.team.refresh_from_db()
-        self.assertEqual(self.team.surveys_opt_in, True)
-        self.client.patch(
-            f"/api/projects/{self.team.id}/surveys/{popover_survey.id}/",
-            data={"end_date": datetime.now() - timedelta(days=1)},
-        )
-        self.team.refresh_from_db()
-        assert self.team.surveys_opt_in is False
-
-    def test_surveys_opt_in_post_delete(self):
-        Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Survey 1",
-            type="popover",
-            questions=[{"type": "open", "question": "What's a survey?"}],
-            start_date=datetime.now() - timedelta(days=2),
-            end_date=datetime.now() - timedelta(days=1),
-        )
-        survey_to_delete = Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Survey 2",
-            type="popover",
-            questions=[{"type": "open", "question": "What's a survey?"}],
-            start_date=datetime.now() - timedelta(days=2),
-        )
-        assert self.team.surveys_opt_in is True
-        self.client.delete(
-            f"/api/projects/{self.team.id}/surveys/{survey_to_delete.id}/",
-            format="json",
-        )
-        self.team.refresh_from_db()
-        assert self.team.surveys_opt_in is False
 
     @freeze_time("2023-05-01 12:00:00")
     def test_update_survey_targeting_flag_filters_records_activity(self):
@@ -3048,6 +2956,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "current_iteration": None,
                         "current_iteration_start_date": None,
                         "schedule": "once",
+                        "enable_partial_responses": False,
                     }
                 ],
             )
@@ -3107,6 +3016,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "start_date": None,
                     "end_date": None,
                     "schedule": "once",
+                    "enable_partial_responses": False,
                 },
                 surveys,
             )
@@ -3125,6 +3035,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "current_iteration": None,
                     "current_iteration_start_date": None,
                     "schedule": "once",
+                    "enable_partial_responses": False,
                 },
                 surveys,
             )

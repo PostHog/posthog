@@ -5,7 +5,6 @@ from typing import Any, Literal, Optional, cast
 import pytest
 from django.test import override_settings
 
-from posthog import settings
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLQuerySettings, HogQLGlobalSettings
@@ -516,10 +515,6 @@ class TestPrinter(BaseTest):
             )
 
     def test_property_groups_person_properties(self):
-        # we can't use `override_settings` here, as the initial setting check is done at module initialize time
-        if not settings.USE_PERSON_PROPERTIES_MAP_CUSTOM:
-            pytest.xfail("person_properties_map_custom not enabled")
-
         context = HogQLContext(
             team_id=self.team.pk,
             modifiers=HogQLQueryModifiers(
@@ -837,6 +832,7 @@ class TestPrinter(BaseTest):
 
     def test_functions(self):
         context = HogQLContext(team_id=self.team.pk)  # inline values
+
         self.assertEqual(self._expr("abs(1)"), "abs(1)")
         self.assertEqual(self._expr("max2(1,2)"), "max2(1, 2)")
         self.assertEqual(self._expr("toInt('1')", context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
@@ -845,7 +841,9 @@ class TestPrinter(BaseTest):
             self._expr("toUUID('470f9b15-ff43-402a-af9f-2ed7c526a6cf')", context),
             "accurateCastOrNull(%(hogql_val_4)s, %(hogql_val_5)s)",
         )
-        self.assertEqual(self._expr("toDecimal('3.14', 2)", context), "toDecimal64OrNull(%(hogql_val_6)s, 2)")
+        self.assertEqual(
+            self._expr("toDecimal('3.14', 2)", context), "accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)"
+        )
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
     def test_expr_parse_errors(self):
@@ -2208,3 +2206,8 @@ class TestPrinter(BaseTest):
             in printed
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
+
+    def test_print_hogql_aggregation_function_uses_hogql_function_names(self):
+        query = parse_expr("avgArray([1, 2, 3])")
+        printed = print_ast(query, HogQLContext(team_id=self.team.pk), dialect="hogql")
+        assert printed == "avgArray([1, 2, 3])"

@@ -1,5 +1,5 @@
 import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
-import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
+import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
@@ -136,6 +136,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_URL: '',
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
+        USE_SIMD_JSON_PARSE: isProdEnv() ? false : true, // TODO: Set true once done testing
+        USE_SIMD_JSON_PARSE_FOR_COMPARISON: false,
+        LAZY_LOADER_DEFAULT_BUFFER_MS: 100,
 
         // posthog
         POSTHOG_API_KEY: '',
@@ -198,8 +201,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BATCH_SIZE: 300,
-
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
+        CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
+        CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
+        CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED: true,
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
@@ -219,6 +224,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
 
+        // PropertyDefsConsumer config
+        PROPERTY_DEFS_CONSUMER_GROUP_ID: 'property-defs-consumer',
+        PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_JSON,
+        PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: isDevEnv() ? '*' : '',
+        PROPERTY_DEFS_WRITE_DISABLED: isProdEnv() ? true : false, // For now we don't want to do writes on prod - only count them
+
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
@@ -229,6 +240,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
         SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
+        SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: '',
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,

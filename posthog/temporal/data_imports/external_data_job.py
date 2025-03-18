@@ -2,6 +2,7 @@ import dataclasses
 import datetime as dt
 import json
 import re
+import typing
 
 import posthoganalytics
 from django.db import close_old_connections
@@ -37,7 +38,10 @@ from posthog.warehouse.external_data_source.jobs import update_external_job_stat
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import update_should_sync
 
-Any_Source_Errors: list[str] = ["Could not establish session to SSH gateway"]
+Any_Source_Errors: list[str] = [
+    "Could not establish session to SSH gateway",
+    "Primary key required for incremental syncs",
+]
 
 Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
     ExternalDataSource.Type.STRIPE: [
@@ -89,6 +93,16 @@ class UpdateExternalDataJobStatusInputs:
     status: str
     internal_error: str | None
     latest_error: str | None
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "job_id": self.job_id,
+            "schema_id": self.schema_id,
+            "source_id": self.source_id,
+            "status": self.status,
+        }
 
 
 @activity.defn
@@ -159,6 +173,13 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 class CreateSourceTemplateInputs:
     team_id: int
     run_id: str
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "run_id": self.run_id,
+        }
 
 
 @activity.defn
@@ -255,7 +276,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 import_data_activity_sync,
                 job_inputs,
-                heartbeat_timeout=dt.timedelta(minutes=5),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 **timeout_params,
             )  # type: ignore
 

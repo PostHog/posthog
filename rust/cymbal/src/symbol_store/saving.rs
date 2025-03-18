@@ -312,9 +312,9 @@ impl SymbolSetRecord {
 mod test {
     use std::sync::Arc;
 
-    use common_symbol_data::write_symbol_data;
     use httpmock::MockServer;
     use mockall::predicate;
+    use posthog_symbol_data::write_symbol_data;
     use reqwest::Url;
     use sqlx::PgPool;
 
@@ -332,7 +332,7 @@ mod test {
     const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
 
     fn get_symbol_data_bytes() -> Vec<u8> {
-        write_symbol_data(common_symbol_data::SourceAndMap {
+        write_symbol_data(posthog_symbol_data::SourceAndMap {
             minified_source: String::from_utf8(MINIFIED.to_vec()).unwrap(),
             sourcemap: String::from_utf8(MAP.to_vec()).unwrap(),
         })

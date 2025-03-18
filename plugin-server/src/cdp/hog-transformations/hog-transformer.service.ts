@@ -10,9 +10,10 @@ import {
 import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
+import { HogFunctionManagerLazyService } from '../services/hog-function-manager-lazy.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { cleanNullValues } from './transformation-functions'
@@ -54,11 +55,13 @@ export class HogTransformerService {
     private hub: Hub
     private pluginExecutor: LegacyPluginExecutorService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
+    private hogFunctionManagerLazy: HogFunctionManagerLazyService
 
     constructor(hub: Hub) {
         this.hub = hub
         this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
+        this.hogFunctionManagerLazy = new HogFunctionManagerLazyService(hub)
+        this.hogExecutor = new HogExecutorService(hub)
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
     }
@@ -107,6 +110,23 @@ export class HogTransformerService {
             func: async () => {
                 hogTransformationAttempts.inc({ type: 'with_messages' })
                 const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
+
+                if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
+                    try {
+                        const teamHogFunctionsLazy = await this.hogFunctionManagerLazy.getHogFunctionsForTeam(
+                            event.team_id,
+                            ['transformation']
+                        )
+                        if (teamHogFunctionsLazy.length !== teamHogFunctions.length) {
+                            logger.warn('loaded different number of functions', {
+                                lazy: teamHogFunctionsLazy.length,
+                                eager: teamHogFunctions.length,
+                            })
+                        }
+                    } catch (e) {
+                        logger.error('Error lazy loading hog functions', { error: e })
+                    }
+                }
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
                 await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
 
@@ -137,7 +157,7 @@ export class HogTransformerService {
                     results.push(result)
 
                     if (result.error) {
-                        status.error('⚠️', 'Error in transformation', {
+                        logger.error('⚠️', 'Error in transformation', {
                             error: result.error,
                             function_id: hogFunction.id,
                             team_id: event.team_id,
@@ -147,7 +167,7 @@ export class HogTransformerService {
                     }
 
                     if (!result.execResult) {
-                        status.warn('⚠️', 'Execution result is null - dropping event')
+                        logger.warn('⚠️', 'Execution result is null - dropping event')
                         hogTransformationDroppedEvents.inc()
                         transformationsFailed.push(transformationIdentifier)
                         return {
@@ -165,7 +185,7 @@ export class HogTransformerService {
                         !transformedEvent.properties ||
                         typeof transformedEvent.properties !== 'object'
                     ) {
-                        status.error('⚠️', 'Invalid transformation result - missing or invalid properties', {
+                        logger.error('⚠️', 'Invalid transformation result - missing or invalid properties', {
                             function_id: hogFunction.id,
                         })
                         transformationsFailed.push(transformationIdentifier)
@@ -180,7 +200,7 @@ export class HogTransformerService {
 
                     if ('event' in transformedEvent) {
                         if (typeof transformedEvent.event !== 'string') {
-                            status.error('⚠️', 'Invalid transformation result - event name must be a string', {
+                            logger.error('⚠️', 'Invalid transformation result - event name must be a string', {
                                 function_id: hogFunction.id,
                                 event: transformedEvent.event,
                             })
@@ -192,7 +212,7 @@ export class HogTransformerService {
 
                     if ('distinct_id' in transformedEvent) {
                         if (typeof transformedEvent.distinct_id !== 'string') {
-                            status.error('⚠️', 'Invalid transformation result - distinct_id must be a string', {
+                            logger.error('⚠️', 'Invalid transformation result - distinct_id must be a string', {
                                 function_id: hogFunction.id,
                                 distinct_id: transformedEvent.distinct_id,
                             })

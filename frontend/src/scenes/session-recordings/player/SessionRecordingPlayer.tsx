@@ -21,6 +21,7 @@ import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
+import { SessionRecordingNextConfirmation } from './SessionRecordingNextConfirmation'
 import {
     ONE_FRAME_MS,
     PLAYBACK_SPEEDS,
@@ -219,6 +220,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     )}
                 </FloatingContainerContext.Provider>
             </div>
+            <SessionRecordingNextConfirmation />
         </BindLogic>
     )
 }

@@ -215,6 +215,28 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             },
         ],
 
+        isBrowserUrlValid: [
+            (s) => [s.browserUrl],
+            (browserUrl) => {
+                if (!browserUrl) {
+                    // an empty browserUrl is valid
+                    // since we just won't do anything with it
+                    return true
+                }
+
+                try {
+                    // must be something that can be parsed as a URL
+                    new URL(browserUrl)
+                    // and must be a valid URL that our redirects can cope with
+                    // this is a very loose check, but `http:/blaj` is not valid for PostHog
+                    // but survives new URL(http:/blaj)
+                    return browserUrl.includes('://')
+                } catch (e) {
+                    return false
+                }
+            },
+        ],
+
         viewportRange: [
             (s) => [s.heatmapFilters, s.iframeWidth],
             (heatmapFilters, iframeWidth) => {

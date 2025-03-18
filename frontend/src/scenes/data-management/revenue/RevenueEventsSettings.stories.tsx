@@ -10,7 +10,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: [FEATURE_FLAGS.WEB_REVENUE_TRACKING],
+        featureFlags: [FEATURE_FLAGS.WEB_REVENUE_TRACKING, FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS],
     },
 }
 export default meta

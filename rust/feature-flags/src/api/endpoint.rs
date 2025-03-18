@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use crate::{
     api::errors::FlagError,
     api::request_handler::{process_request, FlagsQueryParams, RequestContext},
-    api::types::{FlagsOptionsResponse, FlagsResponse, FlagsResponseCode},
+    api::types::{FlagsOptionsResponse, FlagsResponseCode, LegacyFlagsResponse, ServiceResponse},
     router,
 };
 // TODO: stream this instead
@@ -40,7 +40,7 @@ pub async fn flags(
     method: Method,
     path: MatchedPath,
     body: Bytes,
-) -> Result<Json<FlagsResponse>, FlagError> {
+) -> Result<Json<ServiceResponse>, FlagError> {
     record_request_metadata(&headers, &method, &path, &ip, &Query(query_params.clone()));
 
     let context = RequestContext {
@@ -51,7 +51,23 @@ pub async fn flags(
         body,
     };
 
-    Ok(Json(process_request(context).await?))
+    let version = context
+        .meta
+        .version
+        .clone()
+        .as_deref()
+        .map(|v| v.parse::<i32>().unwrap_or(1));
+
+    let response = process_request(context).await?;
+
+    let versioned_response: Result<ServiceResponse, FlagError> = match version {
+        Some(v) if v >= 2 => Ok(ServiceResponse::V2(response)),
+        _ => Ok(ServiceResponse::Default(
+            LegacyFlagsResponse::from_response(response),
+        )),
+    };
+
+    Ok(Json(versioned_response?))
 }
 
 pub async fn options() -> Result<Json<FlagsOptionsResponse>, FlagError> {
@@ -121,13 +137,13 @@ mod tests {
         assert!(matches!(params.compression, Some(Compression::Base64)));
 
         // Test case 2: Partial query string
-        let uri = Uri::from_static("http://localhost:3001/flags/?v=3&compression=gzip");
+        let uri = Uri::from_static("http://localhost:3001/flags/?v=2&compression=gzip");
         let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
         let Query(params) = Query::<FlagsQueryParams>::from_request(req, &())
             .await
             .unwrap();
 
-        assert_eq!(params.version, Some("3".to_string()));
+        assert_eq!(params.version, Some("2".to_string()));
         assert!(matches!(params.compression, Some(Compression::Gzip)));
         assert_eq!(params.lib_version, None);
         assert_eq!(params.sent_at, None);
