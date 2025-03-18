@@ -123,7 +123,16 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def is_first_matching_event(self):
         return self.series.math == "first_matching_event_for_user"
 
-    def _math_func(self, method: str, override_chain: Optional[list[str | int]]) -> ast.Call:
+    def _get_math_chain(self) -> list[str]:
+        if self.series.math_property == "$session_duration":
+            return ["session_duration"]
+        elif isinstance(self.series, DataWarehouseNode) and self.series.math_property:
+            return [self.series.math_property]
+        elif self.series.math_property_type == "data_warehouse_person_properties" and self.series.math_property:
+            return ["person", *self.series.math_property.split(".")]
+        return ["properties", self.series.math_property]
+
+    def _math_func(self, method: str, *, override_chain: Optional[list[str | int]]) -> ast.Call:
         if override_chain is not None:
             return ast.Call(name=method, args=[ast.Field(chain=override_chain)])
 
@@ -138,14 +147,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 ],
             )
 
-        if self.series.math_property == "$session_duration":
-            chain = ["session_duration"]
-        elif isinstance(self.series, DataWarehouseNode) and self.series.math_property:
-            chain = [self.series.math_property]
-        elif self.series.math_property_type == "data_warehouse_person_properties" and self.series.math_property:
-            chain = ["person", *self.series.math_property.split(".")]
-        else:
-            chain = ["properties", self.series.math_property]
+        chain = self._get_math_chain()
 
         return ast.Call(
             # Two caveats here - similar to the math_quantile, but not quite:
@@ -161,10 +163,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         )
 
     def _math_quantile(self, percentile: float, override_chain: Optional[list[str | int]]) -> ast.Call:
-        if self.series.math_property == "$session_duration":
-            chain = ["session_duration"]
-        else:
-            chain = ["properties", self.series.math_property]
+        chain = override_chain or self._get_math_chain()
 
         return ast.Call(
             # Two caveats here - similar to the math_func, but not quite:
@@ -177,7 +176,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 ast.Call(
                     name="quantile",
                     params=[ast.Constant(value=percentile)],
-                    args=[ast.Call(name="toFloat", args=[ast.Field(chain=override_chain or chain)])],
+                    args=[ast.Call(name="toFloat", args=[ast.Field(chain=chain)])],
                 ),
                 ast.Constant(value=0),
             ],
