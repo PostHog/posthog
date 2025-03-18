@@ -164,34 +164,13 @@ export class HogTransformerService {
                         if (!shouldApplyTransformation) {
                             transformationsSkipped.push(transformationIdentifier)
                             results.push({
-                                invocation: {
-                                    id: new UUIDT().toString(),
-                                    globals: {
-                                        project: {
-                                            id: event.team_id,
-                                            name: '',
-                                            url: '',
-                                        },
-                                        event: {
-                                            uuid: event.uuid,
-                                            event: event.event,
-                                            distinct_id: event.distinct_id,
-                                            properties: event.properties || {},
-                                            elements_chain: event.properties?.elements_chain || '',
-                                            timestamp: event.timestamp || '',
-                                            url: event.properties?.$current_url || '',
-                                        },
-                                        inputs: {
-                                            ...(hogFunction.inputs ?? {}),
-                                            ...(hogFunction.encrypted_inputs ?? {}),
-                                        },
+                                invocation: createInvocation(
+                                    {
+                                        ...globals,
+                                        inputs: {}, // Not needed as this is only for a valid return type
                                     },
-                                    teamId: event.team_id,
-                                    hogFunction,
-                                    queue: 'hog',
-                                    priority: 1,
-                                    timings: [],
-                                },
+                                    hogFunction
+                                ),
                                 metrics: [
                                     {
                                         team_id: event.team_id,
@@ -205,6 +184,7 @@ export class HogTransformerService {
                                 error: null,
                                 finished: true,
                             })
+
                             continue
                         }
                     }
