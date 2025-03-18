@@ -82,7 +82,7 @@ export const RecordingsUniversalFilters = ({
 
     const durationFilter = filters.duration[0]
 
-    const [isFiltersExpanded, setIsFiltersExpanded] = useState(false)
+    const [isFiltersExpanded, setIsFiltersExpanded] = useState(true)
 
     const { isExpanded } = useValues(playlistLogic)
     const { setIsExpanded } = useActions(playlistLogic)
