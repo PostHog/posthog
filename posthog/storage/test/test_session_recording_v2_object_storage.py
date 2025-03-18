@@ -43,9 +43,9 @@ class TestSessionRecordingV2Storage(APIBaseTest):
         # Check config parameters separately
         config = call_kwargs["config"]
         assert isinstance(config, Config)
-        assert config.signature_version == "s3v4"
-        assert config.connect_timeout == 1
-        assert config.retries == {"max_attempts": 1}
+        assert config.signature_version == "s3v4"  # type: ignore[attr-defined]
+        assert config.connect_timeout == 1  # type: ignore[attr-defined]
+        assert config.retries == {"max_attempts": 1}  # type: ignore[attr-defined]
 
         # Check the returned client
         assert isinstance(storage_client, SessionRecordingV2ObjectStorage)
