@@ -5,6 +5,7 @@ import { insertHogFunction as _insertHogFunction } from '~/src/cdp/_tests/fixtur
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
 import {
+    DecodedKafkaMessage,
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
     mockProducer,
@@ -578,7 +579,16 @@ describe('IngestionConsumer', () => {
             const messages = createKafkaMessages(createEvents())
             await ingester.handleKafkaBatch(messages)
 
-            expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
+            // Tricky due to some parallel processing race conditions order isn't deterministic
+            // So we sort by specific properties to make it deterministic
+            const sortingKey = (message: DecodedKafkaMessage) => {
+                const value = message.value
+                return `${value.topic}:${value.team_id}:${value.distinct_id}:${value.properties}`
+            }
+
+            const sortedMessages = getProducedKafkaMessages().sort((a, b) => sortingKey(a).localeCompare(sortingKey(b)))
+
+            expect(forSnapshot(sortedMessages)).toMatchSnapshot()
         })
     })
 

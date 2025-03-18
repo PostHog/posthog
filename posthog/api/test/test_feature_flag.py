@@ -2328,7 +2328,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "alpha-feature")
 
         dashboard = instance.usage_dashboard
-        tiles = sorted(dashboard.tiles.all(), key=lambda x: x.insight.name)
+        assert dashboard is not None
+        assert dashboard.tiles is not None
+        tiles = sorted(dashboard.tiles.all(), key=lambda x: str(x.insight.name if x.insight is not None else ""))
 
         self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
         self.assertEqual(
@@ -2339,6 +2341,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(dashboard.creation_mode, Dashboard.CreationMode.TEMPLATE)
         self.assertEqual(dashboard.filters, {"date_from": "-30d"})
         self.assertEqual(len(tiles), 2)
+        assert tiles[0].insight is not None
         self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
         self.assertEqual(
             tiles[0].insight.query,
@@ -2380,6 +2383,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             },
         )
+        assert tiles[1].insight is not None
         self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
         self.assertEqual(
             tiles[1].insight.query,
@@ -2442,7 +2446,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         instance.refresh_from_db()
 
         dashboard = instance.usage_dashboard
-        tiles = sorted(dashboard.tiles.all(), key=lambda x: x.insight.name)
+        assert dashboard is not None
+        assert dashboard.tiles is not None
+        tiles = sorted(dashboard.tiles.all(), key=lambda x: str(x.insight.name if x.insight is not None else ""))
 
         self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
         self.assertEqual(
@@ -2451,6 +2457,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(dashboard.filters, {"date_from": "-30d"})
         self.assertEqual(len(tiles), 4)
+        assert tiles[0].insight is not None
         self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
         self.assertEqual(
             tiles[0].insight.query,
@@ -2492,6 +2499,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             },
         )
+        assert tiles[1].insight is not None
         self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
         self.assertEqual(
             tiles[1].insight.query,
@@ -2542,6 +2550,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # enriched insights
+        assert tiles[2].insight is not None
         self.assertEqual(tiles[2].insight.name, "Feature Interaction Total Volume")
         self.assertEqual(
             tiles[2].insight.query,
@@ -2591,6 +2600,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             },
         )
+        assert tiles[3].insight is not None
         self.assertEqual(tiles[3].insight.name, "Feature Viewed Total Volume")
         self.assertEqual(
             tiles[3].insight.query,

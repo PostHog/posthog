@@ -1,11 +1,16 @@
 import { LazyLoader } from './lazy-loader'
+import { delay } from './utils'
 
 describe('LazyLoader', () => {
+    jest.setTimeout(1000)
+
     let loader: jest.Mock
     let lazyLoader: LazyLoader<string>
+    let start: number
 
     beforeEach(() => {
-        jest.useFakeTimers()
+        start = Date.now()
+        jest.spyOn(Date, 'now').mockReturnValue(start)
         loader = jest.fn()
         lazyLoader = new LazyLoader({
             name: 'test',
@@ -14,7 +19,7 @@ describe('LazyLoader', () => {
     })
 
     afterEach(() => {
-        jest.useRealTimers()
+        jest.spyOn(Date, 'now').mockRestore()
     })
 
     describe('get', () => {
@@ -103,7 +108,7 @@ describe('LazyLoader', () => {
             expect(loader).toHaveBeenCalledTimes(1)
 
             // Fast forward past refresh age
-            jest.advanceTimersByTime(1000 * 60 * 6) // 6 minutes
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 6)
 
             await lazyLoader.get('key1')
             expect(loader).toHaveBeenCalledTimes(2)
@@ -122,7 +127,7 @@ describe('LazyLoader', () => {
             expect(loader).toHaveBeenCalledTimes(1)
 
             // Fast forward past custom refresh age
-            jest.advanceTimersByTime(1000 * 60 * 3) // 3 minutes
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 3) // 3 minutes
 
             await customLoader.get('key1')
             expect(loader).toHaveBeenCalledTimes(2)
@@ -160,6 +165,68 @@ describe('LazyLoader', () => {
             lazyLoader.markForRefresh(['key1', 'key2'])
             await lazyLoader.getMany(['key1', 'key2'])
             expect(loader).toHaveBeenCalledTimes(2)
+        })
+    })
+
+    describe('parallel loading', () => {
+        it('should bundle loads for the same key', async () => {
+            loader.mockResolvedValue({ key1: { foo: 'bar' } })
+
+            const results = await Promise.all([lazyLoader.get('key1'), lazyLoader.get('key1'), lazyLoader.get('key2')])
+
+            expect(results).toEqual([{ foo: 'bar' }, { foo: 'bar' }, null])
+            expect(results[0]).toBe(results[1])
+            expect(loader).toHaveBeenCalledTimes(1)
+            expect(loader).toHaveBeenCalledWith(['key1', 'key2'])
+        })
+
+        it('should load multiple values in parallel', async () => {
+            loader.mockImplementation(async (keys) => {
+                await new Promise((resolve) => setTimeout(resolve, 100))
+                return keys.reduce((acc: any, key: string) => {
+                    acc[key] = { val: key }
+                    return acc
+                }, {} as Record<string, any>)
+            })
+
+            const result1 = lazyLoader.get('key1')
+            await delay(70)
+            // Should join first request
+            const result2 = lazyLoader.get('key2')
+            await delay(60)
+            // Should load key2 and join second request
+            const result3 = lazyLoader.get('key3')
+            const result4 = lazyLoader.getMany(['key1', 'key2', 'key3'])
+
+            const results = await Promise.all([result1, result2, result3, result4])
+
+            expect(results).toMatchInlineSnapshot(`
+                [
+                  {
+                    "val": "key1",
+                  },
+                  {
+                    "val": "key2",
+                  },
+                  {
+                    "val": "key3",
+                  },
+                  {
+                    "key1": {
+                      "val": "key1",
+                    },
+                    "key2": {
+                      "val": "key2",
+                    },
+                    "key3": {
+                      "val": "key3",
+                    },
+                  },
+                ]
+            `)
+            expect(loader).toHaveBeenCalledTimes(2)
+            expect(loader).toHaveBeenNthCalledWith(1, ['key1', 'key2'])
+            expect(loader).toHaveBeenNthCalledWith(2, ['key3'])
         })
     })
 })

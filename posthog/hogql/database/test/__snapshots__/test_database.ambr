@@ -99,16 +99,6 @@
                   "table": null,
                   "type": "string"
               },
-              "$session_id_uuid": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$session_id_uuid`",
-                  "id": null,
-                  "name": "$session_id_uuid",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
-              },
               "$window_id": {
                   "chain": null,
                   "fields": null,
@@ -881,7 +871,6 @@
                       "elements_chain",
                       "created_at",
                       "$session_id",
-                      "$session_id_uuid",
                       "$window_id",
                       "pdi",
                       "poe",
@@ -2158,16 +2147,6 @@
                   "table": null,
                   "type": "string"
               },
-              "$session_id_uuid": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$session_id_uuid`",
-                  "id": null,
-                  "name": "$session_id_uuid",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
-              },
               "$window_id": {
                   "chain": null,
                   "fields": null,
@@ -2910,7 +2889,6 @@
                       "elements_chain",
                       "created_at",
                       "$session_id",
-                      "$session_id_uuid",
                       "$window_id",
                       "pdi",
                       "poe",

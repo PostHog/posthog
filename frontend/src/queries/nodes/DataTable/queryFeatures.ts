@@ -2,6 +2,7 @@ import { Node } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
     isEventsQuery,
+    isGroupsQuery,
     isHogQLQuery,
     isPersonsNode,
     isRevenueExampleDataWarehouseTablesQuery,
@@ -21,7 +22,9 @@ export enum QueryFeature {
     eventNameFilter,
     eventPropertyFilters,
     personPropertyFilters,
+    groupPropertyFilters,
     personsSearch,
+    groupsSearch,
     savedEventsQueries,
     columnConfigurator,
     resultIsArrayOfArrays,
@@ -72,6 +75,14 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
             features.add(QueryFeature.columnsInResponse)
             features.add(QueryFeature.resultIsArrayOfArrays)
         }
+    }
+
+    if (isGroupsQuery(query)) {
+        features.add(QueryFeature.groupPropertyFilters)
+        features.add(QueryFeature.groupsSearch)
+        features.add(QueryFeature.selectAndOrderByColumns)
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
     }
 
     if (

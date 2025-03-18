@@ -25,7 +25,6 @@ import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { GroupTypeManager, GroupTypesByProjectId } from '../worker/ingestion/group-type-manager'
-import { TeamManager } from '../worker/ingestion/team-manager'
 import { PropertyDefsDB } from './services/property-defs-db'
 import {
     getPropertyType,
@@ -84,7 +83,6 @@ export class PropertyDefsConsumer {
 
     private batchConsumer?: BatchConsumer
     private propertyDefsDB: PropertyDefsDB
-    private teamManager: TeamManager
     private groupTypeManager: GroupTypeManager
     private isStopping = false
     protected heartbeat = () => {}
@@ -96,8 +94,7 @@ export class PropertyDefsConsumer {
         this.groupId = hub.PROPERTY_DEFS_CONSUMER_GROUP_ID
         this.topic = hub.PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC
         this.propertyDefsDB = new PropertyDefsDB(hub)
-        this.teamManager = new TeamManager(hub.postgres)
-        this.groupTypeManager = new GroupTypeManager(hub.postgres, this.teamManager)
+        this.groupTypeManager = hub.groupTypeManager
         this.propDefsEnabledProjects = buildIntegerMatcher(hub.PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS, true)
         this.writeDisabled = hub.PROPERTY_DEFS_WRITE_DISABLED
     }

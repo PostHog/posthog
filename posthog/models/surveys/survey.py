@@ -3,10 +3,8 @@ import uuid
 from datetime import timedelta
 
 from django.db import models
-from django.db.models.signals import post_save, post_delete
 
 from posthog.models import Action
-from posthog.models.signals import mutable_receiver
 from posthog.models.utils import UUIDModel
 from django.contrib.postgres.fields import ArrayField
 from dateutil.rrule import rrule, DAILY
@@ -320,24 +318,3 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
     if iteration_count > 0 and (instance.current_iteration is None or instance.current_iteration == 0):
         instance.current_iteration = 1
         instance.current_iteration_start_date = instance.start_date
-
-
-@mutable_receiver([post_save, post_delete], sender=Survey)
-def update_surveys_opt_in(sender, instance, **kwargs):
-    active_surveys_count = (
-        Survey.objects.filter(
-            team__project_id=instance.team.project_id,
-            start_date__isnull=False,
-            end_date__isnull=True,
-            archived=False,
-        )
-        .exclude(type="api")
-        .count()
-    )
-
-    if active_surveys_count > 0 and not instance.team.surveys_opt_in:
-        instance.team.surveys_opt_in = True
-        instance.team.save(update_fields=["surveys_opt_in"])
-    elif active_surveys_count == 0 and instance.team.surveys_opt_in is True:
-        instance.team.surveys_opt_in = False
-        instance.team.save(update_fields=["surveys_opt_in"])
