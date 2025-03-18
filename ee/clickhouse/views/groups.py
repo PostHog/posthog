@@ -157,7 +157,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
     @action(methods=["POST"], detail=False)
     def update_property(self, request: request.Request, **kw) -> response.Response:
         try:
-            group = self.get_queryset().get(group_key=request.GET["group_key"])
+            group = self.get_queryset().get()
             for key in ["value", "key"]:
                 if request.data.get(key) is None:
                     return response.Response(
@@ -204,7 +204,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
     @action(methods=["POST"], detail=False)
     def delete_property(self, request: request.Request, **kw) -> response.Response:
         try:
-            group = self.get_queryset().get(group_key=request.GET["group_key"])
+            group = self.get_queryset().get()
             for key in ["$unset"]:
                 if request.data.get(key) is None:
                     return response.Response(
