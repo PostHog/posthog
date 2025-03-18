@@ -145,7 +145,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
     actions({
-        loadData: (refresh = false, alreadyRunningQueryId?: string, overrideQuery?: DataNode<Record<string, any>>) => ({
+        loadData: (refresh, alreadyRunningQueryId?: string, overrideQuery?: DataNode<Record<string, any>>) => ({
             refresh,
             queryId: alreadyRunningQueryId || uuid(),
             pollOnly: !!alreadyRunningQueryId,
@@ -173,7 +173,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
                     const query = overrideQuery ?? props.query
-                    const refresh = refreshArg || props.refresh
+                    const refresh = refreshArg ?? props.refresh ?? false
 
                     if (props.doNotLoad) {
                         return props.cachedResults
