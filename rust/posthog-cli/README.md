@@ -22,9 +22,11 @@ Options:
 
 Releases are cut by pushing a release tag to the repository, for the `posthog-cli` app, e.g.
 ```
-git tag "posthog-cli-v0.1.0"
+git tag "posthog-cli-v0.1.0-prerelease.1"
 git push
 git push tags
 ```
+
+We manage publishing releases through [`cargo-dist`](https://github.com/axodotdev/cargo-dist)
 
 We release semi-regularly, as new features are added. If a release breaks your CI or workflow, please open an issue on GitHub, and tag one or all of the crate authors
