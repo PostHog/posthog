@@ -417,4 +417,20 @@ describe('infiniteListLogic', () => {
             swappedInQuery: '$current_url',
         })
     })
+
+    it('swaps in query when email is sent', async () => {
+        const logicWithProps = infiniteListLogic({
+            taxonomicFilterLogicKey: 'test-e-prop',
+            listGroupType: TaxonomicFilterGroupType.PersonProperties,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
+            showNumericalPropsOnly: false,
+        })
+        logicWithProps.mount()
+
+        await expectLogic(logicWithProps, () =>
+            logicWithProps.actions.setSearchQuery('test@example.com')
+        ).toMatchValues({
+            swappedInQuery: 'email',
+        })
+    })
 })

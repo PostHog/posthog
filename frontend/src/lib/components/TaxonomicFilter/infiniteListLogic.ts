@@ -14,7 +14,7 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
-import { isURL } from 'lib/utils'
+import { isEmail, isURL } from 'lib/utils'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
@@ -215,9 +215,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                     // TODO not everyone will call this email 🤷
                     // but this is an obvious option to add
-                    // if (props.listGroupType === TaxonomicFilterGroupType.PersonProperties && isEmail(searchQuery)) {
-                    //     return 'email'
-                    // }
+                    if (props.listGroupType === TaxonomicFilterGroupType.PersonProperties && isEmail(searchQuery)) {
+                        return 'email'
+                    }
                     return searchQuery
                 },
             },
