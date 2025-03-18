@@ -1,4 +1,3 @@
-import datetime as dt
 import inspect
 import re
 import resource
@@ -9,6 +8,7 @@ import unittest
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from functools import wraps
+import datetime as dt
 from typing import Any, Optional, Union
 from unittest.mock import patch
 
@@ -183,13 +183,26 @@ def clean_varying_query_parts(query, replace_all_numbers):
         r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_redacted_timestamp'", query
     )
     # and where the HogQL doesn't match the above
+
+    # Often we use a now from python to upper bound event times.
+    # Replace all dates that could be today in any timezone with "today"
+    today = dt.datetime.now(dt.UTC)
+    yesterday = today - dt.timedelta(days=1)
+    tomorrow = today + dt.timedelta(days=1)
+    days_to_sub = "|".join([x.strftime("%Y-%m-%d") for x in [yesterday, today, tomorrow]])
+    query = re.sub(
+        rf"toDateTime64\('({days_to_sub}) \d\d:\d\d:\d\d.\d+', 6, '(.+?)'\)",
+        r"toDateTime64('today', 6, '\2')",
+        query,
+    )
+
     # KLUDGE we tend not to replace dates in tests so trying to avoid replacing every date here
     # replace all dates where the date is
     if "equals(argMax(person_distinct_id_overrides.is_deleted" in query or "INSERT INTO cohortpeople" in query:
         # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
         query = re.sub(
-            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d(.\d+)', 6, '.+?'\)",
-            r"toDateTime64('explicit_redacted_timestamp', 6, 'UTC')",
+            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d.\d+', 6, '(.+?)'\)",
+            r"toDateTime64('explicit_redacted_timestamp', 6, '\1')",
             query,
         )
     # replace cohort generated conditions

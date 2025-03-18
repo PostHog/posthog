@@ -49,9 +49,10 @@ import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestio
 import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
+import { parseJSON } from '../json-parse'
+import { logger } from '../logger'
 import { instrumentQuery } from '../metrics'
 import { captureException } from '../posthog'
-import { status } from '../status'
 import {
     castTimestampOrNow,
     escapeClickHouseString,
@@ -261,7 +262,7 @@ export class DB {
                 if (typeof value === 'undefined' || value === null) {
                     return defaultValue
                 }
-                return value ? (jsonSerialize ? JSON.parse(value) : value) : null
+                return value ? (jsonSerialize ? parseJSON(value) : value) : null
             } catch (error) {
                 if (error instanceof SyntaxError) {
                     // invalid JSON
@@ -689,7 +690,7 @@ export class DB {
 
         const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
 
-        status.debug(
+        logger.debug(
             '🧑‍🦰',
             `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
         )
@@ -1025,7 +1026,7 @@ export class DB {
         ).data.map((event) => {
             return {
                 ...event,
-                snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
+                snapshot_data: event.snapshot_data ? parseJSON(event.snapshot_data) : null,
             }
         })
         return events
@@ -1060,7 +1061,7 @@ export class DB {
 
         if (parsedEntry.message.length > 50_000) {
             const { message, ...rest } = parsedEntry
-            status.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
+            logger.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
             return Promise.resolve()
         }
 
@@ -1076,7 +1077,7 @@ export class DB {
                     messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
                 })
                 .catch((error) => {
-                    status.warn('⚠️', 'Failed to produce plugin log entry', {
+                    logger.warn('⚠️', 'Failed to produce plugin log entry', {
                         error,
                         entry: parsedEntry,
                     })
