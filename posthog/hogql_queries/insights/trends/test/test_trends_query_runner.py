@@ -26,9 +26,13 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import (
     TrendsQueryRunner,
 )
 from posthog.models import GroupTypeMapping
+from posthog.models.action.action import Action
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
+from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
 from posthog.schema import (
+    ActionsNode,
     BaseMathType,
     Breakdown,
     BreakdownFilter,
@@ -63,11 +67,6 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import Action, Cohort
-from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import (
-    ActionsNode,
-)
 
 
 @dataclass
