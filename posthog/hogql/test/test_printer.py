@@ -1479,12 +1479,8 @@ class TestPrinter(BaseTest):
     def test_to_start_of_week_gets_mode(self):
         # It's important we use ints and not WeekStartDay here, because it's the former that's actually in the DB
         default_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, None))
-        sunday_week_context = HogQLContext(
-            team_id=self.team.pk, database=Database(None, WeekStartDay.SUNDAY)
-        )  # 0 == WeekStartDay.SUNDAY
-        monday_week_context = HogQLContext(
-            team_id=self.team.pk, database=Database(None, WeekStartDay.MONDAY)
-        )  # 1 == WeekStartDay.MONDAY
+        sunday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.SUNDAY))
+        monday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.MONDAY))
 
         self.assertEqual(
             self._expr("toStartOfWeek(timestamp)", default_week_context),  # Sunday is the default
