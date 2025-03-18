@@ -315,6 +315,10 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                 if query_task.done():
                     try:
                         result = query_task.result()
+                    except asyncio.CancelledError as e:
+                        # Handle the cancellation as an SSE event
+                        yield f"data: {json.dumps({'error': 'Query was cancelled', 'status_code': 499})}\n\n".encode()
+                        capture_exception(e)
                     except (ExposedHogQLError, ExposedCHQueryError) as e:
                         yield f"data: {json.dumps({'error': str(e), 'status_code': 400})}\n\n".encode()
                     except Exception:
