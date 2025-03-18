@@ -59,7 +59,7 @@ export class HogTransformerService {
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private hogFunctionManagerLazy: HogFunctionManagerLazyService
 
-    constructor(public hub: Hub) {
+    constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFunctionManagerLazy = new HogFunctionManagerLazyService(hub)
         this.hogExecutor = new HogExecutorService(hub)
