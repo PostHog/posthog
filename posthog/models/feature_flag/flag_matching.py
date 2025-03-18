@@ -327,11 +327,10 @@ class FeatureFlagMatcher:
         )
 
     def get_matching_variant(self, feature_flag: FeatureFlag) -> Optional[str]:
+        # Calculate hash once outside the loop since it's the same for all variants
+        variant_hash = self.get_hash(feature_flag, salt="variant")
         for variant in self.variant_lookup_table(feature_flag):
-            if (
-                self.get_hash(feature_flag, salt="variant") >= variant["value_min"]
-                and self.get_hash(feature_flag, salt="variant") < variant["value_max"]
-            ):
+            if variant_hash >= variant["value_min"] and variant_hash < variant["value_max"]:
                 return variant["key"]
         return None
 
