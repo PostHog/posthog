@@ -25,7 +25,6 @@ import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { GroupTypeManager, GroupTypesByProjectId } from '../worker/ingestion/group-type-manager'
-import { TeamManager } from '../worker/ingestion/team-manager'
 import { PropertyDefsDB } from './services/property-defs-db'
 import {
     getPropertyType,
