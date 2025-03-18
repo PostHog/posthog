@@ -26,36 +26,12 @@ posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_ch
 posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_change_permission" incompatible with supertype "InlineModelAdmin"  [override]
 posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_delete_permission" incompatible with supertype "BaseModelAdmin"  [override]
 posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_delete_permission" incompatible with supertype "InlineModelAdmin"  [override]
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: Subclass:
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: Subclass:
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: Subclass:
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: Subclass:
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: Subclass:
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: Superclass:
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: Superclass:
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: Superclass:
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: Superclass:
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: Superclass:
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_add_permission(self, request: Any, obj: Any) -> Any
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_add_permission(self, request: HttpRequest) -> bool
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_change_permission(self, request: Any, obj: Any) -> Any
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_change_permission(self, request: Any, obj: Any) -> Any
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_change_permission(self, request: HttpRequest, obj: Any | None = ...) -> bool
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_change_permission(self, request: HttpRequest, obj: Any | None = ...) -> bool
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_delete_permission(self, request: Any, obj: Any) -> Any
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_delete_permission(self, request: Any, obj: Any) -> Any
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_delete_permission(self, request: HttpRequest, obj: Any | None = ...) -> bool
-posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_delete_permission(self, request: HttpRequest, obj: Any | None = ...) -> bool
 posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/api/capture.py:0: error: Module has no attribute "utc"  [attr-defined]
 posthog/api/cohort.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/api/cohort.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/api/dashboards/dashboard.py:0: error: Argument 1 to "dashboard_queryset" of "DashboardTile" has incompatible type "DashboardTile_RelatedManager"; expected "QuerySet[Any, Any]"  [arg-type]
 posthog/api/documentation.py:0: error: Signature of "run_validation" incompatible with supertype "Field"  [override]
-posthog/api/documentation.py:0: note: Subclass:
-posthog/api/documentation.py:0: note: Superclass:
-posthog/api/documentation.py:0: note: def run_validation(self, data: Any = ...) -> Any
-posthog/api/documentation.py:0: note: def run_validation(self, data: Any) -> Any
 posthog/api/event.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/api/feature_flag.py:0: error: Argument 2 to "get_all_feature_flags" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/api/feature_flag.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
@@ -71,14 +47,6 @@ posthog/api/organization_member.py:0: error: "User" has no attribute "social_aut
 posthog/api/organization_member.py:0: error: "User" has no attribute "totpdevice_set"  [attr-defined]
 posthog/api/organization_member.py:0: error: Signature of "update" incompatible with supertype "BaseSerializer"  [override]
 posthog/api/organization_member.py:0: error: Signature of "update" incompatible with supertype "ModelSerializer"  [override]
-posthog/api/organization_member.py:0: note: Subclass:
-posthog/api/organization_member.py:0: note: Subclass:
-posthog/api/organization_member.py:0: note: Superclass:
-posthog/api/organization_member.py:0: note: Superclass:
-posthog/api/organization_member.py:0: note: def update(self, instance: Any, validated_data: Any) -> Any
-posthog/api/organization_member.py:0: note: def update(self, instance: Any, validated_data: Any) -> Any
-posthog/api/organization_member.py:0: note: def update(self, updated_membership: Any, validated_data: Any, **kwargs: Any) -> Any
-posthog/api/organization_member.py:0: note: def update(self, updated_membership: Any, validated_data: Any, **kwargs: Any) -> Any
 posthog/api/person.py:0: error: Argument "user" to "log_activity" has incompatible type "User | AnonymousUser"; expected "User | None"  [arg-type]
 posthog/api/person.py:0: error: Argument "user" to "log_activity" has incompatible type "User | AnonymousUser"; expected "User | None"  [arg-type]
 posthog/api/person.py:0: error: Argument 1 to "loads" has incompatible type "str | None"; expected "str | bytes | bytearray"  [arg-type]
@@ -110,10 +78,6 @@ posthog/api/survey.py:0: error: Item "list[_ErrorFullDetails]" of "_FullDetailDi
 posthog/api/survey.py:0: error: Item "object" of "object | Any" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/api/test/batch_exports/conftest.py:0: error: Argument "activities" to "ThreadedWorker" has incompatible type "list[function]"; expected "Sequence[Callable[..., Any]]"  [arg-type]
 posthog/api/test/batch_exports/conftest.py:0: error: Signature of "run" incompatible with supertype "Worker"  [override]
-posthog/api/test/batch_exports/conftest.py:0: note: Subclass:
-posthog/api/test/batch_exports/conftest.py:0: note: Superclass:
-posthog/api/test/batch_exports/conftest.py:0: note: def run(self) -> Coroutine[Any, Any, None]
-posthog/api/test/batch_exports/conftest.py:0: note: def run(self, loop: Any) -> Any
 posthog/api/test/batch_exports/test_pause.py:0: error: "batch_export_delete_schedule" does not return a value (it only ever returns None)  [func-returns-value]
 posthog/api/test/batch_exports/test_update.py:0: error: Dict entry 1 has incompatible type "str": "dict[str, Collection[str]]"; expected "str": "str"  [dict-item]
 posthog/api/test/batch_exports/test_update.py:0: error: Unsupported target for indexed assignment ("Collection[str]")  [index]
@@ -182,7 +146,8 @@ posthog/api/utils.py:0: error: Incompatible types in assignment (expression has 
 posthog/async_migrations/test/test_runner.py:0: error: Item "None" of "datetime | None" has no attribute "day"  [union-attr]
 posthog/caching/insight_caching_state.py:0: error: Argument "params" to "execute" of "CursorWrapper" has incompatible type "list[object]"; expected "Sequence[bool | int | float | Decimal | str | <6 more items> | None] | Mapping[str, bool | int | float | Decimal | str | <6 more items> | None] | None"  [arg-type]
 posthog/caching/insights_api.py:0: error: Unsupported operand types for >= ("datetime" and "None")  [operator]
-posthog/caching/insights_api.py:0: note: Right operand is of type "datetime | None"
+posthog/clickhouse/migrations/0106_materialize_session_ids_uuid.py:0: error: Need type annotation for "operations" (hint: "operations: list[<type>] = ...")  [var-annotated]
+posthog/clickhouse/migrations/0107_materialize_session_ids_uuid.py:0: error: Need type annotation for "operations" (hint: "operations: list[<type>] = ...")  [var-annotated]
 posthog/demo/matrix/matrix.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
 posthog/demo/matrix/matrix.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
 posthog/demo/matrix/matrix.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
@@ -214,20 +179,12 @@ posthog/hogql/database/database.py:0: error: Argument "week_start_day" to "Datab
 posthog/hogql/database/schema/event_sessions.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
 posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
-posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
-posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/database/schema/numbers.py:0: error: Incompatible types in assignment (expression has type "dict[str, IntegerDatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
-posthog/hogql/database/schema/numbers.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/numbers.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/database/schema/persons.py:0: error: Incompatible types in assignment (expression has type "Organization | None", variable has type "Organization")  [assignment]
 posthog/hogql/database/schema/persons_pdi.py:0: error: Incompatible types in assignment (expression has type "Organization | None", variable has type "Organization")  [assignment]
 posthog/hogql/database/test/test_s3_table.py:0: error: Argument "dialect" to "print_ast" has incompatible type "str"; expected "Literal['hogql', 'clickhouse']"  [arg-type]
 posthog/hogql/database/test/test_view.py:0: error: Argument "dialect" to "print_ast" has incompatible type "str"; expected "Literal['hogql', 'clickhouse']"  [arg-type]
 posthog/hogql/filters.py:0: error: Incompatible default for argument "team" (default has type "None", argument has type "Team")  [assignment]
-posthog/hogql/filters.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-posthog/hogql/filters.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: Item "None" of "list[Expr] | None" has no attribute "__iter__" (not iterable)  [union-attr]
@@ -248,8 +205,6 @@ posthog/hogql/printer.py:0: error: Name "args" already defined on line 0  [no-re
 posthog/hogql/printer.py:0: error: Need type annotation for "found_aliases" (hint: "found_aliases: dict[<type>, <type>] = ...")  [var-annotated]
 posthog/hogql/printer.py:0: error: Right operand of "and" is never evaluated  [unreachable]
 posthog/hogql/printer.py:0: error: Subclass of "TableType" and "LazyTableType" cannot exist: would have incompatible method signatures  [unreachable]
-posthog/hogql/printer.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/printer.py:0: note: Consider using "Sequence" instead, which is covariant
 posthog/hogql/property.py:0: error: Incompatible type for lookup 'id': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/hogql/property.py:0: error: Incompatible type for lookup 'pk': (got "str | float", expected "str | int")  [misc]
 posthog/hogql/query.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery | SelectSetQuery")  [assignment]
@@ -341,9 +296,6 @@ posthog/hogql/test/test_resolver.py:0: error: Item "None" of "JoinExpr | None" h
 posthog/hogql/test/test_resolver.py:0: error: Item "None" of "SelectQueryType | SelectSetQueryType | None" has no attribute "columns"  [union-attr]
 posthog/hogql/test/test_resolver.py:0: error: Item "SelectSetQueryType" of "SelectQueryType | SelectSetQueryType | None" has no attribute "columns"  [union-attr]
 posthog/hogql/test/test_timings.py:0: error: No overload variant of "__setitem__" of "list" matches argument types "int", "float"  [call-overload]
-posthog/hogql/test/test_timings.py:0: note: Possible overload variants:
-posthog/hogql/test/test_timings.py:0: note: def __setitem__(self, SupportsIndex, int, /) -> None
-posthog/hogql/test/test_timings.py:0: note: def __setitem__(self, slice, Iterable[int], /) -> None
 posthog/hogql/transforms/in_cohort.py:0: error: Argument "table" to "JoinExpr" has incompatible type "Expr"; expected "SelectQuery | SelectSetQuery | Field | None"  [arg-type]
 posthog/hogql/transforms/in_cohort.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/in_cohort.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
@@ -355,10 +307,6 @@ posthog/hogql/transforms/in_cohort.py:0: error: List item 0 has incompatible typ
 posthog/hogql/transforms/in_cohort.py:0: error: List item 0 has incompatible type "SelectQueryType | None"; expected "SelectQueryType"  [list-item]
 posthog/hogql/transforms/in_cohort.py:0: error: List item 0 has incompatible type "SelectQueryType | None"; expected "SelectQueryType"  [list-item]
 posthog/hogql/transforms/in_cohort.py:0: error: List item 0 has incompatible type "SelectQueryType | None"; expected "SelectQueryType"  [list-item]
-posthog/hogql/transforms/in_cohort.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-posthog/hogql/transforms/in_cohort.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-posthog/hogql/transforms/in_cohort.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
-posthog/hogql/transforms/in_cohort.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
 posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible types in assignment (expression has type "BaseTableType | SelectSetQueryType | SelectQueryType | SelectQueryAliasType | SelectViewType", variable has type "SelectQueryAliasType | None")  [assignment]
 posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible types in assignment (expression has type "dict[Never, Never]", variable has type "list[ConstraintOverride]")  [assignment]
 posthog/hogql/transforms/lazy_tables.py:0: error: Name "chain" already defined on line 0  [no-redef]
@@ -371,6 +319,16 @@ posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression 
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "OrderExpr", variable has type "CTE")  [assignment]
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "Type", variable has type "BaseTableType | SelectSetQueryType | SelectQueryType | SelectQueryAliasType | SelectViewType")  [assignment]
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "WindowExpr", variable has type "CTE")  [assignment]
+posthog/hogql_queries/events_query_runner.py:0: error: Incompatible return value type (got "SelectQuery | SelectSetQuery", expected "SelectQuery")  [return-value]
+posthog/hogql_queries/events_query_runner.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "group_by"  [union-attr]
+posthog/hogql_queries/events_query_runner.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "having"  [union-attr]
+posthog/hogql_queries/events_query_runner.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "having"  [union-attr]
+posthog/hogql_queries/events_query_runner.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "having"  [union-attr]
+posthog/hogql_queries/events_query_runner.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "order_by"  [union-attr]
+posthog/hogql_queries/events_query_runner.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "select"  [union-attr]
+posthog/hogql_queries/events_query_runner.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "where"  [union-attr]
+posthog/hogql_queries/events_query_runner.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "where"  [union-attr]
+posthog/hogql_queries/events_query_runner.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "where"  [union-attr]
 posthog/hogql_queries/events_query_runner.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql_queries/hogql_query_runner.py:0: error: Incompatible return value type (got "SelectQuery | SelectSetQuery", expected "SelectQuery")  [return-value]
 posthog/hogql_queries/hogql_query_runner.py:0: error: Statement is unreachable  [unreachable]
@@ -382,8 +340,6 @@ posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Incompatible 
 posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Item "None" of "JoinExpr | Any | None" has no attribute "sample"  [union-attr]
 posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "select_from"  [union-attr]
 posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
-posthog/hogql_queries/insights/lifecycle_query_runner.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql_queries/insights/lifecycle_query_runner.py:0: note: Consider using "Sequence" instead, which is covariant
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Incompatible return value type (got "SelectQuery | SelectSetQuery", expected "SelectQuery")  [return-value]
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Item "None" of "JoinExpr | None" has no attribute "sample"  [union-attr]
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "select"  [union-attr]
@@ -393,6 +349,8 @@ posthog/hogql_queries/insights/test/test_paginators.py:0: error: Value of type "
 posthog/hogql_queries/insights/test/test_paginators.py:0: error: Value of type "object" is not indexable  [index]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Argument "chain" to "Field" has incompatible type "list[str | int] | list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
+posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
+posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "None" of "CurrencyCode | None" has no attribute "value"  [union-attr]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "None" of "list[Expr] | Any | None" has no attribute "append"  [union-attr]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "None" of "list[Expr] | None" has no attribute "append"  [union-attr]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "group_by"  [union-attr]
@@ -400,10 +358,8 @@ posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "select"  [union-attr]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "select"  [union-attr]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "select"  [union-attr]
+posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: List item 1 has incompatible type "str | None"; expected "str | int"  [list-item]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: List item 1 has incompatible type "str | None"; expected "str"  [list-item]
-posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: List item 1 has incompatible type "str | None"; expected "str"  [list-item]
-posthog/hogql_queries/insights/trends/aggregation_operations.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql_queries/insights/trends/aggregation_operations.py:0: note: Consider using "Sequence" instead, which is covariant
 posthog/hogql_queries/insights/trends/test/test_trends_data_warehouse_query.py:0: error: Argument 1 to "from_arrays" of "Table" has incompatible type "list[object]"; expected "Collection[Array[Any]] | Collection[ChunkedArray[Any]]"  [arg-type]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Statement is unreachable  [unreachable]
@@ -423,12 +379,13 @@ posthog/hogql_queries/legacy_compatibility/test/test_filter_to_query.py:0: error
 posthog/hogql_queries/sessions_timeline_query_runner.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql_queries/test/test_query_runner.py:0: error: Invalid base class "TestQueryRunner"  [misc]
 posthog/hogql_queries/test/test_query_runner.py:0: error: Variable "TestQueryRunner" is not valid as a type  [valid-type]
-posthog/hogql_queries/test/test_query_runner.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
 posthog/hogql_queries/utils/query_date_range.py:0: error: Incompatible default for argument "source" (default has type "None", argument has type "Expr")  [assignment]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "IntervalType | None" has no attribute "name"  [union-attr]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "dict[str, int] | None" has no attribute "get"  [union-attr]
-posthog/hogql_queries/utils/query_date_range.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-posthog/hogql_queries/utils/query_date_range.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+posthog/hogql_queries/web_analytics/test/test_revenue.py:0: error: Item "CacheMissResponse" of "Any | CacheMissResponse | QueryStatusResponse" has no attribute "results"  [union-attr]
+posthog/hogql_queries/web_analytics/test/test_revenue.py:0: error: Item "CacheMissResponse" of "Any | CacheMissResponse | QueryStatusResponse" has no attribute "results"  [union-attr]
+posthog/hogql_queries/web_analytics/test/test_revenue.py:0: error: Item "QueryStatusResponse" of "Any | CacheMissResponse | QueryStatusResponse" has no attribute "results"  [union-attr]
+posthog/hogql_queries/web_analytics/test/test_revenue.py:0: error: Item "QueryStatusResponse" of "Any | CacheMissResponse | QueryStatusResponse" has no attribute "results"  [union-attr]
 posthog/hogql_queries/web_analytics/web_analytics_query_runner.py:0: error: Argument 1 to "append" of "list" has incompatible type "EventPropertyFilter"; expected "Expr"  [arg-type]
 posthog/hogql_queries/web_analytics/web_analytics_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/management/commands/fix_future_person_created_at.py:0: error: Argument "version" to "create_person" has incompatible type "int | None"; expected "int"  [arg-type]
@@ -446,31 +403,6 @@ posthog/management/commands/test/test_create_batch_export_from_app.py:0: error: 
 posthog/management/commands/test/test_create_batch_export_from_app.py:0: error: No overload variant of "__getitem__" of "list" matches argument type "str"  [call-overload]
 posthog/management/commands/test/test_create_batch_export_from_app.py:0: error: No overload variant of "__getitem__" of "list" matches argument type "str"  [call-overload]
 posthog/management/commands/test/test_create_batch_export_from_app.py:0: error: Unpacked dict entry 1 has incompatible type "str"; expected "SupportsKeysAndGetItem[str, str]"  [dict-item]
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: "str" is missing following "SupportsKeysAndGetItem" protocol member:
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: Expected:
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: Following member(s) of "str" have conflicts:
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: Got:
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: Possible overload variants:
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: Possible overload variants:
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: Possible overload variants:
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: Possible overload variants:
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: Possible overload variants:
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: Possible overload variants:
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, SupportsIndex | slice, /) -> str
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, SupportsIndex, /) -> str
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, SupportsIndex, /) -> str
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, SupportsIndex, /) -> str
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, SupportsIndex, /) -> str
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, SupportsIndex, /) -> str
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, SupportsIndex, /) -> str
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, slice, /) -> list[str]
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, slice, /) -> list[str]
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, slice, /) -> list[str]
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, slice, /) -> list[str]
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, slice, /) -> list[str]
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, slice, /) -> list[str]
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, str, /) -> str
-posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: keys
 posthog/management/commands/warehouse_last_incremental_value_sync.py:0: error: Argument 3 to "get_value" of "ConfigProvider" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/management/commands/warehouse_last_incremental_value_sync.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/management/commands/warehouse_last_incremental_value_sync.py:0: error: Unused "type: ignore" comment  [unused-ignore]
@@ -512,10 +444,6 @@ posthog/models/user.py:0: error: Incompatible types in assignment (expression ha
 posthog/models/user.py:0: error: Incompatible types in assignment (expression has type "posthog.models.user.UserManager[Any]", base class "AbstractUser" defined the type as "django.contrib.auth.models.UserManager[User]")  [assignment]
 posthog/models/user.py:0: error: Incompatible types in assignment (expression has type "type[User]", base class "BaseManager" defined the type as "type[_T]")  [assignment]
 posthog/models/user.py:0: error: Signature of "is_superuser" incompatible with supertype "PermissionsMixin"  [override]
-posthog/models/user.py:0: note: BooleanField[bool | Combinable, bool]
-posthog/models/user.py:0: note: Subclass:
-posthog/models/user.py:0: note: Superclass:
-posthog/models/user.py:0: note: bool
 posthog/permissions.py:0: error: Argument 2 to "feature_enabled" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/plugins/utils.py:0: error: Statement is unreachable  [unreachable]
 posthog/plugins/utils.py:0: error: Subclass of "str" and "bytes" cannot exist: would have incompatible method signatures  [unreachable]
@@ -548,6 +476,12 @@ posthog/session_recordings/session_recording_api.py:0: error: Argument 1 to "get
 posthog/session_recordings/session_recording_api.py:0: error: Value of type variable "SupportsRichComparisonT" of "sorted" cannot be "str | None"  [type-var]
 posthog/settings/data_stores.py:0: error: Incompatible types in assignment (expression has type "str | None", variable has type "str")  [assignment]
 posthog/settings/data_stores.py:0: error: Name "DATABASE_URL" already defined on line 0  [no-redef]
+posthog/storage/session_recording_v2_object_storage.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/storage/session_recording_v2_object_storage.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/storage/session_recording_v2_object_storage.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/storage/test/test_session_recording_v2_object_storage.py:0: error: "Config" has no attribute "connect_timeout"  [attr-defined]
+posthog/storage/test/test_session_recording_v2_object_storage.py:0: error: "Config" has no attribute "retries"  [attr-defined]
+posthog/storage/test/test_session_recording_v2_object_storage.py:0: error: "Config" has no attribute "signature_version"  [attr-defined]
 posthog/tasks/email.py:0: error: Argument "email" to "add_recipient" of "EmailMessage" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/tasks/email.py:0: error: Argument 1 to "capture" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/tasks/email.py:0: error: Incompatible types in assignment (expression has type "Team | None", variable has type "Team")  [assignment]
@@ -590,14 +524,6 @@ posthog/tasks/exports/test/test_image_exporter.py:0: error: Function is missing 
 posthog/tasks/tasks.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
 posthog/tasks/test/test_stop_surveys_reached_target.py:0: error: No overload variant of "__sub__" of "datetime" matches argument type "None"  [operator]
 posthog/tasks/test/test_stop_surveys_reached_target.py:0: error: No overload variant of "__sub__" of "datetime" matches argument type "None"  [operator]
-posthog/tasks/test/test_stop_surveys_reached_target.py:0: note: Possible overload variants:
-posthog/tasks/test/test_stop_surveys_reached_target.py:0: note: Possible overload variants:
-posthog/tasks/test/test_stop_surveys_reached_target.py:0: note: Right operand is of type "datetime | None"
-posthog/tasks/test/test_stop_surveys_reached_target.py:0: note: Right operand is of type "datetime | None"
-posthog/tasks/test/test_stop_surveys_reached_target.py:0: note: def __sub__(self, datetime, /) -> timedelta
-posthog/tasks/test/test_stop_surveys_reached_target.py:0: note: def __sub__(self, datetime, /) -> timedelta
-posthog/tasks/test/test_stop_surveys_reached_target.py:0: note: def __sub__(self, timedelta, /) -> datetime
-posthog/tasks/test/test_stop_surveys_reached_target.py:0: note: def __sub__(self, timedelta, /) -> datetime
 posthog/tasks/test/test_update_survey_iteration.py:0: error: Item "None" of "FeatureFlag | None" has no attribute "filters"  [union-attr]
 posthog/tasks/update_survey_iteration.py:0: error: Incompatible types in assignment (expression has type "ForeignKey[Any, _ST] | Any", variable has type "FeatureFlag | Combinable | None")  [assignment]
 posthog/tasks/update_survey_iteration.py:0: error: Item "None" of "FeatureFlag | None" has no attribute "filters"  [union-attr]
@@ -636,60 +562,11 @@ posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: Argument 3 t
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: List comprehension has incompatible type List[str | None]; expected List[bool | None]  [misc]
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: No overload variant of "array" matches argument types "list[None]", "object"  [call-overload]
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: Statement is unreachable  [unreachable]
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: Possible overload variants:
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def [_DataTypeT: DataType] array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: _DataTypeT, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Array[Scalar[_DataTypeT]]
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def [_Scalar_CoT: Scalar[Any]] array(values: Iterable[_Scalar_CoT | None], type: None = ..., mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Array[_Scalar_CoT]
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['binary'] | BinaryType, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> BinaryArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['binary_view'] | BinaryViewType, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> BinaryViewArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['bool', 'boolean'] | BoolType, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> BooleanArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['date32', 'date32[day]'] | Date32Type, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Date32Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['date64', 'date64[ms]'] | Date64Type, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Date64Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['duration[s]', 'duration[ms]', 'duration[us]', 'duration[ns]'] | DurationType[Any], mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> DurationArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['f2', 'halffloat', 'float16'] | Float16Type, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> HalfFloatArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['f4', 'float', 'float32'] | Float32Type, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> FloatArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['f8', 'double', 'float64'] | Float64Type, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> DoubleArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['i1', 'int8'] | Int8Type, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Int8Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['i2', 'int16'] | Int16Type, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Int16Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['i4', 'int32'] | Int32Type, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Int32Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['i8', 'int64'] | Int64Type, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Int64Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['large_binary'] | LargeBinaryType, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> LargeBinaryArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['large_string', 'large_str', 'large_utf8'] | LargeStringType, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> LargeStringArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['month_day_nano_interval'] | MonthDayNanoIntervalType, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> MonthDayNanoIntervalArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['null'] | NullType, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> NullArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['string', 'str', 'utf8'] | StringType, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> StringArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['string_view'] | StringViewType, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> StringViewArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['time32[s]', 'time32[ms]'] | Time32Type[Any], mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Time32Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['time64[us]', 'time64[ns]'] | Time64Type[Any], mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Time64Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['timestamp[s]', 'timestamp[ms]', 'timestamp[us]'] | TimestampType[Any, None], mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> TimestampArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['u1', 'uint8'] | Int8Type, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> UInt8Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['u2', 'uint16'] | Uint16Type, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> UInt16Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['u4', 'uint32'] | Uint32Type, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> UInt32Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Any] | SupportArrowArray | SupportArrowDeviceArray, type: Literal['u8', 'uint64'] | Uint64Type, mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> UInt64Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[Decimal | None], type: None = ..., mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Decimal128Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[MonthDayNano | None], type: None = ..., mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> MonthDayNanoIntervalArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[bool | None], type: None = ..., mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> BooleanArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[bytes | None], type: None = ..., mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> BinaryArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[date | None], type: None = ..., mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Date32Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[dict[str, Any] | None], type: None = ..., mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> StructArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[float | None], type: None = ..., mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> DoubleArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[int | None], type: None = ..., mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Int64Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[list[Any] | None], type: None = ..., mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> ListArray[Any]
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[str | None], type: None = ..., mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> StringArray
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[time | None], type: None = ..., mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> Time64Array
-posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def array(values: Iterable[timedelta | None], type: None = ..., mask: list[bool | None] | ndarray[Any, dtype[bool_]] | BooleanArray | None = ..., size: int | None = ..., from_pandas: bool | None = ..., safe: bool = ..., memory_pool: MemoryPool | None = ...) -> DurationArray
 posthog/temporal/data_imports/pipelines/pipeline_sync.py:0: error: Incompatible types in assignment (expression has type "dict[str, dict[str, str | bool]] | dict[str, str]", variable has type "dict[str, dict[str, str]]")  [assignment]
 posthog/temporal/data_imports/pipelines/pipeline_sync.py:0: error: Incompatible types in assignment (expression has type "object", variable has type "DataWarehouseCredential | Combinable | None")  [assignment]
 posthog/temporal/data_imports/pipelines/pipeline_sync.py:0: error: Incompatible types in assignment (expression has type "object", variable has type "str | int | Combinable")  [assignment]
 posthog/temporal/data_imports/pipelines/pipeline_sync.py:0: error: Item "None" of "dict[str, str] | None" has no attribute "get"  [union-attr]
 posthog/temporal/data_imports/pipelines/postgres/postgres.py:0: error: No overload variant of "zip" matches argument types "list[str]", "Row"  [call-overload]
-posthog/temporal/data_imports/pipelines/postgres/postgres.py:0: note: Possible overload variants:
-posthog/temporal/data_imports/pipelines/postgres/postgres.py:0: note: def [_T_co, _T1, _T2, _T3, _T4, _T5] zip(Iterable[_T1], Iterable[_T2], Iterable[_T3], Iterable[_T4], Iterable[_T5], /, *, strict: bool = ...) -> zip[tuple[_T1, _T2, _T3, _T4, _T5]]
-posthog/temporal/data_imports/pipelines/postgres/postgres.py:0: note: def [_T_co, _T1, _T2, _T3, _T4] zip(Iterable[_T1], Iterable[_T2], Iterable[_T3], Iterable[_T4], /, *, strict: bool = ...) -> zip[tuple[_T1, _T2, _T3, _T4]]
-posthog/temporal/data_imports/pipelines/postgres/postgres.py:0: note: def [_T_co, _T1, _T2, _T3] zip(Iterable[_T1], Iterable[_T2], Iterable[_T3], /, *, strict: bool = ...) -> zip[tuple[_T1, _T2, _T3]]
-posthog/temporal/data_imports/pipelines/postgres/postgres.py:0: note: def [_T_co, _T1, _T2] zip(Iterable[_T1], Iterable[_T2], /, *, strict: bool = ...) -> zip[tuple[_T1, _T2]]
-posthog/temporal/data_imports/pipelines/postgres/postgres.py:0: note: def [_T_co, _T1] zip(Iterable[_T1], /, *, strict: bool = ...) -> zip[tuple[_T1]]
-posthog/temporal/data_imports/pipelines/postgres/postgres.py:0: note: def [_T_co] zip(*, strict: bool = ...) -> zip[Any]
-posthog/temporal/data_imports/pipelines/postgres/postgres.py:0: note: def [_T_co] zip(Iterable[Any], Iterable[Any], Iterable[Any], Iterable[Any], Iterable[Any], Iterable[Any], /, *iterables: Iterable[Any], strict: bool = ...) -> zip[tuple[Any, ...]]
 posthog/temporal/data_imports/pipelines/rest_source/__init__.py:0: error: Argument "base_url" to "RESTClient" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/temporal/data_imports/pipelines/rest_source/__init__.py:0: error: Argument 1 to "build_resource_dependency_graph" has incompatible type "EndpointResourceBase | None"; expected "EndpointResourceBase"  [arg-type]
 posthog/temporal/data_imports/pipelines/rest_source/__init__.py:0: error: Argument 1 to "exclude_keys" has incompatible type "dict[str, ResolveParamConfig | IncrementalParamConfig | Any] | None"; expected "Mapping[str, Any]"  [arg-type]
@@ -731,21 +608,6 @@ posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Va
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Value of type variable "StrOrLiteralStr" of "parse" of "Formatter" cannot be "str | None"  [type-var]
 posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: error: No overload variant of "resource" matches argument types "Callable[[Engine, Table, int, Literal['sqlalchemy', 'pyarrow', 'pandas', 'connectorx'], Incremental[Any] | None, Any | None, bool, Callable[[Table], None] | None, Literal['minimal', 'full', 'full_with_precision'], dict[str, Any] | None, Callable[[TypeEngine[Any]], TypeEngine[Any] | type[TypeEngine[Any]] | None] | None, list[str] | None, Callable[[Select[Any], Table], Select[Any]] | None, list[str] | None], Iterator[Any]]", "str", "list[str] | None", "list[str] | None", "dict[str, TColumnSchema]", "Collection[str]", "str"  [call-overload]
 posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: error: No overload variant of "with_only_columns" of "Select" matches argument type "ReadOnlyColumnCollection[str, Column[Any]]"  [call-overload]
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: Possible overload variants:
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: Possible overload variants:
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def [TDltResourceImpl: DltResource] resource(None = ..., /, name: str = ..., table_name: str | Callable[[Any], str] = ..., max_table_nesting: int = ..., write_disposition: Literal['skip', 'append', 'replace', 'merge'] | TWriteDispositionDict | TMergeDispositionDict | TScd2StrategyDict | Callable[[Any], Literal['skip', 'append', 'replace', 'merge'] | TWriteDispositionDict | TMergeDispositionDict | TScd2StrategyDict] = ..., columns: dict[str, TColumnSchema] | Sequence[TColumnSchema] | BaseModel | type[BaseModel] | Callable[[Any], dict[str, TColumnSchema] | Sequence[TColumnSchema] | BaseModel | type[BaseModel]] = ..., primary_key: str | Sequence[str] | Callable[[Any], str | Sequence[str]] = ..., merge_key: str | Sequence[str] | Callable[[Any], str | Sequence[str]] = ..., schema_contract: Literal['evolve', 'discard_value', 'freeze', 'discard_row'] | TSchemaContractDict | Callable[[Any], Literal['evolve', 'discard_value', 'freeze', 'discard_row'] | TSchemaContractDict] = ..., table_format: Literal['iceberg', 'delta', 'hive'] | Callable[[Any], Literal['iceberg', 'delta', 'hive']] = ..., file_format: Literal['preferred', 'jsonl', 'typed-jsonl', 'insert_values', 'parquet', 'csv', 'reference'] | Callable[[Any], Literal['preferred', 'jsonl', 'typed-jsonl', 'insert_values', 'parquet', 'csv', 'reference']] = ..., references: Sequence[TTableReference] | Callable[[Any], Sequence[TTableReference]] = ..., selected: bool = ..., spec: type[BaseConfiguration] = ..., parallelized: bool = ..., _impl_cls: type[TDltResourceImpl] = ...) -> Callable[[Callable[TResourceFunParams, Any]], TDltResourceImpl]
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def [TDltResourceImpl: DltResource] resource(None = ..., /, name: str | Callable[[Any], str] = ..., table_name: str | Callable[[Any], str] = ..., max_table_nesting: int = ..., write_disposition: Literal['skip', 'append', 'replace', 'merge'] | TWriteDispositionDict | TMergeDispositionDict | TScd2StrategyDict | Callable[[Any], Literal['skip', 'append', 'replace', 'merge'] | TWriteDispositionDict | TMergeDispositionDict | TScd2StrategyDict] = ..., columns: dict[str, TColumnSchema] | Sequence[TColumnSchema] | BaseModel | type[BaseModel] | Callable[[Any], dict[str, TColumnSchema] | Sequence[TColumnSchema] | BaseModel | type[BaseModel]] = ..., primary_key: str | Sequence[str] | Callable[[Any], str | Sequence[str]] = ..., merge_key: str | Sequence[str] | Callable[[Any], str | Sequence[str]] = ..., schema_contract: Literal['evolve', 'discard_value', 'freeze', 'discard_row'] | TSchemaContractDict | Callable[[Any], Literal['evolve', 'discard_value', 'freeze', 'discard_row'] | TSchemaContractDict] = ..., table_format: Literal['iceberg', 'delta', 'hive'] | Callable[[Any], Literal['iceberg', 'delta', 'hive']] = ..., file_format: Literal['preferred', 'jsonl', 'typed-jsonl', 'insert_values', 'parquet', 'csv', 'reference'] | Callable[[Any], Literal['preferred', 'jsonl', 'typed-jsonl', 'insert_values', 'parquet', 'csv', 'reference']] = ..., references: Sequence[TTableReference] | Callable[[Any], Sequence[TTableReference]] = ..., selected: bool = ..., spec: type[BaseConfiguration] = ..., parallelized: bool = ..., _impl_cls: type[TDltResourceImpl] = ..., standalone: Literal[True] = ...) -> Callable[[Callable[TResourceFunParams, Any]], Callable[TResourceFunParams, TDltResourceImpl]]
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def [TDltResourceImpl: DltResource] resource(list[Any] | tuple[Any] | Iterator[Any], /, name: str = ..., table_name: str | Callable[[Any], str] = ..., max_table_nesting: int = ..., write_disposition: Literal['skip', 'append', 'replace', 'merge'] | TWriteDispositionDict | TMergeDispositionDict | TScd2StrategyDict | Callable[[Any], Literal['skip', 'append', 'replace', 'merge'] | TWriteDispositionDict | TMergeDispositionDict | TScd2StrategyDict] = ..., columns: dict[str, TColumnSchema] | Sequence[TColumnSchema] | BaseModel | type[BaseModel] | Callable[[Any], dict[str, TColumnSchema] | Sequence[TColumnSchema] | BaseModel | type[BaseModel]] = ..., primary_key: str | Sequence[str] | Callable[[Any], str | Sequence[str]] = ..., merge_key: str | Sequence[str] | Callable[[Any], str | Sequence[str]] = ..., schema_contract: Literal['evolve', 'discard_value', 'freeze', 'discard_row'] | TSchemaContractDict | Callable[[Any], Literal['evolve', 'discard_value', 'freeze', 'discard_row'] | TSchemaContractDict] = ..., table_format: Literal['iceberg', 'delta', 'hive'] | Callable[[Any], Literal['iceberg', 'delta', 'hive']] = ..., file_format: Literal['preferred', 'jsonl', 'typed-jsonl', 'insert_values', 'parquet', 'csv', 'reference'] | Callable[[Any], Literal['preferred', 'jsonl', 'typed-jsonl', 'insert_values', 'parquet', 'csv', 'reference']] = ..., references: Sequence[TTableReference] | Callable[[Any], Sequence[TTableReference]] = ..., selected: bool = ..., spec: type[BaseConfiguration] = ..., parallelized: bool = ..., _impl_cls: type[TDltResourceImpl] = ...) -> TDltResourceImpl
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def [TResourceFunParams`-1, TDltResourceImpl: DltResource] resource(Callable[TResourceFunParams, Any], /, name: str = ..., table_name: str | Callable[[Any], str] = ..., max_table_nesting: int = ..., write_disposition: Literal['skip', 'append', 'replace', 'merge'] | TWriteDispositionDict | TMergeDispositionDict | TScd2StrategyDict | Callable[[Any], Literal['skip', 'append', 'replace', 'merge'] | TWriteDispositionDict | TMergeDispositionDict | TScd2StrategyDict] = ..., columns: dict[str, TColumnSchema] | Sequence[TColumnSchema] | BaseModel | type[BaseModel] | Callable[[Any], dict[str, TColumnSchema] | Sequence[TColumnSchema] | BaseModel | type[BaseModel]] = ..., primary_key: str | Sequence[str] | Callable[[Any], str | Sequence[str]] = ..., merge_key: str | Sequence[str] | Callable[[Any], str | Sequence[str]] = ..., schema_contract: Literal['evolve', 'discard_value', 'freeze', 'discard_row'] | TSchemaContractDict | Callable[[Any], Literal['evolve', 'discard_value', 'freeze', 'discard_row'] | TSchemaContractDict] = ..., table_format: Literal['iceberg', 'delta', 'hive'] | Callable[[Any], Literal['iceberg', 'delta', 'hive']] = ..., file_format: Literal['preferred', 'jsonl', 'typed-jsonl', 'insert_values', 'parquet', 'csv', 'reference'] | Callable[[Any], Literal['preferred', 'jsonl', 'typed-jsonl', 'insert_values', 'parquet', 'csv', 'reference']] = ..., references: Sequence[TTableReference] | Callable[[Any], Sequence[TTableReference]] = ..., selected: bool = ..., spec: type[BaseConfiguration] = ..., parallelized: bool = ..., _impl_cls: type[TDltResourceImpl] = ...) -> TDltResourceImpl
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def [_T0, _T1, _T2, _T3, _T4, _T5, _T6, _T7] with_only_columns(self, TypedColumnsClauseRole[_T0] | SQLCoreOperations[_T0] | type[_T0], TypedColumnsClauseRole[_T1] | SQLCoreOperations[_T1] | type[_T1], TypedColumnsClauseRole[_T2] | SQLCoreOperations[_T2] | type[_T2], TypedColumnsClauseRole[_T3] | SQLCoreOperations[_T3] | type[_T3], TypedColumnsClauseRole[_T4] | SQLCoreOperations[_T4] | type[_T4], TypedColumnsClauseRole[_T5] | SQLCoreOperations[_T5] | type[_T5], TypedColumnsClauseRole[_T6] | SQLCoreOperations[_T6] | type[_T6], TypedColumnsClauseRole[_T7] | SQLCoreOperations[_T7] | type[_T7], /, *, maintain_column_froms: bool = ...) -> Select[tuple[_T0, _T1, _T2, _T3, _T4, _T5, _T6, _T7]]
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def [_T0, _T1, _T2, _T3, _T4, _T5, _T6] with_only_columns(self, TypedColumnsClauseRole[_T0] | SQLCoreOperations[_T0] | type[_T0], TypedColumnsClauseRole[_T1] | SQLCoreOperations[_T1] | type[_T1], TypedColumnsClauseRole[_T2] | SQLCoreOperations[_T2] | type[_T2], TypedColumnsClauseRole[_T3] | SQLCoreOperations[_T3] | type[_T3], TypedColumnsClauseRole[_T4] | SQLCoreOperations[_T4] | type[_T4], TypedColumnsClauseRole[_T5] | SQLCoreOperations[_T5] | type[_T5], TypedColumnsClauseRole[_T6] | SQLCoreOperations[_T6] | type[_T6], /, *, maintain_column_froms: bool = ...) -> Select[tuple[_T0, _T1, _T2, _T3, _T4, _T5, _T6]]
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def [_T0, _T1, _T2, _T3, _T4, _T5] with_only_columns(self, TypedColumnsClauseRole[_T0] | SQLCoreOperations[_T0] | type[_T0], TypedColumnsClauseRole[_T1] | SQLCoreOperations[_T1] | type[_T1], TypedColumnsClauseRole[_T2] | SQLCoreOperations[_T2] | type[_T2], TypedColumnsClauseRole[_T3] | SQLCoreOperations[_T3] | type[_T3], TypedColumnsClauseRole[_T4] | SQLCoreOperations[_T4] | type[_T4], TypedColumnsClauseRole[_T5] | SQLCoreOperations[_T5] | type[_T5], /, *, maintain_column_froms: bool = ...) -> Select[tuple[_T0, _T1, _T2, _T3, _T4, _T5]]
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def [_T0, _T1, _T2, _T3, _T4] with_only_columns(self, TypedColumnsClauseRole[_T0] | SQLCoreOperations[_T0] | type[_T0], TypedColumnsClauseRole[_T1] | SQLCoreOperations[_T1] | type[_T1], TypedColumnsClauseRole[_T2] | SQLCoreOperations[_T2] | type[_T2], TypedColumnsClauseRole[_T3] | SQLCoreOperations[_T3] | type[_T3], TypedColumnsClauseRole[_T4] | SQLCoreOperations[_T4] | type[_T4], /, *, maintain_column_froms: bool = ...) -> Select[tuple[_T0, _T1, _T2, _T3, _T4]]
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def [_T0, _T1, _T2, _T3] with_only_columns(self, TypedColumnsClauseRole[_T0] | SQLCoreOperations[_T0] | type[_T0], TypedColumnsClauseRole[_T1] | SQLCoreOperations[_T1] | type[_T1], TypedColumnsClauseRole[_T2] | SQLCoreOperations[_T2] | type[_T2], TypedColumnsClauseRole[_T3] | SQLCoreOperations[_T3] | type[_T3], /, *, maintain_column_froms: bool = ...) -> Select[tuple[_T0, _T1, _T2, _T3]]
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def [_T0, _T1, _T2] with_only_columns(self, TypedColumnsClauseRole[_T0] | SQLCoreOperations[_T0] | type[_T0], TypedColumnsClauseRole[_T1] | SQLCoreOperations[_T1] | type[_T1], TypedColumnsClauseRole[_T2] | SQLCoreOperations[_T2] | type[_T2], /, *, maintain_column_froms: bool = ...) -> Select[tuple[_T0, _T1, _T2]]
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def [_T0, _T1] with_only_columns(self, TypedColumnsClauseRole[_T0] | SQLCoreOperations[_T0] | type[_T0], TypedColumnsClauseRole[_T1] | SQLCoreOperations[_T1] | type[_T1], /, *, maintain_column_froms: bool = ...) -> Select[tuple[_T0, _T1]]
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def [_T0] with_only_columns(self, TypedColumnsClauseRole[_T0] | SQLCoreOperations[_T0] | type[_T0], /, *, maintain_column_froms: bool = ...) -> Select[tuple[_T0]]
-posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def with_only_columns(self, *entities: TypedColumnsClauseRole[Any] | ColumnsClauseRole | SQLCoreOperations[Any] | Literal['*', 1] | type[Any] | Inspectable[_HasClauseElement[Any]] | _HasClauseElement[Any], maintain_column_froms: bool = ..., **Any) -> Select[Any]
 posthog/temporal/data_imports/pipelines/sql_database/arrow_helpers.py:0: error: Argument "nullable" to "field" has incompatible type "bool | None"; expected "bool"  [arg-type]
 posthog/temporal/data_imports/pipelines/sql_database/arrow_helpers.py:0: error: Argument "nullable" to "field" has incompatible type "bool | None"; expected "bool"  [arg-type]
 posthog/temporal/data_imports/pipelines/sql_database/arrow_helpers.py:0: error: Argument 1 to "field" has incompatible type "str | None"; expected "str"  [arg-type]
@@ -800,10 +662,6 @@ posthog/temporal/data_imports/pipelines/zendesk/__init__.py:0: error: Unused "ty
 posthog/temporal/data_imports/pipelines/zendesk/__init__.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: error: Argument "source_id" to "sync_old_schemas_with_new_schemas" has incompatible type "str"; expected "UUID"  [arg-type]
 posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: error: No overload variant of "get" of "dict" matches argument types "str", "tuple[()]"  [call-overload]
-posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: Possible overload variants:
-posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: def [_T] get(self, Type, _T, /) -> Sequence[str] | _T
-posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: def get(self, Type, /) -> Sequence[str] | None
-posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: def get(self, Type, Sequence[str], /) -> Sequence[str]
 posthog/temporal/data_modeling/run_workflow.py:0: error: Dict entry 20 has incompatible type "str": "Literal['complex']"; expected "str": "Literal['text', 'double', 'bool', 'timestamp', 'bigint', 'binary', 'json', 'decimal', 'wei', 'date', 'time']"  [dict-item]
 posthog/temporal/data_modeling/run_workflow.py:0: error: Dict entry 21 has incompatible type "str": "Literal['complex']"; expected "str": "Literal['text', 'double', 'bool', 'timestamp', 'bigint', 'binary', 'json', 'decimal', 'wei', 'date', 'time']"  [dict-item]
 posthog/temporal/data_modeling/run_workflow.py:0: error: Dict entry 22 has incompatible type "str": "Literal['complex']"; expected "str": "Literal['text', 'double', 'bool', 'timestamp', 'bigint', 'binary', 'json', 'decimal', 'wei', 'date', 'time']"  [dict-item]
@@ -867,16 +725,9 @@ posthog/user_permissions.py:0: error: Incompatible return value type (got "int",
 posthog/user_permissions.py:0: error: Incompatible return value type (got "int", expected "RestrictionLevel")  [return-value]
 posthog/utils.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
 posthog/utils.py:0: error: No overload variant of "asdict" matches argument type "type[DataclassInstance]"  [call-overload]
-posthog/utils.py:0: note: Possible overload variants:
-posthog/utils.py:0: note: def [_T] asdict(obj: DataclassInstance, *, dict_factory: Callable[[list[tuple[str, Any]]], _T]) -> _T
-posthog/utils.py:0: note: def asdict(obj: DataclassInstance) -> dict[str, Any]
 posthog/warehouse/api/external_data_schema.py:0: error: Argument 1 to "get_sql_schemas_for_source_type" has incompatible type "str"; expected "Type"  [arg-type]
 posthog/warehouse/api/external_data_schema.py:0: error: Incompatible return value type (got "str | None", expected "SyncType | None")  [return-value]
 posthog/warehouse/api/external_data_schema.py:0: error: No overload variant of "get" of "dict" matches argument type "str"  [call-overload]
-posthog/warehouse/api/external_data_schema.py:0: note: Possible overload variants:
-posthog/warehouse/api/external_data_schema.py:0: note: def [_T] get(self, Type, _T, /) -> dict[str, list[IncrementalField]] | _T
-posthog/warehouse/api/external_data_schema.py:0: note: def get(self, Type, /) -> dict[str, list[IncrementalField]] | None
-posthog/warehouse/api/external_data_schema.py:0: note: def get(self, Type, dict[str, list[IncrementalField]], /) -> dict[str, list[IncrementalField]]
 posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
@@ -889,8 +740,6 @@ posthog/warehouse/data_load/service.py:0: error: Incompatible return value type 
 posthog/warehouse/data_load/service.py:0: error: Incompatible return value type (got "tuple[timedelta | None, timedelta]", expected "tuple[timedelta, timedelta]")  [return-value]
 posthog/warehouse/data_load/service.py:0: error: Unsupported operand types for >= ("timedelta" and "None")  [operator]
 posthog/warehouse/data_load/service.py:0: error: Unsupported operand types for >= ("timedelta" and "None")  [operator]
-posthog/warehouse/data_load/service.py:0: note: Left operand is of type "timedelta | None"
-posthog/warehouse/data_load/service.py:0: note: Left operand is of type "timedelta | None"
 posthog/warehouse/data_load/source_templates.py:0: error: Incompatible types in assignment (expression has type "str", variable has type "Type")  [assignment]
 posthog/warehouse/data_load/validate_schema.py:0: error: Incompatible types in assignment (expression has type "dict[str, dict[str, str | bool]] | dict[str, str]", variable has type "dict[str, dict[str, str]]")  [assignment]
 posthog/warehouse/data_load/validate_schema.py:0: error: Incompatible types in assignment (expression has type "object", variable has type "DataWarehouseCredential | Combinable | None")  [assignment]
@@ -905,6 +754,8 @@ posthog/warehouse/models/ssh_tunnel.py:0: error: Incompatible types in assignmen
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_key"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_key"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_key"  [union-attr]
+posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_key"  [union-attr]
+posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
