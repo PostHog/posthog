@@ -13,6 +13,7 @@ import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
+import { HogFunctionManagerLazyService } from '../services/hog-function-manager-lazy.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { cleanNullValues } from './transformation-functions'
@@ -54,10 +55,12 @@ export class HogTransformerService {
     private hub: Hub
     private pluginExecutor: LegacyPluginExecutorService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
+    private hogFunctionManagerLazy: HogFunctionManagerLazyService
 
     constructor(hub: Hub) {
         this.hub = hub
         this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFunctionManagerLazy = new HogFunctionManagerLazyService(hub)
         this.hogExecutor = new HogExecutorService(hub)
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
@@ -107,6 +110,23 @@ export class HogTransformerService {
             func: async () => {
                 hogTransformationAttempts.inc({ type: 'with_messages' })
                 const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
+
+                if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
+                    try {
+                        const teamHogFunctionsLazy = await this.hogFunctionManagerLazy.getHogFunctionsForTeam(
+                            event.team_id,
+                            ['transformation']
+                        )
+                        if (teamHogFunctionsLazy.length !== teamHogFunctions.length) {
+                            logger.warn('loaded different number of functions', {
+                                lazy: teamHogFunctionsLazy.length,
+                                eager: teamHogFunctions.length,
+                            })
+                        }
+                    } catch (e) {
+                        logger.error('Error lazy loading hog functions', { error: e })
+                    }
+                }
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
                 await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
 
