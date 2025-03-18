@@ -75,9 +75,10 @@ export class LazyLoader<T> {
         const keyPromises: Promise<T | null>[] = []
 
         for (const key of keys) {
-            if (this.pendingLoads[key]) {
+            let pendingLoad = this.pendingLoads[key]
+            if (pendingLoad) {
                 // If we already have a scheduled loader for this key we just add it to the list
-                keyPromises.push(this.pendingLoads[key])
+                keyPromises.push(pendingLoad)
                 continue
             }
 
@@ -103,13 +104,13 @@ export class LazyLoader<T> {
             // Add the key to the buffer and add a pendingLoad that waits for the buffer to resolve
             // and then picks out its value
             this.buffer.keys.add(key)
-            this.pendingLoads[key] = this.buffer.promise
+            pendingLoad = this.buffer.promise
                 .then((map) => map[key] ?? null)
                 .finally(() => {
                     delete this.pendingLoads[key]
                 })
-
-            keyPromises.push(this.pendingLoads[key])
+            this.pendingLoads[key] = pendingLoad
+            keyPromises.push(pendingLoad)
         }
 
         const results = await Promise.all(keyPromises)
