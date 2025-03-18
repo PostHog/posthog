@@ -109,3 +109,4 @@ home = "/tmp/posthog-dagster/"
 
 [tool.mypy-baseline]
 sort_baseline = true
+ignore_categories = ["note"]
