@@ -112,15 +112,19 @@ export class HogTransformerService {
                 const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
 
                 if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
-                    const teamHogFunctionsLazy = await this.hogFunctionManagerLazy.getHogFunctionsForTeam(
-                        event.team_id,
-                        ['transformation']
-                    )
-                    if (teamHogFunctionsLazy.length !== teamHogFunctions.length) {
-                        logger.warn('loaded different number of functions', {
-                            lazy: teamHogFunctionsLazy.length,
-                            eager: teamHogFunctions.length,
-                        })
+                    try {
+                        const teamHogFunctionsLazy = await this.hogFunctionManagerLazy.getHogFunctionsForTeam(
+                            event.team_id,
+                            ['transformation']
+                        )
+                        if (teamHogFunctionsLazy.length !== teamHogFunctions.length) {
+                            logger.warn('loaded different number of functions', {
+                                lazy: teamHogFunctionsLazy.length,
+                                eager: teamHogFunctions.length,
+                            })
+                        }
+                    } catch (e) {
+                        logger.error('Error lazy loading hog functions', { error: e })
                     }
                 }
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
