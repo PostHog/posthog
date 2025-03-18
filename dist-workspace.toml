@@ -1,9 +1,10 @@
 [workspace]
-members = ["cargo:./rust"]
+members = ["cargo:./cli"]
 
 # Config for 'dist'
 [dist]
-allow-dirty = ["ci"] # Our workflow formatting disagrees with dists
+# Skip checking whether the specified configuration files are up to date
+allow-dirty = ["ci"]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax)
 cargo-dist-version = "0.28.0"
 # CI backends to support
