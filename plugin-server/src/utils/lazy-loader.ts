@@ -1,7 +1,5 @@
 import { Counter } from 'prom-client'
 
-import { logger } from './logger'
-
 const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
 const REFRESH_JITTER_MS = 1000 * 60 // 1 minute
 
@@ -14,12 +12,6 @@ const lazyLoaderCacheHits = new Counter({
 const lazyLoaderFullCacheHits = new Counter({
     name: 'lazy_loader_full_cache_hits',
     help: 'The number of times we have hit the cache for all keys',
-    labelNames: ['name', 'hit'],
-})
-
-const lazyLoaderBufferUsage = new Counter({
-    name: 'lazy_loader_buffer_usage',
-    help: 'The number of times we have used the buffer indicating better batching',
     labelNames: ['name', 'hit'],
 })
 
@@ -64,13 +56,6 @@ export class LazyLoader<T> {
     private cacheUntil: Record<string, number | undefined>
     private pendingLoads: Record<string, Promise<T | null> | undefined>
 
-    private buffer:
-        | {
-              keys: Set<string>
-              promise: Promise<LazyLoaderMap<T>>
-          }
-        | undefined
-
     constructor(private readonly options: LazyLoaderOptions<T>) {
         this.cache = {}
         this.lastUsed = {}
@@ -83,11 +68,12 @@ export class LazyLoader<T> {
      * This is somewhat complex but simplifies the usage around the codebase as you can safely do multiple gets without worrying about firing off duplicate DB requests
      */
     private async scheduleLoad(keys: string[]): Promise<LazyLoaderMap<T>> {
-        const bufferMs = this.options.bufferMs ?? 100
         const keyPromises: Promise<T | null>[] = []
+        const keysToLoad = new Set<string>()
 
         for (const key of keys) {
-            let pendingLoad = this.pendingLoads[key]
+            console.log('key', key, this.pendingLoads)
+            const pendingLoad = this.pendingLoads[key]
             if (pendingLoad) {
                 // If we already have a scheduled loader for this key we just add it to the list
                 keyPromises.push(pendingLoad)
@@ -95,39 +81,22 @@ export class LazyLoader<T> {
                 continue
             }
             lazyLoaderQueuedCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+            keysToLoad.add(key)
+        }
 
-            if (!this.buffer) {
-                // If we don't have a buffer then we create one
-                // The buffer is a combination of a set of keys and a promise that will resolve after a setTimeout to then call the loader for those keys
-                this.buffer = {
-                    keys: new Set(),
-                    promise: new Promise<string[]>((resolve) => {
-                        setTimeout(() => {
-                            const keys = Array.from(this.buffer!.keys)
-                            this.buffer = undefined
-                            resolve(keys)
-                        }, bufferMs)
-                    }).then((keys) => {
-                        // Pull out the keys to load and clear the buffer
-                        logger.info('[LazyLoader]', this.options.name, 'Loading: ', keys)
-                        return this.options.loader(keys)
-                    }),
-                }
-                lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'miss' }).inc()
-            } else {
-                lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'hit' }).inc()
+        if (keysToLoad.size !== 0) {
+            // Load the keys in a batch
+            const resultPromise = this.options.loader(Array.from(keysToLoad))
+
+            // Assign each key its own promise
+            for (const key of keysToLoad) {
+                this.pendingLoads[key] = resultPromise
+                    .then((map) => map[key] ?? null)
+                    .finally(() => {
+                        delete this.pendingLoads[key]
+                    })
+                keyPromises.push(this.pendingLoads[key])
             }
-
-            // Add the key to the buffer and add a pendingLoad that waits for the buffer to resolve
-            // and then picks out its value
-            this.buffer.keys.add(key)
-            pendingLoad = this.buffer.promise
-                .then((map) => map[key] ?? null)
-                .finally(() => {
-                    delete this.pendingLoads[key]
-                })
-            this.pendingLoads[key] = pendingLoad
-            keyPromises.push(pendingLoad)
         }
 
         const results = await Promise.all(keyPromises)

@@ -1,5 +1,4 @@
 import { LazyLoader } from './lazy-loader'
-import { delay } from './utils'
 
 describe('LazyLoader', () => {
     jest.setTimeout(1000)
@@ -172,12 +171,34 @@ describe('LazyLoader', () => {
         it('should bundle loads for the same key', async () => {
             loader.mockResolvedValue({ key1: { foo: 'bar' } })
 
-            const results = await Promise.all([lazyLoader.get('key1'), lazyLoader.get('key1'), lazyLoader.get('key2')])
+            const results = await Promise.all([lazyLoader.get('key1'), lazyLoader.get('key1'), lazyLoader.get('key1')])
 
-            expect(results).toEqual([{ foo: 'bar' }, { foo: 'bar' }, null])
+            expect(results).toEqual([{ foo: 'bar' }, { foo: 'bar' }, { foo: 'bar' }])
             expect(results[0]).toBe(results[1])
+            expect(results[0]).toBe(results[2])
             expect(loader).toHaveBeenCalledTimes(1)
-            expect(loader).toHaveBeenCalledWith(['key1', 'key2'])
+            expect(loader).toHaveBeenNthCalledWith(1, ['key1'])
+        })
+
+        it('should bundle loads for multiple keys where possible', async () => {
+            loader.mockResolvedValue({ key1: { foo: 'bar' }, key2: { foo2: 'bar2' }, key3: null })
+
+            const results = await Promise.all([
+                lazyLoader.getMany(['key1', 'key2']),
+                lazyLoader.get('key1'),
+                lazyLoader.get('key2'),
+                lazyLoader.getMany(['key1', 'key2', 'key3']),
+            ])
+
+            expect(results).toEqual([
+                { key1: { foo: 'bar' }, key2: { foo2: 'bar2' } },
+                { foo: 'bar' },
+                { foo2: 'bar2' },
+                { key1: { foo: 'bar' }, key2: { foo2: 'bar2' }, key3: null },
+            ])
+            expect(loader).toHaveBeenCalledTimes(2)
+            expect(loader).toHaveBeenNthCalledWith(1, ['key1', 'key2'])
+            expect(loader).toHaveBeenNthCalledWith(2, ['key3'])
         })
 
         it('should load multiple values in parallel', async () => {
@@ -190,12 +211,9 @@ describe('LazyLoader', () => {
             })
 
             const result1 = lazyLoader.get('key1')
-            await delay(70)
-            // Should join first request
             const result2 = lazyLoader.get('key2')
-            await delay(60)
             // Should load key2 and join second request
-            const result3 = lazyLoader.get('key3')
+            const result3 = lazyLoader.get('key1')
             const result4 = lazyLoader.getMany(['key1', 'key2', 'key3'])
 
             const results = await Promise.all([result1, result2, result3, result4])
@@ -209,7 +227,7 @@ describe('LazyLoader', () => {
                     "val": "key2",
                   },
                   {
-                    "val": "key3",
+                    "val": "key1",
                   },
                   {
                     "key1": {
@@ -224,9 +242,25 @@ describe('LazyLoader', () => {
                   },
                 ]
             `)
-            expect(loader).toHaveBeenCalledTimes(2)
-            expect(loader).toHaveBeenNthCalledWith(1, ['key1', 'key2'])
-            expect(loader).toHaveBeenNthCalledWith(2, ['key3'])
+            expect(loader.mock.calls).toMatchInlineSnapshot(`
+                [
+                  [
+                    [
+                      "key1",
+                    ],
+                  ],
+                  [
+                    [
+                      "key2",
+                    ],
+                  ],
+                  [
+                    [
+                      "key3",
+                    ],
+                  ],
+                ]
+            `)
         })
     })
 })
