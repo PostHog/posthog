@@ -27,17 +27,8 @@ export const LemonColorPickerOverlay = ({
     onSelectColorToken,
     showCustomColor = false,
 }: Omit<LemonColorPickerProps, 'hideDropdown'>): JSX.Element => {
-    const [color, setColor] = useState(selectedColor || null)
-    const [lastValidColor, setLastValidColor] = useState<string>('#000000')
-
-    useEffect(() => {
-        // allow only 6-digit hex colors
-        // other color formats are not supported everywhere e.g. insight visualizations
-        if (showCustomColor && color != null && /^#[0-9A-Fa-f]{6}$/.test(color)) {
-            setLastValidColor(color)
-            onSelectColor?.(color)
-        }
-    }, [color, showCustomColor, onSelectColor])
+    const [color, setColor] = useState<string | null>(selectedColor || null)
+    const [lastValidColor, setLastValidColor] = useState<string | null>(selectedColor || null)
 
     return (
         <div className="w-52 flex flex-col p-2">
@@ -55,7 +46,18 @@ export const LemonColorPickerOverlay = ({
                     <LemonLabel className="mt-2 mb-0.5">Custom color</LemonLabel>
                     <div className="flex items-center gap-2">
                         <LemonColorGlyph color={lastValidColor} className="ml-1.5" />
-                        <LemonInput className="mt-1 font-mono" size="small" value={color || ''} onChange={setColor} />
+                        <LemonInput
+                            className="mt-1 font-mono"
+                            size="small"
+                            value={color || ''}
+                            onChange={(color) => {
+                                setColor(color)
+                                if (color != null && color != selectedColor && /^#[0-9A-Fa-f]{6}$/.test(color)) {
+                                    setLastValidColor(color)
+                                    onSelectColor?.(color)
+                                }
+                            }}
+                        />
                     </div>
                 </div>
             )}
