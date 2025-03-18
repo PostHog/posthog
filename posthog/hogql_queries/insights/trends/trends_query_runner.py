@@ -93,7 +93,7 @@ class TrendsQueryRunner(QueryRunner):
 
         modified_query = deepcopy(query)
 
-        interval = modified_query.interval or IntervalType.day
+        interval = modified_query.interval or IntervalType.DAY
 
         for series in modified_query.series:
             # Convert WAU to DAU for week or longer intervals

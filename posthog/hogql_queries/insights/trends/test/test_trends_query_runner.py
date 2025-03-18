@@ -1660,7 +1660,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Now run actors queries for each date range and verify the counts
         options = query_runner.to_actors_query_options()
-        assert len(options.day) == 3
+        assert options.day is not None and len(options.day) == 3
 
         # Expected actor IDs for each week - based on our test event data
         expected_actors_by_week = [
