@@ -24,7 +24,7 @@ Releases are cut by pushing a release tag to the repository, for the `posthog-cl
 ```
 git tag "posthog-cli-v0.1.0-prerelease.1"
 git push
-git push tags
+git push --tags
 ```
 
 We manage publishing releases through [`cargo-dist`](https://github.com/axodotdev/cargo-dist)
