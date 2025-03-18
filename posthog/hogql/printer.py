@@ -24,6 +24,7 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import FunctionCallTable, SavedQuery, Table
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.query_log import RawQueryLogTable
+from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -46,6 +47,7 @@ from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_co
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import Visitor, clone_expr
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
@@ -57,6 +59,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
+from posthog.settings import CLICKHOUSE_DATABASE
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -491,6 +494,7 @@ class _Printer(Visitor):
                 self.dialect == "clickhouse"
                 and not isinstance(table_type.table, FunctionCallTable)
                 and not isinstance(table_type.table, SavedQuery)
+                and not isinstance(table_type.table, ExchangeRateTable)
             ):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
@@ -1070,10 +1074,17 @@ class _Printer(Visitor):
 
             params_part = f"({', '.join(params)})" if params is not None else ""
             args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(args)})"
-            return f"{func_meta.clickhouse_name}{params_part}{args_part}"
+
+            return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
 
         elif func_meta := find_hogql_function(node.name):
-            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+            validate_function_args(
+                node.args,
+                func_meta.min_args,
+                func_meta.max_args,
+                node.name,
+            )
+
             if func_meta.min_params:
                 if node.params is None:
                     raise QueryError(f"Function '{node.name}' requires parameters in addition to arguments")
@@ -1086,9 +1097,12 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
+                args_count = len(node.args) - func_meta.passthrough_suffix_args_count
+                node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
+
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []
-                    for idx, arg in enumerate(node.args):
+                    for idx, arg in enumerate(node_args):
                         if idx == 0:
                             if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
                                 args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
@@ -1098,7 +1112,7 @@ class _Printer(Visitor):
                             args.append(self.visit(arg))
                 elif node.name == "concat":
                     args = []
-                    for arg in node.args:
+                    for arg in node_args:
                         if isinstance(arg, ast.Constant):
                             if arg.value is None:
                                 args.append("''")
@@ -1117,10 +1131,30 @@ class _Printer(Visitor):
                         else:
                             args.append(f"ifNull(toString({self.visit(arg)}), '')")
                 else:
-                    args = [self.visit(arg) for arg in node.args]
+                    args = [self.visit(arg) for arg in node_args]
 
+                # Some of these `isinstance` checks are here just to make our type system happy
+                # We have some guarantees in place to ensure that the arguments are string/constants anyway
+                # Here's to hoping Python's type system gets as smart as TS's one day
                 if func_meta.suffix_args:
-                    args += [self.visit(arg) for arg in func_meta.suffix_args]
+                    for suffix_arg in func_meta.suffix_args:
+                        if len(passthrough_suffix_args) > 0:
+                            if not all(isinstance(arg, ast.Constant) for arg in passthrough_suffix_args):
+                                raise QueryError(
+                                    f"Suffix argument '{suffix_arg.value}' expects ast.Constant arguments, but got {', '.join([type(arg).__name__ for arg in passthrough_suffix_args])}"
+                                )
+
+                            suffix_arg_args_values = [
+                                arg.value for arg in passthrough_suffix_args if isinstance(arg, ast.Constant)
+                            ]
+
+                            if isinstance(suffix_arg.value, str):
+                                suffix_arg.value = suffix_arg.value.format(*suffix_arg_args_values)
+                            else:
+                                raise QueryError(
+                                    f"Suffix argument '{suffix_arg.value}' expects a string, but got {type(suffix_arg.value).__name__}"
+                                )
+                        args.append(self.visit(suffix_arg))
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if func_meta.overloads:
@@ -1192,7 +1226,13 @@ class _Printer(Visitor):
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif func_meta := find_hogql_posthog_function(node.name):
-            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+            validate_function_args(
+                node.args,
+                func_meta.min_args,
+                func_meta.max_args,
+                node.name,
+            )
+
             args = [self.visit(arg) for arg in node.args]
 
             if self.dialect in ("hogql", "clickhouse"):
@@ -1208,6 +1248,10 @@ class _Printer(Visitor):
                     return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupOrganicMediumType":
                     return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
+                elif node.name == "convertCurrency":  # convertCurrency(from_currency, to_currency, amount, timestamp)
+                    from_currency, to_currency, amount, *_rest = args
+                    date = args[3] if len(args) > 3 and args[3] else "today()"
+                    return f"if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))))"
             raise QueryError(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)

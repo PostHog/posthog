@@ -17,6 +17,8 @@ import { useState } from 'react'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { urls } from 'scenes/urls'
 
+import { FeatureFlagType } from '~/types'
+
 import { experimentLogic } from './experimentLogic'
 import { featureFlagEligibleForExperiment } from './utils'
 
@@ -104,10 +106,16 @@ const ExperimentFormFields = (): JSX.Element => {
                 <SelectExistingFeatureFlagModal
                     isOpen={showFeatureFlagSelector}
                     onClose={() => setShowFeatureFlagSelector(false)}
-                    onSelect={(key) => {
-                        reportExperimentFeatureFlagSelected(key)
-                        setExperiment({ feature_flag_key: key })
-                        validateFeatureFlag(key)
+                    onSelect={(flag) => {
+                        reportExperimentFeatureFlagSelected(flag.key)
+                        setExperiment({
+                            feature_flag_key: flag.key,
+                            parameters: {
+                                ...experiment.parameters,
+                                feature_flag_variants: flag.filters?.multivariate?.variants || [],
+                            },
+                        })
+                        validateFeatureFlag(flag.key)
                         setShowFeatureFlagSelector(false)
                     }}
                 />
@@ -386,7 +394,7 @@ const SelectExistingFeatureFlagModal = ({
 }: {
     isOpen: boolean
     onClose: () => void
-    onSelect: (key: string) => void
+    onSelect: (flag: FeatureFlagType) => void
 }): JSX.Element => {
     const { featureFlags } = useValues(experimentsLogic)
 
@@ -439,7 +447,7 @@ const SelectExistingFeatureFlagModal = ({
                                         type="primary"
                                         disabledReason={disabledReason}
                                         onClick={() => {
-                                            onSelect(flag.key)
+                                            onSelect(flag)
                                             onClose()
                                         }}
                                     >

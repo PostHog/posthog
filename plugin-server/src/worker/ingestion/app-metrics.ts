@@ -6,8 +6,8 @@ import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { TeamId, TimestampFormat } from '../../types'
 import { cleanErrorStackTrace } from '../../utils/db/error'
+import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 
 export interface AppMetricIdentifier {
@@ -152,7 +152,7 @@ export class AppMetrics {
     }
 
     async flush(): Promise<void> {
-        status.debug('🚽', `Flushing app metrics`)
+        logger.debug('🚽', `Flushing app metrics`)
         const startTime = Date.now()
         this.lastFlushTime = startTime
         if (Object.keys(this.queuedData).length === 0) {
@@ -186,7 +186,7 @@ export class AppMetrics {
             topic: KAFKA_APP_METRICS,
             messages: messages,
         })
-        status.debug('🚽', `Finished flushing app metrics, took ${Date.now() - startTime}ms`)
+        logger.debug('🚽', `Finished flushing app metrics, took ${Date.now() - startTime}ms`)
     }
 
     _metricErrorParameters(errorWithContext: ErrorWithContext): Partial<AppMetric> {
@@ -217,7 +217,7 @@ export class AppMetrics {
             }
         } catch (err) {
             captureException(err)
-            status.warn('⚠️', 'Failed to serialize error for app metrics. Not reporting this error.', err)
+            logger.warn('⚠️', 'Failed to serialize error for app metrics. Not reporting this error.', err)
             return {}
         }
     }

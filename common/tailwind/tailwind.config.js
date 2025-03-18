@@ -635,6 +635,8 @@ const config = {
                 'fill-primary': 'var(--bg-fill-primary)',
                 'fill-secondary': 'var(--bg-fill-secondary)',
                 'fill-tertiary': 'var(--bg-fill-tertiary)',
+                'fill-highlight-50': 'var(--bg-fill-highlight-50)',
+                'fill-highlight-inverse-50': 'var(--bg-fill-highlight-inverse-50)',
                 'fill-highlight-100': 'var(--bg-fill-highlight-100)',
                 'fill-highlight-inverse-100': 'var(--bg-fill-highlight-inverse-100)',
                 'fill-highlight-150': 'var(--bg-fill-highlight-150)',
@@ -732,9 +734,6 @@ const config = {
                 lg: 'var(--radius-lg)',
                 full: '9999px',
             },
-            fontSize: {
-                xxs: ['0.625rem', '0.75rem'], // 10px (12px of line height)
-            },
             spacing: {
                 // Some additional larger widths for compatibility with our pre-Tailwind system
                 // Don't add new ones here, in new code just use the `w-[32rem]` style for arbitrary values
@@ -784,19 +783,22 @@ const config = {
         plugin(({ addUtilities, theme }) => {
             const spacing = theme("spacing");
             const newUtilities = {};
+            
 
             // Standard spacing utilities for backwards compatibility
-            for (const [key, value] of Object.entries(spacing)) {                
-                newUtilities[`.deprecated-space-y-${key} > :not([hidden]) ~ :not([hidden])`] = {
-                    '--tw-space-y-reverse': '0',
-                    'margin-top': `calc(${value} * calc(1 - var(--tw-space-y-reverse)))`,
-                    'margin-bottom': `calc(${value} * var(--tw-space-y-reverse))`,
-                };
-                newUtilities[`.deprecated-space-x-${key} > :not([hidden]) ~ :not([hidden])`] = {
-                    '--tw-space-x-reverse': '0',
-                    'margin-right': `calc(${value} * var(--tw-space-x-reverse))`,
-                    'margin-left': `calc(${value} * calc(1 - var(--tw-space-x-reverse)))`,
-                };
+            for (const [key, value] of Object.entries(spacing)) {
+                if (!key.includes('.')) {
+                    newUtilities[`.deprecated-space-y-${key} > :not([hidden]) ~ :not([hidden])`] = {
+                        '--tw-space-y-reverse': '0',
+                        'margin-top': `calc(${value} * calc(1 - var(--tw-space-y-reverse)))`,
+                        'margin-bottom': `calc(${value} * var(--tw-space-y-reverse))`,
+                    };
+                    newUtilities[`.deprecated-space-x-${key} > :not([hidden]) ~ :not([hidden])`] = {
+                        '--tw-space-x-reverse': '0',
+                        'margin-right': `calc(${value} * var(--tw-space-x-reverse))`,
+                        'margin-left': `calc(${value} * calc(1 - var(--tw-space-x-reverse)))`,
+                    };
+                }
             }
 
             addUtilities(newUtilities);

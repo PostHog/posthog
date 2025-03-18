@@ -44,6 +44,7 @@
         "playwright/**/*",
         "ee/frontend/**/*",
         "products/**/frontend/**/*",
+        "products/**/manifest.tsx",
         "common/esbuilder/*",
         "common/eslint_rules/*",
         "common/storybook/*"

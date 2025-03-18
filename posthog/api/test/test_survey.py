@@ -53,6 +53,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
         assert response_data["schedule"] == "once"
+        assert response_data["enable_partial_responses"] is False
         assert response_data["questions"] == [
             {
                 "id": str(response_data["questions"][0]["id"]),
@@ -140,6 +141,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
         assert response_data["schedule"] == "once"
+        assert response_data["enable_partial_responses"] is False
         assert response_data["questions"] == [
             {
                 "id": str(response_data["questions"][0]["id"]),
@@ -231,6 +233,7 @@ class TestSurvey(APIBaseTest):
         self.assertNotEqual(response_data["targeting_flag"]["key"], "survey-targeting-power-users-survey")
         assert re.match(r"^survey-targeting-[a-z0-9]+$", response_data["targeting_flag"]["key"])
         assert response_data["schedule"] == "once"
+        assert response_data["enable_partial_responses"] is False
 
         assert response_data["targeting_flag"]["filters"] == {
             "groups": [
@@ -1085,6 +1088,7 @@ class TestSurvey(APIBaseTest):
                     "description": "Make notebooks better",
                     "type": "popover",
                     "schedule": "once",
+                    "enable_partial_responses": False,
                     "questions": [
                         {
                             "id": response_data["results"][0]["questions"][0]["id"],
@@ -1742,6 +1746,69 @@ class TestSurvey(APIBaseTest):
         self.assertEqual(response_data["questions"][0]["id"], custom_id_1)
         self.assertEqual(response_data["questions"][1]["id"], custom_id_2)
 
+    def test_search_survey_by_name(self):
+        self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "NPS Survey 2024",
+                "description": "Annual NPS survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+            },
+            format="json",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=NPS")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["name"], "NPS Survey 2024")
+
+    def test_search_survey_by_description(self):
+        self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Product Feedback Survey",
+                "description": "product feedback collection",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+            },
+            format="json",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=product")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["name"], "Product Feedback Survey")
+
+    def test_search_survey_with_no_results(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=nonexistent")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 0)
+
+    def test_search_survey_with_pagination(self):
+        for i in range(15):
+            self.client.post(
+                f"/api/projects/{self.team.id}/surveys/",
+                data={
+                    "name": f"Product Survey {i}",
+                    "description": f"Product feedback {i}",
+                    "type": "popover",
+                    "questions": [{"type": "open", "question": "What do you think?"}],
+                    "targeting_flag_filters": None,
+                },
+                format="json",
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=Product&limit=10")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 10)  # Should return only 10 results
+        self.assertTrue(data["next"] is not None)  # Should have next page
+        self.assertTrue(data["count"] > 10)  # Total count should be more than 10
+
 
 class TestMultipleChoiceQuestions(APIBaseTest):
     def test_create_survey_has_open_choice(self):
@@ -1940,12 +2007,12 @@ class TestSurveyQuestionValidation(APIBaseTest):
             format="json",
         )
 
-        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
+        invalid_url = "Link must be a URL with one of these schemes: [https, mailto]"
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == invalid_url
 
-    def test_create_validate_link_url_location(self):
+    def test_create_validate_link_mailto(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -1954,7 +2021,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "questions": [
                     {
                         "type": "link",
-                        "link": "https://",
+                        "link": "mailto:#@%^%#$@#$@#.com",
                         "question": "<b>What</b> do you think of the new notebooks feature?",
                     },
                 ],
@@ -1962,12 +2029,12 @@ class TestSurveyQuestionValidation(APIBaseTest):
             format="json",
         )
 
-        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
+        invalid_url = "Invalid mailto link. Please enter a valid mailto link (e.g., mailto:example@domain.com)."
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == invalid_url
 
-    def test_create_validate_link_url_scheme_https(self):
+    def test_update_validate_link_https_url(self):
         basic_survey = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -1986,76 +2053,14 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "questions": [
                     {
                         "type": "link",
-                        "link": "javascript:alert(1)",
+                        "link": "https://#.com",
                         "question": "<b>What</b> do you think of the new notebooks feature?",
                     },
                 ],
             },
             format="json",
         )
-        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == invalid_url
-
-    def test_create_validate_link_url_scheme_mailto(self):
-        basic_survey = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "survey without targeting",
-                "type": "popover",
-            },
-            format="json",
-        ).json()
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/surveys/{basic_survey['id']}/",
-            data={
-                "name": "Notebooks beta release survey",
-                "description": "Get feedback on the new notebooks feature",
-                "type": "popover",
-                "questions": [
-                    {
-                        "type": "link",
-                        "link": "mailto:phani@posthog.com",
-                        "question": "<b>What</b> do you think of the new notebooks feature?",
-                    },
-                ],
-            },
-            format="json",
-        )
-        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == invalid_url
-
-    def test_update_validate_link_url_location(self):
-        basic_survey = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "survey without targeting",
-                "type": "popover",
-            },
-            format="json",
-        ).json()
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/surveys/{basic_survey['id']}/",
-            data={
-                "name": "Notebooks beta release survey",
-                "description": "Get feedback on the new notebooks feature",
-                "type": "popover",
-                "questions": [
-                    {
-                        "type": "link",
-                        "link": "https://",
-                        "question": "<b>What</b> do you think of the new notebooks feature?",
-                    },
-                ],
-            },
-            format="json",
-        )
-        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
+        invalid_url = "Invalid HTTPS URL. Please enter a valid HTTPS link."
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == invalid_url
@@ -3047,6 +3052,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "current_iteration": None,
                         "current_iteration_start_date": None,
                         "schedule": "once",
+                        "enable_partial_responses": False,
                     }
                 ],
             )
@@ -3106,6 +3112,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "start_date": None,
                     "end_date": None,
                     "schedule": "once",
+                    "enable_partial_responses": False,
                 },
                 surveys,
             )
@@ -3124,6 +3131,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "current_iteration": None,
                     "current_iteration_start_date": None,
                     "schedule": "once",
+                    "enable_partial_responses": False,
                 },
                 surveys,
             )

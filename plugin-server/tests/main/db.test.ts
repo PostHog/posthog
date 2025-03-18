@@ -12,7 +12,7 @@ import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 
 describe('DB', () => {
     let hub: Hub
@@ -180,8 +180,6 @@ describe('DB', () => {
                                 target: 'https://example.com/',
                             },
                         ],
-                        bytecode: null,
-                        bytecode_error: null,
                     },
                 },
             })
@@ -189,7 +187,6 @@ describe('DB', () => {
             expect(await db.fetchAction(69)).toEqual({
                 ...result[2][69],
                 steps_json: null, // Temporary diff whilst we migrate to this new field
-                pinned_at: null,
             })
         })
 

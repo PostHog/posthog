@@ -18,14 +18,15 @@ import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import { LegacyOneventCompareService } from './cdp/services/legacy-onevent-compare.service'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
-import { ObjectStorage } from './main/services/object_storage'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
+import { ObjectStorage } from './utils/object_storage'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
@@ -43,21 +44,10 @@ export { Element } from '@posthog/plugin-scaffold' // Re-export Element from sca
 type Brand<K, T> = K & { __brand: T }
 
 export enum LogLevel {
-    None = 'none',
     Debug = 'debug',
     Info = 'info',
-    Log = 'log',
     Warn = 'warn',
     Error = 'error',
-}
-
-export const logLevelToNumber: Record<LogLevel, number> = {
-    [LogLevel.None]: 0,
-    [LogLevel.Debug]: 10,
-    [LogLevel.Info]: 20,
-    [LogLevel.Log]: 30,
-    [LogLevel.Warn]: 40,
-    [LogLevel.Error]: 50,
 }
 
 export enum KafkaSecurityProtocol {
@@ -75,6 +65,7 @@ export enum KafkaSaslMechanism {
 
 export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
+    property_defs = 'property-defs',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
@@ -117,11 +108,14 @@ export type CdpConfig = {
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
     CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
+    CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
+    CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
+    CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED: boolean
 }
 
 export type IngestionConsumerConfig = {
@@ -131,6 +125,8 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_DLQ_TOPIC: string
     /** If set then overflow routing is enabled and the topic is used for overflow events */
     INGESTION_CONSUMER_OVERFLOW_TOPIC?: string
+    /** If set the ingestion consumer doesn't process events the usual way but rather just writes to a dummy topic */
+    INGESTION_CONSUMER_TESTING_TOPIC?: string
 }
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
@@ -260,7 +256,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
-
+    USE_SIMD_JSON_PARSE: boolean
+    USE_SIMD_JSON_PARSE_FOR_COMPARISON: boolean
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
     STARTUP_PROFILE_CPU: boolean
@@ -333,9 +330,15 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
     SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
+    SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
+
+    PROPERTY_DEFS_CONSUMER_GROUP_ID: string
+    PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
+    PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: string
+    PROPERTY_DEFS_WRITE_DISABLED: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -379,7 +382,7 @@ export interface Hub extends PluginsServerConfig {
     eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
 
-    // cookieless
+    legacyOneventCompareService: LegacyOneventCompareService
     cookielessManager: CookielessManager
 }
 
@@ -388,6 +391,7 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
+    propertyDefs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
@@ -401,9 +405,7 @@ export interface PluginServerCapabilities {
     cdpApi?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
-    http?: boolean
     mmdb?: boolean
-    syncInlinePlugins?: boolean
 }
 
 export interface EnqueuedPluginJob {
@@ -709,6 +711,7 @@ export type PersonMode = 'full' | 'propertyless' | 'force_upgrade'
 
 /** Raw event row from ClickHouse. */
 export interface RawClickHouseEvent extends BaseEvent {
+    project_id: ProjectId
     timestamp: ClickHouseTimestamp
     created_at: ClickHouseTimestamp
     properties?: string
@@ -738,6 +741,7 @@ export interface RawKafkaEvent extends RawClickHouseEvent {
 
 /** Parsed event row from ClickHouse. */
 export interface ClickHouseEvent extends BaseEvent {
+    project_id: ProjectId
     timestamp: DateTime
     created_at: DateTime
     properties: Record<string, any>
@@ -1060,9 +1064,6 @@ export interface RawAction {
     updated_at: string
     last_calculated_at: string
     steps_json: ActionStep[] | null
-    bytecode: any[] | null
-    bytecode_error: string | null
-    pinned_at: string | null
 }
 
 /** Usable Action model. */
@@ -1124,7 +1125,6 @@ export interface EventDefinitionType {
     query_usage_30_day: number | null
     team_id: number
     project_id: number | null
-    last_seen_at: string // DateTime
     created_at: string // DateTime
 }
 
@@ -1154,19 +1154,23 @@ export enum PropertyDefinitionTypeEnum {
     Event = 1,
     Person = 2,
     Group = 3,
+    Session = 4,
 }
+
+export type ResolvedGroups = Record<string, number>
 
 export interface PropertyDefinitionType {
     id: string
     name: string
     is_numerical: boolean
-    volume_30_day: number | null
-    query_usage_30_day: number | null
     team_id: number
     project_id: number | null
-    property_type?: PropertyType
+    property_type: PropertyType | null
     type: PropertyDefinitionTypeEnum
-    group_type_index: number | null
+    group_type_name?: string
+    group_type_index?: number | null
+    volume_30_day?: number | null
+    query_usage_30_day?: number | null
 }
 
 export interface EventPropertyType {

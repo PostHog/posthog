@@ -6,13 +6,14 @@ import {
     MessageKey as RdKafkaMessageKey,
     MessageValue,
     NumberNullUndefined,
+    ProducerGlobalConfig,
 } from 'node-rdkafka'
 import { Counter, Summary } from 'prom-client'
 
-import { getSpan } from '../sentry'
 import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
-import { status } from '../utils/status'
+import { logger } from '../utils/logger'
+import { getSpan } from '../utils/sentry'
 import { createRdConnectionConfigFromEnvVars, getProducerConfigFromEnv } from './config'
 
 // TODO: Rewrite this description
@@ -42,14 +43,10 @@ export class KafkaProducerWrapper {
     public producer: HighLevelProducer
 
     static async create(config: PluginsServerConfig, mode: 'producer' | 'consumer' = 'producer') {
-        const globalConfig = createRdConnectionConfigFromEnvVars(config, mode)
-
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
         // This makes it much easier to react to issues without needing code changes
 
-        // Finds all proces.env prefixed with KAFKA_PRODUCER_ and converts them to rdkafka config
-
-        const producer = new HighLevelProducer({
+        const producerConfig: ProducerGlobalConfig = {
             // Defaults that could be overridden by env vars
             'linger.ms': 20,
             'batch.size': 8 * 1024 * 1024,
@@ -57,25 +54,29 @@ export class KafkaProducerWrapper {
             'compression.codec': 'snappy',
             'enable.idempotence': true,
             ...getProducerConfigFromEnv(),
-            ...globalConfig,
+            ...createRdConnectionConfigFromEnvVars(config, mode),
             dr_cb: true,
-        })
+        }
+
+        logger.info('📝', 'librdkafka producer config', { config: producerConfig })
+
+        const producer = new HighLevelProducer(producerConfig)
 
         producer.on('event.log', function (log) {
-            status.info('📝', 'librdkafka log', { log: log })
+            logger.info('📝', 'librdkafka log', { log: log })
         })
 
         producer.on('event.error', function (err) {
-            status.error('📝', 'librdkafka error', { log: err })
+            logger.error('📝', 'librdkafka error', { log: err })
         })
 
         await new Promise((resolve, reject) =>
             producer.connect(undefined, (error, data) => {
                 if (error) {
-                    status.error('⚠️', 'connect_error', { error: error })
+                    logger.error('⚠️', 'connect_error', { error: error })
                     reject(error)
                 } else {
-                    status.info('📝', 'librdkafka producer connected', { error, brokers: data?.brokers })
+                    logger.info('📝', 'librdkafka producer connected', { error, brokers: data?.brokers })
                     resolve(data)
                 }
             })
@@ -103,7 +104,7 @@ export class KafkaProducerWrapper {
             const produceTimer = ingestEventKafkaProduceLatency.labels({ topic }).startTimer()
             const produceSpan = getSpan()?.startChild({ op: 'kafka_produce' })
             kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
-            status.debug('📤', 'Producing message', { topic: topic })
+            logger.debug('📤', 'Producing message', { topic: topic })
 
             const result = await new Promise((resolve, reject) => {
                 this.producer.produce(
@@ -121,11 +122,11 @@ export class KafkaProducerWrapper {
 
             produceSpan?.finish()
             kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
-            status.debug('📤', 'Produced message', { topic: topic, offset: result })
+            logger.debug('📤', 'Produced message', { topic: topic, offset: result })
             produceTimer()
         } catch (error) {
             kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
-            status.error('⚠️', 'kafka_produce_error', {
+            logger.error('⚠️', 'kafka_produce_error', {
                 error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
                 topic: topic,
             })
@@ -165,11 +166,11 @@ export class KafkaProducerWrapper {
     }
 
     public async flush() {
-        status.debug('📤', 'flushing_producer')
+        logger.debug('📤', 'flushing_producer')
 
         return await new Promise((resolve, reject) =>
             this.producer.flush(10000, (error) => {
-                status.debug('📤', 'flushed_producer')
+                logger.debug('📤', 'flushed_producer')
                 if (error) {
                     reject(error)
                 } else {
@@ -182,10 +183,10 @@ export class KafkaProducerWrapper {
     public async disconnect(): Promise<void> {
         await this.flush()
 
-        status.info('🔌', 'Disconnecting producer')
+        logger.info('🔌', 'Disconnecting producer')
         await new Promise<ClientMetrics>((resolve, reject) =>
             this.producer.disconnect((error: any, data: ClientMetrics) => {
-                status.info('🔌', 'Disconnected producer')
+                logger.info('🔌', 'Disconnected producer')
                 if (error) {
                     reject(error)
                 } else {

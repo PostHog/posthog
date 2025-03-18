@@ -61,10 +61,8 @@ impl RawFrame {
 
     pub fn symbol_set_ref(&self) -> Option<String> {
         match self {
-            RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => {
-                frame.source_url().map(String::from).ok()
-            }
-            RawFrame::JavaScriptNode(_) => None, // Python frames don't have symbol sets
+            RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => frame.symbol_set_ref(),
+            RawFrame::JavaScriptNode(_) => None, // Node.js frames don't have symbol sets
             RawFrame::Python(_) => None,         // Python frames don't have symbol sets
         }
     }
@@ -82,15 +80,20 @@ impl RawFrame {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Frame {
     // Properties used in processing
-    pub raw_id: String,                  // The raw frame id this was resolved from
-    pub mangled_name: String,            // Mangled name of the function
-    pub line: Option<u32>,               // Line the function is define on, if known
-    pub column: Option<u32>,             // Column the function is defined on, if known
-    pub source: Option<String>,          // Generally, the file the function is defined in
-    pub in_app: bool,                    // We hard-require clients to tell us this?
-    pub resolved_name: Option<String>,   // The name of the function, after symbolification
-    pub lang: String,                    // The language of the frame. Always known (I guess?)
-    pub resolved: bool,                  // Did we manage to resolve the frame?
+    pub raw_id: String,       // The raw frame id this was resolved from
+    pub mangled_name: String, // Mangled name of the function
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>, // Line the function is define on, if known
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>, // Column the function is defined on, if known
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>, // Generally, the file the function is defined in
+    pub in_app: bool,         // We hard-require clients to tell us this?
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_name: Option<String>, // The name of the function, after symbolification
+    pub lang: String,         // The language of the frame. Always known (I guess?)
+    pub resolved: bool,       // Did we manage to resolve the frame?
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub resolve_failure: Option<String>, // If we failed to resolve the frame, why?
 
     // Random extra/internal data we want to tag onto frames, e.g. the raw input. For debugging

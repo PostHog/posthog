@@ -66,6 +66,7 @@ export function Overview(): JSX.Element {
                         types={TRANSFORMATION_TYPES}
                         hideFeedback={true}
                         hideAddDestinationButton={false}
+                        hideChangeOrderButton={true}
                     />
                 </div>
                 <div>
@@ -76,7 +77,12 @@ export function Overview(): JSX.Element {
                         Send your data to destinations in real time or with batch exports. Only active Destinations are
                         shown here. <Link to={urls.pipeline(PipelineTab.Destinations)}>See all.</Link>
                     </p>
-                    <DestinationsTable types={DESTINATION_TYPES} hideFeedback={true} hideAddDestinationButton={false} />
+                    <DestinationsTable
+                        types={DESTINATION_TYPES}
+                        hideFeedback={true}
+                        hideAddDestinationButton={false}
+                        hideChangeOrderButton={true}
+                    />
                 </div>
             </div>
         </>

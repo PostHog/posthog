@@ -373,6 +373,14 @@ class IntegerType(ConstantType):
 
 
 @dataclass(kw_only=True)
+class DecimalType(ConstantType):
+    data_type: ConstantDataType = field(default="unknown", init=False)
+
+    def print_type(self) -> str:
+        return "Decimal"
+
+
+@dataclass(kw_only=True)
 class FloatType(ConstantType):
     data_type: ConstantDataType = field(default="float", init=False)
 
@@ -830,6 +838,15 @@ class SelectQuery(Expr):
     offset: Optional[Expr] = None
     settings: Optional[HogQLQuerySettings] = None
     view_name: Optional[str] = None
+
+    @classmethod
+    def empty(cls) -> "SelectQuery":
+        """Returns an empty SelectQuery that evaluates to no rows.
+
+        Creates a query that selects constant 1 with a WHERE clause that is always false,
+        effectively returning zero rows while maintaining valid SQL syntax.
+        """
+        return SelectQuery(select=[Constant(value=1)], where=Constant(value=False))
 
 
 SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DISTINCT", "EXCEPT"]

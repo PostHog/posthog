@@ -3,7 +3,7 @@ import json
 import random
 import time
 from typing import Optional
-from unittest.mock import patch, Mock
+from unittest.mock import patch
 
 from inline_snapshot import snapshot
 import pytest
@@ -21,7 +21,6 @@ from rest_framework.test import APIClient
 from posthog import redis
 from posthog.api.decide import get_decide, label_for_team_id_to_track
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
-from posthog.database_healthcheck import postgres_healthcheck
 from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
@@ -51,7 +50,6 @@ from posthog.test.base import (
     BaseTest,
     QueryMatchingTest,
     snapshot_postgres_queries,
-    snapshot_postgres_queries_context,
 )
 
 
@@ -79,10 +77,6 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
 # TODO: Add a derived version of decide that covers the new RemoteConfig option
 
 
-@patch(
-    "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-    return_value=True,
-)
 class TestDecide(BaseTest, QueryMatchingTest):
     """
     Tests the `/decide` endpoint.
@@ -427,25 +421,35 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["networkPayloadCapture"], {"recordHeaders": True})
 
-    def test_session_recording_masking_config(self, *args):
+    @parameterized.expand(
+        [
+            ["default config", None, None],
+            ["mask all inputs", {"maskAllInputs": True}, {"maskAllInputs": True}],
+            [
+                "mask text selector",
+                {"maskAllInputs": False, "maskTextSelector": "*"},
+                {"maskAllInputs": False, "maskTextSelector": "*"},
+            ],
+            [
+                "block selector",
+                {"blockSelector": "img"},
+                {"blockSelector": "img"},
+            ],
+        ]
+    )
+    def test_session_recording_masking_config(
+        self, _name: str, config: Optional[dict], expected: Optional[dict], *args
+    ):
         self._update_team(
             {
                 "session_recording_opt_in": True,
             }
         )
 
-        response = self._post_decide().json()
-        assert response["sessionRecording"]["masking"] is None
-
-        self._update_team({"session_recording_masking_config": {"maskAllInputs": True}})
+        self._update_team({"session_recording_masking_config": config})
 
         response = self._post_decide().json()
-        assert response["sessionRecording"]["masking"] == {"maskAllInputs": True}
-
-        self._update_team({"session_recording_masking_config": {"maskAllInputs": False, "maskTextSelector": "*"}})
-
-        response = self._post_decide().json()
-        assert response["sessionRecording"]["masking"] == {"maskAllInputs": False, "maskTextSelector": "*"}
+        assert response["sessionRecording"]["masking"] == expected
 
     def test_session_recording_empty_linked_flag(self, *args):
         # :TRICKY: Test for regression around caching
@@ -544,7 +548,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
     )
     def test_session_recording_script_config(
         self,
-        _mock_is_connected: Mock,
         _name: str,
         rrweb_script_name: str | None,
         team_allow_list: list[str] | None,
@@ -3715,6 +3718,24 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # Verify flag-2 is not in the response
         self.assertNotIn("flag-2", response_data["featureFlags"])
 
+    def test_missing_distinct_id(self, *args):
+        response = self._post_decide(
+            data={
+                "token": self.team.api_token,
+                "groups": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "missing_distinct_id",
+                "detail": "Decide requires a distinct_id.",
+                "attr": None,
+            },
+        )
+
 
 class TestDecideRemoteConfig(TestDecide):
     use_remote_config = True
@@ -3766,7 +3787,6 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
     def setUp(self, *args):
         cache.clear()
 
-        postgres_healthcheck.cache_clear()
         super().setUp(*args)
         # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
@@ -3813,118 +3833,6 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         client.logout()
-
-    def test_database_check_doesnt_interfere_with_regular_computation(self, *args):
-        self.client.logout()
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=[
-                "a",
-                "{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'}",
-                "{'x': 'y'}",
-                '{"x": "z"}',
-            ],
-            properties={"email": "tim@posthog.com", "realm": "cloud"},
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"groups": [{"rollout_percentage": 100}]},
-            name="This is a group-based flag",
-            key="random-flag",
-            created_by=self.user,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
-            rollout_percentage=100,
-            name="Filter by property",
-            key="filer-by-property",
-            created_by=self.user,
-        )
-
-        with freeze_time("2022-05-07 12:23:07"):
-            # one extra query to select 1 to check db is alive
-            # one extra query to select team because not in cache
-            with self.assertNumQueries(6):
-                response = self._post_decide(api_version=3, distinct_id=12345)
-                self.assertEqual(
-                    response.json()["featureFlags"],
-                    {"random-flag": True, "filer-by-property": False},
-                )
-
-            with self.assertNumQueries(4):
-                response = self._post_decide(
-                    api_version=3,
-                    distinct_id={
-                        "id": 33040,
-                        "shopify_domain": "xxx.myshopify.com",
-                        "shopify_token": "shpat_xxxx",
-                        "created_at": "2023-04-17T08:55:34.624Z",
-                        "updated_at": "2023-04-21T08:43:34.479",
-                    },
-                )
-                self.assertEqual(
-                    response.json()["featureFlags"],
-                    {"random-flag": True, "filer-by-property": True},
-                )
-
-    def test_decide_doesnt_error_out_when_database_is_down_and_database_check_isnt_cached(self, *args):
-        ALL_TEAM_PARAMS_FOR_DECIDE = {
-            "session_recording_opt_in": True,
-            "session_recording_sample_rate": 0.4,
-            "capture_console_log_opt_in": True,
-            "inject_web_apps": True,
-            "recording_domains": ["https://*.example.com"],
-            "capture_performance_opt_in": True,
-        }
-        self._update_team(ALL_TEAM_PARAMS_FOR_DECIDE)
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
-            rollout_percentage=100,
-            name="Filter by property",
-            key="filer-by-property",
-            created_by=self.user,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"properties": []},
-            rollout_percentage=100,
-            name="Filter by property",
-            key="no-props",
-            created_by=self.user,
-        )
-        # populate redis caches
-        self._post_decide(api_version=3, origin="https://random.example.com")
-
-        # remove database check cache values
-        postgres_healthcheck.cache_clear()
-
-        with (
-            connection.execute_wrapper(QueryTimeoutWrapper()),
-            snapshot_postgres_queries_context(self),
-            self.assertNumQueries(1),
-        ):
-            response = self._post_decide(api_version=3, origin="https://random.example.com").json()
-            response = self._post_decide(api_version=3, origin="https://random.example.com").json()
-            response = self._post_decide(api_version=3, origin="https://random.example.com").json()
-
-            self.assertEqual(
-                response["sessionRecording"],
-                make_session_recording_decide_response(
-                    {
-                        "sampleRate": "0.40",
-                    }
-                ),
-            )
-            self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
-            self.assertEqual(response["siteApps"], [])
-            self.assertEqual(
-                response["capturePerformance"],
-                {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-            )
-            self.assertEqual(response["featureFlags"], {"no-props": True})
-            self.assertEqual(response["errorsWhileComputingFlags"], True)
 
 
 @pytest.mark.skipif(
@@ -4055,7 +3963,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         with (
             freeze_time("2021-01-01T00:00:00Z"),
-            self.assertNumQueries(1, using="replica"),
             self.assertNumQueries(1, using="default"),
         ):
             response = self._post_decide()
@@ -4067,11 +3974,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual({}, response.json()["featureFlags"])
 
-    @patch(
-        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-        return_value=True,
-    )
-    def test_decide_uses_read_replica(self, mock_is_connected):
+    def test_decide_uses_read_replica(self):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 
@@ -4141,11 +4044,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-    @patch(
-        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-        return_value=True,
-    )
-    def test_decide_uses_read_replica_for_cohorts_based_flags(self, mock_is_connected):
+    def test_decide_uses_read_replica_for_cohorts_based_flags(self):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 
@@ -4343,11 +4242,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-    @patch(
-        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-        return_value=True,
-    )
-    def test_feature_flags_v3_consistent_flags(self, mock_is_connected):
+    def test_feature_flags_v3_consistent_flags(self):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 
@@ -4522,11 +4417,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             self.assertTrue(response.json()["featureFlags"]["default-no-prop-flag"])
             self.assertTrue(response.json()["errorsWhileComputingFlags"])
 
-    @patch(
-        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-        return_value=True,
-    )
-    def test_feature_flags_v3_consistent_flags_with_write_on_hash_key_overrides(self, mock_is_connected):
+    def test_feature_flags_v3_consistent_flags_with_write_on_hash_key_overrides(self):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 
@@ -4649,11 +4540,9 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "first-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # assigned by distinct_id hash
 
-    @patch(
-        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-        return_value=True,
-    )
-    def test_feature_flags_v2_with_groups(self, mock_is_connected):
+    def test_feature_flags_v2_with_groups(
+        self,
+    ):
         org, team, user = self.setup_user_and_team_in_db("replica")
         self.organization, self.team, self.user = org, team, user
 
@@ -4750,11 +4639,9 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
-    @patch(
-        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-        return_value=True,
-    )
-    def test_site_apps_in_decide_use_replica(self, mock_is_connected):
+    def test_site_apps_in_decide_use_replica(
+        self,
+    ):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 

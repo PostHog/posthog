@@ -13,6 +13,7 @@ import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
+import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
 
 import { Realm } from '~/types'
@@ -42,6 +43,7 @@ import {
     ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayGeneral,
+    ReplayMaskingSettings,
 } from './environment/SessionRecordingSettings'
 import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveySettings } from './environment/SurveySettings'
@@ -263,6 +265,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <BounceRatePageViewModeSetting />,
                 flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
             },
+            {
+                id: 'session-join-mode',
+                title: 'Session join mode',
+                component: <SessionsV2JoinModeSettings />,
+                flag: 'SETTINGS_SESSIONS_V2_JOIN',
+            },
         ],
     },
     {
@@ -279,6 +287,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-network',
                 title: 'Network capture',
                 component: <NetworkCaptureSettings />,
+            },
+            {
+                id: 'replay-masking',
+                title: 'Masking',
+                component: <ReplayMaskingSettings />,
             },
             {
                 id: 'replay-authorized-domains',

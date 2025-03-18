@@ -291,7 +291,7 @@ function VisualizationAnswer({
                               sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
                               onClick={() => setIsSummaryShown(!isSummaryShown)}
                               size="xsmall"
-                              className="-m-1"
+                              className="-m-1 shrink"
                               tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
                           >
                               <h5 className="m-0 leading-none">

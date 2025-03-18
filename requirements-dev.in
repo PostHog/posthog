@@ -22,7 +22,7 @@ django-linear-migrations==2.16.*
 Faker==17.5.0
 fakeredis[lua]==2.23.3
 freezegun==1.2.2
-inline-snapshot==0.12.*
+inline-snapshot==0.19.*
 multidict==6.0.5 # Not used by us directly, but code won't run on Ubuntu 24.04 unless we resolve this to 6.0.5
 packaging==24.1
 black~=23.9.1
@@ -64,3 +64,4 @@ openapi-spec-validator==0.7.1 # Needed for prance as a validation backend
 deepeval==1.5.5
 tach~=0.20.0
 stpyv8==13.1.201.22
+types-boto3[essential]==1.37.6

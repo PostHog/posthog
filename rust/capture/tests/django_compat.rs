@@ -6,14 +6,14 @@ use base64::engine::general_purpose;
 use base64::Engine;
 use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use capture::config::CaptureMode;
-use capture::limiters::redis::{QuotaResource, RedisLimiter, QUOTA_LIMITER_CACHE_KEY};
-use capture::limiters::token_dropper::TokenDropper;
-use capture::redis::MockRedisClient;
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::{DataType, ProcessedEvent};
+use common_redis::MockRedisClient;
 use health::HealthRegistry;
+use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
+use limiters::token_dropper::TokenDropper;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs::File;
@@ -109,6 +109,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             QUOTA_LIMITER_CACHE_KEY.to_string(),
             None,
             QuotaResource::Events,
+            ServiceName::Capture,
         )
         .expect("failed to create billing limiter");
 
