@@ -17,6 +17,12 @@ const lazyLoaderFullCacheHits = new Counter({
     labelNames: ['name', 'hit'],
 })
 
+const lazyLoaderBufferUsage = new Counter({
+    name: 'lazy_loader_buffer_usage',
+    help: 'The number of times we have used the buffer indicating better batching',
+    labelNames: ['name', 'hit'],
+})
+
 /**
  * We have a common pattern across consumers where we want to:
  * - Load a value lazily
@@ -99,6 +105,9 @@ export class LazyLoader<T> {
                         return this.options.loader(keys)
                     }),
                 }
+                lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'miss' }).inc()
+            } else {
+                lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'hit' }).inc()
             }
 
             // Add the key to the buffer and add a pendingLoad that waits for the buffer to resolve
