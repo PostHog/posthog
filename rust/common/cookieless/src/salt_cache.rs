@@ -216,7 +216,6 @@ impl SaltCache {
 /// A date is valid if:
 /// 1. It's not in the future (at least one timezone could plausibly be in this calendar day)
 /// 2. It's not too far in the past (with some buffer for ingestion lag)
-#[must_use]
 pub fn is_calendar_date_valid(yyyymmdd: &str) -> bool {
     // Parse the date
     let parts: Vec<&str> = yyyymmdd.split('-').collect();

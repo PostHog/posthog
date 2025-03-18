@@ -401,7 +401,6 @@ fn to_yyyy_mm_dd_in_timezone_safe(
 }
 
 /// Get the Redis key for identify counts
-#[must_use]
 pub fn get_redis_identifies_key(hash: &[u8], team_id: u64) -> String {
     // cklsi = cookieless identifies
     format!(
