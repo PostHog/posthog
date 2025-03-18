@@ -12,7 +12,6 @@ from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
@@ -75,9 +74,6 @@ class EventsQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
-        if self.timings is None:
-            self.timings = HogQLTimings()
-
         with self.timings.measure("build_ast"):
             # columns & group_by
             with self.timings.measure("columns"):
