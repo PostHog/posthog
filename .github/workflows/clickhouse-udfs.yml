@@ -1,4 +1,4 @@
-name: Trigger UDFs Workflow
+name: ClickHouse UDFs
 
 on:
     push:
@@ -12,7 +12,7 @@ jobs:
         runs-on: ubuntu-24.04
         steps:
             - name: Trigger UDFs Workflow
-              uses: benc-uk/workflow-dispatch@v1
+              uses: benc-uk/workflow-dispatch@e2e5e9a103e331dad343f381a29e654aea3cf8fc # v1
               with:
                   workflow: .github/workflows/clickhouse-udfs.yml
                   repo: posthog/posthog-cloud-infra
