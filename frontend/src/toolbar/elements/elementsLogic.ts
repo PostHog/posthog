@@ -314,7 +314,7 @@ export const elementsLogic = kea<elementsLogicType>([
                     .map((element) => ({
                         ...element,
                         // being able to hover over elements might rely on their original z-index
-	                // so we copy it over to the toolbar element
+                        // so we copy it over to the toolbar element
                         apparentZIndex: getMaxZIndex(element.element),
                     }))
             },
