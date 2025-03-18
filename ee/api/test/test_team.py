@@ -12,6 +12,7 @@ from rest_framework.status import (
 
 from ee.api.test.base import APILicensedTest
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from posthog.api.test.test_team import EnvironmentToProjectRewriteClient
 from posthog.models.dashboard import Dashboard
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
@@ -102,13 +103,11 @@ def team_enterprise_api_test_factory():  # type: ignore
             response_2 = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": True})
             self.assertEqual(Team.objects.count(), 2, response_2.json())
             response_2_data = response_2.json()
-            self.assertTrue(
-                response_2_data.get("detail")
-                in [
-                    "You must upgrade your PostHog plan to be able to create and manage more environments per project.",
-                    "You must upgrade your PostHog plan to be able to create and manage more projects.",
-                ],
-                f"Unexpected error message: {response_2_data.get('detail')}",
+            self.assertEqual(
+                response_2_data.get("detail"),
+                "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+                if self.client_class is not EnvironmentToProjectRewriteClient
+                else "You must upgrade your PostHog plan to be able to create and manage more projects.",
             )
             self.assertEqual(response_2_data.get("type"), "authentication_error")
             self.assertEqual(response_2_data.get("code"), "permission_denied")

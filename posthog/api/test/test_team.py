@@ -173,13 +173,11 @@ def team_api_test_factory():
             response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": False})
             self.assertEqual(response.status_code, 403)
             response_data = response.json()
-            self.assertTrue(
-                response_data.get("detail")
-                in [
-                    "You must upgrade your PostHog plan to be able to create and manage more environments per project.",
-                    "You must upgrade your PostHog plan to be able to create and manage more projects.",
-                ],
-                f"Unexpected error message: {response_data.get('detail')}",
+            self.assertEqual(
+                response_data.get("detail"),
+                "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+                if self.client_class is not EnvironmentToProjectRewriteClient
+                else "You must upgrade your PostHog plan to be able to create and manage more projects.",
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -189,13 +187,11 @@ def team_api_test_factory():
             response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox"})
             self.assertEqual(response.status_code, 403)
             response_data = response.json()
-            self.assertTrue(
-                response_data.get("detail")
-                in [
-                    "You must upgrade your PostHog plan to be able to create and manage more environments per project.",
-                    "You must upgrade your PostHog plan to be able to create and manage more projects.",
-                ],
-                f"Unexpected error message: {response_data.get('detail')}",
+            self.assertEqual(
+                response_data.get("detail"),
+                "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+                if self.client_class is not EnvironmentToProjectRewriteClient
+                else "You must upgrade your PostHog plan to be able to create and manage more projects.",
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -1543,13 +1539,11 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
         self.assertEqual(response.status_code, 403)
         response_data = response.json()
-        self.assertTrue(
-            response_data.get("detail")
-            in [
-                "You must upgrade your PostHog plan to be able to create and manage more environments per project.",
-                "You must upgrade your PostHog plan to be able to create and manage more projects.",
-            ],
-            f"Unexpected error message: {response_data.get('detail')}",
+        self.assertEqual(
+            response_data.get("detail"),
+            "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+            if self.client_class is not EnvironmentToProjectRewriteClient
+            else "You must upgrade your PostHog plan to be able to create and manage more projects.",
         )
         self.assertEqual(response_data.get("type"), "authentication_error")
         self.assertEqual(response_data.get("code"), "permission_denied")

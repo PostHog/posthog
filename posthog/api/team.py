@@ -375,10 +375,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
         request = self.context["request"]
-        if "project_id" not in self.context:
-            raise exceptions.ValidationError(
-                "Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead."
-            )
         if self.context["project_id"] not in self.user_permissions.project_ids_visible_for_user:
             raise exceptions.NotFound("Project not found.")
         validated_data["project_id"] = self.context["project_id"]
@@ -861,7 +857,12 @@ class PremiumMultiEnvironmentPermission(BasePermission):
         if view.action not in CREATE_ACTIONS:
             return True
 
-        project = view.project
+        try:
+            project = view.project
+        except KeyError:  # KeyError occurs when "project_id" is not in parents_query_dict
+            raise exceptions.ValidationError(
+                "Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead."
+            )
 
         if request.data.get("is_demo"):
             # If we're requesting to make a demo project but the org already has a demo project
