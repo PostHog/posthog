@@ -130,6 +130,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,
             pollDelayMs: this.hub.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
+            shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
         })
         await this.cyclotronWorker.connect((jobs) => this.handleJobBatch(jobs))
     }

@@ -203,10 +203,12 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             },
         })
 
-        const shardDepthLimit = this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000
-
         this.cyclotronManager = this.hub.CYCLOTRON_DATABASE_URL
-            ? new CyclotronManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }], shardDepthLimit })
+            ? new CyclotronManager({
+                  shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }],
+                  shardDepthLimit: this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000,
+                  shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+              })
             : undefined
 
         await this.cyclotronManager?.connect()

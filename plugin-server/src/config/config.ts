@@ -201,6 +201,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
+        CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
