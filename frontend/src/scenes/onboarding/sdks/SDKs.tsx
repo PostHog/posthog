@@ -12,6 +12,7 @@ import { SDKInstructionsMap } from '~/types'
 
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
+import { OnboardingInstallStepProps } from './OnboardingInstallStep'
 import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
 
@@ -20,7 +21,6 @@ export type SDKsProps = {
     stepKey?: OnboardingStepKey
     listeningForName?: string
     teamPropertyToVerify?: string
-    usersAction?: string
     subtitle?: string
 }
 
@@ -39,7 +39,8 @@ export function SDKs({
     stepKey = OnboardingStepKey.INSTALL,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
-}: SDKsProps): JSX.Element {
+    ...onboardingStepProps
+}: SDKsProps & OnboardingInstallStepProps): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { setSourceFilter, selectSDK, setAvailableSDKInstructionsMap, setShowSideBySide, setPanel } =
@@ -81,7 +82,7 @@ export function SDKs({
     }, 2000)
 
     return (
-        <OnboardingStep title="Install" stepKey={stepKey} continueOverride={<></>}>
+        <OnboardingStep {...onboardingStepProps} title="Install" stepKey={stepKey} continueOverride={<></>}>
             <div className="flex gap-x-8 mt-6">
                 <div
                     className={`flex-col gap-y-2 flex-wrap gap-x-4 ${showSideBySide && 'min-w-[12.5rem] w-50'} ${

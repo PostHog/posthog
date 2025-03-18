@@ -68,12 +68,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         }
 
         if (shouldShowDataWarehouseStep) {
-            const DataWarehouseStep = (
-                <OnboardingDataWarehouseSourcesStep
-                    usersAction="Data Warehouse"
-                    stepKey={OnboardingStepKey.LINK_DATA}
-                />
-            )
+            const DataWarehouseStep = <OnboardingDataWarehouseSourcesStep stepKey={OnboardingStepKey.LINK_DATA} />
             steps = [...steps, DataWarehouseStep]
         }
 
@@ -202,7 +197,6 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <OnboardingInstallStep
-                usersAction="collecting events"
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
                 stepKey={OnboardingStepKey.INSTALL}
             />
@@ -280,7 +274,6 @@ const WebAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <OnboardingInstallStep
-                usersAction="collecting events"
                 sdkInstructionMap={WebAnalyticsSDKInstructions}
                 stepKey={OnboardingStepKey.INSTALL}
             />
@@ -357,7 +350,6 @@ const SessionReplayOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <OnboardingInstallStep
-                usersAction="recording sessions"
                 sdkInstructionMap={SessionReplaySDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
@@ -375,7 +367,6 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <OnboardingInstallStep
-                usersAction="loading flags"
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
                 subtitle="Choose the framework where you want to use feature flags, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
@@ -388,7 +379,6 @@ const ExperimentsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <OnboardingInstallStep
-                usersAction="loading experiments"
                 sdkInstructionMap={ExperimentsSDKInstructions}
                 subtitle="Choose the framework where you want to run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
@@ -401,7 +391,6 @@ const SurveysOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <OnboardingInstallStep
-                usersAction="taking surveys"
                 sdkInstructionMap={SurveysSDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
@@ -413,18 +402,20 @@ const SurveysOnboarding = (): JSX.Element => {
 const DataWarehouseOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingDataWarehouseSourcesStep usersAction="Data Warehouse" stepKey={OnboardingStepKey.LINK_DATA} />
+            <OnboardingDataWarehouseSourcesStep stepKey={OnboardingStepKey.LINK_DATA} />
         </OnboardingWrapper>
     )
 }
 
 const ErrorTrackingOnboarding = (): JSX.Element => {
+    const { updateCurrentTeam } = useActions(teamLogic)
+
     return (
         <OnboardingWrapper>
             <OnboardingInstallStep
-                usersAction="collecting exceptions"
                 sdkInstructionMap={ErrorTrackingSDKInstructions}
                 stepKey={OnboardingStepKey.INSTALL}
+                onContinue={() => updateCurrentTeam({ autocapture_exceptions_opt_in: true })}
             />
             <OnboardingErrorTrackingSourceMapsStep stepKey={OnboardingStepKey.SOURCE_MAPS} />
             <OnboardingErrorTrackingAlertsStep stepKey={OnboardingStepKey.ALERTS} />

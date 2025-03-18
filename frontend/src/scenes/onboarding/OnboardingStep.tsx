@@ -7,6 +7,24 @@ import React from 'react'
 
 import { breadcrumbExcludeSteps, onboardingLogic, OnboardingStepKey, stepKeyToTitle } from './onboardingLogic'
 
+export type OnboardingStepProps = {
+    stepKey: OnboardingStepKey
+    title: string
+    subtitle?: string
+    children: React.ReactNode
+    showSkip?: boolean
+    showHelpButton?: boolean
+    onSkip?: () => void
+    onContinue?: () => void
+    continueText?: string
+    continueOverride?: JSX.Element
+    continueDisabledReason?: string
+    hideHeader?: boolean
+    breadcrumbHighlightName?: OnboardingStepKey
+    fullWidth?: boolean
+    actions?: JSX.Element
+}
+
 export const OnboardingStep = ({
     stepKey,
     title,
@@ -23,23 +41,7 @@ export const OnboardingStep = ({
     breadcrumbHighlightName,
     fullWidth = false,
     actions,
-}: {
-    stepKey: OnboardingStepKey
-    title: string
-    subtitle?: string
-    children: React.ReactNode
-    showSkip?: boolean
-    showHelpButton?: boolean
-    onSkip?: () => void
-    onContinue?: () => void
-    continueText?: string
-    continueOverride?: JSX.Element
-    continueDisabledReason?: string
-    hideHeader?: boolean
-    breadcrumbHighlightName?: OnboardingStepKey
-    fullWidth?: boolean
-    actions?: JSX.Element
-}): JSX.Element => {
+}: OnboardingStepProps): JSX.Element => {
     const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)

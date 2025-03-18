@@ -14,6 +14,7 @@ import { OnboardingStepKey } from '../onboardingLogic'
 import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
+import { OnboardingInstallStepProps } from './OnboardingInstallStep'
 import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
 import type { SDKsProps } from './SDKs'
 import { sdksLogic } from './sdksLogic'
@@ -106,7 +107,8 @@ export function AlternativeSDKs({
     stepKey = OnboardingStepKey.INSTALL,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
-}: SDKsProps): JSX.Element {
+    ...onboardingStepProps
+}: SDKsProps & OnboardingInstallStepProps): JSX.Element {
     const { setAvailableSDKInstructionsMap, selectSDK, setSearchTerm, setSelectedTag } = useActions(sdksLogic)
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
     const [instructionsModalOpen, setInstructionsModalOpen] = useState(false)
@@ -124,6 +126,7 @@ export function AlternativeSDKs({
 
     return (
         <OnboardingStep
+            {...onboardingStepProps}
             title="Install"
             stepKey={stepKey}
             continueOverride={<NextButton installationComplete={installationComplete} />}
