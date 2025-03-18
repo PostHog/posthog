@@ -1,22 +1,38 @@
 import { LemonColorGlyph, LemonInput, LemonLabel, Popover } from '@posthog/lemon-ui'
 import { DataColorToken } from 'lib/colors'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { LemonColorButton } from './LemonColorButton'
 import { LemonColorList } from './LemonColorList'
 
-type LemonColorPickerProps = {
+type LemonColorPickerBaseProps = {
     themeId?: number
-    colors?: string[]
-    colorTokens?: DataColorToken[]
-    selectedColor?: string | null
-    selectedColorToken?: DataColorToken | null
-    onSelectColor?: (color: string) => void
-    onSelectColorToken?: (colorToken: DataColorToken) => void
     showCustomColor?: boolean
     hideDropdown?: boolean
     preventPopoverClose?: boolean
 }
+
+type LemonColorPickerColorProps = LemonColorPickerBaseProps & {
+    colors: string[]
+    selectedColor?: string | null
+    onSelectColor: (color: string) => void
+    colorTokens?: never
+    selectedColorToken?: never
+    onSelectColorToken?: never
+}
+
+type LemonColorPickerTokenProps = LemonColorPickerBaseProps & {
+    colorTokens: DataColorToken[]
+    selectedColorToken?: DataColorToken | null
+    onSelectColorToken: (colorToken: DataColorToken) => void
+    colors?: never
+    selectedColor?: never
+    onSelectColor?: never
+}
+
+type LemonColorPickerProps = LemonColorPickerColorProps | LemonColorPickerTokenProps
+
+type LemonColorPickerOverlayProps = Omit<LemonColorPickerProps, 'hideDropdown'>
 
 export const LemonColorPickerOverlay = ({
     themeId,
@@ -28,7 +44,7 @@ export const LemonColorPickerOverlay = ({
     onSelectColorToken,
     showCustomColor = false,
     preventPopoverClose = false,
-}: Omit<LemonColorPickerProps, 'hideDropdown'>): JSX.Element => {
+}: LemonColorPickerOverlayProps): JSX.Element => {
     const [color, setColor] = useState<string | null>(selectedColor || null)
     const [lastValidColor, setLastValidColor] = useState<string | null>(selectedColor || null)
 
@@ -48,14 +64,21 @@ export const LemonColorPickerOverlay = ({
             }}
         >
             <LemonLabel className="mt-1 mb-0.5">Preset colors</LemonLabel>
-            <LemonColorList
-                themeId={themeId}
-                colors={colors}
-                colorTokens={colorTokens}
-                selectedColor={selectedColor}
-                selectedColorToken={selectedColorToken}
-                onClick={colorTokens ? onSelectColorToken : onSelectColor}
-            />
+            {colors ? (
+                <LemonColorList
+                    themeId={themeId}
+                    colors={colors}
+                    selectedColor={selectedColor}
+                    onSelectColor={onSelectColor}
+                />
+            ) : colorTokens ? (
+                <LemonColorList
+                    themeId={themeId}
+                    colorTokens={colorTokens}
+                    selectedColorToken={selectedColorToken}
+                    onSelectColorToken={onSelectColorToken}
+                />
+            ) : null}
             {showCustomColor && (
                 <div>
                     <LemonLabel className="mt-2 mb-0.5">Custom color</LemonLabel>

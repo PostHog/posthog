@@ -2,24 +2,37 @@ import { DataColorToken } from 'lib/colors'
 
 import { LemonColorButton } from './LemonColorButton'
 
-type LemonColorListProps = {
-    colors?: string[]
-    colorTokens?: DataColorToken[]
-    selectedColor?: string | null
-    selectedColorToken?: DataColorToken | null
-    onClick: {
-        (color: string): void
-        (colorToken: DataColorToken): void
-    }
+type LemonColorListBaseProps = {
     themeId?: number
 }
+
+type LemonColorListColorProps = LemonColorListBaseProps & {
+    colors: string[]
+    selectedColor?: string | null
+    onSelectColor?: (color: string) => void
+    colorTokens?: never
+    selectedColorToken?: never
+    onSelectColorToken?: never
+}
+
+type LemonColorListTokenProps = LemonColorListBaseProps & {
+    colorTokens: DataColorToken[]
+    selectedColorToken?: DataColorToken | null
+    onSelectColorToken?: (colorToken: DataColorToken) => void
+    colors?: never
+    selectedColor?: never
+    onSelectColor?: never
+}
+
+type LemonColorListProps = LemonColorListColorProps | LemonColorListTokenProps
 
 export function LemonColorList({
     colors,
     colorTokens,
     selectedColor,
     selectedColorToken,
-    onClick,
+    onSelectColor,
+    onSelectColorToken,
     themeId,
 }: LemonColorListProps): JSX.Element | null {
     if (colorTokens?.length) {
@@ -34,7 +47,7 @@ export function LemonColorList({
                             e.preventDefault()
                             e.stopPropagation()
 
-                            onClick(colorToken)
+                            onSelectColorToken?.(colorToken)
                         }}
                         themeId={themeId}
                     />
@@ -55,7 +68,7 @@ export function LemonColorList({
                             e.preventDefault()
                             e.stopPropagation()
 
-                            onClick(color)
+                            onSelectColor?.(color)
                         }}
                     />
                 ))}

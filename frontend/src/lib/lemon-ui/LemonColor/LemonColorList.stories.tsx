@@ -19,7 +19,7 @@ export const Default: Story = {
             <LemonColorList
                 colorTokens={colorTokens}
                 selectedColorToken={colorTokens[3]}
-                onClick={(colorToken) => {
+                onSelectColorToken={(colorToken) => {
                     alert(colorToken)
                 }}
             />
@@ -32,7 +32,7 @@ export const CustomColors: Story = {
         <LemonColorList
             colors={['#ff0000', '#00ff00', '#0000ff']}
             selectedColor="#00ff00"
-            onClick={(color) => {
+            onSelectColor={(color) => {
                 alert(color)
             }}
         />
@@ -43,10 +43,10 @@ export const CustomTheme: Story = {
     render: () => (
         <LemonColorList
             colorTokens={colorTokens}
-            selectedColor={colorTokens[3]}
+            selectedColorToken={colorTokens[3]}
             themeId={2}
-            onClick={(color) => {
-                alert(color)
+            onSelectColorToken={(colorToken) => {
+                alert(colorToken)
             }}
         />
     ),
