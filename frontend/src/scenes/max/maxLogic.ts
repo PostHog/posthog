@@ -76,6 +76,7 @@ export const maxLogic = kea<maxLogicType>([
         setConversation: (conversation: Conversation) => ({ conversation }),
         setTraceId: (traceId: string) => ({ traceId }),
         resetThread: true,
+        cleanThread: true,
     }),
     reducers({
         question: [
@@ -109,6 +110,7 @@ export const maxLogic = kea<maxLogicType>([
                     ...state.slice(index + 1),
                 ],
                 resetThread: (state) => state.filter((message) => !isReasoningMessage(message)),
+                cleanThread: () => [] as ThreadMessage[],
             },
         ],
         threadLoading: [
