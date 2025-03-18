@@ -34,7 +34,7 @@ from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQue
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare_intervals
 from posthog.hogql_queries.utils.query_previous_period_date_range import (
     QueryPreviousPeriodDateRange,
 )
@@ -87,6 +87,23 @@ class TrendsQueryRunner(QueryRunner):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
     ):
+        if isinstance(query, dict):
+            query = TrendsQuery.model_validate(query)
+
+        modified_query = deepcopy(query)
+
+        interval = modified_query.interval or IntervalType.day
+
+        for i, series in enumerate(modified_query.series):
+            # Convert WAU to DAU for week or longer intervals
+            if hasattr(series, "math") and series.math == "wau" and compare_intervals(interval, ">=", "week"):
+                modified_query.series[i].math = "dau"
+
+            # Convert MAU to DAU for month or longer intervals
+            if hasattr(series, "math") and series.math == "mau" and compare_intervals(interval, ">=", "month"):
+                modified_query.series[i].math = "dau"
+
+        query = modified_query
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.update_hogql_modifiers()
         self.series = self.setup_series()

@@ -17,6 +17,22 @@ from posthog.utils import (
 )
 
 IntervalLiteral = Literal["minute", "hour", "day", "week", "month"]
+ORDERED_INTERVALS = ["minute", "hour", "day", "week", "month"]
+
+
+def compare_intervals(
+    interval1: IntervalLiteral, operator: Literal["<", "<=", "=", ">", ">="], interval2: IntervalLiteral
+) -> bool:
+    if operator == "<":
+        return ORDERED_INTERVALS.index(interval1) < ORDERED_INTERVALS.index(interval2)
+    elif operator == "<=":
+        return ORDERED_INTERVALS.index(interval1) <= ORDERED_INTERVALS.index(interval2)
+    elif operator == "=":
+        return ORDERED_INTERVALS.index(interval1) == ORDERED_INTERVALS.index(interval2)
+    elif operator == ">":
+        return ORDERED_INTERVALS.index(interval1) > ORDERED_INTERVALS.index(interval2)
+    elif operator == ">=":
+        return ORDERED_INTERVALS.index(interval1) >= ORDERED_INTERVALS.index(interval2)
 
 
 # Originally similar to posthog/queries/query_date_range.py but rewritten to be used in HogQL queries
