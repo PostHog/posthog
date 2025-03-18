@@ -32,7 +32,7 @@ export const Overview = (): JSX.Element => {
                 .map((row, index) => (
                     <div key={index} className="flex items-center justify-between">
                         <span className="font-semibold w-full">{row.label}</span>
-                        <span className="w-full">{row.value + ''}</span>
+                        <span className="w-full truncate">{row.value + ''}</span>
                     </div>
                 ))}
         </div>
