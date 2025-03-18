@@ -121,43 +121,43 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                 </LemonBanner>
                             )}
                             {!isTransformation && (
-                                <TestAccountFilterSwitch
-                                    checked={filters?.filter_test_accounts ?? false}
-                                    onChange={(filter_test_accounts) => onChange({ ...filters, filter_test_accounts })}
-                                    fullWidth
-                                />
+                                <>
+                                    <TestAccountFilterSwitch
+                                        checked={filters?.filter_test_accounts ?? false}
+                                        onChange={(filter_test_accounts) =>
+                                            onChange({ ...filters, filter_test_accounts })
+                                        }
+                                        fullWidth
+                                    />
+                                    <PropertyFilters
+                                        propertyFilters={(filters?.properties ?? []) as AnyPropertyFilter[]}
+                                        taxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.EventProperties,
+                                            TaxonomicFilterGroupType.PersonProperties,
+                                            TaxonomicFilterGroupType.EventFeatureFlags,
+                                            TaxonomicFilterGroupType.Elements,
+                                            TaxonomicFilterGroupType.HogQLExpression,
+                                            ...groupsTaxonomicTypes,
+                                        ]}
+                                        onChange={(properties: AnyPropertyFilter[]) => {
+                                            onChange({
+                                                ...filters,
+                                                properties,
+                                            })
+                                        }}
+                                        pageKey={`HogFunctionPropertyFilters.${id}`}
+                                    />
+                                </>
                             )}
-                            <PropertyFilters
-                                propertyFilters={(filters?.properties ?? []) as AnyPropertyFilter[]}
-                                taxonomicGroupTypes={
-                                    isTransformation
-                                        ? transformationTaxonomicTypes
-                                        : [
-                                              TaxonomicFilterGroupType.EventProperties,
-                                              TaxonomicFilterGroupType.PersonProperties,
-                                              TaxonomicFilterGroupType.EventFeatureFlags,
-                                              TaxonomicFilterGroupType.Elements,
-                                              TaxonomicFilterGroupType.HogQLExpression,
-                                              ...groupsTaxonomicTypes,
-                                          ]
-                                }
-                                onChange={(properties: AnyPropertyFilter[]) => {
-                                    onChange({
-                                        ...filters,
-                                        properties,
-                                    })
-                                }}
-                                pageKey={`HogFunctionPropertyFilters.${id}`}
-                            />
 
-                            {!useMapping && !isTransformation ? (
+                            {!useMapping ? (
                                 <>
                                     <div className="flex justify-between w-full gap-2">
                                         <LemonLabel>Match events and actions</LemonLabel>
                                     </div>
                                     <p className="mb-0 text-xs text-secondary">
-                                        If set, the destination will only run if the <b>event matches any</b> of the
-                                        below.
+                                        If set, {isTransformation ? 'the transformation' : 'the destination'} will only
+                                        run if the <b>event matches any</b> of the below.
                                     </p>
                                     <ActionFilter
                                         bordered
@@ -173,10 +173,11 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                         hideRename
                                         hideDuplicate
                                         showNestedArrow={false}
-                                        actionsTaxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.Events,
-                                            TaxonomicFilterGroupType.Actions,
-                                        ]}
+                                        actionsTaxonomicGroupTypes={
+                                            isTransformation
+                                                ? [TaxonomicFilterGroupType.Events]
+                                                : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
+                                        }
                                         propertiesTaxonomicGroupTypes={
                                             isTransformation
                                                 ? transformationTaxonomicTypes
