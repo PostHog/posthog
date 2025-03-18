@@ -6,16 +6,17 @@ import json
 from django.db import close_old_connections
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
+
+from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
 from posthog.exceptions_capture import capture_exception
-from posthog.settings import TEST, DEBUG
+from posthog.settings import DEBUG, TEST
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import FilteringBoundLogger, bind_temporal_worker_logger_sync
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
-from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
-from temporalio.exceptions import WorkflowAlreadyStartedError
 
 
 def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema, logger: FilteringBoundLogger) -> str:
@@ -60,7 +61,7 @@ class DeltalakeCompactionJobWorkflowInputs:
 @activity.defn
 def run_compaction(inputs: DeltalakeCompactionJobWorkflowInputs):
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
-    with HeartbeaterSync(factor=30, logger=logger):
+    with Heartbeater(factor=30, logger=logger):
         close_old_connections()
 
         job = ExternalDataJob.objects.get(id=inputs.external_data_job_id, team_id=inputs.team_id)
