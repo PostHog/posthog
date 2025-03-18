@@ -56,11 +56,13 @@ export interface TransformationResult extends TransformationResultPure {
 export class HogTransformerService {
     private hogExecutor: HogExecutorService
     private hogFunctionManager: HogFunctionManagerService
+    private hub: Hub
     private pluginExecutor: LegacyPluginExecutorService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private hogFunctionManagerLazy: HogFunctionManagerLazyService
 
-    constructor(private hub: Hub) {
+    constructor(hub: Hub) {
+        this.hub = hub
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFunctionManagerLazy = new HogFunctionManagerLazyService(hub)
         this.hogExecutor = new HogExecutorService(hub)
