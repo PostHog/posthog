@@ -172,7 +172,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     query: '',
                 },
             } as DataVisualizationNode,
-            { persist: true },
             {
                 setSourceQuery: (_, { sourceQuery }) => sourceQuery,
             },
@@ -191,7 +190,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
         activeModelUri: [
             null as QueryTab | null,
-            { persist: true },
             {
                 selectTab: (_, { tab }) => tab,
             },
