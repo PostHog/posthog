@@ -131,6 +131,7 @@ describe('HogTransformer', () => {
                     "$initial_geoip_time_zone": "America/New_York",
                   },
                   "$transformations_failed": [],
+                  "$transformations_skipped": [],
                   "$transformations_succeeded": [
                     "GeoIP (d77e792e-0f35-431b-a983-097534aa4767)",
                   ],
@@ -175,6 +176,7 @@ describe('HogTransformer', () => {
                     "$current_url": "https://example.com",
                     "$ip": "12.87.118.0",
                     "$transformations_failed": [],
+                    "$transformations_skipped": [],
                     "$transformations_succeeded": [
                       "Modifier (d77e792e-0f35-431b-a983-097534aa4767)",
                     ],
@@ -530,6 +532,7 @@ describe('HogTransformer', () => {
                 success: true, // From successful transformation
                 $transformations_succeeded: [`Success Template (${successFunction.id})`],
                 $transformations_failed: [`Failing Template (${failFunction.id})`],
+                $transformations_skipped: [],
             })
         })
 
@@ -602,6 +605,137 @@ describe('HogTransformer', () => {
             ])
             expect(result?.event?.properties?.$transformations_failed).toEqual(['Previous Failure (prev-id)'])
         })
+
+        it('should track skipped transformations when filter does not match', async () => {
+            const filterTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Filter Template',
+                description: 'A template that should be skipped when filter does not match',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.should_not_be_set := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: filterTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(filterTemplate.hog),
+                filters: {
+                    bytecode: await compileHog(`
+                        return event = 'match-me'
+                    `),
+                },
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event = createPluginEvent(
+                {
+                    event: 'does-not-match-me',
+                    properties: {
+                        original: true,
+                        $transformations_skipped: ['Previous Skip (prev-id)'],
+                    },
+                },
+                teamId
+            )
+
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Verify transformation was skipped and tracked
+            expect(result.event?.properties?.should_not_be_set).toBeUndefined()
+            expect(result.event?.properties?.$transformations_skipped).toEqual([
+                'Previous Skip (prev-id)',
+                `${hogFunction.name} (${hogFunction.id})`,
+            ])
+            expect(result.event?.properties?.original).toBe(true)
+            expect(result.event?.properties?.$transformations_succeeded).toEqual([])
+            expect(result.event?.properties?.$transformations_failed).toEqual([])
+        })
+
+        it('should track both successful and skipped transformations in sequence', async () => {
+            const successTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-success',
+                name: 'Success Template',
+                description: 'A template that should succeed',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.success := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const skippedTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-skipped',
+                name: 'Skipped Template',
+                description: 'A template that should be skipped',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.should_not_be_set := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const successFunction = createHogFunction({
+                type: 'transformation',
+                name: successTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(successTemplate.hog),
+                execution_order: 1,
+            })
+
+            const skippedFunction = createHogFunction({
+                type: 'transformation',
+                name: skippedTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(skippedTemplate.hog),
+                execution_order: 2,
+                filters: {
+                    bytecode: await compileHog(`
+                        return event = 'match-me'
+                    `),
+                },
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, successFunction)
+            await insertHogFunction(hub.db.postgres, teamId, skippedFunction)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event = createPluginEvent({ event: 'does-not-match' }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Verify first transformation succeeded and second was skipped
+            expect(result.event?.properties).toEqual({
+                success: true,
+                $current_url: 'https://example.com',
+                $ip: '12.87.118.0',
+                $transformations_succeeded: [`Success Template (${successFunction.id})`],
+                $transformations_failed: [],
+                $transformations_skipped: [`Skipped Template (${skippedFunction.id})`],
+            })
+        })
     })
 
     describe('legacy plugins', () => {
@@ -657,6 +791,7 @@ describe('HogTransformer', () => {
                     "$current_url": "https://example.com",
                     "$ip": "12.87.118.0",
                     "$transformations_failed": [],
+                    "$transformations_skipped": [],
                     "$transformations_succeeded": [
                       "Filter Out Plugin (c342e9ae-9f76-4379-a465-d33b4826bc05)",
                     ],
@@ -757,6 +892,7 @@ describe('HogTransformer', () => {
                       "$initial_geoip_time_zone": "America/New_York",
                     },
                     "$transformations_failed": [],
+                    "$transformations_skipped": [],
                     "$transformations_succeeded": [
                       "GeoIP (<REPLACED-UUID-0>)",
                       "Property Filter (<REPLACED-UUID-1>)",
@@ -815,8 +951,11 @@ describe('HogTransformer', () => {
 
             // Verify transformation was skipped
             expect(result.event?.properties?.should_not_be_set).toBeUndefined()
-            expect(result.event?.properties?.$transformations_succeeded).toBeUndefined()
-            expect(result.event?.properties?.$transformations_failed).toBeUndefined()
+            expect(result.event?.properties?.$transformations_succeeded).toEqual([])
+            expect(result.event?.properties?.$transformations_failed).toEqual([])
+            expect(result.event?.properties?.$transformations_skipped).toEqual([
+                `${hogFunction.name} (${hogFunction.id})`,
+            ])
         })
 
         it('should apply transformation when filter matches', async () => {
@@ -869,7 +1008,11 @@ describe('HogTransformer', () => {
 
             // Verify transformation was skipped
             expect(nonMatchResult.event?.properties?.test_property).toBeUndefined()
-            expect(nonMatchResult.event?.properties?.$transformations_succeeded).toBeUndefined()
+            expect(nonMatchResult.event?.properties?.$transformations_succeeded).toEqual([])
+            expect(nonMatchResult.event?.properties?.$transformations_failed).toEqual([])
+            expect(nonMatchResult.event?.properties?.$transformations_skipped).toEqual([
+                `${hogFunction.name} (${hogFunction.id})`,
+            ])
         })
 
         it('should apply transformation when no filters are defined', async () => {
@@ -1072,8 +1215,11 @@ describe('HogTransformer', () => {
 
             // Verify transformation was skipped since no filters matched
             expect(result.event?.properties?.should_not_be_set).toBeUndefined()
-            expect(result.event?.properties?.$transformations_succeeded).toBeUndefined()
-            expect(result.event?.properties?.$transformations_failed).toBeUndefined()
+            expect(result.event?.properties?.$transformations_succeeded).toEqual([])
+            expect(result.event?.properties?.$transformations_failed).toEqual([])
+            expect(result.event?.properties?.$transformations_skipped).toEqual([
+                `${hogFunction.name} (${hogFunction.id})`,
+            ])
         })
 
         it('should apply transformation when at least one of multiple filters match', async () => {

@@ -1,6 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
+import { UUIDT } from '~/src/utils/utils'
+
 import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
@@ -11,7 +13,6 @@ import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
-import { UUIDT } from '../../utils/utils'
 import { execHog } from '../services/hog-executor.service'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
@@ -41,12 +42,6 @@ export const hogTransformationCompleted = new Counter({
     name: 'hog_transformation_completed_total',
     help: 'Number of successfully completed transformations',
     labelNames: ['type'],
-})
-
-export const hogTransformationSkippedCounter = new Counter({
-    name: 'hog_transformation_skipped_total',
-    help: 'Count of transformations skipped due to filter mismatch',
-    labelNames: ['transformation_id', 'transformation_name'],
 })
 
 export interface TransformationResultPure {
@@ -153,6 +148,7 @@ export class HogTransformerService {
                 const results: HogFunctionInvocationResult[] = []
                 const transformationsSucceeded: string[] = event.properties?.$transformations_succeeded || []
                 const transformationsFailed: string[] = event.properties?.$transformations_failed || []
+                const transformationsSkipped: string[] = event.properties?.$transformations_skipped || []
 
                 // For now, execute each transformation function in sequence
                 for (const hogFunction of teamHogFunctions) {
@@ -165,6 +161,7 @@ export class HogTransformerService {
                         const shouldApplyTransformation = this.checkEventAgainstFilters(hogFunction, filterGlobals)
 
                         if (!shouldApplyTransformation) {
+                            transformationsSkipped.push(transformationIdentifier)
                             results.push({
                                 invocation: {
                                     id: new UUIDT().toString(),
@@ -285,11 +282,16 @@ export class HogTransformerService {
                 }
 
                 // Only add the properties if there were transformations
-                if (transformationsSucceeded.length > 0 || transformationsFailed.length > 0) {
+                if (
+                    transformationsSucceeded.length > 0 ||
+                    transformationsFailed.length > 0 ||
+                    transformationsSkipped.length > 0
+                ) {
                     event.properties = {
                         ...event.properties,
                         $transformations_succeeded: transformationsSucceeded,
                         $transformations_failed: transformationsFailed,
+                        $transformations_skipped: transformationsSkipped,
                     }
                 }
 
