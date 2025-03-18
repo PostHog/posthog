@@ -1,5 +1,6 @@
 import { Counter } from 'prom-client'
 
+import { defaultConfig } from '../config/config'
 import { logger } from './logger'
 
 const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
@@ -83,7 +84,7 @@ export class LazyLoader<T> {
      * This is somewhat complex but simplifies the usage around the codebase as you can safely do multiple gets without worrying about firing off duplicate DB requests
      */
     private async scheduleLoad(keys: string[]): Promise<LazyLoaderMap<T>> {
-        const bufferMs = this.options.bufferMs ?? 100
+        const bufferMs = this.options.bufferMs ?? defaultConfig.LAZY_LOADER_DEFAULT_BUFFER_MS
         const keyPromises: Promise<T | null>[] = []
 
         for (const key of keys) {
