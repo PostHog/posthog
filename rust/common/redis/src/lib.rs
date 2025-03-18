@@ -186,20 +186,6 @@ pub struct MockRedisClient {
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
 }
 
-impl MockRedisClient {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    // Helper method to safely lock the calls mutex
-    fn lock_calls(&self) -> std::sync::MutexGuard<Vec<MockRedisCall>> {
-        match self.calls.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
-}
-
 impl Default for MockRedisClient {
     fn default() -> Self {
         Self {
@@ -216,6 +202,18 @@ impl Default for MockRedisClient {
 }
 
 impl MockRedisClient {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    // Helper method to safely lock the calls mutex
+    fn lock_calls(&self) -> std::sync::MutexGuard<Vec<MockRedisCall>> {
+        match self.calls.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
     pub fn zrangebyscore_ret(&mut self, key: &str, ret: Vec<String>) -> Self {
         self.zrangebyscore_ret.insert(key.to_owned(), ret);
         self.clone()
