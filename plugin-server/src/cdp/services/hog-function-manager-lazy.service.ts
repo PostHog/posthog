@@ -152,7 +152,7 @@ export class HogFunctionManagerLazyService {
     }
 
     public async getHogFunctionsForTeam(teamId: Team['id'], types: HogFunctionTypeType[]): Promise<HogFunctionType[]> {
-        return (await this.getHogFunctionsForTeams([teamId], types))[teamId]
+        return (await this.getHogFunctionsForTeams([teamId], types))[teamId] ?? []
     }
 
     public async getHogFunction(id: HogFunctionType['id']): Promise<HogFunctionType | null> {
