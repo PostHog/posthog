@@ -12,18 +12,18 @@ jobs:
         if: github.repository == 'PostHog/posthog'
         steps:
             - name: Check out PostHog/posthog repo
-              uses: actions/checkout@v3
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               with:
                   path: posthog
                   fetch-depth: 0
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
               with:
                   package_json_file: posthog/package.json
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
                   node-version: 18.12.1
                   cache: pnpm
@@ -36,7 +36,7 @@ jobs:
               run: cd posthog && bin/turbo --filter=@posthog/storybook build
 
             - name: Check out PostHog/storybook-build repo
-              uses: actions/checkout@v3
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               with:
                   path: storybook-build
                   repository: PostHog/storybook-build
@@ -54,7 +54,7 @@ jobs:
               run: echo "msg=Storybook build for ${{ github.sha }}" >> $GITHUB_OUTPUT
 
             - name: Commit update
-              uses: stefanzweifel/git-auto-commit-action@v5
+              uses: stefanzweifel/git-auto-commit-action@e348103e9026cc0eee72ae06630dbe30c8bf7a79 # v5
               with:
                   repository: storybook-build
                   commit_message: ${{ steps.commit-message.outputs.msg }}

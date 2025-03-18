@@ -195,6 +195,7 @@ distro==1.9.0
     # via
     #   anthropic
     #   openai
+    #   posthoganalytics
 dj-database-url==0.5.0
     # via -r requirements.in
 django==4.2.18
