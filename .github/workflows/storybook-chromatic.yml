@@ -67,9 +67,9 @@ jobs:
             fail-fast: false
             matrix:
                 browser: ['chromium', 'webkit']
-                shard: [1, 2, 3, 4]
+                shard: [1, 2, 3, 4, 5, 6]
         env:
-            SHARD_COUNT: '4'
+            SHARD_COUNT: '6'
             CYPRESS_INSTALL_BINARY: '0'
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
@@ -95,9 +95,14 @@ jobs:
             chromium-4-deleted: ${{ steps.diff.outputs.chromium-4-deleted }}
             chromium-4-total: ${{ steps.diff.outputs.chromium-4-total }}
             chromium-4-commitHash: ${{ steps.commit-hash.outputs.chromium-4-commitHash }}
-            webkit-1-added: ${{ steps.diff.outputs.webkit-1-added }}
-            webkit-1-modified: ${{ steps.diff.outputs.webkit-1-modified }}
-            webkit-1-deleted: ${{ steps.diff.outputs.webkit-1-deleted }}
+            chromium-5-added: ${{ steps.diff.outputs.chromium-5-added }}
+            chromium-5-modified: ${{ steps.diff.outputs.chromium-5-modified }}
+            chromium-5-deleted: ${{ steps.diff.outputs.chromium-5-deleted }}
+            chromium-5-total: ${{ steps.diff.outputs.chromium-5-total }}
+            chromium-5-commitHash: ${{ steps.commit-hash.outputs.chromium-5-commitHash }}
+            chromium-6-added: ${{ steps.diff.outputs.chromium-6-added }}
+            chromium-6-modified: ${{ steps.diff.outputs.chromium-6-modified }}
+            chromium-6-deleted: ${{ steps.diff.outputs.chromium-6-deleted }}
             webkit-1-total: ${{ steps.diff.outputs.webkit-1-total }}
             webkit-1-commitHash: ${{ steps.commit-hash.outputs.webkit-1-commitHash }}
             webkit-2-added: ${{ steps.diff.outputs.webkit-2-added }}
@@ -115,26 +120,15 @@ jobs:
             webkit-4-deleted: ${{ steps.diff.outputs.webkit-4-deleted }}
             webkit-4-total: ${{ steps.diff.outputs.webkit-4-total }}
             webkit-4-commitHash: ${{ steps.commit-hash.outputs.webkit-4-commitHash }}
-            firefox-1-added: ${{ steps.diff.outputs.firefox-1-added }}
-            firefox-1-modified: ${{ steps.diff.outputs.firefox-1-modified }}
-            firefox-1-deleted: ${{ steps.diff.outputs.firefox-1-deleted }}
-            firefox-1-total: ${{ steps.diff.outputs.firefox-1-total }}
-            firefox-1-commitHash: ${{ steps.commit-hash.outputs.firefox-1-commitHash }}
-            firefox-2-added: ${{ steps.diff.outputs.firefox-2-added }}
-            firefox-2-modified: ${{ steps.diff.outputs.firefox-2-modified }}
-            firefox-2-deleted: ${{ steps.diff.outputs.firefox-2-deleted }}
-            firefox-2-total: ${{ steps.diff.outputs.firefox-2-total }}
-            firefox-2-commitHash: ${{ steps.commit-hash.outputs.firefox-2-commitHash }}
-            firefox-3-added: ${{ steps.diff.outputs.firefox-3-added }}
-            firefox-3-modified: ${{ steps.diff.outputs.firefox-3-modified }}
-            firefox-3-deleted: ${{ steps.diff.outputs.firefox-3-deleted }}
-            firefox-3-total: ${{ steps.diff.outputs.firefox-3-total }}
-            firefox-3-commitHash: ${{ steps.commit-hash.outputs.firefox-3-commitHash }}
-            firefox-4-added: ${{ steps.diff.outputs.firefox-4-added }}
-            firefox-4-modified: ${{ steps.diff.outputs.firefox-4-modified }}
-            firefox-4-deleted: ${{ steps.diff.outputs.firefox-4-deleted }}
-            firefox-4-total: ${{ steps.diff.outputs.firefox-4-total }}
-            firefox-4-commitHash: ${{ steps.commit-hash.outputs.firefox-4-commitHash }}
+            webkit-5-added: ${{ steps.diff.outputs.webkit-5-added }}
+            webkit-5-modified: ${{ steps.diff.outputs.webkit-5-modified }}
+            webkit-5-deleted: ${{ steps.diff.outputs.webkit-5-deleted }}
+            webkit-5-total: ${{ steps.diff.outputs.webkit-5-total }}
+            webkit-5-commitHash: ${{ steps.commit-hash.outputs.webkit-5-commitHash }}
+            webkit-6-added: ${{ steps.diff.outputs.webkit-6-added }}
+            webkit-6-modified: ${{ steps.diff.outputs.webkit-6-modified }}
+            webkit-6-deleted: ${{ steps.diff.outputs.webkit-6-deleted }}
+            webkit-6-total: ${{ steps.diff.outputs.webkit-6-total }}
         steps:
             - uses: actions/checkout@v3
               with:
