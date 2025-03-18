@@ -22,7 +22,7 @@ pub mod config;
 pub mod metrics_consts;
 pub mod types;
 
-const BATCH_UPDATE_MAX_ATTEMPTS: u64 = 5;
+const BATCH_UPDATE_MAX_ATTEMPTS: u64 = 2;
 const UPDATE_RETRY_DELAY_MS: u64 = 150;
 
 pub async fn update_consumer_loop(

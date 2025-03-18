@@ -160,6 +160,7 @@ export abstract class CdpConsumerBase {
     public async start(): Promise<void> {
         // NOTE: This is only for starting shared services
         await Promise.all([
+            this.hogFunctionManager.start(),
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()
@@ -176,8 +177,8 @@ export abstract class CdpConsumerBase {
         await this.batchConsumer?.stop()
         logger.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
-        logger.info('🔁', `${this.name} - stopping hog function manager and hog watcher`)
-        await Promise.all([this.hogFunctionManager.stop()])
+        logger.info('🔁', `${this.name} - stopping hog function manager`)
+        await this.hogFunctionManager.stop()
 
         logger.info('👍', `${this.name} - stopped!`)
     }
