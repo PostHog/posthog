@@ -2,13 +2,11 @@ import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
 
 import { IconExpand, IconGear } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTable, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTable, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useCallback, useMemo, useState } from 'react'
 import DataGrid, { CellClickArgs } from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -30,10 +28,7 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
-import { InfoTab } from './OutputPaneTabs/InfoTab'
-import { LineageTab } from './OutputPaneTabs/lineageTab'
-import { lineageTabLogic } from './OutputPaneTabs/lineageTabLogic'
-import TabScroller from './OutputPaneTabs/TabScroller'
+import TabScroller from './TabScroller'
 
 interface ExpandableCellProps {
     value: any
@@ -130,13 +125,12 @@ export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, editorKey, metadataLoading } = useValues(multitabEditorLogic)
+    const { sourceQuery, exportContext, editorKey } = useValues(multitabEditorLogic)
     const { saveAsInsight, setSourceQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
     const { visualizationType, queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
@@ -237,26 +231,6 @@ export function OutputPane(): JSX.Element {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
                         },
-                        ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
-                            ? [
-                                  {
-                                      key: OutputTab.Info,
-                                      label: (
-                                          <span className="flex flex-row items-center gap-2">
-                                              Info {metadataLoading ? <Spinner /> : null}
-                                          </span>
-                                      ),
-                                  },
-                                  {
-                                      key: OutputTab.Lineage,
-                                      label: (
-                                          <span className="flex flex-row items-center gap-2">
-                                              Lineage {metadataLoading ? <Spinner /> : null}
-                                          </span>
-                                      ),
-                                  },
-                              ]
-                            : []),
                     ]}
                 />
                 <div className="flex gap-2">
@@ -305,29 +279,27 @@ export function OutputPane(): JSX.Element {
                 </div>
             </div>
             <div className="flex flex-1 relative bg-dark">
-                <BindLogic logic={lineageTabLogic} props={{ codeEditorKey: editorKey }}>
-                    <Content
-                        activeTab={activeTab}
-                        responseError={responseError}
-                        responseLoading={responseLoading}
-                        response={response}
-                        sourceQuery={sourceQuery}
-                        queryCancelled={queryCancelled}
-                        columns={columns}
-                        rows={rows}
-                        isDarkModeOn={isDarkModeOn}
-                        vizKey={vizKey}
-                        setSourceQuery={setSourceQuery}
-                        exportContext={exportContext}
-                        saveAsInsight={saveAsInsight}
-                        queryId={queryId}
-                        pollResponse={pollResponse}
-                        editorKey={editorKey}
-                        onRowClick={handleRowClick}
-                        setProgress={setProgress}
-                        progress={queryId ? progressCache[queryId] : undefined}
-                    />
-                </BindLogic>
+                <Content
+                    activeTab={activeTab}
+                    responseError={responseError}
+                    responseLoading={responseLoading}
+                    response={response}
+                    sourceQuery={sourceQuery}
+                    queryCancelled={queryCancelled}
+                    columns={columns}
+                    rows={rows}
+                    isDarkModeOn={isDarkModeOn}
+                    vizKey={vizKey}
+                    setSourceQuery={setSourceQuery}
+                    exportContext={exportContext}
+                    saveAsInsight={saveAsInsight}
+                    queryId={queryId}
+                    pollResponse={pollResponse}
+                    editorKey={editorKey}
+                    onRowClick={handleRowClick}
+                    setProgress={setProgress}
+                    progress={queryId ? progressCache[queryId] : undefined}
+                />
             </div>
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText /> : <></>}</div>
@@ -428,7 +400,6 @@ const Content = ({
     saveAsInsight,
     queryId,
     pollResponse,
-    editorKey,
     onRowClick,
     setProgress,
     progress,
@@ -502,14 +473,5 @@ const Content = ({
             </div>
         )
     }
-
-    if (activeTab === OutputTab.Info) {
-        return <InfoTab codeEditorKey={editorKey} />
-    }
-
-    if (activeTab === OutputTab.Lineage) {
-        return <LineageTab />
-    }
-
     return null
 }
