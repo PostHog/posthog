@@ -127,8 +127,12 @@ export function Group(): JSX.Element {
                                 type={PropertyDefinitionType.Group}
                                 properties={groupData.group_properties || {}}
                                 embedded={false}
-                                onEdit={editProperty}
-                                onDelete={(key) => deleteProperty(key)}
+                                onEdit={featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] ? editProperty : undefined}
+                                onDelete={
+                                    featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]
+                                        ? (key) => deleteProperty(key)
+                                        : undefined
+                                }
                                 searchable
                             />
                         ),
@@ -239,22 +243,24 @@ export function Group(): JSX.Element {
                             />
                         ),
                     },
-                    {
-                        key: PersonsTabType.HISTORY,
-                        label: 'History',
-                        content: (
-                            <ActivityLog
-                                scope={ActivityScope.GROUP}
-                                id={`${groupTypeIndex}-${groupKey}`}
-                                caption={
-                                    <LemonBanner type="info">
-                                        This page only shows changes made by users in the PostHog site. Automatic
-                                        changes from the API aren't shown here.
-                                    </LemonBanner>
-                                }
-                            />
-                        ),
-                    },
+                    featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]
+                        ? {
+                              key: PersonsTabType.HISTORY,
+                              label: 'History',
+                              content: (
+                                  <ActivityLog
+                                      scope={ActivityScope.GROUP}
+                                      id={`${groupTypeIndex}-${groupKey}`}
+                                      caption={
+                                          <LemonBanner type="info">
+                                              This page only shows changes made by users in the PostHog site. Automatic
+                                              changes from the API aren't shown here.
+                                          </LemonBanner>
+                                      }
+                                  />
+                              ),
+                          }
+                        : null,
                     showCustomerSuccessDashboards
                         ? {
                               key: PersonsTabType.DASHBOARD,
