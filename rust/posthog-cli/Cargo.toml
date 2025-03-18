@@ -10,6 +10,8 @@ description = "The command line interface for PostHog 🦔"
 homepage = "https://posthog.com"
 license = "MIT"
 edition = "2021"
+repository = "https://github.com/PostHog/posthog"
+readme = "README.md"
 
 [[bin]]
 name = "posthog-cli"
