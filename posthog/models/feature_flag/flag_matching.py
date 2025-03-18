@@ -298,7 +298,7 @@ class FeatureFlagMatcher:
                 flags_details[feature_flag.key] = FeatureFlagDetails(
                     match=flag_match,
                     id=feature_flag.id,
-                    version=feature_flag.version or 0,
+                    version=feature_flag.version or 1,
                     description=feature_flag.name,
                 )
 
