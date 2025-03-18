@@ -1801,6 +1801,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_visit_hogqlx_tag(self):
             node = self._select("select event from <HogQLQuery query='select event from events' />")
             assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
             table_node = node.select_from.table
             assert table_node == ast.HogQLXTag(
                 kind="HogQLQuery",
@@ -1816,6 +1817,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 "select event from <OuterQuery><HogQLQuery query='select event from events' /></OuterQuery>"
             )
             assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
             table_node = node.select_from.table
             assert table_node == ast.HogQLXTag(
                 kind="OuterQuery",
@@ -1839,6 +1841,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             # Empty tag
             node = self._select("select event from <OuterQuery></OuterQuery>")
             assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
             table_node = node.select_from.table
             assert table_node == ast.HogQLXTag(kind="OuterQuery", attributes=[])
 
@@ -1884,6 +1887,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_visit_hogqlx_tag_alias(self):
             node = self._select("select event from <HogQLQuery query='select event from events' /> as a")
             assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
             table_node = node.select_from.table
             alias = node.select_from.alias
             assert table_node == ast.HogQLXTag(
@@ -1908,6 +1912,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             """
             node = self._select(query)
             assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
             table_node = node.select_from.table
             assert table_node == ast.HogQLXTag(
                 kind="ActorsQuery",

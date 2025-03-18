@@ -190,15 +190,6 @@ class TableType(BaseTableType):
 
 
 @dataclass(kw_only=True)
-class TableAliasType(BaseTableType):
-    alias: str
-    table_type: TableType
-
-    def resolve_database_table(self, context: HogQLContext) -> Table:
-        return self.table_type.table
-
-
-@dataclass(kw_only=True)
 class LazyJoinType(BaseTableType):
     table_type: TableOrSelectType
     field: str
@@ -217,6 +208,15 @@ class LazyTableType(BaseTableType):
 
     def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.table
+
+
+@dataclass(kw_only=True)
+class TableAliasType(BaseTableType):
+    alias: str
+    table_type: TableType | LazyTableType
+
+    def resolve_database_table(self, context: HogQLContext) -> Table | LazyTable:
+        return self.table_type.table
 
 
 @dataclass(kw_only=True)

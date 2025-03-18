@@ -12,6 +12,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    Table,
     ExpressionField,
     FieldTraverser,
     StringDatabaseField,
@@ -393,6 +394,7 @@ class TestResolver(BaseTest):
     def test_field_traverser_double_dot(self):
         # Create a condition where we want to ".." out of "events.poe." to get to a higher level prop
         self.database.events.fields["person"] = FieldTraverser(chain=["poe"])
+        assert isinstance(self.database.events.fields["poe"], Table)
         self.database.events.fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])
         self.database.events.fields["poe"].fields["created_at"] = FieldTraverser(
             chain=["..", "pdi", "person", "created_at"]
