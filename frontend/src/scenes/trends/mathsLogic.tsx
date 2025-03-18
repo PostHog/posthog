@@ -103,10 +103,14 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         shortName: 'WAUs',
         description: (
             <>
-                Users active in the past week (7 days).
+                <b>Users active in the past week (7 days).</b>
+                <br />
                 <br />
                 This is a trailing count that aggregates distinct users in the past 7 days for each day in the time
-                series
+                series.
+                <br />
+                <br />
+                If the group by interval is a week or longer, this is the same as "Unique User" math.
             </>
         ),
         category: MathCategory.ActorCount,
@@ -116,10 +120,14 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         shortName: 'MAUs',
         description: (
             <>
-                Users active in the past month (30 days).
+                <b>Users active in the past month (30 days).</b>
+                <br />
                 <br />
                 This is a trailing count that aggregates distinct users in the past 30 days for each day in the time
                 series
+                <br />
+                <br />
+                If the group by interval is a month or longer, this is the same as "Unique User" math.
             </>
         ),
         category: MathCategory.ActorCount,
