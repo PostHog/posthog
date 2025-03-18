@@ -1,10 +1,9 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from math import ceil
 from typing import Optional, Any
 
-from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
