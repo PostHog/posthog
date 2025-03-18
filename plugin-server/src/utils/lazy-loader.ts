@@ -1,5 +1,8 @@
 import { Counter } from 'prom-client'
 
+import { defaultConfig } from '../config/config'
+import { logger } from './logger'
+
 const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
 const REFRESH_JITTER_MS = 1000 * 60 // 1 minute
 
@@ -12,6 +15,18 @@ const lazyLoaderCacheHits = new Counter({
 const lazyLoaderFullCacheHits = new Counter({
     name: 'lazy_loader_full_cache_hits',
     help: 'The number of times we have hit the cache for all keys',
+    labelNames: ['name', 'hit'],
+})
+
+const lazyLoaderBufferUsage = new Counter({
+    name: 'lazy_loader_buffer_usage',
+    help: 'The number of times we have used the buffer indicating better batching',
+    labelNames: ['name', 'hit'],
+})
+
+const lazyLoaderQueuedCacheHits = new Counter({
+    name: 'lazy_loader_queued_cache_hits',
+    help: 'The number of times we have hit the cached loading promise for a key',
     labelNames: ['name', 'hit'],
 })
 
@@ -38,17 +53,90 @@ export type LazyLoaderOptions<T> = {
     refreshNullAge?: number
     /** How much jitter to add to the refresh time */
     refreshJitterMs?: number
+    /** How long to buffer loads for - if set to 0 then it will load immediately without buffering */
+    bufferMs?: number
 }
 
+type LazyLoaderMap<T> = Record<string, T | null | undefined>
+
 export class LazyLoader<T> {
-    private cache: Record<string, T | null | undefined>
+    public readonly cache: LazyLoaderMap<T>
     private lastUsed: Record<string, number | undefined>
     private cacheUntil: Record<string, number | undefined>
+    private pendingLoads: Record<string, Promise<T | null> | undefined>
+
+    private buffer:
+        | {
+              keys: Set<string>
+              promise: Promise<LazyLoaderMap<T>>
+          }
+        | undefined
 
     constructor(private readonly options: LazyLoaderOptions<T>) {
         this.cache = {}
         this.lastUsed = {}
         this.cacheUntil = {}
+        this.pendingLoads = {}
+    }
+
+    /**
+     * Schedules the keys to be loaded with a buffer to allow batching multiple keys
+     * This is somewhat complex but simplifies the usage around the codebase as you can safely do multiple gets without worrying about firing off duplicate DB requests
+     */
+    private async scheduleLoad(keys: string[]): Promise<LazyLoaderMap<T>> {
+        const bufferMs = this.options.bufferMs ?? defaultConfig.LAZY_LOADER_DEFAULT_BUFFER_MS
+        const keyPromises: Promise<T | null>[] = []
+
+        for (const key of keys) {
+            let pendingLoad = this.pendingLoads[key]
+            if (pendingLoad) {
+                // If we already have a scheduled loader for this key we just add it to the list
+                keyPromises.push(pendingLoad)
+                lazyLoaderQueuedCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+                continue
+            }
+            lazyLoaderQueuedCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+
+            if (!this.buffer) {
+                // If we don't have a buffer then we create one
+                // The buffer is a combination of a set of keys and a promise that will resolve after a setTimeout to then call the loader for those keys
+                this.buffer = {
+                    keys: new Set(),
+                    promise: new Promise<string[]>((resolve) => {
+                        setTimeout(() => {
+                            const keys = Array.from(this.buffer!.keys)
+                            this.buffer = undefined
+                            resolve(keys)
+                        }, bufferMs)
+                    }).then((keys) => {
+                        // Pull out the keys to load and clear the buffer
+                        logger.info('[LazyLoader]', this.options.name, 'Loading: ', keys)
+                        return this.options.loader(keys)
+                    }),
+                }
+                lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'miss' }).inc()
+            } else {
+                lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'hit' }).inc()
+            }
+
+            // Add the key to the buffer and add a pendingLoad that waits for the buffer to resolve
+            // and then picks out its value
+            this.buffer.keys.add(key)
+            pendingLoad = this.buffer.promise
+                .then((map) => map[key] ?? null)
+                .finally(() => {
+                    delete this.pendingLoads[key]
+                })
+            this.pendingLoads[key] = pendingLoad
+            keyPromises.push(pendingLoad)
+        }
+
+        const results = await Promise.all(keyPromises)
+
+        return keys.reduce((acc, key, index) => {
+            acc[key] = results[index] ?? null
+            return acc
+        }, {} as LazyLoaderMap<T>)
     }
 
     /**
@@ -62,7 +150,6 @@ export class LazyLoader<T> {
         const results: Record<string, T | null> = {}
 
         const {
-            loader,
             refreshAge = REFRESH_AGE,
             refreshNullAge = REFRESH_AGE,
             refreshJitterMs = REFRESH_JITTER_MS,
@@ -101,7 +188,9 @@ export class LazyLoader<T> {
 
         lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
 
-        const loaded = await loader(Array.from(keysToLoad))
+        // We have something to load so we schedule it and then await all of them
+
+        const loaded = await this.scheduleLoad(Array.from(keysToLoad))
 
         for (const key of keysToLoad) {
             results[key] = this.cache[key] = loaded[key] ?? null

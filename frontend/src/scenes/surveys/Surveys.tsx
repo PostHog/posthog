@@ -162,8 +162,8 @@ export function Surveys(): JSX.Element {
                                 }}
                                 className="mb-2"
                             >
-                                Survey popovers are currently disabled for this {settingLevel} but there are active
-                                surveys running. Re-enable them in the settings.
+                                Survey popovers are currently disabled for this {settingLevel}. Re-enable them in the
+                                settings, otherwise surveys will not be visible.
                             </LemonBanner>
                         ) : null}
                     </div>

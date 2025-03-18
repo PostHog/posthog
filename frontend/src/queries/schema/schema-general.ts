@@ -3,6 +3,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import {
     AnyFilterLike,
+    AnyGroupScopeFilter,
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
@@ -69,6 +70,7 @@ export enum NodeKind {
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
+    GroupsQuery = 'GroupsQuery',
     FunnelsActorsQuery = 'FunnelsActorsQuery',
     FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
@@ -131,6 +133,7 @@ export type AnyDataNode =
     | PersonsNode // old persons API endpoint
     | EventsQuery
     | ActorsQuery
+    | GroupsQuery
     | InsightActorsQuery
     | InsightActorsQueryOptions
     | SessionsTimelineQuery
@@ -165,6 +168,7 @@ export type QuerySchema =
     | DataWarehouseNode
     | EventsQuery
     | ActorsQuery
+    | GroupsQuery
     | InsightActorsQuery
     | InsightActorsQueryOptions
     | SessionsTimelineQuery
@@ -549,6 +553,7 @@ export interface EntityNode extends Node {
     math?: MathType
     math_property?: string
     math_property_type?: string
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
     math_hogql?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Properties configurable in the interface */
@@ -675,6 +680,7 @@ export interface DataTableNode
                     | EventsQuery
                     | PersonsNode
                     | ActorsQuery
+                    | GroupsQuery
                     | HogQLQuery
                     | WebOverviewQuery
                     | WebStatsTableQuery
@@ -700,6 +706,7 @@ export interface DataTableNode
         | EventsQuery
         | PersonsNode
         | ActorsQuery
+        | GroupsQuery
         | HogQLQuery
         | WebOverviewQuery
         | WebStatsTableQuery
@@ -1474,6 +1481,29 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     properties?: AnyPersonScopeFilter[] | PropertyGroupFilterValue
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     fixedProperties?: AnyPersonScopeFilter[]
+    orderBy?: string[]
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedGroupsQueryResponse = CachedQueryResponse<GroupsQueryResponse>
+
+export interface GroupsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
+    kind: NodeKind.GroupsQuery
+    columns: any[]
+    types: string[]
+    hogql: string
+    hasMore?: boolean
+    limit: integer
+    offset: integer
+}
+
+export interface GroupsQuery extends DataNode<GroupsQueryResponse> {
+    kind: NodeKind.GroupsQuery
+    select?: HogQLExpression[]
+    search?: string
+    properties?: AnyGroupScopeFilter[]
+    group_type_index: integer
     orderBy?: string[]
     limit?: integer
     offset?: integer
