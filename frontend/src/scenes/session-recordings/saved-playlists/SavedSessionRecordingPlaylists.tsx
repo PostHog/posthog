@@ -95,7 +95,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     : 'in this collection'
 
                 const tooltip = (
-                    <div className="flex flex-col gap-y-1 items-center text-center">
+                    <div className="flex flex-col gap-y-1 items-center text-left">
                         {hasResults ? (
                             <div>
                                 You have {unwatchedCount} unwatched recordings to watch out of a total of {totalCount}{' '}
