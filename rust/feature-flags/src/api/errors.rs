@@ -114,10 +114,10 @@ impl IntoResponse for FlagError {
                 )
             }
             FlagError::DeserializeFiltersError => {
-                tracing::error!("Failed to deserialize filters: {:?}", self);
+                tracing::error!("Failed to deserialize filters");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to deserialize property filters.  This is likely a temporary issue. Please try again later.".to_string(),
+                    "Failed to deserialize property filters. This is likely a temporary issue. Please try again later.".to_string(),
                 )
             }
             FlagError::RedisUnavailable => {
