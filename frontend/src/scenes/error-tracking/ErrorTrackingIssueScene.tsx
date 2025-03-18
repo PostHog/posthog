@@ -50,7 +50,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <>
                 <PageHeader
                     buttons={
-                        <div className="flex divide-x gap-x-2">
+                        <div className="flex gap-x-2">
                             {issue && issue.status == 'active' && (
                                 <AssigneeSelect
                                     assignee={issue.assignee}
