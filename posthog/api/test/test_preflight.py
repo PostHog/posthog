@@ -1,6 +1,7 @@
 from typing import cast
 from unittest.mock import patch
 from datetime import datetime
+from django.utils import timezone
 
 import pytest
 from rest_framework import status
@@ -245,7 +246,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 super(LicenseManager, cast(LicenseManager, License.objects)).create(
                     key="key_123",
                     plan="free_clickhouse",
-                    valid_until=datetime(2038, 1, 19, 3, 14, 7),
+                    valid_until=timezone.make_aware(datetime(2038, 1, 19, 3, 14, 7)),
                     max_users=3,
                 )
 
@@ -281,7 +282,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key="key_123",
                 plan="enterprise",
-                valid_until=datetime(2038, 1, 19, 3, 14, 7),
+                valid_until=timezone.make_aware(datetime(2038, 1, 19, 3, 14, 7)),
             )
             TEST_clear_instance_license_cache()
             with self.settings(MULTI_ORG_ENABLED=True):
