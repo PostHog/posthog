@@ -235,9 +235,13 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
         this.cyclotronManager = this.hub.CYCLOTRON_DATABASE_URL
             ? new CyclotronManager({
-                  shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }],
+                  shards: [
+                      {
+                          dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
+                          shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+                      },
+                  ],
                   shardDepthLimit: this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000,
-                  shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
               })
             : undefined
 
