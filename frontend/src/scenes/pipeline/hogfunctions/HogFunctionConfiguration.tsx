@@ -177,8 +177,9 @@ export function HogFunctionConfiguration({
     const showOverview = !(displayOptions.hideOverview ?? false)
     const showFilters =
         displayOptions.showFilters ??
-        ['destination', 'internal_destination', 'site_destination', 'broadcast'].includes(type)
-    const showExpectedVolume = displayOptions.showExpectedVolume ?? ['destination', 'site_destination'].includes(type)
+        ['destination', 'internal_destination', 'site_destination', 'broadcast', 'transformation'].includes(type)
+    const showExpectedVolume =
+        displayOptions.showExpectedVolume ?? ['destination', 'site_destination', 'transformation'].includes(type)
     const showStatus =
         displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
     const showEnabled =

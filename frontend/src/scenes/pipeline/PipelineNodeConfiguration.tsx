@@ -17,16 +17,7 @@ export function PipelineNodeConfiguration(): JSX.Element {
     return (
         <div className="deprecated-space-y-3">
             {node.backend === PipelineBackend.HogFunction ? (
-                <HogFunctionConfiguration
-                    id={node.id}
-                    displayOptions={{
-                        showFilters: true,
-                        showStatus: true,
-                        showEnabled: true,
-                        showExpectedVolume: true,
-                        showTesting: true,
-                    }}
-                />
+                <HogFunctionConfiguration id={node.id} />
             ) : node.backend === PipelineBackend.Plugin ? (
                 <PipelinePluginConfiguration stage={stage} pluginConfigId={node.id} />
             ) : (
