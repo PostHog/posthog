@@ -64,7 +64,18 @@ export interface HogFunctionConfigurationLogicProps {
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
-const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
+export const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
+
+const VALIDATION_RULES = {
+    SITE_DESTINATION_REQUIRES_MAPPINGS: (data: HogFunctionConfigurationType) =>
+        data.type === 'site_destination' && (!data.mappings || data.mappings.length === 0)
+            ? 'You must add at least one mapping'
+            : undefined,
+    INTERNAL_DESTINATION_REQUIRES_FILTERS: (data: HogFunctionConfigurationType) =>
+        data.type === 'internal_destination' && data.filters?.events?.length === 0
+            ? 'You must choose a filter'
+            : undefined,
+} as const
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
@@ -78,6 +89,7 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
 }
 
 export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
+export const TYPES_WITH_SPARKLINE: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     function sanitizeInputs(
@@ -346,7 +358,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
-                    if (!['destination', 'site_destination', 'transformation'].includes(values.type)) {
+                    if (!TYPES_WITH_SPARKLINE.includes(values.type)) {
                         return null
                     }
                     if (values.sparkline === null) {
@@ -468,14 +480,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : undefined,
-                    mappings:
-                        data.type === 'site_destination' && (!data.mappings || data.mappings.length === 0)
-                            ? 'You must add at least one mapping'
-                            : undefined,
-                    filters:
-                        data.type === 'internal_destination' && data.filters?.events?.length === 0
-                            ? 'You must choose a filter'
-                            : undefined,
+                    mappings: VALIDATION_RULES.SITE_DESTINATION_REQUIRES_MAPPINGS(data),
+                    filters: VALIDATION_RULES.INTERNAL_DESTINATION_REQUIRES_FILTERS(data),
                     ...(values.inputFormErrors as any),
                 }
             },
@@ -790,7 +796,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQuery: [
             (s) => [s.configuration, s.matchingFilters, s.type],
             (configuration, matchingFilters, type): TrendsQuery | null => {
-                if (!['destination', 'site_destination', 'transformation'].includes(type)) {
+                if (!TYPES_WITH_SPARKLINE.includes(type)) {
                     return null
                 }
                 return {
