@@ -5,13 +5,20 @@ import posthoganalytics
 from celery import shared_task
 from django.conf import settings
 from prometheus_client import Counter, Histogram
+from pydantic import ValidationError
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
 from posthog.tasks.utils import CeleryQueue
 from posthog.redis import get_client
-from posthog.schema import RecordingsQuery, FilterLogicalOperator, PropertyOperator, PropertyFilterType
+from posthog.schema import (
+    RecordingsQuery,
+    FilterLogicalOperator,
+    PropertyOperator,
+    PropertyFilterType,
+    RecordingPropertyFilter,
+)
 from django.db.models import F, Q
 from django.utils import timezone
 
@@ -82,6 +89,14 @@ DEFAULT_RECORDING_FILTERS = {
     ],
     "order": "start_time",
 }
+
+
+def asRecordingPropertyFilter(filter: dict[str, Any]) -> RecordingPropertyFilter:
+    return RecordingPropertyFilter(
+        key=filter["key"],
+        operator=filter["operator"],
+        value=filter["value"],
+    )
 
 
 def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -194,7 +209,7 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
     order = filters.get("order")
     duration_filters = filters.get("duration", [])
     if duration_filters and len(duration_filters) > 0:
-        having_predicates.append(duration_filters[0])
+        having_predicates.append(asRecordingPropertyFilter(duration_filters[0]))
 
     # Process each filter
     for f in extracted_filters:
@@ -233,19 +248,36 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
             # For any other property filter
             properties.append(f)
 
-    # Construct the RecordingsQuery
-    return RecordingsQuery(
-        order=order,
-        date_from=filters.get("date_from"),
-        date_to=filters.get("date_to"),
-        properties=properties,
-        events=events,
-        actions=actions,
-        console_log_filters=console_log_filters,
-        having_predicates=having_predicates,
-        filter_test_accounts=filters.get("filter_test_accounts"),
-        operand=filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
-    )
+    try:
+        # Construct the RecordingsQuery
+        return RecordingsQuery(
+            order=order,
+            date_from=filters.get("date_from"),
+            date_to=filters.get("date_to"),
+            properties=properties,
+            events=events,
+            actions=actions,
+            console_log_filters=console_log_filters,
+            having_predicates=having_predicates,
+            filter_test_accounts=filters.get("filter_test_accounts"),
+            operand=filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
+        )
+    except ValidationError as e:
+        # we were seeing errors here and it was hard to debug
+        # so we're logging all the data and the error
+        logger.exception(
+            "Failed to convert universal filters to RecordingsQuery",
+            filters=filters,
+            error=e,
+            having_predicates=having_predicates,
+            properties=properties,
+            events=events,
+            actions=actions,
+            console_log_filters=console_log_filters,
+            filter_test_accounts=filters.get("filter_test_accounts"),
+            operand=filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
+        )
+        raise
 
 
 @shared_task(
