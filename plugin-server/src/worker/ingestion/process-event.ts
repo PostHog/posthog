@@ -317,7 +317,7 @@ export class EventsProcessor {
 
         try {
             // We always track 1st event ingestion
-            const promises = [this.teamManager.setTeamIngestedEvent(team, properties)]
+            const promises: Promise<any>[] = [this.teamManager.setTeamIngestedEvent(team, properties)]
 
             // We always insert/update group-types, so if this is a group-identify event, we hit
             // the group-type manager, making it insert or update as necessary.
@@ -325,10 +325,7 @@ export class EventsProcessor {
                 const { $group_type: groupType, $group_set: groupPropertiesToSet } = properties
                 if (groupType != null && groupPropertiesToSet != null) {
                     // This "fetch" is side-effecty, it inserts a group-type and assigns an index if one isn't found
-                    const groupPromise = this.groupTypeManager
-                        .fetchGroupTypeIndex(team.id, team.project_id, groupType)
-                        .then(() => {})
-                    promises.push(groupPromise)
+                    promises.push(this.groupTypeManager.fetchGroupTypeIndex(team.id, team.project_id, groupType))
                 }
             }
 
