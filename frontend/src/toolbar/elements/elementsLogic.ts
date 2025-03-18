@@ -13,7 +13,7 @@ import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
 import type { elementsLogicType } from './elementsLogicType'
-import { heatmapLogic } from './heatmapLogic'
+import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
 
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
@@ -81,7 +81,7 @@ export const elementsLogic = kea<elementsLogicType>([
                 setSelectedElement: (_, { element }) => element,
                 disableInspect: () => null,
                 createAction: () => null,
-                [heatmapLogic.actionTypes.disableHeatmap]: () => null,
+                [heatmapToolbarMenuLogic.actionTypes.disableHeatmap]: () => null,
                 selectAction: () => null,
             },
         ],
@@ -90,7 +90,7 @@ export const elementsLogic = kea<elementsLogicType>([
             {
                 // keep track of what to disable first with ESC
                 enableInspect: () => 'inspect',
-                [heatmapLogic.actionTypes.enableHeatmap]: () => 'heatmap',
+                [heatmapToolbarMenuLogic.actionTypes.enableHeatmap]: () => 'heatmap',
             },
         ],
         relativePositionCompensation: [
@@ -128,11 +128,11 @@ export const elementsLogic = kea<elementsLogicType>([
             },
         ],
 
-        heatmapEnabled: [() => [heatmapLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],
+        heatmapEnabled: [() => [heatmapToolbarMenuLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],
 
         heatmapElements: [
             (s) => [
-                heatmapLogic.selectors.countedElements,
+                heatmapToolbarMenuLogic.selectors.countedElements,
                 s.rectUpdateCounter,
                 toolbarConfigLogic.selectors.buttonVisible,
             ],
@@ -481,7 +481,7 @@ export const elementsLogic = kea<elementsLogicType>([
                     return
                 }
                 if (values.enabledLast === 'heatmap' && values.heatmapEnabled) {
-                    heatmapLogic.actions.disableHeatmap()
+                    heatmapToolbarMenuLogic.actions.disableHeatmap()
                     return
                 }
                 if (values.inspectEnabled) {
@@ -489,7 +489,7 @@ export const elementsLogic = kea<elementsLogicType>([
                     return
                 }
                 if (values.heatmapEnabled) {
-                    heatmapLogic.actions.disableHeatmap()
+                    heatmapToolbarMenuLogic.actions.disableHeatmap()
                     return
                 }
             }

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { compactNumber } from 'lib/utils'
 import { Fragment } from 'react'
 
@@ -7,11 +8,10 @@ import { AutocaptureElementLabel } from '~/toolbar/elements/AutocaptureElementLa
 import { ElementInfoWindow } from '~/toolbar/elements/ElementInfoWindow'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { FocusRect } from '~/toolbar/elements/FocusRect'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
 
 import { toolbarLogic } from '../bar/toolbarLogic'
-import { Heatmap } from './Heatmap'
 import { ScrollDepth } from './ScrollDepth'
 
 export function Elements(): JSX.Element {
@@ -26,7 +26,7 @@ export function Elements(): JSX.Element {
         relativePositionCompensation,
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
-    const { highestClickCount, shiftPressed } = useValues(heatmapLogic)
+    const { highestClickCount, shiftPressed } = useValues(heatmapToolbarMenuLogic)
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
 
     const { theme } = useValues(toolbarLogic)
@@ -56,7 +56,7 @@ export function Elements(): JSX.Element {
                 }}
             >
                 <ScrollDepth />
-                <Heatmap />
+                <HeatmapCanvas />
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
                 {elementsToDisplay.map(({ rect, element }, index) => {
