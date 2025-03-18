@@ -201,19 +201,19 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                 resetConfig: () => {
                     return values.savedRevenueTrackingConfig
                 },
-                updateCurrentTeam: (_, { revenue_tracking_config }) => {
+                updateCurrentTeam: (state, { revenue_tracking_config }) => {
                     // TODO: Check how to pass the preflight region here
-                    return revenue_tracking_config || createEmptyConfig(null)
+                    return revenue_tracking_config ?? state
                 },
             },
         ],
         savedRevenueTrackingConfig: [
             // TODO: Check how to pass the preflight region here
-            values.currentTeam?.revenue_tracking_config || createEmptyConfig(null),
+            values.currentTeam?.revenue_tracking_config || createEmptyConfig(values.preflight?.region),
             {
-                updateCurrentTeam: (_, { revenue_tracking_config }) => {
+                updateCurrentTeam: (state, { revenue_tracking_config }) => {
                     // TODO: Check how to pass the preflight region here
-                    return revenue_tracking_config || createEmptyConfig(null)
+                    return revenue_tracking_config ?? state
                 },
             },
         ],
