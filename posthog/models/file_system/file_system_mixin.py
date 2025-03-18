@@ -1,5 +1,6 @@
 # posthog/models/file_system/file_system_mixin.py
 
+import dataclasses
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.db import models
@@ -65,10 +66,10 @@ class FileSystemSyncMixin(models.Model):
             try:
                 fs_data = instance.get_file_system_representation()
                 if fs_data.should_delete:
-                    delete_file(team=instance.team, file_type=fs_data.type, ref=fs_data.ref)  # type: ignore
+                    delete_file(team=instance.team, file_type=fs_data.type, ref=fs_data.ref)
                 else:
                     create_or_update_file(
-                        team=instance.team,  # type: ignore
+                        team=instance.team,
                         base_folder=fs_data.base_folder,
                         name=fs_data.name,
                         file_type=fs_data.type,
@@ -79,7 +80,7 @@ class FileSystemSyncMixin(models.Model):
                     )
             except Exception as e:
                 # Don't raise exceptions in signals
-                posthoganalytics.capture_exception(e, properties=fs_data)
+                posthoganalytics.capture_exception(e, properties=dataclasses.asdict(fs_data))
 
         @receiver(post_delete, sender=cls)
         def _file_system_post_delete(sender, instance: FileSystemSyncMixin, **kwargs):
@@ -87,7 +88,7 @@ class FileSystemSyncMixin(models.Model):
 
             try:
                 fs_data = instance.get_file_system_representation()
-                delete_file(team=instance.team, file_type=fs_data.type, ref=fs_data.ref)  # type: ignore
+                delete_file(team=instance.team, file_type=fs_data.type, ref=fs_data.ref)
             except Exception as e:
                 # Don't raise exceptions in signals
-                posthoganalytics.capture_exception(e, properties=fs_data)
+                posthoganalytics.capture_exception(e, properties=dataclasses.asdict(fs_data))
