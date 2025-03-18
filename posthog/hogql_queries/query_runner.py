@@ -39,6 +39,7 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsQuery,
     GenericCachedQueryResponse,
+    GroupsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
@@ -251,7 +252,7 @@ def get_query_runner(
         from .groups.groups_query_runner import GroupsQueryRunner
 
         return GroupsQueryRunner(
-            query=query,
+            query=cast(GroupsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             modifiers=modifiers,
