@@ -27,7 +27,7 @@ export const LemonColorPickerOverlay = ({
     onSelectColorToken,
     showCustomColor = false,
 }: Omit<LemonColorPickerProps, 'hideDropdown'>): JSX.Element => {
-    const [color, setColor] = useState('#ff0000')
+    const [color, setColor] = useState(selectedColor || null)
     const [lastValidColor, setLastValidColor] = useState<string>('#000000')
 
     useEffect(() => {
@@ -55,7 +55,7 @@ export const LemonColorPickerOverlay = ({
                     <LemonLabel className="mt-2 mb-0.5">Custom color</LemonLabel>
                     <div className="flex items-center gap-2">
                         <LemonColorGlyph color={lastValidColor} className="ml-1.5" />
-                        <LemonInput className="mt-1 font-mono" size="small" value={color} onChange={setColor} />
+                        <LemonInput className="mt-1 font-mono" size="small" value={color || ''} onChange={setColor} />
                     </div>
                 </div>
             )}
