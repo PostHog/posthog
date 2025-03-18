@@ -2,6 +2,7 @@ import dataclasses
 import datetime as dt
 import json
 import re
+import typing
 
 import posthoganalytics
 from django.db import close_old_connections
@@ -93,6 +94,16 @@ class UpdateExternalDataJobStatusInputs:
     internal_error: str | None
     latest_error: str | None
 
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "job_id": self.job_id,
+            "schema_id": self.schema_id,
+            "source_id": self.source_id,
+            "status": self.status,
+        }
+
 
 @activity.defn
 def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
@@ -162,6 +173,13 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 class CreateSourceTemplateInputs:
     team_id: int
     run_id: str
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "run_id": self.run_id,
+        }
 
 
 @activity.defn

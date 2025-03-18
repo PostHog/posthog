@@ -138,6 +138,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CAPTURE_CONFIG_REDIS_HOST: null,
         USE_SIMD_JSON_PARSE: isProdEnv() ? false : true, // TODO: Set true once done testing
         USE_SIMD_JSON_PARSE_FOR_COMPARISON: false,
+        LAZY_LOADER_DEFAULT_BUFFER_MS: 100,
 
         // posthog
         POSTHOG_API_KEY: '',
