@@ -1286,46 +1286,60 @@ def send_all_org_usage_reports(
             "organization usage report starting",
             {
                 "total_orgs": total_orgs,
-                "total_orgs_sent": total_orgs_sent,
                 "region": get_instance_region(),
             },
             groups={"instance": settings.SITE_URL},
         )
 
+        logger.info(f"Starting to process {total_orgs} organizations")  # noqa T201
+        org_count = 0
+
         for org_report in org_reports.values():
-            organization_id = org_report.organization_id
+            try:
+                org_count += 1
+                organization_id = org_report.organization_id
 
-            if only_organization_id and only_organization_id != organization_id:
-                continue
+                if only_organization_id and only_organization_id != organization_id:
+                    logger.info(
+                        f"Skipping organization {organization_id} as it doesn't match only_organization_id={only_organization_id}"
+                    )  # noqa T201
+                    continue
 
-            full_report = _get_full_org_usage_report(org_report, instance_metadata)
-            full_report_dict = _get_full_org_usage_report_as_dict(full_report)
+                full_report = _get_full_org_usage_report(org_report, instance_metadata)
+                full_report_dict = _get_full_org_usage_report_as_dict(full_report)
 
-            if dry_run:
-                continue
+                if dry_run:
+                    logger.info(f"Dry run, skipping sending for organization {organization_id}")  # noqa T201
+                    continue
 
-            # First capture the events to PostHog
-            if not skip_capture_event:
-                at_date_str = at_date.isoformat() if at_date else None
-                capture_report(
-                    pha_client=pha_client,
-                    capture_event_name=capture_event_name or "organization usage report",
-                    organization_id=organization_id,
-                    full_report_dict=full_report_dict,
-                    at_date=at_date_str,
-                )
+                # First capture the events to PostHog
+                if not skip_capture_event:
+                    at_date_str = at_date.isoformat() if at_date else None
+                    capture_report(
+                        pha_client=pha_client,
+                        capture_event_name=capture_event_name or "organization usage report",
+                        organization_id=organization_id,
+                        full_report_dict=full_report_dict,
+                        at_date=at_date_str,
+                    )
 
-            # Then send the reports to billing through SQS (only if the producer is available)
-            if has_non_zero_usage(full_report) and producer:
-                try:
-                    _queue_report(producer, organization_id, full_report_dict)
-                    total_orgs_sent += 1
-                except Exception as err:
-                    logger.exception(f"Failed to send usage report for organization {organization_id}", error=err)
-                    capture_exception(err)
+                # Then send the reports to billing through SQS (only if the producer is available)
+                if has_non_zero_usage(full_report) and producer:
+                    try:
+                        logger.info(f"Queueing report for organization {organization_id}")  # noqa T201
+                        _queue_report(producer, organization_id, full_report_dict)
+                        total_orgs_sent += 1
+                    except Exception as err:
+                        logger.exception(f"Failed to send usage report for organization {organization_id}", error=err)
+                        capture_exception(err)
+            except Exception as loop_err:
+                logger.exception(f"Unexpected error processing organization {organization_id}", error=loop_err)  # noqa T201
+                capture_exception(loop_err)
 
         time_since = datetime.now() - time_now
-        logger.info(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
+        logger.info(
+            f"Finished processing all {total_orgs} organizations. Sent reports for {total_orgs_sent} organizations and it took {time_since.total_seconds()} seconds."
+        )  # noqa T201
 
         pha_client.capture(
             "internal_billing_events",
