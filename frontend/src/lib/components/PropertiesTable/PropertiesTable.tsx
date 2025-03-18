@@ -41,7 +41,6 @@ interface BasePropertyType {
 
 interface ValueDisplayType extends BasePropertyType {
     value: any
-    useDetectedPropertyType?: boolean
     type: PropertyDefinitionType
 }
 
@@ -68,15 +67,25 @@ function EditTextValueComponent({
     )
 }
 
-function ValueDisplay({
-    type,
-    value,
-    rootKey,
-    onEdit,
-    nestingLevel,
-    useDetectedPropertyType,
-}: ValueDisplayType): JSX.Element {
+const propertyTypeToJSType: Record<PropertyType, string> = {
+    [PropertyType.DateTime]: 'string',
+    [PropertyType.String]: 'string',
+    [PropertyType.Numeric]: 'number',
+    [PropertyType.Boolean]: 'boolean',
+    [PropertyType.Duration]: 'number',
+    [PropertyType.Selector]: 'string',
+    [PropertyType.Cohort]: 'number',
+}
+
+function ValueDisplay({ type, value, rootKey, onEdit, nestingLevel }: ValueDisplayType): JSX.Element {
     const { describeProperty } = useValues(propertyDefinitionsModel)
+
+    // We can only show detected property types for those we generate from the property definitions service
+    const useDetectedPropertyType = [
+        PropertyDefinitionType.Event,
+        PropertyDefinitionType.Person,
+        PropertyDefinitionType.Group,
+    ].includes(type)
 
     const [editing, setEditing] = useState(false)
     // Can edit if a key and edit callback is set, the property is custom (i.e. not PostHog), and the value is in the root of the object (i.e. no nested objects)
@@ -119,9 +128,8 @@ function ValueDisplay({
         </span>
     )
 
-    const isTypeMismatched =
-        (propertyType === PropertyType.String && valueType === 'number') ||
-        (propertyType === PropertyType.Numeric && valueType === 'string')
+    // TODO: Why did we only compare string and numeric types here...? I guess because we don't have a way of deriving types that matches prop defs?
+    const isTypeMismatched = propertyType && propertyTypeToJSType[propertyType as PropertyType] !== valueType
 
     return (
         <div className="properties-table-value">
@@ -192,8 +200,6 @@ interface PropertiesTableType extends BasePropertyType {
     embedded?: boolean
     onDelete?: (key: string) => void
     className?: string
-    /* only event types are detected and so describe-able. see https://github.com/PostHog/posthog/issues/9245 */
-    useDetectedPropertyType?: boolean
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
     highlightedKeys?: string[]
     type: PropertyDefinitionType
@@ -215,7 +221,6 @@ export function PropertiesTable({
     nestingLevel = 0,
     onDelete,
     className,
-    useDetectedPropertyType,
     tableProps,
     highlightedKeys,
     type,
@@ -338,11 +343,6 @@ export function PropertiesTable({
                                             type={type}
                                             properties={item[1]}
                                             nestingLevel={nestingLevel + 1}
-                                            useDetectedPropertyType={
-                                                ['$set', '$set_once'].some((s) => s === rootKey)
-                                                    ? false
-                                                    : useDetectedPropertyType
-                                            }
                                         />
                                     )
                                 },
@@ -393,9 +393,6 @@ export function PropertiesTable({
                             rootKey={item[0]}
                             onEdit={onEdit}
                             nestingLevel={nestingLevel + 1}
-                            useDetectedPropertyType={
-                                ['$set', '$set_once'].some((s) => s === rootKey) ? false : useDetectedPropertyType
-                            }
                         />
                     )
                 },
@@ -538,14 +535,5 @@ export function PropertiesTable({
     }
 
     // if none of above, it's a value
-    return (
-        <ValueDisplay
-            type={type}
-            value={properties}
-            rootKey={rootKey}
-            onEdit={onEdit}
-            nestingLevel={nestingLevel}
-            useDetectedPropertyType={useDetectedPropertyType}
-        />
-    )
+    return <ValueDisplay type={type} value={properties} rootKey={rootKey} onEdit={onEdit} nestingLevel={nestingLevel} />
 }
