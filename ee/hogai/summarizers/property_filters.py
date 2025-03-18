@@ -2,6 +2,7 @@ from typing import Any, Literal, Union, cast
 
 from pydantic import BaseModel, ConfigDict
 
+from posthog.models import Cohort
 from posthog.schema import (
     CohortPropertyFilter,
     DataWarehousePersonPropertyFilter,
@@ -68,6 +69,15 @@ PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
     PropertyOperator.IS_CLEANED_PATH_EXACT: "has a link without a hash and URL parameters that matches exactly",
 }
 
+ARRAY_PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
+    PropertyOperator.EXACT: "matches exactly at least one of the values from the list",
+    PropertyOperator.IS_NOT: "doesn't match any of the values from the list",
+    PropertyOperator.ICONTAINS: "contains at least one of the values from the list",
+    PropertyOperator.NOT_ICONTAINS: "doesn't contain any of the values from the list",
+    PropertyOperator.REGEX: "matches at least one regex pattern in the list",
+    PropertyOperator.NOT_REGEX: "doesn't match any regex patterns in the list",
+}
+
 
 class PropertyFilterTaxonomyEntry(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -110,7 +120,8 @@ class PropertyFilterDescriber(BaseModel):
         filter = self.filter
         verbose_name = ""
 
-        # TODO: cohort
+        if isinstance(filter, CohortPropertyFilter):
+            return self._describe_cohort(filter)
         if isinstance(filter, HogQLPropertyFilter):
             return f"matches the SQL filter `{filter.key}`"
 
@@ -161,6 +172,7 @@ class PropertyFilterDescriber(BaseModel):
             formatted_value = None
         elif isinstance(value, list):
             formatted_value = ", ".join(str(v) for v in value)
+            formatted_value = f"[{formatted_value}]"
         elif isinstance(value, float) and value.is_integer():
             # Convert float values with trailing zeros to integers
             formatted_value = str(int(value))
@@ -168,10 +180,25 @@ class PropertyFilterDescriber(BaseModel):
             formatted_value = str(value)
         val = f"`{key}`"
         if operator is not None:
-            val += f" {PROPERTY_FILTER_VERBOSE_NAME[operator]}"
+            if isinstance(value, list) and operator in ARRAY_PROPERTY_FILTER_VERBOSE_NAME:
+                val += f" {ARRAY_PROPERTY_FILTER_VERBOSE_NAME[operator]}"
+            else:
+                val += f" {PROPERTY_FILTER_VERBOSE_NAME[operator]}"
         if formatted_value is not None:
             return f"{val} `{formatted_value}`"
         return val
+
+    def _describe_cohort(self, filter: CohortPropertyFilter) -> str:
+        # Lazy import to avoid circular dependency
+        from ee.hogai.summarizers.cohorts import CohortSummarizer
+
+        cohort_id = filter.value
+        try:
+            cohort = Cohort.objects.get(pk=cohort_id)
+            describer = CohortSummarizer(cohort, inline_conditions=True)
+            return describer.summary
+        except Cohort.DoesNotExist:
+            return f"people in cohort with ID {cohort_id}"
 
 
 class PropertyFilterCollectionDescriber(BaseModel):
