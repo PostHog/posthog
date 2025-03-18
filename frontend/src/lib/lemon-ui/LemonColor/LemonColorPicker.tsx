@@ -11,10 +11,8 @@ type LemonColorPickerProps = {
     colorTokens?: DataColorToken[]
     selectedColor?: string | null
     selectedColorToken?: DataColorToken | null
-    onClick: {
-        (color: string): void
-        (colorToken: DataColorToken): void
-    }
+    onSelectColor?: (color: string) => void
+    onSelectColorToken?: (colorToken: DataColorToken) => void
     showCustomColor?: boolean
     hideDropdown?: boolean
 }
@@ -25,7 +23,8 @@ export const LemonColorPickerOverlay = ({
     colorTokens,
     selectedColor,
     selectedColorToken,
-    onClick,
+    onSelectColor,
+    onSelectColorToken,
     showCustomColor = false,
 }: Omit<LemonColorPickerProps, 'hideDropdown'>): JSX.Element => {
     const [color, setColor] = useState('#ff0000')
@@ -34,10 +33,11 @@ export const LemonColorPickerOverlay = ({
     useEffect(() => {
         // allow only 6-digit hex colors
         // other color formats are not supported everywhere e.g. insight visualizations
-        if (color != null && /^#[0-9A-Fa-f]{6}$/.test(color)) {
+        if (showCustomColor && color != null && /^#[0-9A-Fa-f]{6}$/.test(color)) {
             setLastValidColor(color)
+            onSelectColor?.(color)
         }
-    }, [color])
+    }, [color, showCustomColor, onSelectColor])
 
     return (
         <div className="w-52 flex flex-col p-2">
@@ -48,7 +48,7 @@ export const LemonColorPickerOverlay = ({
                 colorTokens={colorTokens}
                 selectedColor={selectedColor}
                 selectedColorToken={selectedColorToken}
-                onClick={onClick}
+                onClick={colorTokens ? onSelectColorToken : onSelectColor}
             />
             {showCustomColor && (
                 <div>
@@ -75,6 +75,8 @@ export const LemonColorPicker = ({ hideDropdown = false, ...props }: LemonColorP
             <div className="relative">
                 <LemonColorButton
                     type="secondary"
+                    color={props.selectedColor}
+                    colorToken={props.selectedColorToken}
                     onClick={() => setIsOpen(!isOpen)}
                     sideIcon={hideDropdown ? null : undefined}
                 />
