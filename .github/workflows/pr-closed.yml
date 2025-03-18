@@ -1,4 +1,4 @@
-name: Report PR Age
+name: Closed PR
 
 on:
     pull_request:
