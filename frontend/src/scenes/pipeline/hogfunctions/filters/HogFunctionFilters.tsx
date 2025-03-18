@@ -156,8 +156,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                         <LemonLabel>Match events and actions</LemonLabel>
                                     </div>
                                     <p className="mb-0 text-xs text-secondary">
-                                        If set, {isTransformation ? 'the transformation' : 'the destination'} will only
-                                        run if the <b>event matches any</b> of the below.
+                                        If set, the {type} will only run if the <b>event matches any</b> of the below.
                                     </p>
                                     <ActionFilter
                                         bordered
