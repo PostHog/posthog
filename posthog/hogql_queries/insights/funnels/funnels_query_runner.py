@@ -77,7 +77,7 @@ class FunnelsQueryRunner(QueryRunner):
     def to_query(self) -> ast.SelectQuery:
         return self.funnel_class.get_query()
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+    def to_actors_query(self) -> ast.SelectQuery:
         return self.funnel_actor_class.actor_query()
 
     def calculate(self):
