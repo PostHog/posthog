@@ -343,19 +343,21 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
     def test_query_counts(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
-        my_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
-        other_user_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+        my_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="my dashboard")
+        other_user_dashboard = Dashboard.objects.create(
+            team=self.team, created_by=self.other_user, name="other user dashboard"
+        )
 
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 11
+        baseline = 15
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
-        with self.assertNumQueries(baseline + 8):
+        with self.assertNumQueries(baseline + 4):
             self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
-        with self.assertNumQueries(baseline + 11):
+        with self.assertNumQueries(baseline + 4):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
         baseline = 6
@@ -380,19 +382,21 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
     def test_query_counts_with_preload_optimization(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
-        my_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
-        other_user_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+        my_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="my dashboard")
+        other_user_dashboard = Dashboard.objects.create(
+            team=self.team, created_by=self.other_user, name="other user dashboard"
+        )
 
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 11
+        baseline = 15
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
-        with self.assertNumQueries(baseline + 8):
+        with self.assertNumQueries(baseline + 4):
             self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
-        with self.assertNumQueries(baseline + 11):
+        with self.assertNumQueries(baseline + 4):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
     def test_query_counts_only_adds_1_for_non_pk_resources(self):
