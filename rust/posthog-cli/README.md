@@ -17,3 +17,14 @@ Options:
   -h, --help         Print help
   -V, --version      Print version
 ```
+
+## Releases
+
+Releases are cut by pushing a release tag to the repository, for the `posthog-cli` app, e.g.
+```
+git tag "posthog-cli-v0.1.0"
+git push
+git push tags
+```
+
+We release semi-regularly, as new features are added. If a release breaks your CI or workflow, please open an issue on GitHub, and tag one or all of the crate authors
