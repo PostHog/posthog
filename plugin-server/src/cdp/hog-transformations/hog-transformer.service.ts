@@ -1,8 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
-import { UUIDT } from '~/src/utils/utils'
-
 import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
@@ -13,6 +11,7 @@ import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
+import { UUIDT } from '../../utils/utils'
 import { execHog } from '../services/hog-executor.service'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'

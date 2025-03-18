@@ -86,10 +86,6 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
     const showDropEvents = false // TODO coming back to this later for the dropEvents Transformation
 
     const isTransformation = type === 'transformation'
-    const transformationTaxonomicTypes = [
-        TaxonomicFilterGroupType.EventProperties,
-        TaxonomicFilterGroupType.HogQLExpression,
-    ]
 
     return (
         <div
@@ -179,7 +175,10 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                         }
                                         propertiesTaxonomicGroupTypes={
                                             isTransformation
-                                                ? transformationTaxonomicTypes
+                                                ? [
+                                                      TaxonomicFilterGroupType.EventProperties,
+                                                      TaxonomicFilterGroupType.HogQLExpression,
+                                                  ]
                                                 : [
                                                       TaxonomicFilterGroupType.EventProperties,
                                                       TaxonomicFilterGroupType.EventFeatureFlags,
