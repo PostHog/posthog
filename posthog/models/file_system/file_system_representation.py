@@ -9,6 +9,7 @@ class FileSystemRepresentation:
     """
     Defines the minimal data needed to create/update a FileSystem entry:
       - base_folder
+      - type
       - ref
       - name
       - href
@@ -17,6 +18,7 @@ class FileSystemRepresentation:
     """
 
     base_folder: str
+    type: str
     ref: str
     name: str
     href: str

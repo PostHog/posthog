@@ -36,16 +36,15 @@ class Notebook(FileSystemSyncMixin, UUIDModel):
     class Meta:
         unique_together = ("team", "short_id")
 
-    file_system_type = "notebook"
-
     @classmethod
-    def get_unfiled_queryset(cls, team: "Team") -> QuerySet["Notebook"]:
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Notebook"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="notebook", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             base_folder="Unfiled/Notebooks",
+            type="notebook",
             ref=str(self.id),
             name=self.title or "Untitled",
             href=f"/notebooks/{self.id}",

@@ -18,7 +18,7 @@ MIXIN_MODELS = [FeatureFlag, Experiment, Insight, Dashboard, Notebook]
 
 class UnfiledFileSaver:
     """
-    Checks each model's get_unfiled_queryset(...) for items that
+    Checks each model's get_file_system_unfiled(...) for items that
     haven't been put into FileSystem. Creates them with unique paths.
     """
 
@@ -28,7 +28,7 @@ class UnfiledFileSaver:
         self._in_memory_paths: set[str] = set()
 
     def save_unfiled_for_model(self, model_cls: type[FileSystemSyncMixin]) -> list[FileSystem]:
-        unfiled_qs = model_cls.get_unfiled_queryset(self.team)
+        unfiled_qs = model_cls.get_file_system_unfiled(self.team)
         new_files: list[FileSystem] = []
         for obj in unfiled_qs:
             rep = obj.get_file_system_representation()

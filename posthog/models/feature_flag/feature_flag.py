@@ -76,19 +76,18 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 
-    file_system_type = "feature_flag"
-
     def __str__(self):
         return f"{self.key} ({self.pk})"
 
     @classmethod
-    def get_unfiled_queryset(cls, team: "Team") -> QuerySet["FeatureFlag"]:
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["FeatureFlag"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="feature_flag", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             base_folder="Unfiled/Feature Flags",
+            type="feature_flag",
             ref=str(self.id),
             name=self.name or "Untitled",
             href=f"/feature_flags/{self.id}",

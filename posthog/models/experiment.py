@@ -72,16 +72,15 @@ class Experiment(FileSystemSyncMixin, models.Model):
     def is_draft(self):
         return not self.start_date
 
-    file_system_type = "experiment"
-
     @classmethod
-    def get_unfiled_queryset(cls, team: "Team") -> QuerySet["Experiment"]:
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
         base_qs = cls.objects.filter(team=team)
-        return cls._filter_unfiled_queryset(base_qs, team, ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="experiment", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
             base_folder="Unfiled/Experiments",
+            type="experiment",
             ref=str(self.id),
             name=self.name or "Untitled",
             href=f"/experiments/{self.id}",
