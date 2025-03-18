@@ -74,6 +74,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
     function handleStaticNavbarItemClick(navbarItem: NavbarItem, isKeyboardAction = false): void {
         clearActivePanelIdentifier()
+        showLayoutPanel(false)
 
         if (isKeyboardAction) {
             mainContentRef?.current?.focus()
