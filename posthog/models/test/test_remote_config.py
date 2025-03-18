@@ -229,7 +229,9 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 ],
                 "appearance": None,
                 "conditions": None,
-                "start_date": survey_basic.start_date.isoformat().replace("+00:00", "Z"),
+                "start_date": survey_basic.start_date.isoformat().replace("+00:00", "Z")
+                if survey_basic.start_date
+                else None,
                 "current_iteration": None,
                 "current_iteration_start_date": None,
                 "schedule": "once",
@@ -245,7 +247,9 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 ],
                 "appearance": None,
                 "conditions": None,
-                "start_date": survey_with_flags.start_date.isoformat().replace("+00:00", "Z"),
+                "start_date": survey_with_flags.start_date.isoformat().replace("+00:00", "Z")
+                if survey_with_flags.start_date
+                else None,
                 "linked_flag_key": "linked-flag",
                 "current_iteration": None,
                 "targeting_flag_key": "targeting-flag",
@@ -287,7 +291,9 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                         ]
                     }
                 },
-                "start_date": survey_with_actions.start_date.isoformat().replace("+00:00", "Z"),
+                "start_date": survey_with_actions.start_date.isoformat().replace("+00:00", "Z")
+                if survey_with_actions.start_date
+                else None,
                 "current_iteration": None,
                 "current_iteration_start_date": None,
                 "schedule": "once",
