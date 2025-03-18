@@ -42,7 +42,7 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[definition.name]) {
         return (
             <IconWithBadge
-                icon={<IconList />}
+                icon={<IconLogomark />}
                 tooltipTitle="PostHog event property"
                 className="taxonomy-icon taxonomy-icon-muted"
                 verified={definition.verified}

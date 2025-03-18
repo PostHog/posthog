@@ -53,6 +53,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
         assert response_data["schedule"] == "once"
+        assert response_data["enable_partial_responses"] is False
         assert response_data["questions"] == [
             {
                 "id": str(response_data["questions"][0]["id"]),
@@ -140,6 +141,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
         assert response_data["schedule"] == "once"
+        assert response_data["enable_partial_responses"] is False
         assert response_data["questions"] == [
             {
                 "id": str(response_data["questions"][0]["id"]),
@@ -231,6 +233,7 @@ class TestSurvey(APIBaseTest):
         self.assertNotEqual(response_data["targeting_flag"]["key"], "survey-targeting-power-users-survey")
         assert re.match(r"^survey-targeting-[a-z0-9]+$", response_data["targeting_flag"]["key"])
         assert response_data["schedule"] == "once"
+        assert response_data["enable_partial_responses"] is False
 
         assert response_data["targeting_flag"]["filters"] == {
             "groups": [
@@ -1085,6 +1088,7 @@ class TestSurvey(APIBaseTest):
                     "description": "Make notebooks better",
                     "type": "popover",
                     "schedule": "once",
+                    "enable_partial_responses": False,
                     "questions": [
                         {
                             "id": response_data["results"][0]["questions"][0]["id"],
@@ -2003,12 +2007,12 @@ class TestSurveyQuestionValidation(APIBaseTest):
             format="json",
         )
 
-        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
+        invalid_url = "Link must be a URL with one of these schemes: [https, mailto]"
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == invalid_url
 
-    def test_create_validate_link_url_location(self):
+    def test_create_validate_link_mailto(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -2017,7 +2021,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "questions": [
                     {
                         "type": "link",
-                        "link": "https://",
+                        "link": "mailto:#@%^%#$@#$@#.com",
                         "question": "<b>What</b> do you think of the new notebooks feature?",
                     },
                 ],
@@ -2025,12 +2029,12 @@ class TestSurveyQuestionValidation(APIBaseTest):
             format="json",
         )
 
-        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
+        invalid_url = "Invalid mailto link. Please enter a valid mailto link (e.g., mailto:example@domain.com)."
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == invalid_url
 
-    def test_create_validate_link_url_scheme_https(self):
+    def test_update_validate_link_https_url(self):
         basic_survey = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -2049,76 +2053,14 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "questions": [
                     {
                         "type": "link",
-                        "link": "javascript:alert(1)",
+                        "link": "https://#.com",
                         "question": "<b>What</b> do you think of the new notebooks feature?",
                     },
                 ],
             },
             format="json",
         )
-        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == invalid_url
-
-    def test_create_validate_link_url_scheme_mailto(self):
-        basic_survey = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "survey without targeting",
-                "type": "popover",
-            },
-            format="json",
-        ).json()
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/surveys/{basic_survey['id']}/",
-            data={
-                "name": "Notebooks beta release survey",
-                "description": "Get feedback on the new notebooks feature",
-                "type": "popover",
-                "questions": [
-                    {
-                        "type": "link",
-                        "link": "mailto:phani@posthog.com",
-                        "question": "<b>What</b> do you think of the new notebooks feature?",
-                    },
-                ],
-            },
-            format="json",
-        )
-        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == invalid_url
-
-    def test_update_validate_link_url_location(self):
-        basic_survey = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "survey without targeting",
-                "type": "popover",
-            },
-            format="json",
-        ).json()
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/surveys/{basic_survey['id']}/",
-            data={
-                "name": "Notebooks beta release survey",
-                "description": "Get feedback on the new notebooks feature",
-                "type": "popover",
-                "questions": [
-                    {
-                        "type": "link",
-                        "link": "https://",
-                        "question": "<b>What</b> do you think of the new notebooks feature?",
-                    },
-                ],
-            },
-            format="json",
-        )
-        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
+        invalid_url = "Invalid HTTPS URL. Please enter a valid HTTPS link."
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == invalid_url
@@ -3110,6 +3052,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "current_iteration": None,
                         "current_iteration_start_date": None,
                         "schedule": "once",
+                        "enable_partial_responses": False,
                     }
                 ],
             )
@@ -3169,6 +3112,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "start_date": None,
                     "end_date": None,
                     "schedule": "once",
+                    "enable_partial_responses": False,
                 },
                 surveys,
             )
@@ -3187,6 +3131,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "current_iteration": None,
                     "current_iteration_start_date": None,
                     "schedule": "once",
+                    "enable_partial_responses": False,
                 },
                 surveys,
             )

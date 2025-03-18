@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { insertHogFunction as _insertHogFunction } from '~/src/cdp/_tests/fixtures'
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
-import { insertHogFunction as _insertHogFunction } from '~/tests/cdp/fixtures'
 import {
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
@@ -15,7 +15,7 @@ import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
-import { status } from '../utils/status'
+import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
 
@@ -207,12 +207,12 @@ describe('IngestionConsumer', () => {
             }
 
             beforeEach(() => {
-                jest.spyOn(status, 'debug')
+                jest.spyOn(logger, 'debug')
             })
 
             const expectDropLogs = (pairs: [string, string | undefined][]) => {
                 for (const [token, distinctId] of pairs) {
-                    expect(jest.mocked(status.debug)).toHaveBeenCalledWith('🔁', 'Dropped event', {
+                    expect(jest.mocked(logger.debug)).toHaveBeenCalledWith('🔁', 'Dropped event', {
                         distinctId,
                         token,
                     })
@@ -346,7 +346,7 @@ describe('IngestionConsumer', () => {
             await ingester.start()
             // Simulate some sort of error happening by mocking out the runner
             messages = createKafkaMessages([createEvent()])
-            jest.spyOn(status, 'error').mockImplementation(() => {})
+            jest.spyOn(logger, 'error').mockImplementation(() => {})
         })
 
         afterEach(() => {
@@ -363,7 +363,7 @@ describe('IngestionConsumer', () => {
 
             await ingester.handleKafkaBatch(messages)
 
-            expect(jest.mocked(status.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
+            expect(jest.mocked(logger.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
 
             expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
         })
@@ -791,7 +791,7 @@ describe('IngestionConsumer', () => {
                     "key": null,
                     "topic": "testing_topic",
                     "value": {
-                      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-1>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+                      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
                       "distinct_id": "user-1",
                       "ip": "127.0.0.1",
                       "now": "2025-01-01T00:00:00.000Z",

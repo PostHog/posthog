@@ -6,6 +6,7 @@ import {
     LemonDivider,
     LemonSegmentedButton,
     LemonSkeleton,
+    LemonTag,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -30,6 +31,7 @@ import { InsightLogicProps } from '~/types'
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
+import { STATUS_LABEL } from './ErrorTrackingIssueScene'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingLogic } from './errorTrackingLogic'
@@ -62,6 +64,7 @@ export function ErrorTrackingScene(): JSX.Element {
             volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
             assignee: { align: 'center', render: AssigneeColumn },
         },
+        refresh: 'blocking',
         showOpenEditorButton: false,
         insightProps: insightProps,
         emptyStateHeading: 'No issues found',
@@ -161,6 +164,10 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                             ) : (
                                 <LemonSkeleton />
                             )}
+                            <span>|</span>
+                            <span>
+                                <LemonTag>{STATUS_LABEL[record.status]}</LemonTag>
+                            </span>
                         </div>
                     </div>
                 }
