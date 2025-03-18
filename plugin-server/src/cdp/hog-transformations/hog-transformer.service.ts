@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import {
@@ -12,6 +11,7 @@ import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
+import { UUIDT } from '../../utils/utils'
 import { execHog } from '../services/hog-executor.service'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
@@ -41,6 +41,12 @@ export const hogTransformationCompleted = new Counter({
     name: 'hog_transformation_completed_total',
     help: 'Number of successfully completed transformations',
     labelNames: ['type'],
+})
+
+export const hogTransformationSkippedCounter = new Counter({
+    name: 'hog_transformation_skipped_total',
+    help: 'Count of transformations skipped due to filter mismatch',
+    labelNames: ['transformation_id', 'transformation_name'],
 })
 
 export interface TransformationResultPure {
@@ -159,26 +165,46 @@ export class HogTransformerService {
                         const shouldApplyTransformation = this.checkEventAgainstFilters(hogFunction, filterGlobals)
 
                         if (!shouldApplyTransformation) {
-                            logger.info('🔍', 'Skipping transformation due to filter mismatch', {
-                                event_id: event.uuid,
-                                transformation_id: hogFunction.id,
-                                transformation_name: hogFunction.name,
-                            })
-                            // Add a log entry to the results when filtered out
-                            const globalsWithInputs = buildGlobalsWithInputs(globals, {
-                                ...(hogFunction.inputs ?? {}),
-                                ...(hogFunction.encrypted_inputs ?? {}),
-                            })
-
                             results.push({
-                                invocation: createInvocation(globalsWithInputs, hogFunction),
-                                logs: [
+                                invocation: {
+                                    id: new UUIDT().toString(),
+                                    globals: {
+                                        project: {
+                                            id: event.team_id,
+                                            name: '',
+                                            url: '',
+                                        },
+                                        event: {
+                                            uuid: event.uuid,
+                                            event: event.event,
+                                            distinct_id: event.distinct_id,
+                                            properties: event.properties || {},
+                                            elements_chain: event.properties?.elements_chain || '',
+                                            timestamp: event.timestamp || '',
+                                            url: event.properties?.$current_url || '',
+                                        },
+                                        inputs: {
+                                            ...(hogFunction.inputs ?? {}),
+                                            ...(hogFunction.encrypted_inputs ?? {}),
+                                        },
+                                    },
+                                    teamId: event.team_id,
+                                    hogFunction,
+                                    queue: 'hog',
+                                    priority: 1,
+                                    timings: [],
+                                },
+                                metrics: [
                                     {
-                                        level: 'info',
-                                        timestamp: DateTime.now(),
-                                        message: `Transformation was skipped - filter did not match`,
+                                        team_id: event.team_id,
+                                        app_source_id: hogFunction.id,
+                                        metric_kind: 'other',
+                                        metric_name: 'filtered',
+                                        count: 1,
                                     },
                                 ],
+                                logs: [],
+                                error: null,
                                 finished: true,
                             })
                             continue
