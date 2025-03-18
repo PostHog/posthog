@@ -73,6 +73,7 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
                 return {
                     kind: NodeKind.DataTableNode,
                     source: tracesQuery,
+                    showColumnConfigurator: true,
                 }
             },
         ],

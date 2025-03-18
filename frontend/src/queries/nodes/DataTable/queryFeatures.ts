@@ -89,6 +89,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.eventPropertyFilters)
         features.add(QueryFeature.testAccountFilters)
+        features.add(QueryFeature.columnConfigurator)
     }
 
     return features

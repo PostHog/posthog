@@ -53,6 +53,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
         setGenerationsQuery: (query: DataTableNode) => ({ query }),
+        setTracesQuery: (query: DataTableNode) => ({ query }),
     }),
 
     reducers({
@@ -94,6 +95,13 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             null as DataTableNode | null,
             {
                 setGenerationsQuery: (_, { query }) => query,
+            },
+        ],
+
+        tracesQueryOverride: [
+            null as DataTableNode | null,
+            {
+                setTracesQuery: (_, { query }) => query,
             },
         ],
     }),
@@ -424,6 +432,10 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         ],
 
         tracesQuery: [
+            (s) => [s.tracesQueryOverride, s.defaultTracesQuery],
+            (override, defQuery) => override || defQuery,
+        ],
+        defaultTracesQuery: [
             (s) => [
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
@@ -448,6 +460,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 showTestAccountFilters: true,
                 showExport: true,
                 showOpenEditorButton: false,
+                showColumnConfigurator: true,
                 showPropertyFilter: [
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.PersonProperties,

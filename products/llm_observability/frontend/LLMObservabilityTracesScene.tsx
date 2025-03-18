@@ -12,7 +12,8 @@ import { llmObservabilityLogic } from './llmObservabilityLogic'
 import { formatLLMCost, formatLLMUsage, removeMilliseconds } from './utils'
 
 export function LLMObservabilityTraces(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } =
+        useActions(llmObservabilityLogic)
     const { tracesQuery } = useValues(llmObservabilityLogic)
     return (
         <DataTable
@@ -24,6 +25,7 @@ export function LLMObservabilityTraces(): JSX.Element {
                 setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
                 setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
                 setPropertyFilters(query.source.properties || [])
+                setTracesQuery(query)
             }}
             context={{
                 emptyStateHeading: 'There were no traces in this period',
