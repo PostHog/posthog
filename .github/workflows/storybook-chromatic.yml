@@ -103,6 +103,11 @@ jobs:
             chromium-6-added: ${{ steps.diff.outputs.chromium-6-added }}
             chromium-6-modified: ${{ steps.diff.outputs.chromium-6-modified }}
             chromium-6-deleted: ${{ steps.diff.outputs.chromium-6-deleted }}
+            chromium-6-total: ${{ steps.diff.outputs.chromium-6-total }}
+            chromium-6-commitHash: ${{ steps.commit-hash.outputs.chromium-6-commitHash }}
+            webkit-1-added: ${{ steps.diff.outputs.webkit-1-added }}
+            webkit-1-modified: ${{ steps.diff.outputs.webkit-1-modified }}
+            webkit-1-deleted: ${{ steps.diff.outputs.webkit-1-deleted }}
             webkit-1-total: ${{ steps.diff.outputs.webkit-1-total }}
             webkit-1-commitHash: ${{ steps.commit-hash.outputs.webkit-1-commitHash }}
             webkit-2-added: ${{ steps.diff.outputs.webkit-2-added }}
@@ -129,6 +134,7 @@ jobs:
             webkit-6-modified: ${{ steps.diff.outputs.webkit-6-modified }}
             webkit-6-deleted: ${{ steps.diff.outputs.webkit-6-deleted }}
             webkit-6-total: ${{ steps.diff.outputs.webkit-6-total }}
+            webkit-6-commitHash: ${{ steps.commit-hash.outputs.webkit-6-commitHash }}
         steps:
             - uses: actions/checkout@v3
               with:
