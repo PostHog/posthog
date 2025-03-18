@@ -11,7 +11,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.file_system import FileSystem, save_unfiled_files, split_path
 from posthog.models.user import User
 from posthog.models.team import Team
-from posthog.schema import FileSystemType
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
@@ -78,9 +77,7 @@ class FileSystemsLimitOffsetPagination(pagination.LimitOffsetPagination):
 
 
 class UnfiledFilesQuerySerializer(serializers.Serializer):
-    type = serializers.ChoiceField(
-        choices=[(choice.value, choice.value) for choice in FileSystemType], required=False, allow_blank=True
-    )
+    type = serializers.CharField(required=False, allow_blank=True)
 
 
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

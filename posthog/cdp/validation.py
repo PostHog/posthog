@@ -207,7 +207,7 @@ class InputsSerializer(serializers.DictField):
             value = data.get(key) or {}
 
             # We only load the existing secret if the schema is secret and the given value has "secret" set
-            if schema.get("secret") and existing_secret_inputs and value and value.get("secret"):
+            if schema.get("secret") and existing_secret_inputs and ((value and value.get("secret")) or value == {}):
                 value = existing_secret_inputs.get(schema["key"]) or {}
 
             self.context["schema"] = schema

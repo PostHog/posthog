@@ -26,11 +26,9 @@ use tokio::time::timeout;
 use tracing::{debug, warn};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
-use capture::limiters::redis::{
-    QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
-};
 use capture::server::serve;
 use health::HealthStrategy;
+use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,

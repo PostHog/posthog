@@ -1,44 +1,79 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
-import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
     CurrencyCode,
     DataTableNode,
     NodeKind,
+    RevenueCurrencyPropertyConfig,
+    RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
     RevenueTrackingConfig,
+    RevenueTrackingDataWarehouseTable,
     RevenueTrackingEventItem,
 } from '~/queries/schema/schema-general'
+import { Region } from '~/types'
 
 import type { revenueEventsSettingsLogicType } from './revenueEventsSettingsLogicType'
 
-const createEmptyConfig = (): RevenueTrackingConfig => ({ events: [], baseCurrency: undefined })
+const createEmptyConfig = (region: Region | null | undefined): RevenueTrackingConfig => ({
+    events: [],
+    dataWarehouseTables: [],
+
+    // Region won't be always set because we might mount this before we mount preflightLogic
+    // so we default to USD if we can't determine the region
+    baseCurrency: region === Region.EU ? CurrencyCode.EUR : CurrencyCode.USD,
+})
 
 export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
     path(['scenes', 'data-management', 'revenue', 'revenueEventsSettingsLogic']),
     connect({
-        values: [teamLogic, ['currentTeam', 'currentTeamId']],
+        values: [teamLogic, ['currentTeam', 'currentTeamId'], preflightLogic, ['preflight']],
         actions: [teamLogic, ['updateCurrentTeam']],
     }),
     actions({
-        addEvent: (eventName: TaxonomicFilterValue) => ({ eventName }),
+        updateBaseCurrency: (baseCurrency: CurrencyCode) => ({ baseCurrency }),
+
+        addEvent: (eventName: string) => ({ eventName }),
         deleteEvent: (eventName: string) => ({ eventName }),
-        resetEvents: true,
-        updatePropertyName: (eventName: string, revenueProperty: string) => ({ eventName, revenueProperty }),
-        updateCurrencyPropertyName: (eventName: string, revenueCurrencyProperty: string) => ({
+        updateEventRevenueProperty: (eventName: string, revenueProperty: string) => ({ eventName, revenueProperty }),
+        updateEventRevenueCurrencyProperty: (
+            eventName: string,
+            revenueCurrencyProperty: RevenueCurrencyPropertyConfig
+        ) => ({
             eventName,
             revenueCurrencyProperty,
         }),
-        updateBaseCurrency: (baseCurrency: CurrencyCode) => ({ baseCurrency }),
+
+        addDataWarehouseTable: (dataWarehouseTable: RevenueTrackingDataWarehouseTable) => dataWarehouseTable,
+        deleteDataWarehouseTable: (dataWarehouseTableName: string) => ({ dataWarehouseTableName }),
+        updateDataWarehouseTableColumn: (
+            dataWarehouseTableName: string,
+            key: keyof RevenueTrackingDataWarehouseTable & ('timestampColumn' | 'revenueColumn'),
+            newValue: string
+        ) => ({ dataWarehouseTableName, key, newValue }),
+        updateDataWarehouseTableRevenueCurrencyColumn: (
+            dataWarehouseTableName: string,
+            revenueCurrencyColumn: RevenueCurrencyPropertyConfig
+        ) => ({ dataWarehouseTableName, revenueCurrencyColumn }),
+
+        resetConfig: true,
     }),
     reducers(({ values }) => ({
         revenueTrackingConfig: [
             null as RevenueTrackingConfig | null,
             {
+                updateBaseCurrency: (state, { baseCurrency }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return { ...state, baseCurrency }
+                },
                 addEvent: (state, { eventName }) => {
                     if (
                         !state ||
@@ -62,7 +97,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                             {
                                 eventName,
                                 revenueProperty: 'revenue',
-                                revenueCurrencyProperty: undefined,
+                                revenueCurrencyProperty: { static: state.baseCurrency },
                             },
                         ],
                     }
@@ -73,7 +108,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                     }
                     return { ...state, events: state.events.filter((item) => item.eventName !== eventName) }
                 },
-                updatePropertyName: (state, { eventName, revenueProperty }) => {
+                updateEventRevenueProperty: (state, { eventName, revenueProperty }) => {
                     if (!state) {
                         return state
                     }
@@ -87,7 +122,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         }),
                     }
                 },
-                updateCurrencyPropertyName: (state, { eventName, revenueCurrencyProperty }) => {
+                updateEventRevenueCurrencyProperty: (state, { eventName, revenueCurrencyProperty }) => {
                     if (!state) {
                         return state
                     }
@@ -102,22 +137,81 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         }),
                     }
                 },
-                updateBaseCurrency: (state, { baseCurrency }) => {
+                addDataWarehouseTable: (state, newDataWarehouseTable) => {
                     if (!state) {
                         return state
                     }
 
-                    return { ...state, baseCurrency }
+                    // Guarantee we've only got a single external data schema per table
+                    if (state.dataWarehouseTables.some((item) => item.tableName === newDataWarehouseTable.tableName)) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        dataWarehouseTables: [...state.dataWarehouseTables, newDataWarehouseTable],
+                    }
                 },
-                resetEvents: () => {
+                deleteDataWarehouseTable: (state, { dataWarehouseTableName }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        dataWarehouseTables: state.dataWarehouseTables.filter(
+                            (item) => item.tableName !== dataWarehouseTableName
+                        ),
+                    }
+                },
+                updateDataWarehouseTableColumn: (state, { dataWarehouseTableName, key, newValue }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        dataWarehouseTables: state.dataWarehouseTables.map((item) => {
+                            if (item.tableName === dataWarehouseTableName) {
+                                return { ...item, [key]: newValue }
+                            }
+
+                            return item
+                        }),
+                    }
+                },
+                updateDataWarehouseTableRevenueCurrencyColumn: (
+                    state,
+                    { dataWarehouseTableName, revenueCurrencyColumn }
+                ) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        dataWarehouseTables: state.dataWarehouseTables.map((item) => {
+                            if (item.tableName === dataWarehouseTableName) {
+                                return { ...item, revenueCurrencyColumn }
+                            }
+
+                            return item
+                        }),
+                    }
+                },
+                resetConfig: () => {
                     return values.savedRevenueTrackingConfig
+                },
+                updateCurrentTeam: (_, { revenue_tracking_config }) => {
+                    return revenue_tracking_config || createEmptyConfig(values.preflight?.region)
                 },
             },
         ],
         savedRevenueTrackingConfig: [
-            values.currentTeam?.revenue_tracking_config || createEmptyConfig(),
+            values.currentTeam?.revenue_tracking_config || createEmptyConfig(values.preflight?.region),
             {
-                saveChanges: (_, team) => team.revenue_tracking_config || createEmptyConfig(),
+                updateCurrentTeam: (_, { revenue_tracking_config }) => {
+                    return revenue_tracking_config || createEmptyConfig(values.preflight?.region)
+                },
             },
         ],
     })),
@@ -126,13 +220,32 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             (s) => [s.revenueTrackingConfig],
             (revenueTrackingConfig: RevenueTrackingConfig | null) => revenueTrackingConfig?.events || [],
         ],
+        dataWarehouseTables: [
+            (s) => [s.revenueTrackingConfig],
+            (revenueTrackingConfig: RevenueTrackingConfig | null) => revenueTrackingConfig?.dataWarehouseTables || [],
+        ],
         baseCurrency: [
             (s) => [s.revenueTrackingConfig],
             (revenueTrackingConfig: RevenueTrackingConfig | null) =>
                 revenueTrackingConfig?.baseCurrency || CurrencyCode.USD,
         ],
-        saveDisabledReason: [
-            (s) => [s.revenueTrackingConfig, s.changesMade],
+
+        changesMadeToEvents: [
+            (s) => [s.revenueTrackingConfig, s.savedRevenueTrackingConfig],
+            (config, savedConfig): boolean => {
+                return !!config && !objectsEqual(config.events, savedConfig.events)
+            },
+        ],
+
+        changesMadeToDataWarehouseTables: [
+            (s) => [s.revenueTrackingConfig, s.savedRevenueTrackingConfig],
+            (config, savedConfig): boolean => {
+                return !!config && !objectsEqual(config.dataWarehouseTables, savedConfig.dataWarehouseTables)
+            },
+        ],
+
+        saveEventsDisabledReason: [
+            (s) => [s.revenueTrackingConfig, s.changesMadeToEvents],
             (config, changesMade): string | null => {
                 if (!config) {
                     return 'Loading...'
@@ -143,14 +256,21 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                 return null
             },
         ],
-        changesMade: [
-            (s) => [s.revenueTrackingConfig, s.savedRevenueTrackingConfig],
-            (config, savedConfig): boolean => {
-                return !!config && !objectsEqual(config, savedConfig)
+        saveDataWarehouseTablesDisabledReason: [
+            (s) => [s.revenueTrackingConfig, s.changesMadeToDataWarehouseTables],
+            (config, changesMade): string | null => {
+                if (!config) {
+                    return 'Loading...'
+                }
+                if (!changesMade) {
+                    return 'No changes to save'
+                }
+                return null
             },
         ],
-        eventsQuery: [
-            (s) => [s.revenueTrackingConfig],
+
+        exampleEventsQuery: [
+            (s) => [s.savedRevenueTrackingConfig],
             (revenueTrackingConfig: RevenueTrackingConfig | null) => {
                 if (!revenueTrackingConfig) {
                     return null
@@ -167,6 +287,29 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                     showPropertyFilter: false,
                     source,
                 }
+
+                return query
+            },
+        ],
+        exampleDataWarehouseTablesQuery: [
+            (s) => [s.savedRevenueTrackingConfig],
+            (revenueTrackingConfig: RevenueTrackingConfig | null) => {
+                if (!revenueTrackingConfig) {
+                    return null
+                }
+
+                const source: RevenueExampleDataWarehouseTablesQuery = {
+                    kind: NodeKind.RevenueExampleDataWarehouseTablesQuery,
+                    revenueTrackingConfig: revenueTrackingConfig,
+                }
+
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    full: true,
+                    showPropertyFilter: false,
+                    source,
+                }
+
                 return query
             },
         ],
@@ -175,7 +318,8 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         saveChanges: {
             save: () => {
                 actions.updateCurrentTeam({
-                    revenue_tracking_config: values.revenueTrackingConfig || createEmptyConfig(),
+                    revenue_tracking_config:
+                        values.revenueTrackingConfig || createEmptyConfig(values.preflight?.region),
                 })
                 return null
             },
@@ -183,17 +327,17 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         revenueTrackingConfig: {
             loadRevenueTrackingConfig: async () => {
                 if (values.currentTeam) {
-                    return values.currentTeam.revenue_tracking_config || createEmptyConfig()
+                    return values.currentTeam.revenue_tracking_config || createEmptyConfig(values.preflight?.region)
                 }
                 return null
             },
         },
     })),
     beforeUnload(({ actions, values }) => ({
-        enabled: () => values.changesMade,
+        enabled: () => values.changesMadeToEvents || values.changesMadeToDataWarehouseTables,
         message: 'Changes you made will be discarded. Make sure you save your changes before leaving this page.',
         onConfirm: () => {
-            actions.resetEvents()
+            actions.resetConfig()
         },
     })),
     afterMount(({ actions }) => {

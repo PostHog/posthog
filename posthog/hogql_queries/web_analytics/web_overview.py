@@ -33,6 +33,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
+
         assert response.results
 
         row = response.results[0]
@@ -101,7 +102,7 @@ SELECT
     min(session.$start_timestamp) as start_timestamp
 FROM events
 WHERE and(
-    events.`$session_id` IS NOT NULL,
+    {events_session_id} IS NOT NULL,
     {event_type_expr},
     {inside_timestamp_period},
     {all_properties},
@@ -114,6 +115,7 @@ HAVING {inside_start_timestamp_period}
                 "event_type_expr": self.event_type_expr,
                 "inside_timestamp_period": self._periods_expression("timestamp"),
                 "inside_start_timestamp_period": self._periods_expression("start_timestamp"),
+                "events_session_id": self.events_session_property,
             },
         )
         assert isinstance(parsed_select, ast.SelectQuery)

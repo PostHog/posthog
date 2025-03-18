@@ -85,7 +85,7 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         [],
     ],
     "lower": [
-        "function lower (value) { return value.toLowerCase() }",
+        "function lower (value) { if (value === null || value === undefined) { return null } return value.toLowerCase() }",
         [],
     ],
     "upper": [

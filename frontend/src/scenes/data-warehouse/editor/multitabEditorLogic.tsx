@@ -89,7 +89,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     actions({
         setQueryInput: (queryInput: string) => ({ queryInput }),
         updateState: true,
-        runQuery: (queryOverride?: string, switchTab?: boolean) => ({ queryOverride, switchTab }),
+        runQuery: (queryOverride?: string, switchTab?: boolean) => ({
+            queryOverride,
+            switchTab,
+        }),
         setActiveQuery: (query: string) => ({ query }),
         renameTab: (tab: QueryTab, newName: string) => ({ tab, newName }),
         setTabs: (tabs: QueryTab[]) => ({ tabs }),
@@ -417,10 +420,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         .find((model: editor.ITextModel) => model.uri.path === uri?.path)
                     activeModel && props.editor?.setModel(activeModel)
                     const val = activeModel?.getValue()
+
                     if (val) {
                         actions.setQueryInput(val)
-                        actions.runQuery()
                     }
+
                     const activeTab = newModels.find((tab) => tab.uri.path.split('/').pop() === activeModelUri)
                     const activeView = activeTab?.view
 
@@ -473,12 +477,19 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 },
             })
             dataNodeLogic({
-                key: dataNodeKey,
+                key: values.currentDataLogicKey,
                 query: {
                     ...values.sourceQuery.source,
                     query,
                 },
-                autoLoad: false,
+            }).mount()
+
+            dataNodeLogic({
+                key: values.currentDataLogicKey,
+                query: {
+                    ...values.sourceQuery.source,
+                    query,
+                },
             }).actions.loadData(!switchTab)
         },
         saveAsView: async () => {
@@ -523,7 +534,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
 
             const logic = dataNodeLogic({
-                key: dataNodeKey,
+                key: values.currentDataLogicKey,
                 query: queryToSave,
             })
 
@@ -623,7 +634,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const _model = props.monaco.editor.getModel(activeModelUri.uri)
                 const val = _model?.getValue()
                 actions.setQueryInput(val ?? '')
-                actions.runQuery(undefined, true)
+                actions.setSourceQuery({
+                    ...values.sourceQuery,
+                    source: {
+                        ...values.sourceQuery.source,
+                        query: val ?? '',
+                    },
+                })
             }
         },
         allTabs: () => {
@@ -651,6 +668,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             (s) => [s.editingView],
             (editingView) => {
                 return !!editingView?.status
+            },
+        ],
+        currentDataLogicKey: [
+            (s) => [s.activeModelUri],
+            (activeModelUri) => {
+                return activeModelUri?.uri.path ?? dataNodeKey
             },
         ],
     }),

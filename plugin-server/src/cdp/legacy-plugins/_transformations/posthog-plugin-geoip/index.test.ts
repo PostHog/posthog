@@ -3,6 +3,7 @@ import { createPageview, resetMeta } from '@posthog/plugin-scaffold/test/utils'
 
 import { defaultConfig } from '../../../../config/config'
 import { GeoIp, GeoIPService } from '../../../../utils/geoip'
+import { parseJSON } from '../../../../utils/json-parse'
 import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
 
@@ -201,7 +202,7 @@ describe('posthog-plugin-geoip', () => {
 
     test('event is skipped using $geoip_disable', () => {
         const testEvent = { ...createPageview(), ip: '12.87.118.0', properties: { $geoip_disable: true } }
-        const processedEvent = processEvent(JSON.parse(JSON.stringify(testEvent)), resetMetaWithMmdb())
+        const processedEvent = processEvent(parseJSON(JSON.stringify(testEvent)), resetMetaWithMmdb())
         expect(testEvent).toEqual(processedEvent)
     })
 })

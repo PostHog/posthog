@@ -164,8 +164,12 @@ export function Playlist({
                     'xl:flex-row': true,
                 })}
             >
-                <div className="flex flex-col gap-2 xl:max-w-80">
-                    <DraggableToNotebook href={notebooksHref}>{filterActions}</DraggableToNotebook>
+                <div className="flex flex-col xl:max-w-80">
+                    {filterActions && (
+                        <DraggableToNotebook className="mb-2" href={notebooksHref}>
+                            {filterActions}
+                        </DraggableToNotebook>
+                    )}
                     <div
                         ref={playlistRef}
                         data-attr={dataAttr}

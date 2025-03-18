@@ -1,6 +1,7 @@
 import apiReal from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
+import { CurrencyCode } from '~/queries/schema/schema-general'
 import {
     ActivationTaskStatus,
     CohortType,
@@ -99,11 +100,20 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,
     revenue_tracking_config: {
+        baseCurrency: CurrencyCode.USD,
         events: [
             {
                 eventName: 'purchase',
                 revenueProperty: 'value',
-                revenueCurrencyProperty: undefined,
+                revenueCurrencyProperty: { static: CurrencyCode.ZAR },
+            },
+        ],
+        dataWarehouseTables: [
+            {
+                tableName: 'mock_table',
+                timestampColumn: 'timestamp',
+                revenueColumn: 'revenue',
+                revenueCurrencyColumn: { static: CurrencyCode.SCR },
             },
         ],
     },

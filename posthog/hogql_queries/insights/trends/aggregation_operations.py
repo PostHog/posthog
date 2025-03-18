@@ -11,6 +11,7 @@ from posthog.hogql_queries.insights.utils.aggregations import (
     QueryAlternator,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql.database.schema.exchange_rate import convert_currency_call
 from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
@@ -64,23 +65,23 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             return parse_expr(f'count(DISTINCT e."$group_{int(self.series.math_group_type_index)}")')
         elif self.series.math_property is not None:
             if self.series.math == "avg":
-                return self._math_func("avg", None)
+                return self._math_func("avg")
             elif self.series.math == "sum":
-                return self._math_func("sum", None)
+                return self._math_func("sum")
             elif self.series.math == "min":
-                return self._math_func("min", None)
+                return self._math_func("min")
             elif self.series.math == "max":
-                return self._math_func("max", None)
+                return self._math_func("max")
             elif self.series.math == "median":
-                return self._math_quantile(0.5, None)
+                return self._math_quantile(0.5)
             elif self.series.math == "p75":
-                return self._math_quantile(0.75, None)
+                return self._math_quantile(0.75)
             elif self.series.math == "p90":
-                return self._math_quantile(0.9, None)
+                return self._math_quantile(0.9)
             elif self.series.math == "p95":
-                return self._math_quantile(0.95, None)
+                return self._math_quantile(0.95)
             elif self.series.math == "p99":
-                return self._math_quantile(0.99, None)
+                return self._math_quantile(0.99)
 
         return parse_expr("count()")  # All "count per actor" get replaced during query orchestration
 
@@ -123,7 +124,16 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def is_first_matching_event(self):
         return self.series.math == "first_matching_event_for_user"
 
-    def _math_func(self, method: str, override_chain: Optional[list[str | int]]) -> ast.Call:
+    def _get_math_chain(self) -> list[str]:
+        if self.series.math_property == "$session_duration":
+            return ["session_duration"]
+        elif isinstance(self.series, DataWarehouseNode) and self.series.math_property:
+            return [self.series.math_property]
+        elif self.series.math_property_type == "data_warehouse_person_properties" and self.series.math_property:
+            return ["person", *self.series.math_property.split(".")]
+        return ["properties", self.series.math_property]
+
+    def _math_func(self, method: str, override_chain: Optional[list[str | int]] = None) -> ast.Call:
         if override_chain is not None:
             return ast.Call(name=method, args=[ast.Field(chain=override_chain)])
 
@@ -138,14 +148,22 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 ],
             )
 
-        if self.series.math_property == "$session_duration":
-            chain = ["session_duration"]
-        elif isinstance(self.series, DataWarehouseNode) and self.series.math_property:
-            chain = [self.series.math_property]
-        elif self.series.math_property_type == "data_warehouse_person_properties" and self.series.math_property:
-            chain = ["person", *self.series.math_property.split(".")]
-        else:
-            chain = ["properties", self.series.math_property]
+        chain = self._get_math_chain()
+
+        if self.series.math_property_revenue_currency is not None:
+            return ast.Call(
+                name=method,
+                args=[
+                    convert_currency_call(
+                        ast.Field(chain=chain),
+                        ast.Constant(value=self.series.math_property_revenue_currency.static.value)
+                        if self.series.math_property_revenue_currency.static is not None
+                        else ast.Field(chain=["properties", self.series.math_property_revenue_currency.property]),
+                        ast.Constant(value=self.team.revenue_config.baseCurrency.value),
+                        ast.Call(name="_toDate", args=[ast.Field(chain=["timestamp"])]),
+                    )
+                ],
+            )
 
         return ast.Call(
             # Two caveats here - similar to the math_quantile, but not quite:
@@ -160,11 +178,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             ],
         )
 
-    def _math_quantile(self, percentile: float, override_chain: Optional[list[str | int]]) -> ast.Call:
-        if self.series.math_property == "$session_duration":
-            chain = ["session_duration"]
-        else:
-            chain = ["properties", self.series.math_property]
+    def _math_quantile(self, percentile: float, override_chain: Optional[list[str | int]] = None) -> ast.Call:
+        chain = override_chain or self._get_math_chain()
 
         return ast.Call(
             # Two caveats here - similar to the math_func, but not quite:
@@ -177,7 +192,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 ast.Call(
                     name="quantile",
                     params=[ast.Constant(value=percentile)],
-                    args=[ast.Call(name="toFloat", args=[ast.Field(chain=override_chain or chain)])],
+                    args=[ast.Call(name="toFloat", args=[ast.Field(chain=chain)])],
                 ),
                 ast.Constant(value=0),
             ],

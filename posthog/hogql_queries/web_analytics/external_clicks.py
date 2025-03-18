@@ -65,7 +65,7 @@ FROM (
         {inside_periods},
         {all_properties},
     )
-    GROUP BY events.`$session_id`, url
+    GROUP BY {events_session_id}, url
 )
 GROUP BY "context.columns.url"
 """,
@@ -76,6 +76,7 @@ GROUP BY "context.columns.url"
                     "current_period": self._current_period_expression(),
                     "previous_period": self._previous_period_expression(),
                     "inside_periods": self._periods_expression(),
+                    "events_session_id": self.events_session_property,
                 },
             )
         assert isinstance(query, ast.SelectQuery)

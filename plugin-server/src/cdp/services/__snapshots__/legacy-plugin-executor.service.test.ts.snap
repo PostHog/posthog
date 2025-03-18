@@ -3,22 +3,40 @@
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-customerio-plugin', plugin: [Object] } 1`] = `
 [
   "Successfully authenticated with Customer.io. Completing setupPlugin.",
+  "Function completed in REPLACED-TIME-ms.",
 ]
 `;
 
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-hubspot-plugin', plugin: [Object] } 1`] = `
 [
   "Created Hubspot Contact for test@posthog.com",
+  "Function completed in REPLACED-TIME-ms.",
 ]
 `;
 
-exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-pace-posthog-integration', plugin: [Object] } 1`] = `[]`;
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-pace-posthog-integration', plugin: [Object] } 1`] = `
+[
+  "Function completed in REPLACED-TIME-ms.",
+]
+`;
 
-exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-avo-plugin', plugin: [Object] } 1`] = `[]`;
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-avo-plugin', plugin: [Object] } 1`] = `
+[
+  "Function completed in REPLACED-TIME-ms.",
+]
+`;
 
-exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-braze-app', plugin: [Object] } 1`] = `[]`;
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-braze-app', plugin: [Object] } 1`] = `
+[
+  "Function completed in REPLACED-TIME-ms.",
+]
+`;
 
-exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-engage-so-plugin', plugin: [Object] } 1`] = `[]`;
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-engage-so-plugin', plugin: [Object] } 1`] = `
+[
+  "Function completed in REPLACED-TIME-ms.",
+]
+`;
 
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-gcs-plugin', plugin: [Object] } 1`] = `
 [
@@ -29,16 +47,26 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-intercom-plugin', plugin: [Object] } 1`] = `
 [
   "Contact test@posthog.com in Intercom not found",
+  "Function completed in REPLACED-TIME-ms.",
 ]
 `;
 
-exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-laudspeaker-app', plugin: [Object] } 1`] = `[]`;
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-laudspeaker-app', plugin: [Object] } 1`] = `
+[
+  "Function completed in REPLACED-TIME-ms.",
+]
+`;
 
-exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-patterns-app', plugin: [Object] } 1`] = `[]`;
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-patterns-app', plugin: [Object] } 1`] = `
+[
+  "Function completed in REPLACED-TIME-ms.",
+]
+`;
 
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-plugin-replicator', plugin: [Object] } 1`] = `
 [
   "Skipping 1 event, rejected by test: 200 undefined",
+  "Function completed in REPLACED-TIME-ms.",
 ]
 `;
 
@@ -48,7 +76,11 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 ]
 `;
 
-exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-rudderstack-posthog-plugin', plugin: [Object] } 1`] = `[]`;
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-rudderstack-posthog-plugin', plugin: [Object] } 1`] = `
+[
+  "Function completed in REPLACED-TIME-ms.",
+]
+`;
 
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-salesforce-plugin', plugin: [Object] } 1`] = `
 [

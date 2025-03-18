@@ -90,14 +90,6 @@ async fn main() {
 
         let mut transactional_producer = context.transactional_producer.lock().await;
 
-        let txn = match transactional_producer.begin() {
-            Ok(txn) => txn,
-            Err(e) => {
-                error!("Failed to start kafka transaction, {:?}", e);
-                panic!("Failed to start kafka transaction: {:?}", e);
-            }
-        };
-
         let mut to_process = Vec::with_capacity(received.len());
         let mut offsets = Vec::with_capacity(received.len());
 
@@ -131,6 +123,14 @@ async fn main() {
         };
 
         metrics::counter!(EVENT_PROCESSED).increment(processed.len() as u64);
+
+        let txn = match transactional_producer.begin() {
+            Ok(txn) => txn,
+            Err(e) => {
+                error!("Failed to start kafka transaction, {:?}", e);
+                panic!("Failed to start kafka transaction: {:?}", e);
+            }
+        };
 
         let results = txn
             .send_keyed_iter_to_kafka(

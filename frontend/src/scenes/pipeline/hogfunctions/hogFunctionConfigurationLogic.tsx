@@ -192,7 +192,7 @@ export function convertToHogFunctionInvocationGlobals(
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid ?? '')}/${encodeURIComponent(event.timestamp)}`,
         },
         person: {
-            id: person.id ?? '',
+            id: person.uuid ?? '',
             properties: person.properties,
 
             name: asDisplay(person),

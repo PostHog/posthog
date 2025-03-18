@@ -39,9 +39,8 @@ export class TemplateTester {
         }
 
         this.mockHub = {} as any
-        const mockHogFunctionManager = {} as any
 
-        this.executor = new HogExecutorService(this.mockHub, mockHogFunctionManager)
+        this.executor = new HogExecutorService(this.mockHub)
     }
 
     /*
@@ -64,8 +63,7 @@ export class TemplateTester {
 
         this.mockHub = { mmdb: undefined } as any
 
-        const mockHogFunctionManager = {} as any
-        this.executor = new HogExecutorService(this.mockHub, mockHogFunctionManager)
+        this.executor = new HogExecutorService(this.mockHub)
     }
 
     createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {

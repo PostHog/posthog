@@ -30,6 +30,13 @@ def tag_queries(**kwargs):
         thread_local_storage.query_tags = tags
 
 
+def clear_tag(key):
+    try:
+        thread_local_storage.query_tags.pop(key, None)
+    except AttributeError:
+        pass
+
+
 def reset_query_tags():
     thread_local_storage.query_tags = {}
 
