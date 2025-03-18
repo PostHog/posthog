@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, propsCh
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import isEqual from 'lodash.isequal'
 import { getVariablesFromQuery, haveVariablesOrFiltersChanged } from 'scenes/insights/utils/queryUtils'
 
 import { DataVisualizationNode, HogQLVariable } from '~/queries/schema/schema-general'
@@ -74,7 +73,7 @@ export const variablesLogic = kea<variablesLogicType>([
             actions.setEditorQuery(props.queryInput ?? '')
         }
 
-        if (!isEqual(oldProps.sourceQuery, props.sourceQuery)) {
+        if (props.sourceQuery) {
             if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
                 return
             }
