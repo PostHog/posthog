@@ -1,11 +1,5 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
-// function JSEventSnippet(): JSX.Element {
-//     return (
-//         <CodeSnippet language={Language.JavaScript}>posthog.captureException(error, additionalProperties)</CodeSnippet>
-//     )
-// }
-
 export function JSManualCapture(): JSX.Element {
     return (
         <>
@@ -22,7 +16,7 @@ export const ErrorTrackingAllJSFinalSteps = (): JSX.Element => {
     return (
         <>
             <h3>Capturing exceptions</h3>
-            <p>Our package automatically captures uncaught errors and unhandled rejections in your application.</p>
+            <p>Our SDK captures all errors and unhandled rejections in your application by default.</p>
             <JSManualCapture />
         </>
     )
