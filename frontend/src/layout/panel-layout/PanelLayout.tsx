@@ -6,7 +6,6 @@ import { useEffect } from 'react'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { panelLayoutLogic } from './panelLayoutLogic'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
-// import { PersonsTree } from './PersonsTree/PersonsTree'
 import { ProjectTree } from './ProjectTree/ProjectTree'
 
 const panelLayoutStyles = cva('gap-0 w-fit relative h-screen z-[var(--z-project-panel-layout)]', {

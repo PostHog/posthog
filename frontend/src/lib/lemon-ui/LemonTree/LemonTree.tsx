@@ -40,8 +40,7 @@ export type TreeDataItem = {
 
     // Type node, normal behavior
     // Type separator, render as separator
-    // Type trigger, don't set selectedId
-    type?: 'node' | 'separator' | 'trigger'
+    type?: 'node' | 'separator'
 
     /**
      * Handle a click on the item.
@@ -195,7 +194,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     (focusedId === item.id || isContextMenuOpenForItem === item.id) &&
                                                         'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary',
                                                     selectedId === item.id &&
-                                                        item.type !== 'trigger' &&
                                                         'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
                                                 )}
                                                 onClick={() => {
@@ -557,11 +555,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 // Handle click on a node
                 if (!isFolder) {
                     if (onNodeClick) {
-                        // If not a trigger, set selectedId
-                        item?.type !== 'trigger' && setSelectedId(item?.id)
-                        // If a trigger, remove focus from tree
-                        item?.type === 'trigger' && setFocusedId(undefined)
-
                         onNodeClick(item)
                         // Only focus content if this was triggered by a keyboard action
                         if (isKeyboardAction) {
