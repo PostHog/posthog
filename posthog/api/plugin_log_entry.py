@@ -1,5 +1,6 @@
+from datetime import datetime
 from typing import Optional
-import datetime
+
 from django.utils import timezone
 from rest_framework import exceptions, viewsets
 from rest_framework.response import Response
@@ -36,12 +37,12 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit = None
 
         after_raw: Optional[str] = request.GET.get("after")
-        after: Optional[datetime.datetime] = None
+        after: Optional[datetime] = None
         if after_raw is not None:
             after = timezone.datetime.fromisoformat(after_raw.replace("Z", "+00:00"))
 
         before_raw: Optional[str] = request.GET.get("before")
-        before: Optional[datetime.datetime] = None
+        before: Optional[datetime] = None
         if before_raw is not None:
             before = timezone.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
