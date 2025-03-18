@@ -5,7 +5,6 @@ from typing import Any, Literal, Optional, cast
 import pytest
 from django.test import override_settings
 
-from posthog import settings
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLQuerySettings, HogQLGlobalSettings
@@ -516,10 +515,6 @@ class TestPrinter(BaseTest):
             )
 
     def test_property_groups_person_properties(self):
-        # we can't use `override_settings` here, as the initial setting check is done at module initialize time
-        if not settings.USE_PERSON_PROPERTIES_MAP_CUSTOM:
-            pytest.xfail("person_properties_map_custom not enabled")
-
         context = HogQLContext(
             team_id=self.team.pk,
             modifiers=HogQLQueryModifiers(
