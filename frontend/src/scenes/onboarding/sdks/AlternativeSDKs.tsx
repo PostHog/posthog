@@ -14,9 +14,8 @@ import { OnboardingStepKey } from '../onboardingLogic'
 import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
-import { OnboardingInstallStepProps } from './OnboardingInstallStep'
+import { SDKsProps } from './OnboardingInstallStep'
 import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
-import type { SDKsProps } from './SDKs'
 import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
 
@@ -108,7 +107,7 @@ export function AlternativeSDKs({
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
     ...onboardingStepProps
-}: SDKsProps & OnboardingInstallStepProps): JSX.Element {
+}: SDKsProps): JSX.Element {
     const { setAvailableSDKInstructionsMap, selectSDK, setSearchTerm, setSelectedTag } = useActions(sdksLogic)
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
     const [instructionsModalOpen, setInstructionsModalOpen] = useState(false)

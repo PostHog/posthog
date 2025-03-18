@@ -20,7 +20,7 @@ import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingD
 import { OnboardingErrorTrackingAlertsStep } from './error-tracking/OnboardingErrorTrackingAlertsStep'
 import { OnboardingErrorTrackingSourceMapsStep } from './error-tracking/OnboardingErrorTrackingSourceMapsStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
-import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
+import { onboardingLogic, onboardingLogic, OnboardingLogicProps, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
@@ -45,7 +45,11 @@ export const scene: SceneExport = {
 /**
  * Wrapper for custom onboarding content. This automatically includes billing, other products, and invite steps.
  */
-const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
+const OnboardingWrapper = ({
+    children,
+    ...logicProps
+}: { children: React.ReactNode } & OnboardingLogicProps): JSX.Element => {
+    const logic = onboardingLogic(logicProps)
     const {
         productKey,
         currentOnboardingStep,
@@ -54,9 +58,9 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         shouldShowDataWarehouseStep,
         product,
         waitForBilling,
-    } = useValues(onboardingLogic)
+    } = useValues(logic)
+    const { setAllOnboardingSteps } = useActions(logic)
     const { billing, billingLoading } = useValues(billingLogic)
-    const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
     useEffect(() => {
@@ -351,7 +355,6 @@ const SessionReplayOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={SessionReplaySDKInstructions}
-                subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingProductConfiguration
@@ -368,7 +371,6 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
-                subtitle="Choose the framework where you want to use feature flags, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
             />
         </OnboardingWrapper>
@@ -378,11 +380,7 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
 const ExperimentsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep
-                sdkInstructionMap={ExperimentsSDKInstructions}
-                subtitle="Choose the framework where you want to run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
-                stepKey={OnboardingStepKey.INSTALL}
-            />
+            <OnboardingInstallStep sdkInstructionMap={ExperimentsSDKInstructions} stepKey={OnboardingStepKey.INSTALL} />
         </OnboardingWrapper>
     )
 }
@@ -390,11 +388,7 @@ const ExperimentsOnboarding = (): JSX.Element => {
 const SurveysOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep
-                sdkInstructionMap={SurveysSDKInstructions}
-                subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
-                stepKey={OnboardingStepKey.INSTALL}
-            />
+            <OnboardingInstallStep sdkInstructionMap={SurveysSDKInstructions} stepKey={OnboardingStepKey.INSTALL} />
         </OnboardingWrapper>
     )
 }
@@ -411,11 +405,10 @@ const ErrorTrackingOnboarding = (): JSX.Element => {
     const { updateCurrentTeam } = useActions(teamLogic)
 
     return (
-        <OnboardingWrapper>
+        <OnboardingWrapper onCompleteOnboarding={() => updateCurrentTeam({ autocapture_exceptions_opt_in: true })}>
             <OnboardingInstallStep
                 sdkInstructionMap={ErrorTrackingSDKInstructions}
                 stepKey={OnboardingStepKey.INSTALL}
-                onContinue={() => updateCurrentTeam({ autocapture_exceptions_opt_in: true })}
             />
             <OnboardingErrorTrackingSourceMapsStep stepKey={OnboardingStepKey.SOURCE_MAPS} />
             <OnboardingErrorTrackingAlertsStep stepKey={OnboardingStepKey.ALERTS} />

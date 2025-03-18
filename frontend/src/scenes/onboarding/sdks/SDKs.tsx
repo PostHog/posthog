@@ -8,21 +8,12 @@ import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
-import { SDKInstructionsMap } from '~/types'
 
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
-import { OnboardingInstallStepProps } from './OnboardingInstallStep'
+import { SDKsProps } from './OnboardingInstallStep'
 import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
-
-export type SDKsProps = {
-    sdkInstructionMap: SDKInstructionsMap
-    stepKey?: OnboardingStepKey
-    listeningForName?: string
-    teamPropertyToVerify?: string
-    subtitle?: string
-}
 
 export function InviteHelpCard(): JSX.Element {
     return (
@@ -39,8 +30,7 @@ export function SDKs({
     stepKey = OnboardingStepKey.INSTALL,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
-    ...onboardingStepProps
-}: SDKsProps & OnboardingInstallStepProps): JSX.Element {
+}: SDKsProps): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { setSourceFilter, selectSDK, setAvailableSDKInstructionsMap, setShowSideBySide, setPanel } =
@@ -82,7 +72,7 @@ export function SDKs({
     }, 2000)
 
     return (
-        <OnboardingStep {...onboardingStepProps} title="Install" stepKey={stepKey} continueOverride={<></>}>
+        <OnboardingStep title="Install" stepKey={stepKey} continueOverride={<></>}>
             <div className="flex gap-x-8 mt-6">
                 <div
                     className={`flex-col gap-y-2 flex-wrap gap-x-4 ${showSideBySide && 'min-w-[12.5rem] w-50'} ${

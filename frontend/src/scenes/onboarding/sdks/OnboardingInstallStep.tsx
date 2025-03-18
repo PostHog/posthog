@@ -1,12 +1,19 @@
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import { OnboardingStepProps } from '../OnboardingStep'
+import { SDKInstructionsMap } from '~/types'
+
+import { OnboardingStepKey } from '../onboardingLogic'
 import { AlternativeSDKs } from './AlternativeSDKs'
-import { SDKs, type SDKsProps } from './SDKs'
+import { SDKs } from './SDKs'
 
-export type OnboardingInstallStepProps = Pick<OnboardingStepProps, 'onContinue' | 'subtitle'>
+export type SDKsProps = {
+    sdkInstructionMap: SDKInstructionsMap
+    stepKey?: OnboardingStepKey
+    listeningForName?: string
+    teamPropertyToVerify?: string
+}
 
-export const OnboardingInstallStep = (props: SDKsProps & OnboardingInstallStepProps): JSX.Element => {
+export const OnboardingInstallStep = (props: SDKsProps): JSX.Element => {
     const showNewInstallationStep = useFeatureFlag('ONBOARDING_NEW_INSTALLATION_STEP', 'test')
     return showNewInstallationStep ? <AlternativeSDKs {...props} /> : <SDKs {...props} />
 }
