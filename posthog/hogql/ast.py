@@ -776,7 +776,7 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectSetQuery", Field]] = None
+    table: Optional[Union["SelectQuery", "SelectSetQuery", Placeholder, "HogQLXTag", Field]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
@@ -906,6 +906,7 @@ class HogQLXAttribute(AST):
 class HogQLXTag(AST):
     kind: str
     attributes: list[HogQLXAttribute]
+    type: Optional[Type] = None
 
     def to_dict(self):
         return {
