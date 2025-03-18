@@ -11,7 +11,6 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.shutdown import ShutdownMonitor
 
 
@@ -31,7 +30,6 @@ class Waiter:
         self.is_waiting = asyncio.Event()
         self.is_waiting_sync = threading.Event()
         self.heartbeater: Heartbeater | None = None
-        self.heartbeater_sync: HeartbeaterSync | None = None
         self.shutdown_monitor: ShutdownMonitor | None = None
 
     @activity.defn
@@ -62,11 +60,11 @@ class Waiter:
         elapsed = 0.0
         start = time.monotonic()
         self.shutdown_monitor = ShutdownMonitor()
-        self.heartbeater_sync = HeartbeaterSync()
+        self.heartbeater = Heartbeater()
 
         self.is_waiting_sync.set()
 
-        with self.heartbeater_sync, self.shutdown_monitor:
+        with self.heartbeater, self.shutdown_monitor:
             while True:
                 elapsed = time.monotonic() - start
 
