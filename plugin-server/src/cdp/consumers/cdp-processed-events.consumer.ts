@@ -103,10 +103,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
             let lazyLoadedTeams: Record<TeamId, HogFunctionType[] | undefined> | undefined
 
-            if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
+            if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && teamsToLoad.length > 0) {
                 lazyLoadedTeams = await this.hogFunctionManagerLazy.getHogFunctionsForTeams(teamsToLoad, this.hogTypes)
-
-                logger.info('🧐', `Lazy loaded ${Object.keys(lazyLoadedTeams).length} teams`)
             }
             const hogFunctionsByTeam = teamsToLoad.reduce((acc, teamId) => {
                 acc[teamId] = this.hogFunctionManager.getTeamHogFunctions(teamId)
@@ -119,10 +117,13 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
                     if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && lazyLoadedTeams) {
                         const lazyLoadedTeamHogFunctions = lazyLoadedTeams?.[globals.project.id]
-                        logger.info(
-                            '🧐',
-                            `Lazy loaded ${lazyLoadedTeamHogFunctions?.length} functions in comparison to ${teamHogFunctions.length}`
-                        )
+
+                        if (lazyLoadedTeamHogFunctions?.length !== teamHogFunctions.length) {
+                            logger.warn('Lazy loaded different number of functions', {
+                                lazy: lazyLoadedTeamHogFunctions?.length,
+                                eager: teamHogFunctions.length,
+                            })
+                        }
                     }
 
                     const { invocations, metrics, logs } = this.hogExecutor.buildHogFunctionInvocations(
