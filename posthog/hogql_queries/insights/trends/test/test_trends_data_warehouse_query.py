@@ -205,9 +205,24 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
-    @snapshot_clickhouse_queries
-    def test_trends_avg(self):
+    def _avg_view_setup(self, function_name: str):
+        from posthog.warehouse.models import DataWarehouseSavedQuery
+
         table_name = self.create_parquet_file()
+
+        query = f"""\
+              select
+                toInt(id) + 1 as id,
+                created as created
+              from {table_name}
+            """
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="saved_view",
+            query={"query": query, "kind": "HogQLQuery"},
+        )
+        saved_query.columns = saved_query.get_columns()
+        saved_query.save()
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
@@ -215,12 +230,12 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             interval="month",
             series=[
                 DataWarehouseNode(
-                    id=table_name,
-                    table_name=table_name,
+                    id="saved_view",
+                    table_name="saved_view",
                     id_field="id",
                     timestamp_field="created",
-                    distinct_id_field="customer_email",
-                    math="avg",
+                    distinct_id_field="id",
+                    math=function_name,
                     math_property="id",
                 )
             ],
@@ -231,35 +246,13 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][1] == [2.5]
+        return response.results[0][1][0]
 
-    @snapshot_clickhouse_queries
-    def test_trends_quartile(self):
-        table_name = self.create_parquet_file()
+    def test_trends_view_avg(self):
+        assert self._avg_view_setup("avg") == 3.5
 
-        trends_query = TrendsQuery(
-            kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
-            interval="month",
-            series=[
-                DataWarehouseNode(
-                    id=table_name,
-                    table_name=table_name,
-                    id_field="id",
-                    timestamp_field="created",
-                    distinct_id_field="customer_email",
-                    math="p75",
-                    math_property="id",
-                )
-            ],
-        )
-
-        with freeze_time("2023-01-07"):
-            response = self.get_response(trends_query=trends_query)
-
-        assert response.columns is not None
-        assert set(response.columns).issubset({"date", "total"})
-        assert 3 < response.results[0][1][0] < 4
+    def test_trends_view_quartile(self):
+        assert 4 < self._avg_view_setup("p99") < 5
 
     @snapshot_clickhouse_queries
     def test_trends_query_properties(self):
