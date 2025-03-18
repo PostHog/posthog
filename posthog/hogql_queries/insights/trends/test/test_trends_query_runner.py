@@ -1608,6 +1608,20 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0]["data"] == [1, 1, 2, 3, 3, 3, 4, 4, 4, 4, 2, 2]
 
+    def test_trends_aggregation_wau_long_interval(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+            None,
+            None,
+        )
+
+        assert response.results[0]["data"] == [2, 4, 1]
+
     def test_trends_aggregation_mau(self):
         self._create_test_events()
 
@@ -1622,6 +1636,20 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 1
         assert response.results[0]["data"] == [1, 1, 2, 3, 3, 3, 4, 4, 4, 4, 4, 4]
+
+    def test_trends_aggregation_mau_long_interval(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2019-12-31",
+            "2020-02-01",
+            IntervalType.MONTH,
+            [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
+            None,
+            None,
+        )
+
+        assert response.results[0]["data"] == [0, 4, 0]
 
     def test_trends_aggregation_unique(self):
         self._create_test_events()

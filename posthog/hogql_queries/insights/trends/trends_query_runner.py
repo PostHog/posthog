@@ -68,6 +68,7 @@ from posthog.schema import (
     Series,
     TrendsQuery,
     TrendsQueryResponse,
+    BaseMathType,
 )
 from posthog.utils import format_label_date, multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
@@ -94,14 +95,14 @@ class TrendsQueryRunner(QueryRunner):
 
         interval = modified_query.interval or IntervalType.day
 
-        for i, series in enumerate(modified_query.series):
+        for series in modified_query.series:
             # Convert WAU to DAU for week or longer intervals
-            if hasattr(series, "math") and series.math == "wau" and compare_intervals(interval, ">=", "week"):
-                modified_query.series[i].math = "dau"
-
             # Convert MAU to DAU for month or longer intervals
-            if hasattr(series, "math") and series.math == "mau" and compare_intervals(interval, ">=", "month"):
-                modified_query.series[i].math = "dau"
+            if hasattr(series, "math") and (
+                (series.math == BaseMathType.WEEKLY_ACTIVE and compare_intervals(interval, ">=", "week"))
+                or (series.math == BaseMathType.MONTHLY_ACTIVE and compare_intervals(interval, ">=", "month"))
+            ):
+                series.math = BaseMathType.DAU
 
         query = modified_query
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
