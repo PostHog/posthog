@@ -39,6 +39,10 @@ export function LLMObservabilityTraces(): JSX.Element {
                         title: 'Time',
                         render: TimestampColumn,
                     },
+                    traceName: {
+                        title: 'Trace Name',
+                        render: TraceNameColumn,
+                    },
                     person: {
                         title: 'Person',
                     },
@@ -70,6 +74,20 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
                 to={urls.llmObservabilityTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
             >
                 {row.id.slice(0, 4)}...{row.id.slice(-4)}
+            </Link>
+        </strong>
+    )
+}
+
+const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    return (
+        <strong>
+            <Link
+                className="ph-no-capture"
+                to={urls.llmObservabilityTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
+            >
+                {row.traceName || '–'}
             </Link>
         </strong>
     )
