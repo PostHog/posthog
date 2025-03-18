@@ -3,8 +3,9 @@ import { Counter } from 'prom-client'
 
 import { Hub, PluginConfig, PluginMethodsConcrete, PostIngestionEvent } from '../../types'
 import { Response } from '../../utils/fetch'
+import { parseJSON } from '../../utils/json-parse'
+import { logger } from '../../utils/logger'
 import { getHttpCallRecorder, HttpCallRecorder, RecordedHttpCall, recordFetchRequest } from '../../utils/recorded-fetch'
-import { status } from '../../utils/status'
 import { cloneObject } from '../../utils/utils'
 import { DESTINATION_PLUGINS } from '../legacy-plugins'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionType } from '../types'
@@ -25,7 +26,7 @@ function convertPluginConfigToHogFunction(pluginConfig: PluginConfig): HogFuncti
     const legacyDestinationPlugin = DESTINATION_PLUGINS.find((plugin) => plugin.template.id === hogFunctionTemplateId)
 
     if (!legacyDestinationPlugin) {
-        status.error('🔍', `Legacy destination plugin ${hogFunctionTemplateId} not found`)
+        logger.error('🔍', `Legacy destination plugin ${hogFunctionTemplateId} not found`)
         return null
     }
 
@@ -81,7 +82,7 @@ export class LegacyOneventCompareService {
             try {
                 hogFunction = convertPluginConfigToHogFunction(pluginConfig)
             } catch (e) {
-                status.error('Failed to convert plugin config to hog function', e)
+                logger.error('Failed to convert plugin config to hog function', e)
             }
 
             this.hogFunctionsByPluginConfigId[pluginConfig.id] = hogFunction
@@ -133,14 +134,14 @@ export class LegacyOneventCompareService {
                 .inc()
 
             if (!comparison.matches || errorDiff) {
-                status.info('🔎', `COMPARING ${pluginConfig.plugin?.id}`, {
+                logger.info('🔎', `COMPARING ${pluginConfig.plugin?.id}`, {
                     ...comparison,
                     pluginConfigError: String(pluginConfigError),
                     hogFunctionResultError: String(hogFunctionResult.result.error),
                 })
             }
         } catch (e) {
-            status.error('', 'Failed to compare HTTP calls', e)
+            logger.error('', 'Failed to compare HTTP calls', e)
         }
 
         // Throw the original error so it behaves like before
@@ -235,7 +236,7 @@ export class LegacyOneventCompareService {
                                 return rej(new Error('No response body'))
                             }
                             try {
-                                return res(JSON.parse(call.response.body))
+                                return res(parseJSON(call.response.body))
                             } catch (e) {
                                 return rej(e)
                             }

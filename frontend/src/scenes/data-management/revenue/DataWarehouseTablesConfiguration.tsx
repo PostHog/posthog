@@ -47,7 +47,12 @@ export function DataWarehouseTablesConfiguration({
 }: {
     buttonRef: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
-    const { baseCurrency, dataWarehouseTables, saveDisabledReason } = useValues(revenueEventsSettingsLogic)
+    const {
+        baseCurrency,
+        dataWarehouseTables,
+        saveDataWarehouseTablesDisabledReason,
+        changesMadeToDataWarehouseTables,
+    } = useValues(revenueEventsSettingsLogic)
     const {
         addDataWarehouseTable,
         deleteDataWarehouseTable,
@@ -110,7 +115,7 @@ export function DataWarehouseTablesConfiguration({
                         dataIndex: 'revenueCurrencyColumn',
                         render: (_, item: RevenueTrackingDataWarehouseTable) => {
                             return (
-                                <div className="flex flex-col w-full gap-3 my-1">
+                                <div className="flex flex-col w-full gap-3 my-1 min-w-[250px] whitespace-nowrap">
                                     <div className="flex flex-row gap-1">
                                         <span className="font-bold">Dynamic column: </span>
                                         <TaxonomicPopover
@@ -144,45 +149,55 @@ export function DataWarehouseTablesConfiguration({
                             )
                         },
                     },
-
                     {
                         key: 'delete',
                         fullWidth: true,
                         title: (
-                            <div className="flex flex-row w-full gap-1 justify-end my-2">
-                                <TaxonomicPopover
-                                    type="primary"
-                                    groupType={TaxonomicFilterGroupType.DataWarehouse}
-                                    dataWarehousePopoverFields={DATA_WAREHOUSE_POPOVER_FIELDS}
-                                    onChange={(tableName, groupType, properties) => {
-                                        // Sanity check, should always be DataWarehouse because we specify above
-                                        if (groupType !== TaxonomicFilterGroupType.DataWarehouse) {
-                                            return
-                                        }
+                            <div className="flex flex-col gap-1 items-end w-full">
+                                <div className="flex flex-row w-full gap-1 justify-end my-2">
+                                    <TaxonomicPopover
+                                        type="primary"
+                                        groupType={TaxonomicFilterGroupType.DataWarehouse}
+                                        dataWarehousePopoverFields={DATA_WAREHOUSE_POPOVER_FIELDS}
+                                        onChange={(tableName, groupType, properties) => {
+                                            // Sanity check, should always be DataWarehouse because we specify above
+                                            if (groupType !== TaxonomicFilterGroupType.DataWarehouse) {
+                                                return
+                                            }
 
-                                        const typedProperties = properties as Record<
-                                            DataWarehousePopoverFieldKey,
-                                            string
-                                        >
-                                        addDataWarehouseTable({
-                                            tableName: tableName as string,
-                                            revenueColumn: typedProperties.revenueField,
-                                            revenueCurrencyColumn: typedProperties.currencyField
-                                                ? { property: typedProperties.currencyField }
-                                                : { static: baseCurrency },
-                                            timestampColumn: typedProperties.timestampField,
-                                        })
-                                    }}
-                                    value={undefined}
-                                    placeholder="Create external data schema"
-                                    placeholderClass=""
-                                    id="data-management-revenue-settings-add-event"
-                                    ref={buttonRef}
-                                />
+                                            const typedProperties = properties as Record<
+                                                DataWarehousePopoverFieldKey,
+                                                string
+                                            >
+                                            addDataWarehouseTable({
+                                                tableName: tableName as string,
+                                                revenueColumn: typedProperties.revenueField,
+                                                revenueCurrencyColumn: typedProperties.currencyField
+                                                    ? { property: typedProperties.currencyField }
+                                                    : { static: baseCurrency },
+                                                timestampColumn: typedProperties.timestampField,
+                                            })
+                                        }}
+                                        value={undefined}
+                                        placeholder="Create external data schema"
+                                        placeholderClass=""
+                                        id="data-management-revenue-settings-add-event"
+                                        ref={buttonRef}
+                                    />
 
-                                <LemonButton type="primary" onClick={save} disabledReason={saveDisabledReason}>
-                                    Save
-                                </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={save}
+                                        disabledReason={saveDataWarehouseTablesDisabledReason}
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </div>
+                                {changesMadeToDataWarehouseTables && (
+                                    <span className="text-xs text-error normal-case font-normal">
+                                        Remember to save your changes
+                                    </span>
+                                )}
                             </div>
                         ),
                         render: (_, item) => (

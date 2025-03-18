@@ -9,7 +9,7 @@ import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers
 import { resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 jest.mock('../../src/worker/ingestion/utils', () => {
     const { generateEventDeadLetterQueueMessage } = jest.requireActual('../../src/worker/ingestion/utils')
     return {
@@ -47,7 +47,7 @@ describe('events dead letter queue', () => {
     let hub: Hub
 
     beforeEach(async () => {
-        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
+        hub = await createHub({ LOG_LEVEL: LogLevel.Info })
         console.warn = jest.fn() as any
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()

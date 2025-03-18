@@ -3,7 +3,7 @@ import express from 'express'
 import { DateTime } from 'luxon'
 
 import { Hub, PluginServerService } from '../types'
-import { status } from '../utils/status'
+import { logger } from '../utils/logger'
 import { delay, UUID, UUIDT } from '../utils/utils'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
@@ -32,7 +32,7 @@ export class CdpApi {
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
+        this.hogExecutor = new HogExecutorService(hub)
         this.fetchExecutor = new FetchExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
@@ -121,7 +121,7 @@ export class CdpApi {
             const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
             let { globals } = req.body
 
-            status.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
+            logger.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
 
             const invocationID = invocation_id ?? new UUIDT().toString()
 

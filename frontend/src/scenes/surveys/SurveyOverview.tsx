@@ -2,7 +2,9 @@ import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
@@ -53,7 +55,7 @@ export function SurveyOverview(): JSX.Element {
     const { survey, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const { setSelectedPageIndex } = useActions(surveyLogic)
     const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
-
+    const { featureFlags } = useValues(enabledFeaturesLogic)
     return (
         <div className="flex gap-4">
             <dl className="flex flex-col gap-4 flex-1 overflow-hidden">
@@ -104,6 +106,11 @@ export function SurveyOverview(): JSX.Element {
                             responses every {survey.response_sampling_interval} {survey.response_sampling_interval_type}
                             (s).
                         </span>
+                    </SurveyOption>
+                )}
+                {featureFlags[FEATURE_FLAGS.SURVEYS_PARTIAL_RESPONSES] && (
+                    <SurveyOption label="Partial responses">
+                        {survey.enable_partial_responses ? 'Enabled' : 'Disabled'}
                     </SurveyOption>
                 )}
                 <LemonDivider />

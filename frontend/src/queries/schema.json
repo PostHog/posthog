@@ -44,6 +44,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
                 "math_property_type": {
                     "type": "string"
                 },
@@ -397,6 +400,9 @@
                 },
                 {
                     "$ref": "#/definitions/TracesQuery"
+                },
+                {
+                    "$ref": "#/definitions/VectorSearchQuery"
                 }
             ]
         },
@@ -574,6 +580,32 @@
             },
             "type": "object"
         },
+        "AssistantDateRange": {
+            "additionalProperties": false,
+            "description": "This filter only works with absolute dates.",
+            "properties": {
+                "date_from": {
+                    "description": "ISO8601 date string.",
+                    "type": "string"
+                },
+                "date_to": {
+                    "description": "ISO8601 date string.",
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["date_from"],
+            "type": "object"
+        },
+        "AssistantDateRangeFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantDateRange"
+                },
+                {
+                    "$ref": "#/definitions/AssistantDurationRange"
+                }
+            ]
+        },
         "AssistantDateTimePropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -591,6 +623,18 @@
         "AssistantDateTimePropertyFilterOperator": {
             "enum": ["is_date_exact", "is_date_before", "is_date_after"],
             "type": "string"
+        },
+        "AssistantDurationRange": {
+            "additionalProperties": false,
+            "description": "This filter only works with durations.",
+            "properties": {
+                "date_from": {
+                    "description": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "type": "string"
+                }
+            },
+            "required": ["date_from"],
+            "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
             "enum": ["person", "event", "session", "hogql"],
@@ -624,6 +668,51 @@
                 }
             },
             "required": ["value"],
+            "type": "object"
+        },
+        "AssistantFunnelNodeShared": {
+            "additionalProperties": false,
+            "properties": {
+                "math": {
+                    "$ref": "#/definitions/AssistantFunnelsMath",
+                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantFunnelsActionsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "description": "Action ID from the plan.",
+                    "type": "number"
+                },
+                "kind": {
+                    "const": "ActionsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/AssistantFunnelsMath",
+                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                },
+                "name": {
+                    "description": "Action name from the plan.",
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["id", "kind", "name"],
             "type": "object"
         },
         "AssistantFunnelsBreakdownFilter": {
@@ -678,7 +767,7 @@
                     "type": "string"
                 },
                 "math": {
-                    "$ref": "#/definitions/AssistantTrendsMath",
+                    "$ref": "#/definitions/AssistantFunnelsMath",
                     "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
                 },
                 "properties": {
@@ -686,9 +775,6 @@
                         "$ref": "#/definitions/AssistantPropertyFilter"
                     },
                     "type": "array"
-                },
-                "response": {
-                    "type": "object"
                 }
             },
             "required": ["event", "kind"],
@@ -768,6 +854,20 @@
             },
             "type": "object"
         },
+        "AssistantFunnelsMath": {
+            "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
+            "type": "string"
+        },
+        "AssistantFunnelsNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantFunnelsEventsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                }
+            ]
+        },
         "AssistantFunnelsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -780,7 +880,7 @@
                     "description": "Breakdown the chart by a property"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -813,9 +913,9 @@
                     "type": ["number", "null"]
                 },
                 "series": {
-                    "description": "Events to include",
+                    "description": "Events or actions to include",
                     "items": {
-                        "$ref": "#/definitions/AssistantFunnelsEventsNode"
+                        "$ref": "#/definitions/AssistantFunnelsNode"
                     },
                     "type": "array"
                 }
@@ -1161,7 +1261,7 @@
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -1243,6 +1343,68 @@
                 }
             ]
         },
+        "AssistantRetentionActionsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "description": "Action ID from the plan.",
+                    "type": "number"
+                },
+                "name": {
+                    "description": "Action name from the plan.",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Property filters for the action.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "actions",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id", "name"],
+            "type": "object"
+        },
+        "AssistantRetentionEntity": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantRetentionEventsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantRetentionActionsNode"
+                }
+            ]
+        },
+        "AssistantRetentionEventsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "description": "Custom name for the event if it is needed to be renamed.",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Event name from the plan.",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Property filters for the event.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "events",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "name"],
+            "type": "object"
+        },
         "AssistantRetentionFilter": {
             "additionalProperties": false,
             "properties": {
@@ -1270,7 +1432,7 @@
                     "description": "Retention type: recurring or first time. Recurring retention counts a user as part of a cohort if they performed the cohort event during that time period, irrespective of it was their first time or not. First time retention only counts a user as part of the cohort if it was their first time performing the cohort event."
                 },
                 "returningEntity": {
-                    "$ref": "#/definitions/RetentionEntity",
+                    "$ref": "#/definitions/AssistantRetentionEntity",
                     "description": "Retention event (event marking the user coming back)."
                 },
                 "showMean": {
@@ -1278,7 +1440,7 @@
                     "type": "boolean"
                 },
                 "targetEntity": {
-                    "$ref": "#/definitions/RetentionEntity",
+                    "$ref": "#/definitions/AssistantRetentionEntity",
                     "description": "Activation event (event putting the actor into the initial cohort)."
                 },
                 "totalIntervals": {
@@ -1287,13 +1449,14 @@
                     "description": "How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial cohort)."
                 }
             },
+            "required": ["returningEntity", "targetEntity"],
             "type": "object"
         },
         "AssistantRetentionQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -1406,6 +1569,50 @@
             "required": ["type", "content", "tool_call_id"],
             "type": "object"
         },
+        "AssistantTrendsActionsNode": {
+            "additionalProperties": false,
+            "description": "Defines the action series. You must provide the action ID in the `id` field and the name in the `name` field.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "$ref": "#/definitions/integer"
+                },
+                "kind": {
+                    "const": "ActionsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Action name from the plan.",
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["id", "kind", "name"],
+            "type": "object"
+        },
         "AssistantTrendsBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
@@ -1471,6 +1678,7 @@
         },
         "AssistantTrendsEventsNode": {
             "additionalProperties": false,
+            "description": "Defines the event series.",
             "properties": {
                 "custom_name": {
                     "type": "string"
@@ -1493,27 +1701,20 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
                 "math_property_type": {
                     "type": "string"
                 },
                 "name": {
                     "type": "string"
                 },
-                "orderBy": {
-                    "description": "Columns to order by",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
                 "properties": {
                     "items": {
                         "$ref": "#/definitions/AssistantPropertyFilter"
                     },
                     "type": "array"
-                },
-                "response": {
-                    "type": "object"
                 }
             },
             "required": ["kind"],
@@ -1586,23 +1787,19 @@
             },
             "type": "object"
         },
-        "AssistantTrendsMath": {
-            "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
-            "type": "string"
-        },
         "AssistantTrendsQuery": {
             "additionalProperties": false,
             "properties": {
                 "breakdownFilter": {
                     "$ref": "#/definitions/AssistantTrendsBreakdownFilter",
-                    "description": "Breakdown of the events"
+                    "description": "Breakdown of the series"
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange",
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -1632,9 +1829,16 @@
                     "type": ["number", "null"]
                 },
                 "series": {
-                    "description": "Events to include",
+                    "description": "Events or actions to include",
                     "items": {
-                        "$ref": "#/definitions/AssistantTrendsEventsNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AssistantTrendsEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantTrendsActionsNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -3965,6 +4169,71 @@
             ],
             "type": "object"
         },
+        "CachedVectorSearchQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/VectorSearchResponse"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedWebExternalClicksTableQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -6031,6 +6300,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
                 "math_property_type": {
                     "type": "string"
                 },
@@ -6574,6 +6846,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
                 "math_property_type": {
                     "type": "string"
                 },
@@ -6962,6 +7237,9 @@
         "EventTaxonomyQuery": {
             "additionalProperties": false,
             "properties": {
+                "actionId": {
+                    "$ref": "#/definitions/integer"
+                },
                 "event": {
                     "type": "string"
                 },
@@ -6986,7 +7264,7 @@
                     "$ref": "#/definitions/EventTaxonomyQueryResponse"
                 }
             },
-            "required": ["event", "kind"],
+            "required": ["kind"],
             "type": "object"
         },
         "EventTaxonomyQueryResponse": {
@@ -7118,6 +7396,9 @@
                 },
                 "math_property": {
                     "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
                 },
                 "math_property_type": {
                     "type": "string"
@@ -8236,6 +8517,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
                 "math_property_type": {
                     "type": "string"
                 },
@@ -8298,6 +8582,9 @@
                 },
                 "math_property": {
                     "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
                 },
                 "math_property_type": {
                     "type": "string"
@@ -9256,6 +9543,10 @@
                 },
                 "sessionTableVersion": {
                     "enum": ["auto", "v1", "v2"],
+                    "type": "string"
+                },
+                "sessionsV2JoinMode": {
+                    "enum": ["string", "uuid"],
                     "type": "string"
                 },
                 "useMaterializedViews": {
@@ -10484,7 +10775,8 @@
                 "TeamTaxonomyQuery",
                 "EventTaxonomyQuery",
                 "ActorsPropertyTaxonomyQuery",
-                "TracesQuery"
+                "TracesQuery",
+                "VectorSearchQuery"
             ],
             "type": "string"
         },
@@ -13401,6 +13693,39 @@
                     },
                     "required": ["results"],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "$ref": "#/definitions/VectorSearchResponse"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
                 }
             ]
         },
@@ -13540,6 +13865,9 @@
                 },
                 {
                     "$ref": "#/definitions/TracesQuery"
+                },
+                {
+                    "$ref": "#/definitions/VectorSearchQuery"
                 }
             ],
             "required": ["kind"],
@@ -15815,6 +16143,83 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "VectorSearchQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "embedding": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "VectorSearchQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/VectorSearchQueryResponse"
+                }
+            },
+            "required": ["embedding", "kind"],
+            "type": "object"
+        },
+        "VectorSearchQueryResponse": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/VectorSearchResponse"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "VectorSearchResponse": {
+            "items": {
+                "$ref": "#/definitions/VectorSearchResponseItem"
+            },
+            "type": "array"
+        },
+        "VectorSearchResponseItem": {
+            "additionalProperties": false,
+            "properties": {
+                "distance": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "distance"],
             "type": "object"
         },
         "VisualizationMessage": {
