@@ -14,8 +14,10 @@ import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { posthog } from 'posthog-js'
+import { useRef } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -45,7 +47,7 @@ export const scene: SceneExport = {
 export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorTrackingLogic)
     const { query } = useValues(errorTrackingSceneLogic)
-
+    const floatingContainerRef = useRef<HTMLDivElement>(null)
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
     }
@@ -70,20 +72,22 @@ export function ErrorTrackingScene(): JSX.Element {
     }
 
     return (
-        <ErrorTrackingSetupPrompt>
-            <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
-                <Header />
-                {hasSentExceptionEventLoading ? null : hasSentExceptionEvent ? (
-                    <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
-                ) : (
-                    <IngestionStatusCheck />
-                )}
-                <ErrorTrackingFilters />
-                <LemonDivider className="mt-2" />
-                <ErrorTrackingListOptions />
-                <Query query={query} context={context} />
-            </BindLogic>
-        </ErrorTrackingSetupPrompt>
+        <FloatingContainerContext.Provider value={floatingContainerRef}>
+            <ErrorTrackingSetupPrompt>
+                <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
+                    <Header />
+                    {hasSentExceptionEventLoading ? null : hasSentExceptionEvent ? (
+                        <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
+                    ) : (
+                        <IngestionStatusCheck />
+                    )}
+                    <ErrorTrackingFilters />
+                    <LemonDivider className="mt-2" />
+                    <ErrorTrackingListOptions />
+                    <Query query={query} context={context} />
+                </BindLogic>
+            </ErrorTrackingSetupPrompt>
+        </FloatingContainerContext.Provider>
     )
 }
 
@@ -147,33 +151,34 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     )
                 }}
             />
-            <Link
-                className="flex-1 pr-12"
-                to={urls.errorTrackingIssue(record.id)}
-                onClick={() => {
-                    const issueLogic = errorTrackingIssueSceneLogic({ id: record.id })
-                    issueLogic.mount()
-                    issueLogic.actions.setIssue(record)
-                }}
-            >
-                <div className="flex flex-col gap-[2px]">
+
+            <div className="flex flex-col gap-[2px]">
+                <Link
+                    className="flex-1 pr-12"
+                    to={urls.errorTrackingIssue(record.id)}
+                    onClick={() => {
+                        const issueLogic = errorTrackingIssueSceneLogic({ id: record.id })
+                        issueLogic.mount()
+                        issueLogic.actions.setIssue(record)
+                    }}
+                >
                     <div className="flex items-center font-semibold h-[1.2rem] text-[1.2em]">
                         {record.name || 'Unknown Type'}
                     </div>
-                    <div className="line-clamp-1 text-gray-600">{record.description}</div>
-                    <div className="flex gap-1 items-center text-gray-500">
-                        <StatusIndicator size="xsmall" status={record.status} />
-                        <span>|</span>
-                        <TZLabel time={record.first_seen} className="border-dotted border-b text-xs" delayMs={750} />
-                        <span>|</span>
-                        {record.last_seen ? (
-                            <TZLabel time={record.last_seen} className="border-dotted border-b text-xs" delayMs={750} />
-                        ) : (
-                            <LemonSkeleton />
-                        )}
-                    </div>
+                </Link>
+                <div className="line-clamp-1 text-gray-600">{record.description}</div>
+                <div className="flex gap-1 items-center text-gray-500">
+                    <StatusIndicator size="xsmall" status={record.status} />
+                    <span>|</span>
+                    <TZLabel time={record.first_seen} className="border-dotted border-b text-xs" delayMs={750} />
+                    <span>|</span>
+                    {record.last_seen ? (
+                        <TZLabel time={record.last_seen} className="border-dotted border-b text-xs" delayMs={750} />
+                    ) : (
+                        <LemonSkeleton />
+                    )}
                 </div>
-            </Link>
+            </div>
         </div>
     )
 }

@@ -1,4 +1,4 @@
-import { LemonBadge } from '@posthog/lemon-ui'
+import { LemonBadge, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -14,20 +14,21 @@ export const sizeVariants = {
     large: 'gap-3 text-lg',
 }
 
-export function LabelIndicator({
-    intent,
-    label,
-    size,
-}: {
+interface LabelIndicatorProps {
     intent: Intent
     label: string
     size: 'xsmall' | 'small' | 'medium' | 'large'
-}): JSX.Element {
+    tooltip?: string
+}
+
+export function LabelIndicator({ intent, label, size, tooltip }: LabelIndicatorProps): JSX.Element {
     return (
-        <div className={clsx('flex items-center', sizeVariants[size])}>
-            <LemonBadge status={intent} size="small" />
-            <div>{label}</div>
-        </div>
+        <Tooltip title={tooltip} placement="right">
+            <div className={clsx('flex items-center', sizeVariants[size])}>
+                <LemonBadge status={intent} size="small" />
+                <div>{label}</div>
+            </div>
+        </Tooltip>
     )
 }
 
@@ -47,12 +48,27 @@ export const STATUS_INTENT: Record<ErrorTrackingIssue['status'], Intent> = {
     suppressed: 'danger',
 }
 
-export function StatusIndicator({
-    status,
-    size = 'small',
-}: {
+export const STATUS_TOOLTIP: Record<ErrorTrackingIssue['status'], string | undefined> = {
+    suppressed: 'Stop capturing this issue',
+    active: undefined,
+    archived: undefined,
+    resolved: undefined,
+    pending_release: undefined,
+}
+
+interface StatusIndicatorProps {
     status: IssueStatus
     size?: 'xsmall' | 'small' | 'medium' | 'large'
-}): JSX.Element {
-    return <LabelIndicator intent={STATUS_INTENT[status]} size={size} label={STATUS_LABEL[status]} />
+    withTooltip?: boolean
+}
+
+export function StatusIndicator({ status, size = 'small', withTooltip }: StatusIndicatorProps): JSX.Element {
+    return (
+        <LabelIndicator
+            intent={STATUS_INTENT[status]}
+            size={size}
+            label={STATUS_LABEL[status]}
+            tooltip={withTooltip ? STATUS_TOOLTIP[status] : undefined}
+        />
+    )
 }

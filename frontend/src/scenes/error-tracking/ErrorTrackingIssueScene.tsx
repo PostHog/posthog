@@ -66,7 +66,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     values={['active', 'resolved', 'suppressed']}
                                     placeholder="Mark as"
                                     renderValue={(value) => (
-                                        <StatusIndicator status={value as IssueStatus} size="small" />
+                                        <StatusIndicator
+                                            status={value as IssueStatus}
+                                            size="small"
+                                            withTooltip={true}
+                                        />
                                     )}
                                     onChange={(value) => updateIssue({ status: value })}
                                 />

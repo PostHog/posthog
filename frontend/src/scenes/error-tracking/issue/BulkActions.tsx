@@ -58,7 +58,7 @@ export function BulkActions(): JSX.Element {
                         values={['active', 'resolved', 'suppressed'].filter((status) => status !== currentStatus)}
                         placeholder="Mark as"
                         renderValue={(value) => {
-                            return <StatusIndicator status={value as IssueStatus} size="small" />
+                            return <StatusIndicator status={value as IssueStatus} size="small" withTooltip={true} />
                         }}
                         onChange={(value) => {
                             switch (value) {
