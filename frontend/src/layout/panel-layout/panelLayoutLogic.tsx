@@ -6,6 +6,7 @@ import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
 export type PanelLayoutNavIdentifier = 'project' // Add more identifiers here for more panels
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
+export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>({
     path: ['layout', 'panel-layout', 'panelLayoutLogic'],
@@ -23,6 +24,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         clearSearch: true,
         setPanelTreeRef: (ref: PanelLayoutTreeRef) => ({ ref }),
+        setMainContentRef: (ref: PanelLayoutMainContentRef) => ({ ref }),
     },
     reducers: {
         isLayoutNavbarVisibleForDesktop: [
@@ -37,6 +39,13 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
             {
                 showLayoutNavBar: (_, { visible }) => visible,
                 mobileLayout: () => true,
+            },
+        ],
+        isLayoutPanelCloseable: [
+            false,
+            {
+                showLayoutPanel: () => true,
+                toggleLayoutPanelPinned: () => false,
             },
         ],
         isLayoutPanelVisible: [
@@ -71,6 +80,12 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
             null as PanelLayoutTreeRef,
             {
                 setPanelTreeRef: (_, { ref }) => ref,
+            },
+        ],
+        mainContentRef: [
+            null as PanelLayoutMainContentRef,
+            {
+                setMainContentRef: (_, { ref }) => ref,
             },
         ],
     },

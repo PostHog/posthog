@@ -29,7 +29,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             panelLayoutLogic,
-            ['searchTerm'],
+            ['searchTerm', 'isLayoutPanelCloseable'],
         ],
     }),
     actions({
@@ -167,6 +167,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         expandedFolders: [
             [] as string[],
+            { persist: true },
             {
                 setExpandedFolders: (_, { folderIds }) => folderIds,
             },
@@ -317,35 +318,30 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes), folderStates, 'root'),
         ],
         projectRow: [
-            () => [],
-            (): TreeDataItem[] => [
-                {
-                    id: 'top-separator',
-                    name: '',
-                    type: 'separator',
-                },
+            (s) => [s.isLayoutPanelCloseable],
+            (isLayoutPanelCloseable): TreeDataItem[] => [
                 {
                     id: 'project',
                     name: 'Default Project',
                     icon: <IconBook />,
                     record: { type: 'project', id: 'project' },
-                    onClick: () => router.actions.push(urls.projectHomepage()),
+                    onClick: () => {
+                        if (isLayoutPanelCloseable) {
+                            panelLayoutLogic.actions.showLayoutPanel(false)
+                        }
+                        router.actions.push(urls.projectHomepage())
+                    },
                 },
             ],
         ],
         searchedTreeItems: [
-            (s) => [s.defaultTreeNodes, s.projectTree, s.projectRow, s.searchTerm],
-            (
-                defaultTreeNodes: TreeDataItem[],
-                projectTree: TreeDataItem[],
-                projectRow: TreeDataItem[],
-                searchTerm: string
-            ): TreeDataItem[] => {
+            (s) => [s.projectTree, s.projectRow, s.searchTerm],
+            (projectTree: TreeDataItem[], projectRow: TreeDataItem[], searchTerm: string): TreeDataItem[] => {
                 if (!searchTerm) {
-                    return [...defaultTreeNodes, ...projectRow, ...projectTree]
+                    return [...projectRow, ...projectTree]
                 }
 
-                const allItems = [...defaultTreeNodes, ...projectRow, ...projectTree]
+                const allItems = [...projectRow, ...projectTree]
 
                 // TODO: remove from client side @marius :)
                 const fuse = new Fuse(allItems, {
@@ -390,12 +386,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         treeData: [
-            (s) => [s.searchTerm, s.searchedTreeItems, s.defaultTreeNodes, s.projectTree, s.projectRow],
-            (searchTerm, searchedTreeItems, defaultTreeNodes, projectTree, projectRow): TreeDataItem[] => {
+            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.projectRow],
+            (searchTerm, searchedTreeItems, projectTree, projectRow): TreeDataItem[] => {
                 if (searchTerm) {
                     return searchedTreeItems
                 }
-                return [...defaultTreeNodes, ...projectRow, ...projectTree] as TreeDataItem[]
+                return [...projectRow, ...projectTree] as TreeDataItem[]
             },
         ],
     }),

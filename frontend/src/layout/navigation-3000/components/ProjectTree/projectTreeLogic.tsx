@@ -335,6 +335,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     id: 'project',
                     name: 'Default Project',
                     icon: <IconBook />,
+                    type: 'node',
                     record: { type: 'project', id: 'project' },
                     onClick: () => router.actions.push(urls.projectHomepage()),
                 },

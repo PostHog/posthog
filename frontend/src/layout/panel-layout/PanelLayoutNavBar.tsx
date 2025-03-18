@@ -5,14 +5,16 @@ import {
     IconGear,
     IconPlusSmall,
     IconSearch,
-    IconToolbar
+    IconToolbar,
 } from '@posthog/icons'
 import { cva } from 'class-variance-authority'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -25,11 +27,11 @@ import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { router } from 'kea-router'
-import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { navigation3000Logic } from '../navigation-3000/navigationLogic'
+import { breadcrumbsLogic } from '../navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
+import { navigation3000Logic } from '../navigation-3000/navigationLogic'
+import { NavbarItem } from '../navigation-3000/types'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
 const panelStyles = cva('z-[var(--z-project-panel-layout)] h-screen left-0', {
@@ -44,129 +46,49 @@ const panelStyles = cva('z-[var(--z-project-panel-layout)] h-screen left-0', {
     },
 })
 
-type PanelItemIdentifier = 'project';
-
-const panelItemIdentifiers: PanelItemIdentifier[] = ['project'];
-
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const { showLayoutPanel, toggleLayoutPanelPinned, setActivePanelIdentifier, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, activePanelIdentifier } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, setActivePanelIdentifier, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { isLayoutPanelVisible, activePanelIdentifier, mainContentRef } = useValues(panelLayoutLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { navbarItems } = useValues(navigation3000Logic)
     const { activeScene } = useValues(sceneLogic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen } = useValues(navigationLogic)
+    const { sceneBreadcrumbKeys } = useValues(breadcrumbsLogic)
 
-    const activeSceneLower = activeScene?.toLowerCase() as PanelLayoutNavIdentifier
-
-    function handleTopNavBarItemClick(identifier: PanelItemIdentifier): void {
-        if (activeSceneLower === identifier) {
-            if (isLayoutPanelVisible) {
-                showLayoutPanel(false)
-                clearActivePanelIdentifier()
-            } else {
-                showLayoutPanel(true)
-            }
-        } else {
-            setActivePanelIdentifier(identifier)
+    function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
+        if (!isLayoutPanelVisible) {
             showLayoutPanel(true)
+        } else {
+            showLayoutPanel(false)
+            clearActivePanelIdentifier()
+        }
+
+        if (activePanelIdentifier !== item) {
+            setActivePanelIdentifier(item)
         }
     }
-    
-    function handleBottomNavBarItemClick(): void {
-        showLayoutPanel(false)
-        toggleLayoutPanelPinned(false)
+
+    function handleStaticNavbarItemClick(navbarItem: NavbarItem, isKeyboardAction = false): void {
+        clearActivePanelIdentifier()
+
+        if (isKeyboardAction) {
+            mainContentRef?.current?.focus()
+        }
+        if ('to' in navbarItem && navbarItem.to) {
+            router.actions.push(navbarItem.to)
+        }
     }
-
-    const treeData: TreeDataItem[] = [
-        {
-            id: 'project' as PanelLayoutNavIdentifier,
-            name: 'Project',
-            icon: <IconWrapper><IconFolderOpen className="stroke-[1.2]" /></IconWrapper>,
-            onClick: () => {
-                handleTopNavBarItemClick('project')
-            },
-            type: 'trigger',
-            active: activePanelIdentifier === 'project',
-            sideIcon: <IconWrapper><IconChevronRight /></IconWrapper>,
-        },
-        {
-            id: 'search',
-            name: 'Search',
-            icon: <IconWrapper><IconSearch /></IconWrapper>,
-            onClick: () => toggleSearchBar(),
-            type: 'trigger',
-        },
-        // {
-        //     id: 'data' as PanelLayoutNavIdentifier,
-        //     name: 'Data',
-        //     icon: <IconWrapper><IconBolt /></IconWrapper>,
-        //     onClick: () => handleTopNavBarItemClick('data'),
-        // },
-        // {
-        //     id: 'people' as PanelLayoutNavIdentifier,
-        //     name: 'People',
-        //     icon: <IconWrapper><IconPeople /></IconWrapper>,
-        //     onClick: () => handleTopNavBarItemClick('persons'),
-        // },
-        {
-            id: 'activity',
-            name: 'Activity',
-            icon: <IconWrapper><IconClock /></IconWrapper>,
-            onClick: () => {
-                router.actions.push(urls.activity())
-            },
-        },
-        {
-            id: 'separator',
-            name: 'Separator',
-            type: 'separator',
-        },
-        ...navbarItems.flatMap((section) => 
-            section.map((item): TreeDataItem | null => {
-                const identifier = item.identifier.toLowerCase()
-
-                if (item.featureFlag && !featureFlags[item.featureFlag]) {
-                    return null
-                }
-
-                // Hide certain items (they're handled in the top nav bar)
-                if (identifier === 'activity') {
-                    return null
-                }
-
-                // Create tree item
-                const treeItem: TreeDataItem = {
-                    id: identifier,
-                    name: item.label,
-                    icon: <IconWrapper>{item.icon}</IconWrapper>,
-                    onClick: () => {
-                        // Hide panel
-                        showLayoutPanel(false)
-                        // Unpin panel
-                        toggleLayoutPanelPinned(false)
-                        // Clear active panel identifier
-                        clearActivePanelIdentifier()
-                        // If item is a link, navigate to it
-                        if ('to' in item && item.to) {
-                            router.actions.push(item.to)
-                        }
-                    },
-                }
-                return treeItem
-            }).filter((item): item is TreeDataItem => item !== null)
-        )
-    ]
 
     return (
         <>
             <div className="flex gap-0 relative">
                 <nav
                     className={clsx(
-                        'relative flex flex-col max-h-screen min-h-screen bg-surface-secondary z-[var(--z-project-panel-layout)] w-[250px] border-r border-primary'
+                        'relative flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-project-panel-layout)] w-[250px] border-r border-primary'
                     )}
                     ref={containerRef}
                 >
@@ -178,7 +100,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             type="tertiary"
                             tooltip="Create new"
                             onClick={() =>
-                                alert('global "new" button which would let you create a bunch of new things')
+                                alert('global “new” button which would let you create a bunch of new things')
                             }
                             className="hover:bg-fill-highlight-100 shrink-0"
                             icon={
@@ -190,26 +112,26 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto pt-1">
-                        <ScrollableShadows innerClassName="overflow-y-auto" direction="vertical" className="pb-2">
+                        <ScrollableShadows innerClassName="overflow-y-auto px-2 " direction="vertical">
                             <div className="pb-3">
-                            <LemonTree
-                                className="px-0 py-1"
-                                data={treeData}
-                                defaultSelectedFolderOrNodeId={activeSceneLower}
-                            />
-                                {/* <LemonButton
+                                <LemonButton
                                     className={cn(
                                         'hover:bg-fill-highlight-100',
-                                        activeIdentifier === 'project' && 'bg-fill-highlight-50'
+                                        activePanelIdentifier === 'project' && 'bg-fill-highlight-50'
                                     )}
                                     icon={
                                         <IconWrapper>
                                             <IconFolderOpen className="stroke-[1.2]" />
                                         </IconWrapper>
                                     }
-                                    onClick={() => handleTopNavBarItemClick('project')}
+                                    onClick={() => handlePanelTriggerClick('project')}
                                     fullWidth
                                     size="small"
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            handlePanelTriggerClick('project')
+                                        }
+                                    }}
                                     sideIcon={
                                         <IconWrapper size="sm">
                                             <IconChevronRight />
@@ -232,48 +154,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     <span>Search</span>
                                 </LemonButton>
                                 <LemonButton
-                                    className="hover:bg-fill-highlight-100"
-                                    fullWidth
-                                    disabledReason="Coming soon"
-                                    icon={
-                                        <IconWrapper>
-                                            <IconBolt />
-                                        </IconWrapper>
-                                    }
-                                    size="small"
-                                    sideIcon={
-                                        <IconWrapper size="sm">
-                                            <IconChevronRight />
-                                        </IconWrapper>
-                                    }
-                                >
-                                    <span>Data</span>
-                                </LemonButton>
-                                <LemonButton
                                     className={cn(
                                         'hover:bg-fill-highlight-100',
-                                        activeIdentifier === 'persons' && 'bg-fill-highlight-50'
-                                    )}
-                                    fullWidth
-                                    icon={
-                                        <IconWrapper>
-                                            <IconPeople />
-                                        </IconWrapper>
-                                    }
-                                    size="small"
-                                    sideIcon={
-                                        <IconWrapper size="sm">
-                                            <IconChevronRight />
-                                        </IconWrapper>
-                                    }
-                                    onClick={() => handleTopNavBarItemClick('persons')}
-                                >
-                                    <span>People</span>
-                                </LemonButton>
-                                <LemonButton
-                                    className={cn(
-                                        'hover:bg-fill-highlight-100',
-                                        activeIdentifier === 'activity' && 'bg-fill-highlight-50'
+                                        activePanelIdentifier === 'activity' && 'bg-fill-highlight-50'
                                     )}
                                     fullWidth
                                     icon={
@@ -287,46 +170,75 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         if (isLayoutPanelVisible) {
                                             showLayoutPanel(false)
                                         }
-                                        setActiveIdentifier('activity')
                                     }}
                                 >
                                     <span>Activity</span>
-                                </LemonButton> */}
+                                </LemonButton>
                             </div>
 
                             <div className="border-b border-secondary h-px -mx-2" />
 
-                            {/* <div className="pt-3">
+                            <div className="pt-3">
                                 <div className="flex justify-between items-center pt-1 pl-2 pr-0 pb-2">
                                     <span className="text-xs font-bold text-tertiary">Products</span>
                                 </div>
                                 {navbarItems.map((section, index) => (
                                     <ul key={index}>
-                                        {section.map((item) =>
-                                            item.featureFlag && !featureFlags[item.featureFlag] ? null : (
+                                        {section.map((item) => {
+                                            if (item.identifier === 'Activity') {
+                                                return null
+                                            }
+                                            return item.featureFlag && !featureFlags[item.featureFlag] ? null : (
                                                 <LemonButton
                                                     key={item.identifier}
                                                     className={cn(
                                                         'hover:bg-fill-highlight-100',
-                                                        activeScene?.toLowerCase() === item.identifier.toLowerCase() &&
-                                                            'bg-fill-highlight-50'
+                                                        activeScene === item.identifier && 'bg-fill-highlight-50'
                                                     )}
                                                     icon={<IconWrapper>{item.icon}</IconWrapper>}
+                                                    sideIcon={
+                                                        item.tag ? (
+                                                            <LemonTag
+                                                                type={
+                                                                    item.tag === 'alpha'
+                                                                        ? 'completion'
+                                                                        : item.tag === 'beta'
+                                                                        ? 'warning'
+                                                                        : 'success'
+                                                                }
+                                                                size="small"
+                                                                className="ml-2"
+                                                            >
+                                                                {item.tag.toUpperCase()}
+                                                            </LemonTag>
+                                                        ) : undefined
+                                                    }
                                                     fullWidth
                                                     size="small"
+                                                    // This makes it a link if it has a to
                                                     to={'to' in item ? item.to : undefined}
+                                                    // we handle routing in the handleStaticNavbarItemClick function
                                                     onClick={() => {
-                                                        handleBottomNavBarItemClick(item.identifier.toLowerCase() as PanelLayoutNavIdentifier)
-                                                        item.onClick?.()
+                                                        handleStaticNavbarItemClick(item, false)
                                                     }}
+                                                    // If enter, focus the main content
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            handleStaticNavbarItemClick(item, true)
+                                                        }
+                                                    }}
+                                                    active={
+                                                        activePanelIdentifier === item.identifier ||
+                                                        sceneBreadcrumbKeys.includes(item.identifier)
+                                                    }
                                                 >
                                                     {item.label}
                                                 </LemonButton>
                                             )
-                                        )}
+                                        })}
                                     </ul>
                                 ))}
-                            </div> */}
+                            </div>
                         </ScrollableShadows>
 
                         <div className="border-b border-secondary h-px" />
@@ -346,7 +258,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 size="small"
                                 to={urls.toolbarLaunch()}
                                 onClick={() => {
-                                    handleBottomNavBarItemClick()
+                                    clearActivePanelIdentifier()
                                 }}
                             >
                                 Toolbar
@@ -365,7 +277,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 size="small"
                                 to={urls.settings('project')}
                                 onClick={() => {
-                                    handleBottomNavBarItemClick()
+                                    clearActivePanelIdentifier()
                                 }}
                             >
                                 Settings
@@ -390,7 +302,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
                                     onClick={toggleAccountPopover}
                                 >
-                                    <span>Hi{user?.first_name ? `, ${user?.first_name}` : ''}!</span>
+                                    <span>{user?.first_name ? <span>{user?.first_name}</span> : null}</span>
                                 </LemonButton>
                             </Popover>
                         </div>
