@@ -1,6 +1,8 @@
 import json
 import posthoganalytics
 
+from pydantic import ValidationError
+
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.constants import LimitContext
@@ -13,6 +15,7 @@ from posthog.hogql.database.schema.exchange_rate import (
 )
 from posthog.schema import (
     CurrencyCode,
+    RevenueTrackingConfig,
     RevenueExampleEventsQuery,
     RevenueExampleEventsQueryResponse,
     CachedRevenueExampleEventsQueryResponse,
@@ -40,7 +43,11 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        tracking_config = self.query.revenueTrackingConfig
+        tracking_config = RevenueTrackingConfig()
+        try:
+            tracking_config = RevenueTrackingConfig.model_validate(self.query.revenueTrackingConfig)
+        except ValidationError:
+            pass  # Use default config set above
 
         select = ast.SelectQuery(
             select=[

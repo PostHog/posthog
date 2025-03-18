@@ -225,6 +225,7 @@ export const productUrls = {
     replayFilePlayback: (): string => '/replay/file-playback',
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
+    webAnalyticsPageReports: (): string => `/web/page-reports`,
 }
 
 /** This const is auto-generated, as is the whole file */

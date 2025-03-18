@@ -23,17 +23,19 @@ from ee.hogai.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.utils.test import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
 from ee.hogai.utils.types import PartialAssistantState
 from ee.models.assistant import Conversation, CoreMemory
+from posthog.models import Action
 from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
     AssistantMessage,
+    AssistantRetentionActionsNode,
+    AssistantRetentionEventsNode,
     AssistantRetentionFilter,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
-    RetentionEntity,
     VisualizationMessage,
 )
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
@@ -222,15 +224,79 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
         self.assertConversationEqual(output, expected_output)
 
-    def _test_human_in_the_loop(self, insight_type: Literal["trends", "funnel", "retention"]):
+    def test_action_reasoning_messages_added(self):
+        action = Action.objects.create(team=self.team, name="Marius Tech Tips")
+
+        with patch(
+            "ee.hogai.trends.nodes.TrendsPlannerNode.run",
+            return_value=PartialAssistantState(
+                intermediate_steps=[
+                    (
+                        AgentAction(
+                            tool="retrieve_action_properties",
+                            # String is expected here.
+                            tool_input=str(action.id),
+                            log="",
+                        ),
+                        None,
+                    ),
+                    (
+                        AgentAction(
+                            tool="retrieve_action_property_values",
+                            tool_input={"action_id": action.id, "property_name": "video_name"},
+                            log="",
+                        ),
+                        None,
+                    ),
+                    (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
+                ]
+            ),
+        ):
+            output = self._run_assistant_graph(
+                AssistantGraph(self.team)
+                .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
+                .add_trends_planner(AssistantNodeName.END, AssistantNodeName.END)
+                .compile(),
+                conversation=self.conversation,
+            )
+
+            # Assert that ReasoningMessages are added
+            expected_output = [
+                (
+                    "message",
+                    HumanMessage(content="Hello").model_dump(exclude_none=True),
+                ),
+                (
+                    "message",
+                    {
+                        "type": "ai/reasoning",
+                        "content": "Picking relevant events and properties",  # For TrendsPlannerNode
+                        "substeps": [],
+                    },
+                ),
+                (
+                    "message",
+                    {
+                        "type": "ai/reasoning",
+                        "content": "Picking relevant events and properties",  # For TrendsPlannerToolsNode
+                        "substeps": [
+                            "Exploring `Marius Tech Tips` action properties",
+                            "Analyzing `video_name` action property of `Marius Tech Tips`",
+                        ],
+                    },
+                ),
+            ]
+            self.assertConversationEqual(output, expected_output)
+
+    def _test_human_in_the_loop(
+        self, insight_type: Literal["trends", "funnel", "retention"], node_name: AssistantNodeName
+    ):
         graph = (
             AssistantGraph(self.team)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root(
                 {
-                    "trends": AssistantNodeName.TRENDS_PLANNER,
-                    "funnel": AssistantNodeName.FUNNEL_PLANNER,
-                    "retention": AssistantNodeName.RETENTION_PLANNER,
+                    "insights": node_name,
                     "root": AssistantNodeName.ROOT,
                     "end": AssistantNodeName.END,
                 }
@@ -300,13 +366,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertFalse(snapshot.values["root_tool_calls_count"])
 
     def test_trends_interrupt_when_asking_for_help(self):
-        self._test_human_in_the_loop("trends")
+        self._test_human_in_the_loop("trends", AssistantNodeName.TRENDS_PLANNER)
 
     def test_funnels_interrupt_when_asking_for_help(self):
-        self._test_human_in_the_loop("funnel")
+        self._test_human_in_the_loop("funnel", AssistantNodeName.FUNNEL_PLANNER)
 
     def test_retention_interrupt_when_asking_for_help(self):
-        self._test_human_in_the_loop("retention")
+        self._test_human_in_the_loop("retention", AssistantNodeName.RETENTION_PLANNER)
 
     def test_ai_messages_appended_after_interrupt(self):
         with patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as mock:
@@ -547,6 +613,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @patch("ee.hogai.root.nodes.RootNode._get_model")
     @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_retention_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
+        action = Action.objects.create(team=self.team, name="Marius Tech Tips")
+
         res1 = FakeRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
@@ -580,8 +648,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         query = AssistantRetentionQuery(
             retentionFilter=AssistantRetentionFilter(
-                targetEntity=RetentionEntity(name="$pageview"),
-                returningEntity=RetentionEntity(name="$pageleave"),
+                targetEntity=AssistantRetentionEventsNode(name="$pageview"),
+                returningEntity=AssistantRetentionActionsNode(name=action.name, id=action.id),
             )
         )
         generator_mock.return_value = RunnableLambda(lambda _: RetentionSchemaGeneratorOutput(query=query))

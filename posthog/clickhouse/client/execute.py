@@ -1,15 +1,17 @@
 import json
 import threading
 import types
+from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Optional, Union
-from collections.abc import Sequence
 
 import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
+from prometheus_client import Counter, Gauge
+from sentry_sdk import set_tag
 
 from posthog.clickhouse.client.connection import Workload, get_client_from_pool
 from posthog.clickhouse.client.escape import substitute_params
@@ -17,8 +19,6 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
 from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
-from prometheus_client import Counter, Gauge
-from sentry_sdk import set_tag
 
 QUERY_ERROR_COUNTER = Counter(
     "clickhouse_query_failure",

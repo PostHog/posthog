@@ -473,6 +473,7 @@ class Resolver(CloningVisitor):
 
         if func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
             if node.name == "recording_button":

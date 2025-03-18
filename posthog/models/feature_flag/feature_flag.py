@@ -47,7 +47,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, models.Model):
     deleted = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
 
-    version = models.IntegerField(default=0, null=True)
+    version = models.IntegerField(default=1, null=True)
     last_modified_by = models.ForeignKey(
         "User",
         on_delete=models.SET_NULL,
