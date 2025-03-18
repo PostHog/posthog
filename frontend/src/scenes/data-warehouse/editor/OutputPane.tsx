@@ -134,7 +134,7 @@ export function OutputPane(): JSX.Element {
     const { saveAsInsight, setSourceQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
-    const { visualizationType, queryCancelled } = useValues(dataVisualizationLogic)
+    const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -260,12 +260,8 @@ export function OutputPane(): JSX.Element {
                     ]}
                 />
                 <div className="flex gap-2">
-                    {activeTab === OutputTab.Results && exportContext && (
+                    {activeTab === OutputTab.Results && exportContext && columns.length > 0 && (
                         <ExportButton
-                            disabledReason={
-                                visualizationType != ChartDisplayType.ActionsTable &&
-                                'Only table results are exportable'
-                            }
                             type="secondary"
                             items={[
                                 {
@@ -279,7 +275,7 @@ export function OutputPane(): JSX.Element {
                             ]}
                         />
                     )}
-                    {activeTab === OutputTab.Visualization && (
+                    {activeTab === OutputTab.Visualization && columns.length > 0 && (
                         <>
                             <div className="flex justify-between flex-wrap">
                                 <div className="flex items-center" />
@@ -486,7 +482,9 @@ const Content = ({
 
         return !response ? (
             <div className="flex flex-1 justify-center items-center">
-                <span className="text-secondary mt-3">Query results will be visualized here</span>
+                <span className="text-secondary mt-3">
+                    Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the query.
+                </span>
             </div>
         ) : (
             <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
