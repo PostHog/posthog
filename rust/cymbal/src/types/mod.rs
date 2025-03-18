@@ -151,8 +151,7 @@ impl FingerprintedErrProps {
             .exception_list
             .iter()
             .filter_map(|e| e.stack.as_ref())
-            .map(Stacktrace::get_frames)
-            .flatten();
+            .flat_map(Stacktrace::get_frames);
 
         let sources = unique_by(frames.clone(), |f| f.source.clone());
         let functions = unique_by(frames, |f| f.resolved_name.clone());
@@ -186,7 +185,7 @@ where
     K: Eq + Hash + Clone,
 {
     items
-        .filter_map(|item| key_extractor(item))
+        .filter_map(key_extractor)
         .collect::<HashSet<_>>()
         .into_iter()
         .collect()
