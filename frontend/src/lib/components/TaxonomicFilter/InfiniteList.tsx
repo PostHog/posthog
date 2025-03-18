@@ -235,7 +235,10 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     {...commonDivProps}
                     data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
                     onClick={() => {
-                        return canSelectItem(listGroupType) && selectItem(group, itemValue ?? null, item, items.originalQuery)
+                        return (
+                            canSelectItem(listGroupType) &&
+                            selectItem(group, itemValue ?? null, item, items.originalQuery)
+                        )
                     }}
                 >
                     {renderItemContents({
