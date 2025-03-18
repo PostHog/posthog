@@ -1014,8 +1014,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshotsLoading: [
-            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading],
-            (snapshotSourcesLoading, snapshotsForSourceLoading): boolean => {
+            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.snapshots, s.featureFlags],
+            (
+                snapshotSourcesLoading: boolean,
+                snapshotsForSourceLoading: boolean,
+                snapshots: RecordingSnapshot[],
+                featureFlags: FeatureFlagsSet
+            ): boolean => {
+                // For v2 recordings, only show loading if we have no snapshots yet
+                if (featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
+                    return snapshots.length === 0
+                }
+
+                // Default behavior for non-v2 recordings
                 // if there's a realTimePollingTimeoutID, don't signal that we're loading
                 // we don't want the UI to flip to "loading" every time we poll
                 return !cache.realTimePollingTimeoutID && (snapshotSourcesLoading || snapshotsForSourceLoading)
