@@ -13,6 +13,7 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { Sidebar } from '~/layout/navigation-3000/components/Sidebar'
 import { SidebarNavbarItem } from '~/layout/navigation-3000/types'
+import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 
 import { editorSceneLogic } from '../editorSceneLogic'
 import { editorSidebarLogic } from '../editorSidebarLogic'
@@ -29,6 +30,7 @@ export const EditorSidebar = ({
 }): JSX.Element => {
     const { sidebarOverlayOpen } = useValues(editorSceneLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
+    const { variablesForInsight } = useValues(variablesLogic)
     const editorSizingLogicProps = editorSizingLogic.props
 
     // State to track active tab
@@ -47,8 +49,13 @@ export const EditorSidebar = ({
         {
             key: 'query_variables',
             label: (
-                <div className="flex justify-center px-2">
+                <div className="flex justify-center px-2 relative">
                     <IconBrackets className="text-xl" />
+                    {variablesForInsight.length > 0 && (
+                        <div className="absolute -top-1 -right-1 flex items-center justify-center bg-danger rounded-full text-white text-[9px] h-3 w-3 min-w-3">
+                            {variablesForInsight.length}
+                        </div>
+                    )}
                 </div>
             ),
         },
