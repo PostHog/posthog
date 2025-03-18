@@ -512,7 +512,7 @@ class FieldType(Type):
     def is_nullable(self, context: HogQLContext) -> bool:
         database_field = self.resolve_database_field(context)
         if isinstance(database_field, DatabaseField):
-            return database_field.nullable
+            return bool(database_field.nullable)
         return True
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:

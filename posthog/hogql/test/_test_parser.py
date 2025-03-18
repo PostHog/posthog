@@ -1800,7 +1800,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_visit_hogqlx_tag(self):
             node = self._select("select event from <HogQLQuery query='select event from events' />")
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            table_node = node.select_from.table
             assert table_node == ast.HogQLXTag(
                 kind="HogQLQuery",
                 attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
@@ -1814,7 +1815,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             node = self._select(
                 "select event from <OuterQuery><HogQLQuery query='select event from events' /></OuterQuery>"
             )
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            table_node = node.select_from.table
             assert table_node == ast.HogQLXTag(
                 kind="OuterQuery",
                 attributes=[
@@ -1836,14 +1838,15 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
             # Empty tag
             node = self._select("select event from <OuterQuery></OuterQuery>")
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            table_node = node.select_from.table
             assert table_node == ast.HogQLXTag(kind="OuterQuery", attributes=[])
 
             # With attribute
             node = self._select(
                 "select event from <OuterQuery q='b'><HogQLQuery query='select event from events' /></OuterQuery>"
             )
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            table_node = node.select_from.table
             assert table_node == ast.HogQLXTag(
                 kind="OuterQuery",
                 attributes=[
@@ -1880,8 +1883,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_visit_hogqlx_tag_alias(self):
             node = self._select("select event from <HogQLQuery query='select event from events' /> as a")
-            table_node = cast(ast.SelectQuery, node).select_from.table
-            alias = cast(ast.SelectQuery, node).select_from.alias
+            assert isinstance(node, ast.SelectQuery)
+            table_node = node.select_from.table
+            alias = node.select_from.alias
             assert table_node == ast.HogQLXTag(
                 kind="HogQLQuery",
                 attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
@@ -1903,7 +1907,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 )
             """
             node = self._select(query)
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            table_node = node.select_from.table
             assert table_node == ast.HogQLXTag(
                 kind="ActorsQuery",
                 attributes=[

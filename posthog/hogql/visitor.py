@@ -133,24 +133,24 @@ class TraversingVisitor(Visitor[None]):
         # :TRICKY: when adding new fields, also add them to visit_select_query of resolver.py
         self.visit(node.select_from)
         if node.ctes is not None:
-            for expr in list(node.ctes.values()):
-                self.visit(expr)
-        for expr in node.array_join_list or []:
-            self.visit(expr)
-        for expr in node.select or []:
-            self.visit(expr)
+            for expr0 in list(node.ctes.values()):
+                self.visit(expr0)
+        for expr1 in node.array_join_list or []:
+            self.visit(expr1)
+        for expr2 in node.select or []:
+            self.visit(expr2)
         self.visit(node.where)
         self.visit(node.prewhere)
         self.visit(node.having)
-        for expr in node.group_by or []:
-            self.visit(expr)
-        for expr in node.order_by or []:
-            self.visit(expr)
+        for expr3 in node.group_by or []:
+            self.visit(expr3)
+        for expr4 in node.order_by or []:
+            self.visit(expr4)
         self.visit(node.limit_by)
         self.visit(node.limit)
         self.visit(node.offset)
-        for expr in (node.window_exprs or {}).values():
-            self.visit(expr)
+        for expr5 in (node.window_exprs or {}).values():
+            self.visit(expr5)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self.visit(node.initial_select_query)
@@ -167,14 +167,14 @@ class TraversingVisitor(Visitor[None]):
         pass
 
     def visit_select_query_type(self, node: ast.SelectQueryType):
-        for expr in node.tables.values():
-            self.visit(expr)
-        for expr in node.anonymous_tables:
-            self.visit(expr)
-        for expr in node.aliases.values():
-            self.visit(expr)
-        for expr in node.columns.values():
-            self.visit(expr)
+        for expr0 in node.tables.values():
+            self.visit(expr0)
+        for expr1 in node.anonymous_tables:
+            self.visit(expr1)
+        for expr2 in node.aliases.values():
+            self.visit(expr2)
+        for expr3 in node.columns.values():
+            self.visit(expr3)
 
     def visit_select_set_query_type(self, node: ast.SelectSetQueryType):
         for type in node.types:

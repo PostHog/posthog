@@ -1,2 +1,2 @@
 # migration did not run
-operations = []
+operations: list = []

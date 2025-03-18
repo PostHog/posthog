@@ -915,7 +915,7 @@ def test_base_properties(properties):
 
 class TestFilterToQuery(BaseTest):
     def test_base_trend(self):
-        filter = {}
+        filter: dict = {}
 
         query = filter_to_query(filter)
 

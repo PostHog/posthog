@@ -402,13 +402,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             else:
                 select_query.array_join_op = "ARRAY JOIN"
             select_query.array_join_list = self.visit(array_join_clause.columnExprList())
-            for expr in select_query.array_join_list:
-                if not isinstance(expr, ast.Alias):
-                    raise SyntaxError(
-                        "ARRAY JOIN arrays must have an alias",
-                        start=expr.start,
-                        end=expr.end,
-                    )
+            if select_query.array_join_list:
+                for expr in select_query.array_join_list:
+                    if not isinstance(expr, ast.Alias):
+                        raise SyntaxError(
+                            "ARRAY JOIN arrays must have an alias",
+                            start=expr.start,
+                            end=expr.end,
+                        )
 
         if ctx.topClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.topClause()")
@@ -732,7 +733,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         elif ctx.PERCENT():
             op = ast.ArithmeticOperationOp.Mod
         else:
-            raise NotImplementedError(f"Unsupported ColumnExprPrecedence1: {ctx.operator.text}")
+            raise NotImplementedError(
+                f"Unsupported ColumnExprPrecedence1: {ctx.operator.text if ctx.operator else 'None'}"
+            )
         left = self.visit(ctx.left)
         right = self.visit(ctx.right)
         return ast.ArithmeticOperation(left=left, right=right, op=op)
@@ -759,7 +762,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
             return ast.Call(name="concat", args=args)
         else:
-            raise NotImplementedError(f"Unsupported ColumnExprPrecedence2: {ctx.operator.text}")
+            raise NotImplementedError(
+                f"Unsupported ColumnExprPrecedence2: {ctx.operator.text if ctx.operator else 'None'}"
+            )
 
     def visitColumnExprPrecedence3(self, ctx: HogQLParser.ColumnExprPrecedence3Context):
         left = self.visit(ctx.left)
