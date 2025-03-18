@@ -17,6 +17,9 @@ from posthog.cdp.templates.hog_function_template import (
 )
 from posthog.plugins.plugin_server_api import get_hog_function_templates
 from rest_framework_dataclasses.serializers import DataclassSerializer
+from django.db.models import Count
+from posthog.models import HogFunction
+from django.core.cache import cache
 
 
 logger = structlog.get_logger(__name__)
@@ -152,6 +155,28 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
                     continue
 
             matching_templates.append(template)
+
+        if sub_template_id is None:
+            key = f"hog_function/template_usage"
+            template_usage = cache.get(key)
+
+            if template_usage is None:
+                template_usage = (
+                    HogFunction.objects.filter(type="destination", deleted=False, enabled=True)
+                    .values("template_id")
+                    .annotate(count=Count("template_id"))
+                    .order_by("-count")[:500]
+                )
+
+            cache.set(key, template_usage, 60)
+
+            popularity_dict = {item["template_id"]: item["count"] for item in template_usage}
+
+            for template in matching_templates:
+                if template.id not in popularity_dict:
+                    popularity_dict[template.id] = 0
+
+            matching_templates.sort(key=lambda template: (-popularity_dict[template.id], template.name.lower()))
 
         page = self.paginate_queryset(matching_templates)
         serializer = self.get_serializer(page, many=True)

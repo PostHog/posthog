@@ -4,6 +4,7 @@ import Redis from 'ioredis'
 
 import { RedisOperationError } from '../../utils/db/error'
 import { timeoutGuard } from '../../utils/db/utils'
+import { parseJSON } from '../../utils/json-parse'
 import { instrumentQuery } from '../../utils/metrics'
 import { tryTwice } from '../../utils/utils'
 
@@ -83,7 +84,7 @@ export class RedisHelpers {
                 if (typeof value === 'undefined' || value === null) {
                     return defaultValue
                 }
-                return value ? (jsonSerialize ? JSON.parse(value) : value) : null
+                return value ? (jsonSerialize ? parseJSON(value) : value) : null
             } catch (error) {
                 if (error instanceof SyntaxError) {
                     // invalid JSON

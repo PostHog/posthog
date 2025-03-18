@@ -4,6 +4,7 @@ from conditional_cache import lru_cache
 from typing import Any
 import deltalake.exceptions
 import pyarrow as pa
+import pyarrow.compute as pc
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 import deltalake as deltalake
@@ -94,19 +95,17 @@ class DeltaTableHelper:
         return None
 
     def reset_table(self):
-        table = self.get_delta_table()
-        if table is None:
-            return
-
         delta_uri = self._get_delta_table_uri()
 
-        table.delete()
-
         s3 = get_s3_client()
-        s3.delete(delta_uri, recursive=True)
+        try:
+            s3.delete(delta_uri, recursive=True)
+        except FileNotFoundError:
+            pass
 
         self.get_delta_table.cache_clear()
 
+        self._logger.debug("reset_table: _is_first_sync=True")
         self._is_first_sync = True
 
     def write_to_deltalake(
@@ -140,20 +139,49 @@ class DeltaTableHelper:
             if use_partitioning:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
-            merge_stats = (
-                delta_table.merge(
-                    source=data,
-                    source_alias="source",
-                    target_alias="target",
-                    predicate=" AND ".join(predicate_ops),
-                    streamed_exec=False,
-                )
-                .when_matched_update_all()
-                .when_not_matched_insert_all()
-                .execute()
-            )
+                # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
+                unique_partitions = pc.unique(data[PARTITION_KEY])  # type: ignore
 
-            self._logger.debug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
+                self._logger.debug(f"Running {len(unique_partitions)} optimised merges")
+
+                for partition in unique_partitions:
+                    partition_predicate_ops = predicate_ops.copy()
+                    partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
+                    predicate = " AND ".join(partition_predicate_ops)
+
+                    filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
+
+                    self._logger.debug(f"Merging partition={partition} with predicate={predicate}")
+
+                    merge_stats = (
+                        delta_table.merge(
+                            source=filtered_table,
+                            source_alias="source",
+                            target_alias="target",
+                            predicate=predicate,
+                            streamed_exec=True,
+                        )
+                        .when_matched_update_all()
+                        .when_not_matched_insert_all()
+                        .execute()
+                    )
+
+                    self._logger.debug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
+            else:
+                merge_stats = (
+                    delta_table.merge(
+                        source=data,
+                        source_alias="source",
+                        target_alias="target",
+                        predicate=" AND ".join(predicate_ops),
+                        streamed_exec=False,
+                    )
+                    .when_matched_update_all()
+                    .when_not_matched_insert_all()
+                    .execute()
+                )
+                self._logger.debug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
+
         else:
             mode = "append"
             schema_mode = "merge"

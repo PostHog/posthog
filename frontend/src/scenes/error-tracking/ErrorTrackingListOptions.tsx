@@ -9,13 +9,13 @@ import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 export const ErrorTrackingListOptions = (): JSX.Element => {
     const { assignee } = useValues(errorTrackingLogic)
     const { setAssignee } = useActions(errorTrackingLogic)
-    const { orderBy, status } = useValues(errorTrackingSceneLogic)
-    const { setOrderBy, setStatus } = useActions(errorTrackingSceneLogic)
+    const { orderBy, status, orderDirection } = useValues(errorTrackingSceneLogic)
+    const { setOrderBy, setStatus, setOrderDirection } = useActions(errorTrackingSceneLogic)
     const { results } = useValues(errorTrackingDataNodeLogic)
 
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-    const { mergeIssues, assignIssues, resolveIssues } = useActions(errorTrackingDataNodeLogic)
+    const { mergeIssues, assignIssues, resolveIssues, suppressIssues } = useActions(errorTrackingDataNodeLogic)
 
     return (
         <>
@@ -48,6 +48,18 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                                 }}
                             >
                                 Resolve
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                status="danger"
+                                tooltip="Stop capturing these errors"
+                                onClick={() => {
+                                    suppressIssues(selectedIssueIds)
+                                    setSelectedIssueIds([])
+                                }}
+                            >
+                                Suppress
                             </LemonButton>
                             <AssigneeSelect
                                 type="secondary"
@@ -90,6 +102,10 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                                         value: 'resolved',
                                         label: 'Resolved',
                                     },
+                                    {
+                                        value: 'suppressed',
+                                        label: 'Suppressed',
+                                    },
                                 ]}
                                 size="small"
                             />
@@ -120,6 +136,22 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                                     {
                                         value: 'sessions',
                                         label: 'Sessions',
+                                    },
+                                ]}
+                                size="small"
+                            />
+                            <LemonSelect
+                                onSelect={setOrderDirection}
+                                onChange={setOrderDirection}
+                                value={orderDirection}
+                                options={[
+                                    {
+                                        value: 'DESC',
+                                        label: 'Descending',
+                                    },
+                                    {
+                                        value: 'ASC',
+                                        label: 'Ascending',
                                     },
                                 ]}
                                 size="small"

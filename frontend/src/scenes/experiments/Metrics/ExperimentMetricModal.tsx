@@ -24,7 +24,7 @@ export function ExperimentMetricModal({
     } = useValues(experimentLogic({ experimentId }))
     const {
         setMetric,
-        updateExperimentGoal,
+        updateExperimentMetrics,
         setExperiment,
         closePrimaryMetricModal,
         closeSecondaryMetricModal,
@@ -69,7 +69,7 @@ export function ExperimentMetricModal({
                                         setExperiment({
                                             [metricsField]: newMetrics,
                                         })
-                                        updateExperimentGoal()
+                                        updateExperimentMetrics()
                                         isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
                                     },
                                     size: 'small',
@@ -91,7 +91,7 @@ export function ExperimentMetricModal({
                         <LemonButton
                             form="edit-experiment-metric-form"
                             onClick={() => {
-                                updateExperimentGoal()
+                                updateExperimentMetrics()
                                 isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
                             }}
                             type="primary"

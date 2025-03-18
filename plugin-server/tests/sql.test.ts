@@ -6,7 +6,7 @@ import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.setTimeout(20_000)
-jest.mock('../src/utils/status')
+jest.mock('../src/utils/logger')
 
 describe('sql', () => {
     let hub: Hub

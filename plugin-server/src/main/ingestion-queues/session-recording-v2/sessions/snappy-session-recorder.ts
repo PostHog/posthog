@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
-import { status } from '../../../../utils/status'
+import { logger } from '../../../../utils/logger'
 import { ParsedMessageData } from '../kafka/types'
-import { ConsoleLogLevel, getConsoleLogLevel, hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
+import { hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
 import { activeMillisecondsFromSegmentationEvents, SegmentationEvent, toSegmentationEvent } from '../segmentation'
 
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
@@ -20,31 +20,25 @@ export interface EndResult {
     /** Timestamp of the last event in the session block */
     endDateTime: DateTime
     /** First URL of the session */
-    firstUrl?: string | null
+    firstUrl: string | null
     /** All URLs visited in the session */
-    urls?: string[]
+    urls: string[]
     /** Number of clicks in the session */
-    clickCount?: number
+    clickCount: number
     /** Number of keypresses in the session */
-    keypressCount?: number
+    keypressCount: number
     /** Number of mouse activity events in the session */
-    mouseActivityCount?: number
+    mouseActivityCount: number
     /** Active time in milliseconds */
-    activeMilliseconds?: number
-    /** Number of console log messages */
-    consoleLogCount?: number
-    /** Number of console warning messages */
-    consoleWarnCount?: number
-    /** Number of console error messages */
-    consoleErrorCount?: number
+    activeMilliseconds: number
     /** Size of the session data in bytes */
-    size?: number
+    size: number
     /** Number of messages in the session */
-    messageCount?: number
+    messageCount: number
     /** Source of the snapshot (Web/Mobile) */
-    snapshotSource?: string | null
+    snapshotSource: string | null
     /** Library used for the snapshot */
-    snapshotLibrary?: string | null
+    snapshotLibrary: string | null
     /** ID of the batch this session belongs to */
     batchId: string
 }
@@ -88,9 +82,6 @@ export class SnappySessionRecorder {
     private messageCount: number = 0
     private snapshotSource: string | null = null
     private snapshotLibrary: string | null = null
-    private consoleLogCount: number = 0
-    private consoleWarnCount: number = 0
-    private consoleErrorCount: number = 0
     private segmentationEvents: SegmentationEvent[] = []
     private droppedUrlsCount: number = 0
 
@@ -157,15 +148,6 @@ export class SnappySessionRecorder {
                     this.mouseActivityCount += 1
                 }
 
-                const logLevel = getConsoleLogLevel(event)
-                if (logLevel === ConsoleLogLevel.Log) {
-                    this.consoleLogCount++
-                } else if (logLevel === ConsoleLogLevel.Warn) {
-                    this.consoleWarnCount++
-                } else if (logLevel === ConsoleLogLevel.Error) {
-                    this.consoleErrorCount++
-                }
-
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
                 const chunk = Buffer.from(serializedLine)
                 this.uncompressedChunks.push(chunk)
@@ -186,7 +168,7 @@ export class SnappySessionRecorder {
 
         const truncatedUrl = url.length > MAX_URL_LENGTH ? url.slice(0, MAX_URL_LENGTH) : url
         if (url.length > MAX_URL_LENGTH) {
-            status.warn(
+            logger.warn(
                 '🔗',
                 `Truncating URL from ${url.length} to ${MAX_URL_LENGTH} characters for session ${this.sessionId}`
             )
@@ -199,7 +181,7 @@ export class SnappySessionRecorder {
             this.urls.add(truncatedUrl)
         } else {
             this.droppedUrlsCount++
-            status.warn(
+            logger.warn(
                 '🔗',
                 `Dropping URL (count limit reached) for session ${this.sessionId}, dropped ${this.droppedUrlsCount} URLs`
             )
@@ -246,9 +228,6 @@ export class SnappySessionRecorder {
             keypressCount: this.keypressCount,
             mouseActivityCount: this.mouseActivityCount,
             activeMilliseconds: activeTime,
-            consoleLogCount: this.consoleLogCount,
-            consoleWarnCount: this.consoleWarnCount,
-            consoleErrorCount: this.consoleErrorCount,
             size: uncompressedBuffer.length,
             messageCount: this.messageCount,
             snapshotSource: this.snapshotSource,

@@ -36,17 +36,17 @@ class Command(BaseCommand):
 
         if run_async:
             send_all_org_usage_reports.delay(
-                dry_run,
-                date,
-                event_name,
+                dry_run=dry_run,
+                at=date,
+                capture_event_name=event_name,
                 skip_capture_event=skip_capture_event,
                 only_organization_id=organization_id,
             )
         else:
             send_all_org_usage_reports(
-                dry_run,
-                date,
-                event_name,
+                dry_run=dry_run,
+                at=date,
+                capture_event_name=event_name,
                 skip_capture_event=skip_capture_event,
                 only_organization_id=organization_id,
             )

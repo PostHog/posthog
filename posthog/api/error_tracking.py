@@ -177,6 +177,31 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                     assign_issue(
                         issue, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
                     )
+            elif action == "suppress":
+                for issue in issues:
+                    log_activity(
+                        organization_id=self.organization.id,
+                        team_id=self.team_id,
+                        user=request.user,
+                        was_impersonated=is_impersonated_session(request),
+                        item_id=issue.id,
+                        scope="ErrorTrackingIssue",
+                        activity="updated",
+                        detail=Detail(
+                            name=issue.name,
+                            changes=[
+                                Change(
+                                    type="ErrorTrackingIssue",
+                                    action="changed",
+                                    field="status",
+                                    before=issue.status,
+                                    after=ErrorTrackingIssue.Status.SUPPRESSED,
+                                )
+                            ],
+                        ),
+                    )
+
+                issues.update(status=ErrorTrackingIssue.Status.SUPPRESSED)
 
         return Response({"success": True})
 
@@ -324,12 +349,20 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         data = request.data["file"].read()
         (storage_ptr, content_hash) = upload_content(bytearray(data))
 
-        ErrorTrackingSymbolSet.objects.create(
-            team=self.team,
-            storage_ptr=storage_ptr,
-            content_hash=content_hash,
-            ref=chunk_id,
-        )
+        with transaction.atomic():
+            # Use update_or_create for proper upsert behavior
+            symbol_set, created = ErrorTrackingSymbolSet.objects.update_or_create(
+                team=self.team,
+                ref=chunk_id,
+                defaults={
+                    "storage_ptr": storage_ptr,
+                    "content_hash": content_hash,
+                    "failure_reason": None,
+                },
+            )
+
+            # Delete any existing frames associated with this symbol set
+            ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 

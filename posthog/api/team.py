@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
+from pydantic import ValidationError
 from typing import Any, Optional, cast
 from uuid import UUID
 
@@ -44,11 +45,11 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
-    get_organization_from_view,
 )
 from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.schema import RevenueTrackingConfig
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
@@ -56,56 +57,6 @@ from posthog.utils import (
     get_week_start_for_country_code,
 )
 from django.core.cache import cache
-
-
-class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
-    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
-
-    message = "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments."
-
-    def has_permission(self, request: request.Request, view) -> bool:
-        if view.action in CREATE_ACTIONS:
-            try:
-                organization = get_organization_from_view(view)
-            except ValueError:
-                return False
-
-            if not request.data.get("is_demo"):
-                has_organization_projects_feature = organization.is_feature_available(
-                    AvailableFeature.ORGANIZATIONS_PROJECTS
-                )
-                current_non_demo_project_count = organization.teams.exclude(is_demo=True).count()
-
-                allowed_project_count = next(
-                    (
-                        feature.get("limit")
-                        for feature in organization.available_product_features or []
-                        if feature.get("key") == AvailableFeature.ORGANIZATIONS_PROJECTS
-                    ),
-                    None,
-                )
-
-                if has_organization_projects_feature:
-                    # If allowed_project_count is None then the user is allowed unlimited projects
-                    if allowed_project_count is None:
-                        return True
-                    # Check current limit against allowed limit
-                    if current_non_demo_project_count >= allowed_project_count:
-                        return False
-                else:
-                    # If the org doesn't have the feature, they can only have one non-demo project
-                    if current_non_demo_project_count >= 1:
-                        return False
-            else:
-                # if we ARE requesting to make a demo project
-                # but the org already has a demo project
-                if organization.teams.filter(is_demo=True).count() > 0:
-                    return False
-
-            # in any other case, we're good to go
-            return True
-        else:
-            return True
 
 
 class CachingTeamSerializer(serializers.ModelSerializer):
@@ -204,6 +155,27 @@ TEAM_CONFIG_FIELDS = (
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
 
+class RevenueTrackingConfigSerializer(serializers.Field):
+    def to_representation(self, value):
+        # When reading, access the revenue_config from the team model
+        if value is None:
+            return None
+        # Get the instance (Team) that has this field
+        team = self.parent.instance
+        if team and hasattr(team, "revenue_config"):
+            return team.revenue_config.model_dump() if team.revenue_config else None
+        return None
+
+    def to_internal_value(self, data):
+        if data is None:
+            return None
+
+        try:
+            return RevenueTrackingConfig.model_validate(data).model_dump()
+        except ValidationError as e:
+            raise serializers.ValidationError(str(e))
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Optional[Team]
 
@@ -212,6 +184,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
+    revenue_tracking_config = RevenueTrackingConfigSerializer(required=False)
 
     class Meta:
         model = Team
@@ -265,6 +238,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             representation["default_data_theme"] = (
                 DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
             )
+
         return representation
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
@@ -335,7 +309,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not isinstance(value, dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
-        allowed_keys = {"maskAllInputs", "maskTextSelector"}
+        allowed_keys = {"maskAllInputs", "maskTextSelector", "blockSelector"}
 
         if not all(key in allowed_keys for key in value.keys()):
             raise exceptions.ValidationError(
@@ -349,6 +323,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if "maskTextSelector" in value:
             if not isinstance(value["maskTextSelector"], str):
                 raise exceptions.ValidationError("maskTextSelector must be a string.")
+
+        if "blockSelector" in value:
+            if not isinstance(value["blockSelector"], str):
+                raise exceptions.ValidationError("blockSelector must be a string.")
 
         return value
 
@@ -397,10 +375,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
         request = self.context["request"]
-        if "project_id" not in self.context:
-            raise exceptions.ValidationError(
-                "Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead."
-            )
         if self.context["project_id"] not in self.user_permissions.project_ids_visible_for_user:
             raise exceptions.NotFound("Project not found.")
         validated_data["project_id"] = self.context["project_id"]
@@ -569,7 +543,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             IsAuthenticated,
             APIScopePermission,
             AccessControlPermission,
-            PremiumMultiProjectPermissions,
+            PremiumMultiEnvironmentPermission,
             *self.permission_classes,
         ]
 
@@ -872,3 +846,52 @@ def validate_team_attrs(
                 "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
             )
     return attrs
+
+
+class PremiumMultiEnvironmentPermission(BasePermission):
+    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
+
+    message = "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+
+    def has_permission(self, request: request.Request, view) -> bool:
+        if view.action not in CREATE_ACTIONS:
+            return True
+
+        try:
+            project = view.project
+        except KeyError:  # KeyError occurs when "project_id" is not in parents_query_dict
+            raise exceptions.ValidationError(
+                "Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead."
+            )
+
+        if request.data.get("is_demo"):
+            # If we're requesting to make a demo project but the org already has a demo project
+            if project.organization.teams.filter(is_demo=True).count() > 0:
+                return False
+
+        has_environments_feature = project.organization.is_feature_available(AvailableFeature.ENVIRONMENTS)
+        current_non_demo_team_count = project.teams.exclude(is_demo=True).count()
+
+        allowed_team_per_project_count = next(
+            (
+                feature.get("limit")
+                for feature in project.organization.available_product_features or []
+                if feature.get("key") == AvailableFeature.ENVIRONMENTS
+            ),
+            None,
+        )
+
+        if has_environments_feature:
+            # If allowed_project_count is None then the user is allowed unlimited projects
+            if allowed_team_per_project_count is None:
+                return True
+            # Check current limit against allowed limit
+            if current_non_demo_team_count >= allowed_team_per_project_count:
+                return False
+        else:
+            # If the org doesn't have the feature, they can only have one non-demo project
+            if current_non_demo_team_count >= 1:
+                return False
+
+        # in any other case, we're good to go
+        return True

@@ -82,7 +82,7 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
                     <div>
                         <h1>Editing "{getFilterLabel(editDefinition.name, TaxonomicFilterGroupType.Events) || ''}"</h1>
                         <div className="flex flex-wrap items-center gap-2 text-secondary">
-                            <div>Raw event name:</div>
+                            <div>{isProperty ? 'Property' : 'Event'} name:</div>
                             <LemonTag className="font-mono">{editDefinition.name}</LemonTag>
                         </div>
                     </div>

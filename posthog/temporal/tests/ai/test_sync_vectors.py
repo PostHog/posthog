@@ -153,7 +153,10 @@ async def test_get_approximate_actions_count(mock_flag, actions):
 @pytest.mark.asyncio
 async def test_basic_batch_summarization(mock_flag, actions):
     with (
-        patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test")),
+        patch(
+            "posthog.temporal.ai.sync_vectors.get_async_cohere_client",
+            return_value=cohere.AsyncClientV2(api_key="test"),
+        ),
         patch("posthog.temporal.ai.sync_vectors.abatch_summarize_actions") as summarize_mock,
     ):
         summarize_mock.return_value = ["Test1"]
@@ -196,7 +199,10 @@ async def test_basic_batch_summarization(mock_flag, actions):
 async def test_batch_summarize_with_errors(mock_flag, actions: tuple[Action]):
     with (
         patch("posthog.temporal.ai.sync_vectors.abatch_summarize_actions") as summarize_mock,
-        patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test")),
+        patch(
+            "posthog.temporal.ai.sync_vectors.get_async_cohere_client",
+            return_value=cohere.AsyncClientV2(api_key="test"),
+        ),
     ):
         summarize_mock.return_value = ["Test1", "Test2", ValueError()]
 
@@ -239,7 +245,10 @@ async def test_batch_summarize_with_errors(mock_flag, actions: tuple[Action]):
 @pytest.mark.asyncio
 async def test_batch_embedding(mock_flag, actions):
     with (
-        patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test")),
+        patch(
+            "posthog.temporal.ai.sync_vectors.get_async_cohere_client",
+            return_value=cohere.AsyncClientV2(api_key="test"),
+        ),
         patch("cohere.AsyncClientV2.embed") as embeddings_mock,
     ):
         # batch_size=1, one call
@@ -286,7 +295,7 @@ async def test_batch_embedding(mock_flag, actions):
         ]
 
 
-@patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
+@patch("posthog.temporal.ai.sync_vectors.get_async_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_batch_embedding_with_errors(cohere_mock, mock_flag, actions: tuple[Action]):
@@ -414,7 +423,7 @@ async def test_clickhouse_sync_multiple_batches(
             assert mock.call_count == 3
 
 
-@patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
+@patch("posthog.temporal.ai.sync_vectors.get_async_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_batch_embed_and_sync_actions(cohere_mock, mock_flag, summarized_actions, ateam):
@@ -466,7 +475,7 @@ async def test_batch_embed_and_sync_actions(cohere_mock, mock_flag, summarized_a
         assert len(rows) == 3
 
 
-@patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
+@patch("posthog.temporal.ai.sync_vectors.get_async_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_batch_embed_and_sync_actions_in_batches(cohere_mock, mock_flag, summarized_actions, ateam):
@@ -533,7 +542,7 @@ async def test_batch_embed_and_sync_actions_in_batches(cohere_mock, mock_flag, s
         assert expected_result == parse_records(rows)
 
 
-@patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
+@patch("posthog.temporal.ai.sync_vectors.get_async_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_batch_embed_and_sync_actions_filters_out_actions(cohere_mock, mock_flag, ateam):

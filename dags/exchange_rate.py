@@ -26,10 +26,17 @@ class ExchangeRateConfig(dagster.Config):
     api_base_url: str = OPEN_EXCHANGE_RATES_API_BASE_URL
 
 
-# We'll have one partition for each day, starting from 2025-01-01 for the daily job
+# We'll have one partition for each day, starting from 2025 Jan 1st for the daily job
+DAILY_PARTITION_DEFINITION = dagster.DailyPartitionsDefinition(start_date=datetime.datetime(2025, 1, 1))
+
 # And one partition for hourly updates for the hourly job
-DAILY_PARTITION_DEFINITION = dagster.DailyPartitionsDefinition(start_date="2025-01-01")
-HOURLY_PARTITION_DEFINITION = dagster.HourlyPartitionsDefinition(start_date="2025-01-01-00:00Z")
+HOURLY_PARTITION_DEFINITION = dagster.HourlyPartitionsDefinition(
+    start_date=datetime.datetime(
+        2025, 3, 10
+    ),  # Start in March 2025 because that's when we started using hourly updates
+    minute_offset=45,  # Run at XX:45 to avoid peak load at the top of the hour
+    end_offset=12,  # Generate 12 partitions after the current hour to be safe (1 should be enough, 0 breaks our workflow)
+)
 
 
 def get_date_partition_from_hourly_partition(hourly_partition: str) -> str:
@@ -313,10 +320,10 @@ def daily_exchange_rates_schedule(context):
 
 @dagster.schedule(
     job=hourly_exchange_rates_job,
-    cron_schedule="45 * * * *",  # Run every hour at XX:45, random minute to avoid peak load at the top of the hour
+    cron_schedule=HOURLY_PARTITION_DEFINITION.get_cron_schedule(),
 )
 def hourly_exchange_rates_schedule(context):
     """Process current day's exchange rates data for this hour."""
-    current_day = context.scheduled_execution_time
-    timestamp = current_day.strftime("%Y-%m-%d-%H:%M")
+    current_hour = context.scheduled_execution_time
+    timestamp = current_hour.strftime("%Y-%m-%d-%H:%M")
     return dagster.RunRequest(run_key=timestamp, partition_key=timestamp)

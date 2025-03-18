@@ -258,6 +258,17 @@ export function InsightsTable({
 
         const capitalizeFirstLetter = (str: string): string => str.charAt(0).toUpperCase() + str.slice(1)
 
+        const dataSorter = (a: IndexedTrendResult, b: IndexedTrendResult, index: number): number => {
+            const aValue = a.data[index] ?? NaN
+            const bValue = b.data[index] ?? NaN
+
+            if (isStickiness) {
+                return aValue / a.count - bValue / b.count
+            }
+
+            return aValue - bValue
+        }
+
         return results.map((_, index) => ({
             title: isStickiness ? (
                 `${interval ? capitalizeFirstLetter(interval) : 'Day'} ${index + 1}`
@@ -269,11 +280,11 @@ export function InsightsTable({
                     interval={interval}
                 />
             ),
-            render: (_, item: IndexedTrendResult) => (
-                <ValueColumnItem index={index} item={item} trendsFilter={trendsFilter} />
-            ),
+            render: (_, item: IndexedTrendResult) => {
+                return <ValueColumnItem index={index} item={item} trendsFilter={trendsFilter} />
+            },
             key: `data-${index}`,
-            sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
+            sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => dataSorter(a, b, index),
             align: 'right',
         }))
     }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval])

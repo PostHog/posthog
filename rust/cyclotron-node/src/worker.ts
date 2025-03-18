@@ -95,7 +95,7 @@ export class CyclotronWorker {
                 if (!jobs.length) {
                     // Wait a bit before polling again
                     await new Promise((resolve) => setTimeout(resolve, pollDelayMs))
-                    if (!this.config.includeEmptyBatches) {
+                    if (this.config.includeEmptyBatches) {
                         await processBatch(jobs)
                     }
                     continue
