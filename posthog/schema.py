@@ -7895,7 +7895,6 @@ class ErrorTrackingQuery(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
-    cacheKey: Optional[str] = None
     customVolume: Optional[ErrorTrackingSparklineConfig] = None
     dateRange: DateRange
     filterGroup: Optional[PropertyGroupFilter] = None

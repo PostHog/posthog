@@ -308,12 +308,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         return results
 
-    def get_cache_key(self) -> str:
-        original = super().get_cache_key()
-        if self.query.cacheKey is None:
-            return original
-        return f"{original}_{self.query.cacheKey}"
-
 
 def search_tokenizer(query: str) -> list[str]:
     # parse the search query to split it into words, except for quoted strings. Strip quotes from quoted strings.

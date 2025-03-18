@@ -1792,7 +1792,6 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     customVolume?: ErrorTrackingSparklineConfig | null
     limit?: integer
     offset?: integer
-    cacheKey?: string
 }
 
 export interface ErrorTrackingIssueAssignee {

@@ -6,7 +6,6 @@ import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/data
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import type { errorTrackingDataNodeLogicType } from './errorTrackingDataNodeLogicType'
-import { errorTrackingLogic } from './errorTrackingLogic'
 import { mergeIssues } from './utils'
 
 export interface ErrorTrackingDataNodeLogicProps {
@@ -19,10 +18,10 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
     props({} as ErrorTrackingDataNodeLogicProps),
 
     connect(({ key, query }: ErrorTrackingDataNodeLogicProps) => {
-        const nodeLogic = dataNodeLogic({ key, query })
+        const nodeLogic = dataNodeLogic({ key, query, refresh: 'blocking' })
         return {
             values: [nodeLogic, ['response']],
-            actions: [nodeLogic, ['setResponse', 'loadData'], errorTrackingLogic, ['refreshCacheKey']],
+            actions: [nodeLogic, ['setResponse', 'loadData']],
         }
     }),
 
@@ -42,8 +41,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
 
     listeners(({ values, actions }) => ({
         reloadData: async () => {
-            actions.refreshCacheKey()
-            actions.loadData(true)
+            actions.loadData('force_blocking')
         },
         mergeIssues: async ({ ids }) => {
             const { results } = values
