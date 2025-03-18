@@ -247,6 +247,7 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                                     colors={getSeriesColorPalette()}
                                     showCustomColor
                                     hideDropdown
+                                    preventPopoverClose
                                 />
                             )}
                         </LemonField>

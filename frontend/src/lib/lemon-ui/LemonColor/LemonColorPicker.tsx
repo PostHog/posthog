@@ -15,6 +15,7 @@ type LemonColorPickerProps = {
     onSelectColorToken?: (colorToken: DataColorToken) => void
     showCustomColor?: boolean
     hideDropdown?: boolean
+    preventPopoverClose?: boolean
 }
 
 export const LemonColorPickerOverlay = ({
@@ -26,12 +27,26 @@ export const LemonColorPickerOverlay = ({
     onSelectColor,
     onSelectColorToken,
     showCustomColor = false,
+    preventPopoverClose = false,
 }: Omit<LemonColorPickerProps, 'hideDropdown'>): JSX.Element => {
     const [color, setColor] = useState<string | null>(selectedColor || null)
     const [lastValidColor, setLastValidColor] = useState<string | null>(selectedColor || null)
 
     return (
-        <div className="w-52 flex flex-col p-2">
+        <div
+            className="w-52 flex flex-col p-2"
+            // prevents native event bubbling, so that popovers don't close
+            onMouseUp={(e) => {
+                if (preventPopoverClose) {
+                    e.nativeEvent.stopImmediatePropagation()
+                }
+            }}
+            onTouchEnd={(e) => {
+                if (preventPopoverClose) {
+                    e.nativeEvent.stopImmediatePropagation()
+                }
+            }}
+        >
             <LemonLabel className="mt-1 mb-0.5">Preset colors</LemonLabel>
             <LemonColorList
                 themeId={themeId}
