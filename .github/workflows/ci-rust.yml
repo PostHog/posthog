@@ -23,8 +23,8 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v3
-            - uses: dorny/paths-filter@v2
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
               with:
                   filters: |
@@ -52,7 +52,7 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.rust == 'true'
               with:
                   sparse-checkout: 'rust/'
@@ -60,11 +60,11 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.82
+              uses: dtolnay/rust-toolchain@2d6ac6e12ff6f69821a786a25ca0db906b4e4ba2 # 1.82
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@v0.0.4
+              uses: mozilla-actions/sccache-action@2e7f9ec7921547d4b46598398ca573513895d0bd # v0.0.4
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
@@ -95,14 +95,14 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
               with:
                   sparse-checkout: 'rust/'
                   sparse-checkout-cone-mode: false
 
             # For flags checkout entire repository
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
 
             - name: Setup main repo dependencies for flags
@@ -119,13 +119,14 @@ jobs:
                   docker compose up setup_test_db
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
+            # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.82 # please keep this in sync with rust-version in rust/*/Cargo.toml
+              uses: dtolnay/rust-toolchain@2d6ac6e12ff6f69821a786a25ca0db906b4e4ba2 # 1.82
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@v0.0.4
+              uses: mozilla-actions/sccache-action@2e7f9ec7921547d4b46598398ca573513895d0bd # v0.0.4
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
@@ -135,7 +136,7 @@ jobs:
 
             - name: Set up Python
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
               with:
                   python-version: 3.11.9
                   cache: 'pip'
@@ -192,7 +193,7 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.rust == 'true'
               with:
                   sparse-checkout: 'rust/'
@@ -200,13 +201,13 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.82
+              uses: dtolnay/rust-toolchain@2d6ac6e12ff6f69821a786a25ca0db906b4e4ba2 # 1.82
               with:
                   components: clippy,rustfmt
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@v0.0.4
+              uses: mozilla-actions/sccache-action@2e7f9ec7921547d4b46598398ca573513895d0bd # v0.0.4
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
@@ -239,7 +240,7 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.rust == 'true'
               with:
                   sparse-checkout: 'rust/'
@@ -247,7 +248,7 @@ jobs:
 
             - name: Install cargo-binstall
               if: needs.changes.outputs.rust == 'true'
-              uses: cargo-bins/cargo-binstall@main
+              uses: cargo-bins/cargo-binstall@89e50159140fdba08fc64e36186a014c5c253d33 # main
 
             - name: Install cargo-shear
               if: needs.changes.outputs.rust == 'true'
