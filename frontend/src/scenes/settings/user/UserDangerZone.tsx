@@ -26,10 +26,6 @@ export function DeleteUserModal({
 
     const organizations = (user?.organizations ?? []).filter(isNotNil)
 
-    const ownedOrganizations = organizations.filter(
-        (organization) => organization.membership_level === OrganizationMembershipLevel.Owner
-    )
-
     return (
         <LemonModal
             title="Delete your account"
@@ -51,19 +47,19 @@ export function DeleteUserModal({
                         status="danger"
                         onClick={() => deleteUser()}
                     >
-                        {ownedOrganizations.length > 0 ? 'Delete account and organizations' : 'Delete account'}
+                        Delete account
                     </LemonButton>
                 </>
             }
             isOpen={isOpen}
         >
-            {ownedOrganizations.length > 0 && (
+            {organizations.length > 0 && (
                 <>
                     <p className="text-danger font-semibold">
-                        The following organizations will be deleted along with all their data
+                        You must leave or delete all organizations before deleting your account.
                     </p>
                     <LemonTable
-                        dataSource={ownedOrganizations}
+                        dataSource={organizations}
                         size="small"
                         columns={[
                             {
@@ -92,25 +88,29 @@ export function DeleteUserModal({
                                                     }
                                                 }}
                                             >
-                                                Transfer ownership
+                                                {organization.membership_level === OrganizationMembershipLevel.Owner
+                                                    ? 'Transfer ownership'
+                                                    : 'Leave organization'}
                                             </LemonButton>
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                status="danger"
-                                                onClick={() => {
-                                                    if (organization.id === user?.organization?.id) {
-                                                        push(urls.settings('organization-danger-zone'))
-                                                    } else {
-                                                        updateCurrentOrganization(
-                                                            organization.id,
-                                                            urls.settings('organization-danger-zone')
-                                                        )
-                                                    }
-                                                }}
-                                            >
-                                                Delete organization
-                                            </LemonButton>
+                                            {organization.membership_level === OrganizationMembershipLevel.Owner && (
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    status="danger"
+                                                    onClick={() => {
+                                                        if (organization.id === user?.organization?.id) {
+                                                            push(urls.settings('organization-danger-zone'))
+                                                        } else {
+                                                            updateCurrentOrganization(
+                                                                organization.id,
+                                                                urls.settings('organization-danger-zone')
+                                                            )
+                                                        }
+                                                    }}
+                                                >
+                                                    Delete organization
+                                                </LemonButton>
+                                            )}
                                         </div>
                                     )
                                 },

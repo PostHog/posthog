@@ -861,7 +861,7 @@ class TestUserAPI(APIBaseTest):
 
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_409_CONFLICT
-        assert response.json() == {"detail": "Cannot delete user with active organization memberships."}
+        assert response.json() == {"detail": "Cannot delete user with organization memberships."}
 
         self.user.refresh_from_db()
 

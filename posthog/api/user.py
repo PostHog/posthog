@@ -426,7 +426,7 @@ class UserViewSet(
         memberships = OrganizationMembership.objects.filter(user=user)
 
         if memberships.count() > 0:
-            return Response(status=409, data={"detail": "Cannot delete user with active organization memberships."})
+            return Response(status=409, data={"detail": "Cannot delete user with organization memberships."})
 
         user.delete()
 
