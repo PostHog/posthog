@@ -3155,6 +3155,9 @@ const api = {
             signal,
             onmessage: onMessage,
             onerror: onError,
+            // By default fetch-event-source stops connection when document is no longer focused, but that is not how
+            // EventSource works normally, hence reverting (https://github.com/Azure/fetch-event-source/issues/36)
+            openWhenHidden: true,
         })
     },
 
