@@ -51,7 +51,7 @@ export function Customization({
                         <></>
                     </PayGateMini>
                 )}
-                <LemonField.Pure className="mt-2" label="Background color">
+                <LemonField.Pure label="Background color">
                     <LemonInput
                         value={appearance?.backgroundColor}
                         onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}

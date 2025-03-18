@@ -1193,12 +1193,13 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-redis",
  "common-types",
  "envconfig",
  "flate2",
  "futures",
- "governor",
  "health",
+ "limiters",
  "metrics",
  "metrics-exporter-prometheus",
  "once_cell",
@@ -1290,6 +1291,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono-tz"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c6ac4f2c0bf0f44e9161aec9675e1050aa4a530663c4a9e37e108fa948bca9f"
+dependencies = [
+ "chrono",
+ "chrono-tz-build",
+ "phf",
+]
+
+[[package]]
+name = "chrono-tz-build"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e94fea34d77a245229e7746bd2beb786cd2a896f306ff491fb8cecb3074b10a7"
+dependencies = [
+ "parse-zoneinfo",
+ "phf_codegen",
+]
+
+[[package]]
 name = "clap"
 version = "4.5.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1370,11 +1392,20 @@ name = "common-cookieless"
 version = "0.0.1"
 dependencies = [
  "base64 0.22.0",
+ "chrono",
+ "chrono-tz",
+ "common-metrics",
+ "common-redis",
  "itoa",
+ "moka",
+ "public-suffix",
+ "rand",
  "serde",
  "serde_json",
  "siphasher 1.0.1",
  "thiserror 1.0.69",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -1410,6 +1441,17 @@ dependencies = [
  "axum 0.7.5",
  "metrics",
  "metrics-exporter-prometheus",
+ "tokio",
+]
+
+[[package]]
+name = "common-redis"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "redis",
+ "serde-pickle",
+ "thiserror 1.0.69",
  "tokio",
 ]
 
@@ -2227,11 +2269,12 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-metrics",
- "derive_builder",
+ "common-redis",
  "envconfig",
  "flate2",
  "futures",
  "health",
+ "limiters",
  "maxminddb",
  "metrics",
  "moka",
@@ -2242,13 +2285,13 @@ dependencies = [
  "regex",
  "reqwest 0.12.3",
  "serde",
- "serde-pickle",
  "serde_json",
  "serde_urlencoded",
  "sha1",
  "sqlx",
  "strum",
  "thiserror 1.0.69",
+ "time",
  "tokio",
  "tower",
  "tower-http",
@@ -3606,6 +3649,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "limiters"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "common-redis",
+ "governor",
+ "metrics",
+ "rand",
+ "strum",
+ "time",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4350,6 +4408,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "parse-zoneinfo"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f2a05b18d44e2957b88f96ba460715e295bc1d7510468a2f3d3b44535d26c24"
+dependencies = [
+ "regex",
+]
+
+[[package]]
 name = "paste"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4412,6 +4479,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ade2d8b8f33c7333b51bcf0428d37e217e9f32192ae4772156f65063b8ce03dc"
 dependencies = [
  "phf_macros",
+ "phf_shared 0.11.2",
+]
+
+[[package]]
+name = "phf_codegen"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aef8048c789fa5e851558d709946d6d79a8ff88c0440c587967f8e94bfb1216a"
+dependencies = [
+ "phf_generator",
  "phf_shared 0.11.2",
 ]
 
@@ -4778,6 +4855,12 @@ checksum = "200b9ff220857e53e184257720a14553b2f4aa02577d2ed9842d45d4b9654810"
 dependencies = [
  "cc",
 ]
+
+[[package]]
+name = "public-suffix"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68a59553bc595dc1514e7d713e6167cf1c4d68ef6fcc2d10ad834a97a1ca9bc4"
 
 [[package]]
 name = "quanta"

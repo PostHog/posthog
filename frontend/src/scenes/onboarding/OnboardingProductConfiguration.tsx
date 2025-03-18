@@ -65,9 +65,14 @@ export const OnboardingProductConfiguration = ({
                 onChange: (newValue: boolean | string | number) => {
                     // Use the current value from the ref to ensure that onChange always accesses
                     // the latest state of configOptions, preventing the closure from using stale data.
-                    const updatedConfigOptions = configOptionsRef.current.map((o) =>
-                        o.teamProperty === option.teamProperty ? { ...o, value: newValue } : o
-                    )
+                    const updatedConfigOptions = configOptionsRef.current.map((o) => {
+                        if (o.teamProperty === option.teamProperty) {
+                            return { ...o, value: newValue }
+                        }
+
+                        return o
+                    })
+
                     setConfigOptions(updatedConfigOptions)
                 },
             })),
@@ -119,7 +124,7 @@ export const OnboardingProductConfiguration = ({
                                         checked={item.value || false}
                                     />
                                 ) : (
-                                    <div className="flex justify-between items-center mb-1 gap-x-4">
+                                    <div className="flex justify-end items-center mb-1 gap-x-4">
                                         <LemonSelect
                                             dropdownMatchSelectWidth={false}
                                             onChange={item.onChange}

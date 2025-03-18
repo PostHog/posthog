@@ -2,6 +2,7 @@
 name = "feature-flags"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -11,7 +12,10 @@ async-trait = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
 chrono = { workspace = true }
+common-redis = { path = "../common/redis" }
 envconfig = { workspace = true }
+limiters = { path = "../common/limiters" }
+time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
@@ -26,7 +30,6 @@ redis = { version = "0.23.3", features = [
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-serde-pickle = { version = "1.1.1"}
 sha1 = "0.10.6"
 regex = "1.10.4"
 maxminddb = "0.17"
@@ -41,7 +44,6 @@ health = { path = "../common/health" }
 common-metrics = { path = "../common/metrics" }
 tower = { workspace = true }
 tower-http = { workspace = true }
-derive_builder = "0.20.1"
 petgraph = "0.6.5"
 moka = { workspace = true }
 serde_urlencoded = { workspace = true }
@@ -53,4 +55,4 @@ workspace = true
 [dev-dependencies]
 assert-json-diff = { workspace = true }
 reqwest = { workspace = true }
-futures = "0.3.30" 
+futures = "0.3.30"
