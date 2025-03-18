@@ -1,8 +1,7 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 from math import ceil
 from typing import Optional
 
-from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
@@ -24,6 +23,8 @@ from posthog.schema import (
     EventsNode,
     LifecycleQueryResponse,
     InsightActorsQueryOptionsResponse,
+    StatusItem,
+    DayItem,
 )
 from posthog.utils import format_label_date
 
@@ -35,7 +36,7 @@ class LifecycleQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query.samplingFactor == 0:
-            counts_with_sampling = ast.Constant(value=0)
+            counts_with_sampling: ast.Expr = ast.Constant(value=0)
         elif self.query.samplingFactor is not None and self.query.samplingFactor != 1:
             counts_with_sampling = parse_expr(
                 "round(counts * (1 / {sampling_factor}))",
@@ -127,24 +128,12 @@ class LifecycleQueryRunner(QueryRunner):
 
     def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
         return InsightActorsQueryOptionsResponse(
-            day=[{"label": format_label_date(value), "value": value} for value in self.query_date_range.all_values()],
+            day=[DayItem(label=format_label_date(value), value=value) for value in self.query_date_range.all_values()],
             status=[
-                {
-                    "label": "Dormant",
-                    "value": "dormant",
-                },
-                {
-                    "label": "New",
-                    "value": "new",
-                },
-                {
-                    "label": "Resurrecting",
-                    "value": "resurrecting",
-                },
-                {
-                    "label": "Returning",
-                    "value": "returning",
-                },
+                StatusItem(label="Dormant", value="dormant"),
+                StatusItem(label="New", value="new"),
+                StatusItem(label="Resurrecting", value="resurrecting"),
+                StatusItem(label="Returning", value="returning"),
             ],
         )
 
@@ -351,8 +340,9 @@ class LifecycleQueryRunner(QueryRunner):
                 },
                 timings=self.timings,
             )
+            assert isinstance(events_query, ast.SelectQuery)
             sampling_factor = self.query.samplingFactor
-            if sampling_factor is not None and isinstance(sampling_factor, float):
+            if sampling_factor is not None and isinstance(sampling_factor, float) and events_query.select_from:
                 sample_expr = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=sampling_factor)))
                 events_query.select_from.sample = sample_expr
 
