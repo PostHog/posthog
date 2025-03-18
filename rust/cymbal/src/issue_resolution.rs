@@ -3,7 +3,8 @@ use std::fmt::Display;
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
 use common_kafka::kafka_producer::send_iter_to_kafka;
-use sqlx::postgres::any::AnyConnectionBackend;
+
+use sqlx::Acquire;
 use uuid::Uuid;
 
 use crate::{
@@ -241,15 +242,15 @@ pub async fn resolve_issue(
     // beat us to creating this new issue). Then, possibly reopen the issue.
 
     // Start a transaction, so we can roll it back on override insert failure
-    conn.begin().await?;
+    let mut txn = conn.begin().await?;
     // Insert a new issue
     let issue = Issue::new(team_id, name.to_string(), description.to_string());
     // We don't actually care if we insert the issue here or not - conflicts aren't possible at
     // this stage.
-    issue.insert(&mut *conn).await?;
+    issue.insert(&mut *txn).await?;
     // Insert the fingerprint override
     let issue_override = IssueFingerprintOverride::create_or_load(
-        &mut *conn,
+        &mut *txn,
         team_id,
         fingerprint,
         &issue,
@@ -262,10 +263,10 @@ pub async fn resolve_issue(
     // use the retrieved issue override.
     let was_created = issue_override.issue_id == issue.id;
     if !was_created {
-        conn.rollback().await?;
+        txn.rollback().await?;
     } else {
         send_issue_created_alert(context, &issue).await?;
-        conn.commit().await?;
+        txn.commit().await?;
         capture_issue_created(team_id, issue_override.issue_id);
     }
 

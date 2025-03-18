@@ -13,13 +13,13 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { Breadcrumb, OnboardingProduct, ProductKey, ReplayTabs } from '~/types'
+import { Breadcrumb, OnboardingProduct, ProductKey, ReplayTabs, SidePanelTab } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
 
 export interface OnboardingLogicProps {
-    onCompleteOnboarding?: (key: ProductKey) => void
+    onCompleteOnboarding?: (key: ProductKey | null) => void
 }
 
 export enum OnboardingStepKey {
@@ -91,6 +91,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['isCloudOrDev'],
             replayLandingPageLogic,
             ['replayLandingPage'],
+            sidePanelStateLogic,
+            ['modalMode'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -106,9 +108,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
-        completeOnboarding: (nextProductKey?: string, redirectUrlOverride?: string) => ({
-            nextProductKey,
-            redirectUrlOverride,
+        completeOnboarding: (options?: { redirectUrlOverride?: string }) => ({
+            redirectUrlOverride: options?.redirectUrlOverride,
         }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
@@ -316,7 +317,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
 
-        completeOnboarding: ({ nextProductKey, redirectUrlOverride }) => {
+        completeOnboarding: ({ redirectUrlOverride }) => {
             props.onCompleteOnboarding?.(values.productKey)
             if (redirectUrlOverride) {
                 actions.setOnCompleteOnboardingRedirectUrl(redirectUrlOverride)
@@ -330,10 +331,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
                         [productKey]: true,
                     },
                 })
-                if (nextProductKey) {
-                    actions.setProductKey(nextProductKey)
-                    router.actions.push(urls.onboarding(nextProductKey))
-                }
+            }
+
+            if (values.isFirstProductOnboarding && !values.modalMode) {
+                actions.openSidePanel(SidePanelTab.Activation)
             }
         },
         setAllOnboardingSteps: () => {

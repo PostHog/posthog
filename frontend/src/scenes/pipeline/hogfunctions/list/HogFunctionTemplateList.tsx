@@ -13,9 +13,8 @@ import { hogFunctionTemplateListLogic, HogFunctionTemplateListLogicProps } from 
 
 export function HogFunctionTemplateList({
     extraControls,
-    showSearch = true,
     ...props
-}: HogFunctionTemplateListLogicProps & { extraControls?: JSX.Element; showSearch?: boolean }): JSX.Element {
+}: HogFunctionTemplateListLogicProps & { extraControls?: JSX.Element }): JSX.Element {
     const { loading, filteredTemplates, filters, templates, canEnableHogFunction, urlForTemplate } = useValues(
         hogFunctionTemplateListLogic(props)
     )
@@ -26,14 +25,14 @@ export function HogFunctionTemplateList({
     return (
         <>
             <div className="flex items-center gap-2 mb-2">
-                {!props.forceFilters?.search && showSearch ? (
+                {!props.forceFilters?.search && (
                     <LemonInput
                         type="search"
                         placeholder="Search..."
                         value={filters.search ?? ''}
                         onChange={(e) => setFilters({ search: e })}
                     />
-                ) : null}
+                )}
                 <div className="flex-1" />
                 {extraControls}
             </div>
