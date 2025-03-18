@@ -8,7 +8,9 @@ from pydantic import BaseModel
 from posthog.test.base import clean_varying_query_parts
 
 
-def pretty_print_in_tests(query: str, team_id: int) -> str:
+def pretty_print_in_tests(query: str | None, team_id: int) -> str:
+    if query is None:
+        return ""
     query = (
         query.replace("SELECT", "\nSELECT")
         .replace("FROM", "\nFROM")

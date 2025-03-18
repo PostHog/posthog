@@ -1474,8 +1474,8 @@ class TestPrinter(BaseTest):
     def test_to_start_of_week_gets_mode(self):
         # It's important we use ints and not WeekStartDay here, because it's the former that's actually in the DB
         default_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, None))
-        sunday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, 0))  # 0 == WeekStartDay.SUNDAY
-        monday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, 1))  # 1 == WeekStartDay.MONDAY
+        sunday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.SUNDAY))
+        monday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.MONDAY))
 
         self.assertEqual(
             self._expr("toStartOfWeek(timestamp)", default_week_context),  # Sunday is the default
@@ -1739,6 +1739,7 @@ class TestPrinter(BaseTest):
 
     def test_print_query_level_settings(self):
         query = parse_select("SELECT 1 FROM events")
+        assert isinstance(query, ast.SelectQuery)
         query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
         printed = print_ast(
             query,
@@ -1752,6 +1753,7 @@ class TestPrinter(BaseTest):
 
     def test_print_both_settings(self):
         query = parse_select("SELECT 1 FROM events")
+        assert isinstance(query, ast.SelectQuery)
         query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
         printed = print_ast(
             query,
@@ -1850,7 +1852,7 @@ class TestPrinter(BaseTest):
             LIMIT {MAX_SELECT_RETURNED_ROWS}
         """
         )
-        assert printed == self.snapshot
+        assert printed == self.snapshot  # type: ignore
 
     def test_print_hidden_aliases_timestamp(self):
         query = parse_select("select * from (SELECT timestamp, timestamp FROM events)")
