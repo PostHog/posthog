@@ -1,7 +1,8 @@
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
-from dags.backups import Backup, BackupConfig, get_latest_backup
+from dags.backups import Backup, BackupConfig, BackupStatus, get_latest_backup, get_most_recent_status
 
 
 @pytest.mark.parametrize("table", ["", "test"])
@@ -122,24 +123,21 @@ def test_is_done():
     assert not backup.is_done(client)
 
 
-def test_throw_on_error():
-    client = MagicMock()
-    backup = Backup(
-        id="test",
-        database="posthog",
-        date="2024-03-01T00:00:00Z",
+def test_get_most_recent_status():
+    most_recent_status = get_most_recent_status(
+        [
+            BackupStatus(
+                status="BACKUP_CREATED",
+                hostname="node1",
+                event_time_microseconds=datetime(2025, 3, 18),
+            ),
+            BackupStatus(
+                status="BACKUP_FAILED",
+                hostname="node2",
+                event_time_microseconds=datetime(2025, 3, 17),
+            ),
+        ]
     )
 
-    client.execute.side_effect = [
-        [
-            ("node1", "BACKUP_CREATED", ""),
-        ],  # All backups created correctly, no error
-        [
-            ("node1", "BACKUP_FAILED", "an_error"),
-        ],  # One backup failed, should raise an error
-    ]
-
-    backup.throw_on_error(client)  # all good
-
-    with pytest.raises(ValueError):
-        backup.throw_on_error(client)  # one backup failed
+    assert most_recent_status.status == "BACKUP_CREATED"
+    assert most_recent_status.hostname == "node1"

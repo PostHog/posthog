@@ -63,6 +63,7 @@ NON_SHARDED_TABLES = [
 class BackupStatus:
     hostname: str
     status: str
+    event_time_microseconds: datetime
     error: Optional[str] = None
 
 
@@ -128,25 +129,30 @@ class Backup:
 
         client.execute(query, query_id=f"{self.id}-{self.shard if self.shard else 'noshard'}")
 
-    def status(self, client: Client) -> "BackupStatus":
+    def status(self, client: Client) -> Optional["BackupStatus"]:
+        """
+        Get the status of the backup from the backup_log table. If a same backup is found
+        more than once, it will return the most recent one.
+
+        Returns None if the backup is not found.
+        """
         rows = client.execute(
             f"""
-            SELECT hostname(), argMax(status, event_time_microseconds), argMax(left(error, 400), event_time_microseconds)
+            SELECT hostname(), argMax(status, event_time_microseconds), argMax(left(error, 400), event_time_microseconds), max(event_time_microseconds)
             FROM system.backup_log
             WHERE (start_time >= (now() - toIntervalDay(7))) AND name LIKE '%{self.path}%'
             GROUP BY hostname()
             """
         )
 
-        (hostname, status, error) = rows[0] if rows else (None, None, None)
+        if len(rows) > 0:
+            (hostname, status, error, event_time_microseconds) = rows[0]
 
-        return BackupStatus(hostname=hostname, status=status, error=error) if rows else None
-
-    def throw_on_error(self, client: Client) -> None:
-        status = self.status(client)
-        if status and status.status != "BACKUP_CREATED":
-            raise ValueError(
-                f"The backup {self.path} finished in status {status.status} in host {status.hostname} with an error: {status.error}"
+            return BackupStatus(
+                hostname=hostname,
+                status=status,
+                error=error,
+                event_time_microseconds=event_time_microseconds,
             )
 
     def is_done(self, client: Client) -> bool:
@@ -173,8 +179,6 @@ class Backup:
         while not self.is_done(client):
             time.sleep(120)
 
-        self.throw_on_error(client)
-
 
 class BackupConfig(dagster.Config):
     incremental: bool = pydantic.Field(
@@ -195,6 +199,19 @@ class BackupConfig(dagster.Config):
         pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$",
         validate_default=True,
     )
+
+
+def get_most_recent_status(statuses: list[BackupStatus]) -> BackupStatus:
+    """
+    Since we can retry backups and we only can identify them by their name (or path to S3),
+    in case we retry several times, we can have the same backup failed in one node and
+    succeeded in another one.
+
+    This function will raise an error only if the most recent one didn't succeed
+    """
+    statuses = [status for status in statuses if status is not None]
+    statuses.sort(key=lambda x: x.event_time_microseconds, reverse=True)
+    return statuses[0]
 
 
 @dagster.op(out=dagster.DynamicOut())
@@ -254,10 +271,10 @@ def check_latest_backup_status(
         context.log.info(f"Latest backup {latest_backup.path} is still in progress, waiting for it to finish")
         map_hosts(latest_backup.wait).result()
     else:
-        status = next(filter(lambda x: x is not None, map_hosts(latest_backup.status).result().values()))
-        if status.status != "BACKUP_CREATED":
+        most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
+        if most_recent_status.status != "BACKUP_CREATED":
             raise ValueError(
-                f"Latest backup {latest_backup.path} finished with an unexpected status: {status.status} on the host {status.hostname}. Please clean it from S3 before running a new backup."
+                f"Latest backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
             )
         else:
             context.log.info(f"Latest backup {latest_backup.path} finished successfully")
@@ -312,11 +329,14 @@ def wait_for_backup(
     """
     Wait for a backup to finish.
     """
+    map_hosts = partial(cluster.map_all_hosts_in_shard, shard=backup.shard) if backup.shard else cluster.map_all_hosts
     if backup:
-        if backup.shard:
-            cluster.map_all_hosts_in_shard(backup.shard, backup.wait).result()
-        else:
-            cluster.map_all_hosts(backup.wait).result()
+        map_hosts(backup.wait).result().values()
+        most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
+        if most_recent_status.status != "BACKUP_CREATED":
+            raise ValueError(
+                f"Latest backup {most_recent_status.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
+            )
     else:
         context.log.info("No backup to wait for")
 
