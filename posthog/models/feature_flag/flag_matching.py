@@ -738,7 +738,12 @@ class FeatureFlagMatcher:
         return self.calculate_hash(self.hashed_identifier(feature_flag), "holdout-", salt)
 
     @classmethod
-    def calculate_hash(cls, hash_identifier: str, prefix: str, salt="") -> float:
+    def calculate_hash(cls, hash_identifier: str | None, prefix: str, salt="") -> float:
+        if hash_identifier is None:
+            # Return a hash value that will make the flag evaluate to false; since we
+            # can't evaluate a flag without an identifier.
+            # NB: A flag with 0.0 hash will always evaluate to false
+            return 0
         hash_key = f"{prefix}{hash_identifier}{salt}"
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__

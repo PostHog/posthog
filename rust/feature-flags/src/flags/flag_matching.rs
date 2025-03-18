@@ -725,6 +725,32 @@ impl FeatureFlagMatcher {
             }
         }
 
+        // Match for holdout super condition
+        // TODO: Flags shouldn't have both super_groups and holdout_groups
+        // TODO: Validate only multivariant flags to have holdout groups. I could make this implicit by reusing super_groups but
+        // this will shoot ourselves in the foot when we extend early access to support variants as well.
+        // TODO: Validate holdout variant should have 0% default rollout %?
+        // TODO: All this validation we need to do suggests the modelling is imperfect here. Carrying forward for now, we'll only enable
+        // in beta, and potentially rework representation before rolling out to everyone. Probably the problem is holdout groups are an
+        // experiment level concept that applies across experiments, and we are creating a feature flag level primitive to handle it.
+        // Validating things like the variant name is the same across all flags, rolled out to 0%, has the same correct conditions is a bit of
+        // a pain here. But I'm not sure if feature flags should indeed know all this info. It's fine for them to just work with what they're given.
+        if let Some(holdout_groups) = &flag.filters.holdout_groups {
+            if !holdout_groups.is_empty() {
+                let (is_match, holdout_value, evaluation_reason) =
+                    self.is_holdout_condition_match(flag).await?;
+                if is_match {
+                    let payload = self.get_matching_payload(holdout_value.as_deref(), flag);
+                    return Ok(FeatureFlagMatch {
+                        matches: true,
+                        variant: holdout_value,
+                        reason: evaluation_reason,
+                        condition_index: None,
+                        payload,
+                    });
+                }
+            }
+        }
         // Sort conditions with variant overrides to the top so that we can evaluate them first
         let mut sorted_conditions: Vec<(usize, &FlagGroupType)> =
             flag.get_conditions().iter().enumerate().collect();
@@ -1035,6 +1061,54 @@ impl FeatureFlagMatcher {
         apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
     }
 
+    async fn is_holdout_condition_match(
+        &mut self,
+        flag: &FeatureFlag,
+    ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
+        // TODO: Right now holdout conditions only support basic rollout %s, and not property overrides.
+
+        if let Some(holdout_groups) = &flag.filters.holdout_groups {
+            if !holdout_groups.is_empty() {
+                let condition = &holdout_groups[0];
+                // TODO: Check properties and match based on them
+
+                if condition
+                    .properties
+                    .as_ref()
+                    .map_or(false, |p| !p.is_empty())
+                {
+                    return Ok((false, None, FeatureFlagMatchReason::NoConditionMatch));
+                }
+
+                let rollout_percentage = condition.rollout_percentage;
+
+                if let Some(percentage) = rollout_percentage {
+                    if self.get_holdout_hash(flag, None).await? > (percentage / 100.0) {
+                        // If hash is greater than percentage, we're OUT of holdout
+                        return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
+                    }
+                }
+
+                // rollout_percentage is None (=100%), or we are inside holdout rollout bound.
+                // Thus, we match. Now get the variant override for the holdout condition.
+                let variant = if let Some(variant_override) = condition.variant.as_ref() {
+                    variant_override.clone()
+                } else {
+                    self.get_matching_variant(flag, None)
+                        .await?
+                        .unwrap_or_else(|| "holdout".to_string())
+                };
+
+                return Ok((
+                    true,
+                    Some(variant),
+                    FeatureFlagMatchReason::HoldoutConditionValue,
+                ));
+            }
+        }
+        Ok((false, None, FeatureFlagMatchReason::NoConditionMatch))
+    }
+
     /// Check if a super condition matches for a feature flag.
     ///
     /// This function evaluates the super conditions of a feature flag to determine if any of them should be enabled.
@@ -1288,19 +1362,18 @@ impl FeatureFlagMatcher {
             // can't evaluate a flag without an identifier.
             return Ok(0.0); // NB: A flag with 0.0 hash will always evaluate to false
         }
-        let hash_key = format!("{}.{}{}", feature_flag.key, hashed_identifier, salt);
-        let mut hasher = Sha1::new();
-        hasher.update(hash_key.as_bytes());
-        let result = hasher.finalize();
-        // :TRICKY: Convert the first 15 characters of the digest to a hexadecimal string
-        let hex_str: String = result.iter().fold(String::new(), |mut acc, byte| {
-            let _ = write!(acc, "{:02x}", byte);
-            acc
-        })[..15]
-            .to_string();
-        let hash_val = u64::from_str_radix(&hex_str, 16).unwrap();
 
-        Ok(hash_val as f64 / LONG_SCALE as f64)
+        calculate_hash(&hashed_identifier, &format!("{}.", feature_flag.key), salt).await
+    }
+
+    async fn get_holdout_hash(
+        &mut self,
+        feature_flag: &FeatureFlag,
+        salt: Option<&str>,
+    ) -> Result<f64, FlagError> {
+        let hashed_identifier = self.hashed_identifier(feature_flag, None).await?;
+        let hash = calculate_hash(&hashed_identifier, "holdout-", salt.unwrap_or("")).await?;
+        Ok(hash)
     }
 
     /// Check if a feature flag should be shown based on its rollout percentage.
@@ -1355,6 +1428,25 @@ impl FeatureFlagMatcher {
         let variant = match_variant.unwrap_or("true");
         feature_flag.get_payload(variant)
     }
+}
+
+pub async fn calculate_hash(
+    hashed_identifier: &str,
+    prefix: &str,
+    salt: &str,
+) -> Result<f64, FlagError> {
+    let hash_key = format!("{}{}{}", prefix, hashed_identifier, salt);
+    let mut hasher = Sha1::new();
+    hasher.update(hash_key.as_bytes());
+    let result = hasher.finalize();
+    // :TRICKY: Convert the first 15 characters of the digest to a hexadecimal string
+    let hex_str = result.iter().fold(String::new(), |mut acc, byte| {
+        let _ = write!(acc, "{:02x}", byte);
+        acc
+    })[..15]
+        .to_string();
+    let hash_val = u64::from_str_radix(&hex_str, 16).unwrap();
+    Ok(hash_val as f64 / LONG_SCALE as f64)
 }
 
 /// Evaluate static cohort filters by checking if the person is in each cohort.
@@ -2011,10 +2103,11 @@ async fn should_write_hash_key_override(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use rstest::rstest;
     use serde_json::json;
     use std::collections::HashMap;
 
-    use super::*;
     use crate::{
         flags::flag_models::{
             FeatureFlagRow, FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant,
@@ -5158,6 +5251,366 @@ mod tests {
         // so it should fall back to hash-based variant computation
         assert!(result_invalid.matches);
         assert!(result_invalid.variant.is_some()); // Will be either "control" or "test" based on hash
+    }
+
+    #[tokio::test]
+    async fn test_feature_flag_with_holdout_filter() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        // example_id is outside 70% holdout
+        let _person1 = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "example_id".to_string(),
+            Some(json!({"$some_prop": 5})),
+        )
+        .await
+        .unwrap();
+
+        // example_id2 is within 70% holdout
+        let _person2 = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "example_id2".to_string(),
+            Some(json!({"$some_prop": 5})),
+        )
+        .await
+        .unwrap();
+
+        let multivariate_json = MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "first-variant".to_string(),
+                    name: Some("First Variant".to_string()),
+                    rollout_percentage: 50.0,
+                },
+                MultivariateFlagVariant {
+                    key: "second-variant".to_string(),
+                    name: Some("Second Variant".to_string()),
+                    rollout_percentage: 25.0,
+                },
+                MultivariateFlagVariant {
+                    key: "third-variant".to_string(),
+                    name: Some("Third Variant".to_string()),
+                    rollout_percentage: 25.0,
+                },
+            ],
+        };
+
+        let flag_with_holdout = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Flag with holdout".to_string()),
+            Some("flag-with-gt-filter".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$some_prop".to_string(),
+                        value: json!(4),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                holdout_groups: Some(vec![FlagGroupType {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(70.0),
+                    variant: Some("holdout".to_string()),
+                }]),
+                multivariate: Some(multivariate_json.clone()),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            Some(true),
+            None,
+        );
+
+        let other_flag_with_holdout = create_test_flag(
+            Some(2),
+            Some(team.id),
+            Some("Other flag with holdout".to_string()),
+            Some("other-flag-with-gt-filter".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$some_prop".to_string(),
+                        value: json!(4),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                holdout_groups: Some(vec![FlagGroupType {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(70.0),
+                    variant: Some("holdout".to_string()),
+                }]),
+                multivariate: Some(multivariate_json.clone()),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            Some(true),
+            None,
+        );
+
+        let flag_without_holdout = create_test_flag(
+            Some(3),
+            Some(team.id),
+            Some("Flag".to_string()),
+            Some("other-flag-without-holdout-with-gt-filter".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$some_prop".to_string(),
+                        value: json!(4),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                holdout_groups: Some(vec![FlagGroupType {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(0.0),
+                    variant: Some("holdout".to_string()),
+                }]),
+                multivariate: Some(multivariate_json),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            Some(true),
+            None,
+        );
+
+        // regular flag evaluation when outside holdout
+        let mut matcher = FeatureFlagMatcher::new(
+            "example_id".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        let result = matcher
+            .get_match(&flag_with_holdout, None, None)
+            .await
+            .unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("second-variant".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+
+        // Test inside holdout behavior - should get holdout variant override
+        let mut matcher2 = FeatureFlagMatcher::new(
+            "example_id2".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        let result = matcher2
+            .get_match(&flag_with_holdout, None, None)
+            .await
+            .unwrap();
+
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("holdout".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
+
+        // same should hold true for a different feature flag when within holdout
+        let result = matcher2
+            .get_match(&other_flag_with_holdout, None, None)
+            .await
+            .unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("holdout".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
+
+        // Test with matcher1 (outside holdout) to verify different variants
+        let result = matcher
+            .get_match(&other_flag_with_holdout, None, None)
+            .await
+            .unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("third-variant".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+
+        // when holdout exists but is zero, should default to regular flag evaluation
+        let result = matcher
+            .get_match(&flag_without_holdout, None, None)
+            .await
+            .unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("second-variant".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+
+        let result = matcher2
+            .get_match(&flag_without_holdout, None, None)
+            .await
+            .unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("second-variant".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    #[rstest]
+    #[case("some_distinct_id", 0.7270002403585725)]
+    #[case("test-identifier", 0.4493881716040236)]
+    #[case("example_id", 0.9402003475831224)]
+    #[case("example_id2", 0.6292740389966519)]
+    #[tokio::test]
+    async fn test_calculate_hash(#[case] hashed_identifier: &str, #[case] expected_hash: f64) {
+        let hash = calculate_hash(hashed_identifier, "holdout-", "")
+            .await
+            .unwrap();
+        assert!(
+            (hash - expected_hash).abs() < f64::EPSILON,
+            "Hash {} should equal expected value {} within floating point precision",
+            hash,
+            expected_hash
+        );
+    }
+
+    #[tokio::test]
+    async fn test_variants() {
+        // Ported from posthog/test/test_feature_flag.py test_variants
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        let flag = FeatureFlag {
+            id: 1,
+            team_id: team.id,
+            name: Some("Beta feature".to_string()),
+            key: "beta-feature".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: None,
+                    rollout_percentage: None,
+                    variant: None,
+                }],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            name: Some("First Variant".to_string()),
+                            key: "first-variant".to_string(),
+                            rollout_percentage: 50.0,
+                        },
+                        MultivariateFlagVariant {
+                            name: Some("Second Variant".to_string()),
+                            key: "second-variant".to_string(),
+                            rollout_percentage: 25.0,
+                        },
+                        MultivariateFlagVariant {
+                            name: Some("Third Variant".to_string()),
+                            key: "third-variant".to_string(),
+                            rollout_percentage: 25.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+            version: Some(1),
+        };
+
+        // Test user "11" - should get first-variant
+        let mut matcher = FeatureFlagMatcher::new(
+            "11".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+        assert_eq!(
+            result,
+            FeatureFlagMatch {
+                matches: true,
+                variant: Some("first-variant".to_string()),
+                reason: FeatureFlagMatchReason::ConditionMatch,
+                condition_index: Some(0),
+                payload: None,
+            }
+        );
+
+        // Test user "example_id" - should get second-variant
+        let mut matcher = FeatureFlagMatcher::new(
+            "example_id".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+        assert_eq!(
+            result,
+            FeatureFlagMatch {
+                matches: true,
+                variant: Some("second-variant".to_string()),
+                reason: FeatureFlagMatchReason::ConditionMatch,
+                condition_index: Some(0),
+                payload: None,
+            }
+        );
+
+        // Test user "3" - should get third-variant
+        let mut matcher = FeatureFlagMatcher::new(
+            "3".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+        assert_eq!(
+            result,
+            FeatureFlagMatch {
+                matches: true,
+                variant: Some("third-variant".to_string()),
+                reason: FeatureFlagMatchReason::ConditionMatch,
+                condition_index: Some(0),
+                payload: None,
+            }
+        );
     }
 
     #[tokio::test]
