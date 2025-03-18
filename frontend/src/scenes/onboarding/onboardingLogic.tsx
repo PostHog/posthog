@@ -87,6 +87,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['isCloudOrDev'],
             replayLandingPageLogic,
             ['replayLandingPage'],
+            sidePanelStateLogic,
+            ['modalMode'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -326,7 +328,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 })
             }
 
-            if (values.isFirstProductOnboarding) {
+            if (values.isFirstProductOnboarding && !values.modalMode) {
                 actions.openSidePanel(SidePanelTab.Activation)
             }
         },
