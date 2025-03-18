@@ -199,7 +199,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["scope"], "Group")
         self.assertEqual(response.json()["results"][0]["item_id"], str(group.pk))
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
-        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "added")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "created")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], None)
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
 

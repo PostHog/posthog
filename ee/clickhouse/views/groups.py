@@ -185,7 +185,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                     changes=[
                         Change(
                             type="Group",
-                            action="added" if original_value is None else "changed",
+                            action="created" if original_value is None else "changed",
                             before=original_value,
                             after=request.data["value"],
                         )
