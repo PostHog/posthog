@@ -106,8 +106,8 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                                 unwatchedCount > 0 ? (
                                     <p>
                                         You have {unwatchedCount} unwatched recordings to watch out of a total of{' '}
-                                        {hasMoreResults ? 'at least' : ''}
-                                        {totalCount} {description}.
+                                        {totalCount}
+                                        {hasMoreResults ? '+' : ''} {description}.
                                     </p>
                                 ) : (
                                     <p>
