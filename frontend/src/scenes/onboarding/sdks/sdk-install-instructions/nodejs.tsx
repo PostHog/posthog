@@ -3,6 +3,10 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
+type PostHogNodeOptions = {
+    enableExceptionAutocapture?: boolean
+}
+
 export function NodeInstallSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Bash}>
@@ -15,8 +19,14 @@ pnpm add posthog-node`}
     )
 }
 
-export function NodeSetupSnippet(): JSX.Element {
+export function NodeSetupSnippet({ enableExceptionAutocapture = false }: PostHogNodeOptions): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+
+    const options = [`host: '${apiHostOrigin()}'`]
+
+    if (enableExceptionAutocapture) {
+        options.push('enableExceptionAutocapture: true')
+    }
 
     return (
         <CodeSnippet language={Language.JavaScript}>
@@ -24,19 +34,21 @@ export function NodeSetupSnippet(): JSX.Element {
 
 const client = new PostHog(
     '${currentTeam?.api_token}',
-    { host: '${apiHostOrigin()}' }
+    {
+        ${options.join(',\n        ')}
+    }
 )`}
         </CodeSnippet>
     )
 }
 
-export function SDKInstallNodeInstructions(): JSX.Element {
+export function SDKInstallNodeInstructions(props: PostHogNodeOptions): JSX.Element {
     return (
         <>
             <h3>Install</h3>
             <NodeInstallSnippet />
             <h3>Configure</h3>
-            <NodeSetupSnippet />
+            <NodeSetupSnippet {...props} />
         </>
     )
 }

@@ -1,5 +1,17 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
+export function NodeManualCapture(): JSX.Element {
+    return (
+        <>
+            <h4>Optional: Capture exceptions manually</h4>
+            <p>If you'd like, you can manually capture exceptions that you handle in your application.</p>
+            <CodeSnippet language={Language.JavaScript}>
+                posthog.captureException(error, 'user_distinct_id', additionalProperties)
+            </CodeSnippet>
+        </>
+    )
+}
+
 export function JSManualCapture(): JSX.Element {
     return (
         <>

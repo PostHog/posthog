@@ -1,17 +1,60 @@
-import { NodeInstallSnippet, NodeSetupSnippet } from '../sdk-install-instructions'
+import { Link } from '@posthog/lemon-ui'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
+import { SDKInstallNodeInstructions } from '../sdk-install-instructions'
 import { SDKInstallSvelteJSInstructions } from '../sdk-install-instructions/svelte'
+import { JSManualCapture, NodeManualCapture } from './FinalSteps'
 
 export function SvelteInstructions(): JSX.Element {
     return (
         <>
+            <p>
+                PostHog exception autocapture relies on{' '}
+                <Link to="https://svelte.dev/docs/kit/hooks" target="_blank">
+                    SvelteKit Hooks
+                </Link>{' '}
+                to capture exceptions in the client and server-side.
+            </p>
+            <h2>Client-side</h2>
             <SDKInstallSvelteJSInstructions />
-            <h3>Client-side rendering</h3>
-            {/* What to do here */}
-            <h3>Server-side rendering</h3>
-            <h4>Install</h4>
-            <NodeInstallSnippet />
-            <h4>Configure</h4>
-            <NodeSetupSnippet />
+            <p>You will need to capture exceptions in the handleError callback in your client-side hooks file.</p>
+            <CodeSnippet language={Language.JavaScript}>{clientSideHooks}</CodeSnippet>
+            <JSManualCapture />
+            <h2>Server-side</h2>
+            <SDKInstallNodeInstructions />
+            <p>
+                To capture exceptions on the server-side, you will also need to implement the <code>handleError</code>{' '}
+                callback
+            </p>
+            <CodeSnippet language={Language.JavaScript}>{serverSideHooks}</CodeSnippet>
+            <NodeManualCapture />
         </>
     )
 }
+
+const clientSideHooks = `// src/hooks.client.js
+
+import { captureException } from 'posthog-js';
+import type { HandleClientError } from '@sveltejs/kit';
+
+export const handleError = ({ error, status }: HandleClientError) => {
+    // SvelteKit 2.0 offers a reliable way to check for a 404 error:
+    if (status !== 404) {
+        captureException(error);
+    }
+};
+`
+
+const serverSideHooks = `// src/hooks.server.js
+
+import type { HandleServerError } from '@sveltejs/kit';
+import { captureException, shutdown } from 'posthog-node';
+
+export const handleError = async ({ error, status }: HandleServerError) => {
+    if (status !== 404) {
+        captureException(error);
+        
+        await shutdown();
+    }
+};
+`
