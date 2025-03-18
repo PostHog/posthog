@@ -24,21 +24,25 @@ import { Logo } from '~/toolbar/assets/Logo'
 import { playerMetaLogic } from './playerMetaLogic'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 
-function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element | null {
-    if (isObject(lastUrl) && 'href' in lastUrl) {
+function URLOrScreen({ lastUrl }: { lastUrl: unknown }): JSX.Element | null {
+    let urlToUse: string | undefined = typeof lastUrl === 'string' ? lastUrl : undefined
+    if (isObject(lastUrl)) {
         // regression protection, we saw a user whose site was sometimes sending the string-ified location object
         // this is a best-effort attempt to show the href in that case
-        lastUrl = lastUrl['href'] as string | undefined
+        const maybeHref = lastUrl?.href
+        if (typeof maybeHref === 'string') {
+            urlToUse = maybeHref
+        }
     }
 
-    if (!lastUrl) {
+    if (!urlToUse || urlToUse.trim() === '') {
         return null
     }
 
     // re-using the rrweb web schema means that this might be a mobile replay screen name
     let isValidUrl = false
     try {
-        new URL(lastUrl || '')
+        new URL(urlToUse)
         isValidUrl = true
     } catch (_e) {
         // no valid url
@@ -50,17 +54,17 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
             <span className="flex flex-row items-center deprecated-space-x-1 truncate">
                 {isValidUrl ? (
                     <Tooltip title="Click to open url">
-                        <Link to={lastUrl} target="_blank" className="truncate">
-                            {lastUrl}
+                        <Link to={urlToUse} target="_blank" className="truncate">
+                            {urlToUse}
                         </Link>
                     </Tooltip>
                 ) : (
-                    lastUrl
+                    urlToUse
                 )}
                 <span className="flex items-center">
                     <CopyToClipboardInline
-                        description={lastUrl}
-                        explicitValue={lastUrl}
+                        description={urlToUse}
+                        explicitValue={urlToUse}
                         iconStyle={{ color: 'var(--text-secondary)' }}
                         selectable={true}
                     />
