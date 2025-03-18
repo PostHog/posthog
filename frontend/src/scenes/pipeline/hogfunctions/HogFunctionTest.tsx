@@ -320,11 +320,24 @@ export function HogFunctionTest(): JSX.Element {
                     <>
                         {testResult ? (
                             <div className="deprecated-space-y-2" data-attr="test-results">
-                                <LemonBanner type={testResult.status === 'success' ? 'success' : 'error'}>
-                                    {testResult.status === 'success' ? 'Success' : 'Error'}
+                                <LemonBanner
+                                    type={
+                                        testResult.status === 'success'
+                                            ? 'success'
+                                            : testResult.status === 'skipped'
+                                            ? 'warning'
+                                            : 'error'
+                                    }
+                                >
+                                    {testResult.status === 'success'
+                                        ? 'Success'
+                                        : testResult.status === 'skipped'
+                                        ? 'Transformation was skipped because the event did not match the filter criteria'
+                                        : 'Error'}
                                 </LemonBanner>
 
-                                {type === 'transformation' && testResult.status === 'success' ? (
+                                {type === 'transformation' &&
+                                (testResult.status === 'success' || testResult.status === 'skipped') ? (
                                     <>
                                         <div className="flex items-center justify-between gap-2">
                                             <LemonLabel>Transformation result</LemonLabel>
@@ -346,7 +359,9 @@ export function HogFunctionTest(): JSX.Element {
                                             <>
                                                 {!sortedTestsResult?.hasDiff && (
                                                     <LemonBanner type="info">
-                                                        The event was unmodified by the transformation.
+                                                        {testResult.status === 'skipped'
+                                                            ? 'The event was not modified as it did not match the filter criteria.'
+                                                            : 'The event was unmodified by the transformation.'}
                                                     </LemonBanner>
                                                 )}
                                                 <CodeEditorResizeable
