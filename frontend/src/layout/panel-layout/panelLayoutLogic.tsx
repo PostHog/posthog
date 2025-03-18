@@ -42,7 +42,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
             },
         ],
         isLayoutPanelCloseable: [
-            false,
+            true,
             {
                 showLayoutPanel: () => true,
                 toggleLayoutPanelPinned: () => false,

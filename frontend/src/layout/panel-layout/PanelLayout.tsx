@@ -98,6 +98,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
             {isMobileLayout && showMobileNavbarOverlay && (
                 <div
                     onClick={() => {
+                        // Pinned or not, hide the navbar and panel
                         showLayoutNavBar(false)
                         showLayoutPanel(false)
                         clearActivePanelIdentifier()
@@ -108,8 +109,10 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
             {!isMobileLayout && showDesktopNavbarOverlay && (
                 <div
                     onClick={() => {
-                        showLayoutPanel(false)
-                        clearActivePanelIdentifier()
+                        if (!isLayoutPanelPinned) {
+                            showLayoutPanel(false)
+                            clearActivePanelIdentifier()
+                        }
                     }}
                     className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
                 />

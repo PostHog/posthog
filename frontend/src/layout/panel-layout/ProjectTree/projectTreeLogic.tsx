@@ -29,7 +29,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             panelLayoutLogic,
-            ['searchTerm', 'isLayoutPanelCloseable'],
+            ['searchTerm', 'isLayoutPanelPinned'],
         ],
     }),
     actions({
@@ -318,15 +318,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes), folderStates, 'root'),
         ],
         projectRow: [
-            (s) => [s.isLayoutPanelCloseable],
-            (isLayoutPanelCloseable): TreeDataItem[] => [
+            (s) => [s.isLayoutPanelPinned],
+            (isLayoutPanelPinned): TreeDataItem[] => [
                 {
                     id: 'project',
                     name: 'Default Project',
                     icon: <IconBook />,
                     record: { type: 'project', id: 'project' },
                     onClick: () => {
-                        if (isLayoutPanelCloseable) {
+                        if (!isLayoutPanelPinned) {
                             panelLayoutLogic.actions.showLayoutPanel(false)
                         }
                         router.actions.push(urls.projectHomepage())

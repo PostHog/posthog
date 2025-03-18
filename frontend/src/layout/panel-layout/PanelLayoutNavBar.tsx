@@ -50,7 +50,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { showLayoutPanel, setActivePanelIdentifier, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, activePanelIdentifier, mainContentRef } = useValues(panelLayoutLogic)
+    const { isLayoutPanelVisible, activePanelIdentifier, mainContentRef, isLayoutPanelPinned } =
+        useValues(panelLayoutLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { navbarItems } = useValues(navigation3000Logic)
     const { activeScene } = useValues(sceneLogic)
@@ -63,8 +64,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (!isLayoutPanelVisible) {
             showLayoutPanel(true)
         } else {
-            showLayoutPanel(false)
-            clearActivePanelIdentifier()
+            if (!isLayoutPanelPinned) {
+                showLayoutPanel(false)
+                clearActivePanelIdentifier()
+            }
         }
 
         if (activePanelIdentifier !== item) {
@@ -73,8 +76,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     }
 
     function handleStaticNavbarItemClick(navbarItem: NavbarItem, isKeyboardAction = false): void {
-        clearActivePanelIdentifier()
-        showLayoutPanel(false)
+        if (!isLayoutPanelPinned) {
+            clearActivePanelIdentifier()
+            showLayoutPanel(false)
+        }
 
         if (isKeyboardAction) {
             mainContentRef?.current?.focus()
@@ -114,7 +119,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto pt-1">
                         <ScrollableShadows innerClassName="overflow-y-auto px-2 " direction="vertical">
-                            <div className="pb-3">
+                            <div className="pb-1">
                                 <LemonButton
                                     className={cn(
                                         'hover:bg-fill-highlight-100',
@@ -168,8 +173,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     size="small"
                                     to={urls.activity()}
                                     onClick={() => {
-                                        if (isLayoutPanelVisible) {
+                                        if (!isLayoutPanelPinned) {
                                             showLayoutPanel(false)
+                                            clearActivePanelIdentifier()
                                         }
                                     }}
                                 >
@@ -179,7 +185,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                             <div className="border-b border-secondary h-px -mx-2" />
 
-                            <div className="pt-3">
+                            <div className="pt-1">
                                 <div className="flex justify-between items-center pt-1 pl-2 pr-0 pb-2">
                                     <span className="text-xs font-bold text-tertiary">Products</span>
                                 </div>
@@ -244,10 +250,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="border-b border-secondary h-px" />
 
-                        <div className="pt-3 px-2">
-                            <div className="flex justify-between items-center pt-1 pl-2 pr-0 pb-2">
-                                <span className="text-xs font-bold text-tertiary">Settings & tools</span>
-                            </div>
+                        <div className="pt-1 px-2">
                             <LemonButton
                                 className="hover:bg-fill-highlight-100"
                                 icon={

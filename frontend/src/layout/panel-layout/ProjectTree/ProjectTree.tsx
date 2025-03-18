@@ -16,7 +16,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree(): JSX.Element {
-    const { treeData, loadingPaths, expandedFolders, lastViewedId, viableItems } = useValues(projectTreeLogic)
+    const { treeData, loadingPaths, lastViewedId, viableItems } = useValues(projectTreeLogic)
 
     const {
         createFolder,
@@ -30,7 +30,7 @@ export function ProjectTree(): JSX.Element {
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const { isLayoutPanelPinned, mainContentRef } = useValues(panelLayoutLogic)
+    const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
 
     const handleCopyPath = (path?: string): void => {
@@ -80,17 +80,18 @@ export function ProjectTree(): JSX.Element {
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
                 data={treeData}
-                expandedItemIds={expandedFolders}
+                // Commented out until we fix the bug here where folders are not expanded/loaded, this is a bug in the projectTreeLogic + LemonTree
+                // expandedItemIds={expandedFolders}
                 isFinishedBuildingTreeData={Object.keys(loadingPaths).length === 0}
                 defaultSelectedFolderOrNodeId={lastViewedId || undefined}
                 onNodeClick={(node) => {
-                    clearActivePanelIdentifier()
+                    if (!isLayoutPanelPinned) {
+                        clearActivePanelIdentifier()
+                        showLayoutPanel(false)
+                    }
 
                     if (node?.record?.path) {
                         setLastViewedId(node?.id || '')
-                        if (!isLayoutPanelPinned) {
-                            showLayoutPanel(false)
-                        }
                     }
                     if (node?.id.startsWith('project-load-more/')) {
                         const path = node.id.split('/').slice(1).join('/')
