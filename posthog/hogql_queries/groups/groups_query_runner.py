@@ -30,7 +30,7 @@ class GroupsQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        where_exprs = []
+        where_exprs: list[ast.Expr] = []
 
         where_exprs.append(
             ast.CompareOperation(
