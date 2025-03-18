@@ -1,5 +1,5 @@
 [workspace]
-members = ["cargo:posthog-cli"]
+members = ["cargo:./rust"]
 
 # Config for 'dist'
 [dist]
