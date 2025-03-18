@@ -310,50 +310,47 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
             SLOW_POLL_INTERVAL = 1.0
             UPDATE_INTERVAL = 1.0  # How often to send updates to client
 
-            try:
-                while time.time() - start_time < MAX_QUERY_TIMEOUT:
-                    # Check if the query task has completed
-                    if query_task.done():
-                        try:
-                            result = query_task.result()
-                        except (ExposedHogQLError, ExposedCHQueryError) as e:
-                            yield f"data: {json.dumps({'error': str(e), 'status_code': 400})}\n\n".encode()
-                        except Exception:
-                            yield f"data: {json.dumps({'error': 'Server error'})}\n\n".encode()
-
-                        if isinstance(result, BaseModel):
-                            yield f"data: {result.model_dump_json(by_alias=True)}\n\n".encode()
-                        else:
-                            yield f"data: {json.dumps(result)}\n\n".encode()
-                        break
-
+            while time.time() - start_time < MAX_QUERY_TIMEOUT:
+                # Check if the query task has completed
+                if query_task.done():
                     try:
-                        # Try to get a status updates while waiting
-                        current_time = time.time()
-                        if current_time - last_update_time >= UPDATE_INTERVAL:
-                            status = await sync_to_async(manager.get_clickhouse_progresses)()
-
-                            if isinstance(status, BaseModel):
-                                status_update = {"complete": False, **status.model_dump(by_alias=True)}
-                                yield f"data: {json.dumps(status_update)}\n\n".encode()
-                                last_update_time = current_time
-                    # Just ignore errors when getting progress, shouldn't impact users
-                    except Exception as e:
+                        result = query_task.result()
+                    except asyncio.CancelledError as e:
+                        # Handle the cancellation as an SSE event
+                        yield f"data: {json.dumps({'error': 'Query was cancelled', 'status_code': 499})}\n\n".encode()
                         capture_exception(e)
+                    except (ExposedHogQLError, ExposedCHQueryError) as e:
+                        yield f"data: {json.dumps({'error': str(e), 'status_code': 400})}\n\n".encode()
+                    except Exception:
+                        yield f"data: {json.dumps({'error': 'Server error'})}\n\n".encode()
 
-                    elapsed_time = time.time() - start_time
-                    if elapsed_time < FAST_POLL_DURATION:
-                        await asyncio.sleep(FAST_POLL_INTERVAL)
-                    elif elapsed_time < MEDIUM_POLL_DURATION:
-                        await asyncio.sleep(MEDIUM_POLL_INTERVAL)
+                    if isinstance(result, BaseModel):
+                        yield f"data: {result.model_dump_json(by_alias=True)}\n\n".encode()
                     else:
-                        await asyncio.sleep(SLOW_POLL_INTERVAL)
+                        yield f"data: {json.dumps(result)}\n\n".encode()
+                    break
 
-            finally:
-                # If we break the loop early, ensure we cancel the query task
-                if not query_task.done():
-                    query_task.cancel()
-                    yield f"data: {json.dumps({'error': 'Query cancelled'})}\n\n".encode()
+                try:
+                    # Try to get a status updates while waiting
+                    current_time = time.time()
+                    if current_time - last_update_time >= UPDATE_INTERVAL:
+                        status = await sync_to_async(manager.get_clickhouse_progresses)()
+
+                        if isinstance(status, BaseModel):
+                            status_update = {"complete": False, **status.model_dump(by_alias=True)}
+                            yield f"data: {json.dumps(status_update)}\n\n".encode()
+                            last_update_time = current_time
+                # Just ignore errors when getting progress, shouldn't impact users
+                except Exception as e:
+                    capture_exception(e)
+
+                elapsed_time = time.time() - start_time
+                if elapsed_time < FAST_POLL_DURATION:
+                    await asyncio.sleep(FAST_POLL_INTERVAL)
+                elif elapsed_time < MEDIUM_POLL_DURATION:
+                    await asyncio.sleep(MEDIUM_POLL_INTERVAL)
+                else:
+                    await asyncio.sleep(SLOW_POLL_INTERVAL)
 
         return StreamingHttpResponse(
             event_stream(),
