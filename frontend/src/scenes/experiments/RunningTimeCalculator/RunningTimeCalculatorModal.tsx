@@ -1,13 +1,20 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonModal,
+    LemonSegmentedButton,
+    LemonSelect,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
 
 import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../experimentLogic'
-import { getMetricTitle } from '../MetricsView/DeltaChart'
+import { MetricTitle } from '../MetricsView/MetricTitle'
 import {
     AverageEventsPerUserPanel,
     AveragePropertyValuePerUserPanel,
@@ -184,7 +191,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                     label: (
                                         <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
                                             <span className="mr-1">{index + 1}.</span>
-                                            {getMetricTitle(metric)}
+                                            <MetricTitle metric={metric} />
                                         </div>
                                     ),
                                     value: index,
