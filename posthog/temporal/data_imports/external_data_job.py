@@ -37,7 +37,10 @@ from posthog.warehouse.external_data_source.jobs import update_external_job_stat
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import update_should_sync
 
-Any_Source_Errors: list[str] = ["Could not establish session to SSH gateway"]
+Any_Source_Errors: list[str] = [
+    "Could not establish session to SSH gateway",
+    "Primary key required for incremental syncs",
+]
 
 Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
     ExternalDataSource.Type.STRIPE: [
@@ -255,7 +258,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 import_data_activity_sync,
                 job_inputs,
-                heartbeat_timeout=dt.timedelta(minutes=5),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 **timeout_params,
             )  # type: ignore
 

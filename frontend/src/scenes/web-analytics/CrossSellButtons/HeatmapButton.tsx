@@ -45,8 +45,12 @@ export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.E
         return <></>
     }
 
-    // Replace double slashes with single slashes in case domain has a trailing slash, and value has a leading slash
-    const url = `${webAnalyticsSelectedDomain}${value}`.replace(/\/\//g, '/')
+    // Normalize domain and path then join with a slash
+    const domain = webAnalyticsSelectedDomain.endsWith('/')
+        ? webAnalyticsSelectedDomain.slice(0, -1)
+        : webAnalyticsSelectedDomain
+    const path = value.startsWith('/') ? value.slice(1) : value
+    const url = `${domain}/${path}`
 
     // Decide whether to use the new heatmaps UI or launch the user's website with the toolbar + heatmaps
     const to = featureFlags[FEATURE_FLAGS.HEATMAPS_UI]

@@ -138,6 +138,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CAPTURE_CONFIG_REDIS_HOST: null,
         USE_SIMD_JSON_PARSE: isProdEnv() ? false : true, // TODO: Set true once done testing
         USE_SIMD_JSON_PARSE_FOR_COMPARISON: false,
+        LAZY_LOADER_DEFAULT_BUFFER_MS: 100,
 
         // posthog
         POSTHOG_API_KEY: '',
@@ -203,6 +204,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
+        CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED: true,
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

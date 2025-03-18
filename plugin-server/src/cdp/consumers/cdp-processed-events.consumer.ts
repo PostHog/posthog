@@ -3,7 +3,7 @@ import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
-import { Hub, RawClickHouseEvent } from '~/src/types'
+import { Hub, RawClickHouseEvent, TeamId } from '~/src/types'
 
 import {
     convertToHogFunctionInvocationGlobals,
@@ -13,9 +13,9 @@ import {
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { parseJSON } from '../../utils/json-parse'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { HogWatcherState } from '../services/hog-watcher.service'
-import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
+import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
 export const histogramCyclotronJobsCreated = new Histogram({
@@ -78,8 +78,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 }
             }
         } catch (e) {
-            status.error('⚠️', 'Error creating cyclotron jobs', e)
-            status.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
+            logger.error('⚠️', 'Error creating cyclotron jobs', e)
+            logger.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
             throw e
         }
 
@@ -98,9 +98,38 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
         return await this.runInstrumented('handleEachBatch.queueMatchingFunctions', async () => {
             // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
             await this.groupsManager.enrichGroups(invocationGlobals)
+
+            const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
+
+            let lazyLoadedTeams: Record<TeamId, HogFunctionType[] | undefined> | undefined
+
+            if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && teamsToLoad.length > 0) {
+                lazyLoadedTeams = await this.hogFunctionManagerLazy.getHogFunctionsForTeams(teamsToLoad, this.hogTypes)
+            }
+            const hogFunctionsByTeam = teamsToLoad.reduce((acc, teamId) => {
+                acc[teamId] = this.hogFunctionManager.getTeamHogFunctions(teamId)
+                return acc
+            }, {} as Record<TeamId, HogFunctionType[]>)
+
             const possibleInvocations = (
                 await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
-                    const { invocations, metrics, logs } = this.hogExecutor.findHogFunctionInvocations(globals)
+                    const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
+
+                    if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && lazyLoadedTeams) {
+                        const lazyLoadedTeamHogFunctions = lazyLoadedTeams?.[globals.project.id]
+
+                        if (lazyLoadedTeamHogFunctions?.length !== teamHogFunctions.length) {
+                            logger.warn('Lazy loaded different number of functions', {
+                                lazy: lazyLoadedTeamHogFunctions?.length,
+                                eager: teamHogFunctions.length,
+                            })
+                        }
+                    }
+
+                    const { invocations, metrics, logs } = this.hogExecutor.buildHogFunctionInvocations(
+                        teamHogFunctions,
+                        globals
+                    )
 
                     this.hogFunctionMonitoringService.produceAppMetrics(metrics)
                     this.hogFunctionMonitoringService.produceLogs(logs)
@@ -182,7 +211,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                                     )
                                 )
                             } catch (e) {
-                                status.error('Error parsing message', e)
+                                logger.error('Error parsing message', e)
                             }
                         })
                     )
