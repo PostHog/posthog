@@ -31,7 +31,6 @@ from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
@@ -92,6 +91,8 @@ class TrendsQueryRunner(QueryRunner):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
     ):
+        from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
+
         if isinstance(query, dict):
             query = TrendsQuery.model_validate(query)
 
