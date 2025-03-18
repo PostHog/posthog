@@ -82,6 +82,9 @@ function Header(): JSX.Element {
                                 fullWidth={false}
                                 data-attr="session-recordings-filters-save-as-playlist"
                                 type="primary"
+                                disabledReason={
+                                    totalFiltersCount === 0 ? 'Apply filters to save them as a playlist' : undefined
+                                }
                                 onClick={(e) =>
                                     // choose the type of playlist handler so that analytics correctly report
                                     // whether filters have been changed before saving
