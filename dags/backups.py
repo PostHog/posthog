@@ -201,7 +201,7 @@ class BackupConfig(dagster.Config):
     )
 
 
-def get_most_recent_status(statuses: list[BackupStatus]) -> BackupStatus:
+def get_most_recent_status(statuses: list[BackupStatus]) -> Optional[BackupStatus]:
     """
     Since we can retry backups and we only can identify them by their name (or path to S3),
     in case we retry several times, we can have the same backup failed in one node and
@@ -210,8 +210,9 @@ def get_most_recent_status(statuses: list[BackupStatus]) -> BackupStatus:
     This function will raise an error only if the most recent one didn't succeed
     """
     statuses = [status for status in statuses if status is not None]
-    statuses.sort(key=lambda x: x.event_time_microseconds, reverse=True)
-    return statuses[0]
+    if statuses:
+        statuses.sort(key=lambda x: x.event_time_microseconds, reverse=True)
+        return statuses[0]
 
 
 @dagster.op(out=dagster.DynamicOut())
@@ -272,7 +273,7 @@ def check_latest_backup_status(
         map_hosts(latest_backup.wait).result()
     else:
         most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
-        if most_recent_status.status != "BACKUP_CREATED":
+        if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
             raise ValueError(
                 f"Latest backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
             )
@@ -333,9 +334,9 @@ def wait_for_backup(
     if backup:
         map_hosts(backup.wait).result().values()
         most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
-        if most_recent_status.status != "BACKUP_CREATED":
+        if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
             raise ValueError(
-                f"Latest backup {most_recent_status.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
+                f"Latest backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
             )
     else:
         context.log.info("No backup to wait for")
