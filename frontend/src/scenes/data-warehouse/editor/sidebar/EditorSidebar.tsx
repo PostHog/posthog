@@ -92,7 +92,7 @@ export const EditorSidebar = ({
                 width: `${sidebarWidth}px`,
             }}
         >
-            <div className="border-b w-full">
+            <div className="border-b w-full pt-1">
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={setActiveTab}
