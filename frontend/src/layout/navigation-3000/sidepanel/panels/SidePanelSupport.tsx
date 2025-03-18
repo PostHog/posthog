@@ -30,7 +30,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, BillingType, ProductKey, SidePanelTab } from '~/types'
+import { AvailableFeature, BillingFeatureType, BillingType, ProductKey, SidePanelTab } from '~/types'
 
 import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
@@ -161,6 +161,7 @@ const SupportFormBlock = ({
             </LemonButton>
 
             <br />
+
             {featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE] ? (
                 <div className="border bg-surface-primary p-2 rounded gap-2">
                     <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
@@ -172,13 +173,8 @@ const SupportFormBlock = ({
                         <strong>Support is open Monday - Friday:</strong>
                     </div>
 
-                    {/* Pass null to use default plans with correct response time notes */}
-                    <SupportResponseTimesTable
-                        billing={billing}
-                        hasActiveTrial={hasActiveTrial}
-                        supportPlansToDisplay={null}
-                        isCompact={true}
-                    />
+                    {/* Show response time information from billing plans */}
+                    <SupportResponseTimesTable billing={billing} hasActiveTrial={hasActiveTrial} isCompact={true} />
                 </>
             )}
         </Section>
@@ -186,15 +182,14 @@ const SupportFormBlock = ({
 }
 
 // Table shown to free users on Help panel, instead of email button
+// Support response times are pulled dynamically from billing plans (product.features) where available
 const SupportResponseTimesTable = ({
     billing,
     hasActiveTrial,
-    supportPlansToDisplay,
     isCompact = false,
 }: {
     billing?: BillingType | null
     hasActiveTrial?: boolean
-    supportPlansToDisplay?: any[] | null // Use the correct type from billingLogic
     isCompact?: boolean
 }): JSX.Element => {
     const { supportPlans } = useValues(billingLogic)
@@ -211,22 +206,25 @@ const SupportResponseTimesTable = ({
         platformAndSupportProduct?.plans?.some((a) => a.current_plan && a.plan_key?.includes('enterprise'))
 
     // Check for expired trials
-    const hasOldStyleExpiredTrial = billing?.free_trial_until && billing.free_trial_until.isBefore(dayjs())
-    const hasNewStyleExpiredTrial = billing?.trial?.status === 'expired'
-    const hasExpiredTrial = hasOldStyleExpiredTrial || hasNewStyleExpiredTrial
+    const hasExpiredTrial = billing?.trial?.status === 'expired'
 
     // Get expiry date for expired trials
-    const expiredTrialDate = hasOldStyleExpiredTrial
-        ? billing?.free_trial_until
-        : hasNewStyleExpiredTrial
-        ? dayjs(billing?.trial?.expires_at)
-        : null
+    const expiredTrialDate = hasExpiredTrial ? dayjs(billing?.trial?.expires_at) : null
 
-    // Create a standardized plans array that works for both cases
-    const plansToDisplay = supportPlansToDisplay || [
+    // Get support response time feature from plan
+    const getResponseTimeFeature = (planName: string): BillingFeatureType | undefined => {
+        // Find the plan in supportPlans
+        const plan = supportPlans?.find((p) => p.name === planName)
+
+        // Return the support_response_time feature if found
+        return plan?.features?.find((f) => f.key === AvailableFeature.SUPPORT_RESPONSE_TIME)
+    }
+
+    // Create plans array from billing data - directly determine current_plan status here
+    const plansToDisplay = [
         {
             name: 'Totally free',
-            current_plan: billing?.subscription_level === 'free' && !hasActiveTrial,
+            current_plan: billing?.subscription_level === 'free' && !hasActiveTrial && !hasEnterprisePlan,
             features: [{ note: 'Community support only' }],
             plan_key: 'free',
             link: 'https://posthog.com/questions',
@@ -234,19 +232,19 @@ const SupportResponseTimesTable = ({
         {
             name: 'Ridiculously cheap',
             current_plan: billing?.subscription_level === 'paid' && !teamsAddonActive && !hasEnterprisePlan,
-            features: [{ note: '2 days' }],
+            features: [{ note: getResponseTimeFeature('Ridiculously cheap')?.note || 'Contact sales' }],
             plan_key: 'standard',
         },
         {
             name: 'Teams add-on',
             current_plan: teamsAddonActive,
-            features: [{ note: '1 day' }],
+            features: [{ note: getResponseTimeFeature('Teams add-on')?.note || 'Contact sales' }],
             plan_key: 'teams',
         },
         {
             name: 'Enterprise',
             current_plan: hasEnterprisePlan,
-            features: [{ note: '1 day' }],
+            features: [{ note: getResponseTimeFeature('Enterprise')?.note || 'Contact sales' }],
             plan_key: 'enterprise',
         },
     ]
@@ -269,31 +267,7 @@ const SupportResponseTimesTable = ({
             </div>
 
             {plansToDisplay.map((plan) => {
-                // Check if Teams add-on is active
-                const isCurrentPlan =
-                    plan.current_plan &&
-                    (!hasTeamsAddon || plan.plan_key?.includes('addon')) &&
-                    (!hasActiveTrial || plan.name !== 'Totally free') &&
-                    !(billing?.subscription_level === 'paid' && plan.name === 'Totally free') &&
-                    !(teamsAddonActive && plan.name === 'Ridiculously cheap') &&
-                    !(hasEnterprisePlan && plan.name === 'Ridiculously cheap')
-
-                // For Teams add-on, force it to be the current plan when it's active
-                const isTeamsAddonActive = teamsAddonActive && plan.name === 'Teams add-on'
-
-                // For Enterprise, force it to be the current plan when it's active
-                const isEnterprisePlanActive =
-                    hasEnterprisePlan && billing?.subscription_level === 'paid' && plan.name === 'Enterprise'
-
-                // Check if Ridiculously cheap should show as current plan
-                const isRidiculouslyCheapCurrentPlan =
-                    billing?.subscription_level === 'paid' &&
-                    plan.name === 'Ridiculously cheap' &&
-                    !teamsAddonActive &&
-                    !hasEnterprisePlan
-
-                const isBold =
-                    isCurrentPlan || isTeamsAddonActive || isEnterprisePlanActive || isRidiculouslyCheapCurrentPlan
+                const isBold = plan.current_plan
 
                 const responseNote = plan.features.find(
                     (f: { key?: any; note?: string }) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME || f.note
@@ -327,13 +301,7 @@ const SupportResponseTimesTable = ({
                 <>
                     <div className="font-bold border-t">Your trial</div>
                     <div className="font-bold border-t">1 business day</div>
-                    {/* Show expiration date for both old-style and new-style trials */}
-                    {billing?.free_trial_until && (
-                        <div className="col-span-2 text-sm">
-                            (Trial ends {billing.free_trial_until.format('MMMM D, YYYY')})
-                        </div>
-                    )}
-                    {billing?.trial?.expires_at && !billing?.free_trial_until && (
+                    {billing?.trial?.expires_at && (
                         <div className="col-span-2 text-sm">
                             (Trial ends {dayjs(billing.trial.expires_at).format('MMMM D, YYYY')})
                         </div>
@@ -366,17 +334,16 @@ export const SidePanelSupport = (): JSX.Element => {
 
     const region = preflight?.region
 
-    // Check if user has a paid subscription or is on an active trial
-    const hasActiveTrial =
-        (!!billing?.free_trial_until && billing.free_trial_until.isAfter(dayjs())) ||
-        billing?.trial?.status === 'active'
-
-    const canEmailEngineer = billing?.subscription_level !== 'free' || hasActiveTrial
-
     // In dev, show the support form for paid plans regardless of cloud status
     // In production, only show it for cloud users with paid plans or active trials
     // Note: The backend will validate access rights when processing support requests
     const isDevelopment = process.env.NODE_ENV === 'development'
+
+    // Check if user has a paid subscription or is on an active trial
+    const hasActiveTrial = billing?.trial?.status === 'active'
+
+    const canEmailEngineer = billing?.subscription_level !== 'free' || hasActiveTrial
+
     const showEmailSupport = isDevelopment ? canEmailEngineer : preflight?.cloud && canEmailEngineer
 
     // Ensure billing data is loaded before showing support options
@@ -525,6 +492,11 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </Section>
                             )}
 
+                            {/* Display support plan options for users who can't email support */}
+                            {!showEmailSupport && isBillingLoaded && (
+                                <SupportResponseTimesTable billing={billing} hasActiveTrial={hasActiveTrial} />
+                            )}
+
                             <Section title="Ask the community">
                                 <p>
                                     Questions about features, how-tos, or use cases? There are thousands of discussions
@@ -532,14 +504,6 @@ export const SidePanelSupport = (): JSX.Element => {
                                     <Link to="https://posthog.com/questions">Ask a question</Link>
                                 </p>
                             </Section>
-
-                            {!showEmailSupport && isBillingLoaded && (
-                                <SupportResponseTimesTable
-                                    billing={billing}
-                                    hasActiveTrial={hasActiveTrial}
-                                    supportPlansToDisplay={undefined}
-                                />
-                            )}
 
                             <Section title="Share feedback">
                                 <ul>
