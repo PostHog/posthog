@@ -67,6 +67,16 @@ function EditTextValueComponent({
     )
 }
 
+const propertyTypeToJSType: Record<PropertyType, string> = {
+    [PropertyType.DateTime]: 'string',
+    [PropertyType.String]: 'string',
+    [PropertyType.Numeric]: 'number',
+    [PropertyType.Boolean]: 'boolean',
+    [PropertyType.Duration]: 'number',
+    [PropertyType.Selector]: 'string',
+    [PropertyType.Cohort]: 'number',
+}
+
 function ValueDisplay({ type, value, rootKey, onEdit, nestingLevel }: ValueDisplayType): JSX.Element {
     const { describeProperty } = useValues(propertyDefinitionsModel)
 
@@ -118,9 +128,8 @@ function ValueDisplay({ type, value, rootKey, onEdit, nestingLevel }: ValueDispl
         </span>
     )
 
-    const isTypeMismatched =
-        (propertyType === PropertyType.String && valueType === 'number') ||
-        (propertyType === PropertyType.Numeric && valueType === 'string')
+    // TODO: Why did we only compare string and numeric types here...? I guess because we don't have a way of deriving types that matches prop defs?
+    const isTypeMismatched = propertyType && propertyTypeToJSType[propertyType as PropertyType] !== valueType
 
     return (
         <div className="properties-table-value">
