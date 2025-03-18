@@ -24,7 +24,7 @@ import { Logo } from '~/toolbar/assets/Logo'
 import { playerMetaLogic } from './playerMetaLogic'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 
-function URLOrScreen({ lastUrl }: { lastUrl: unknown }): JSX.Element | null {
+export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isValidUrl: boolean } {
     let urlToUse: string | undefined = typeof lastUrl === 'string' ? lastUrl : undefined
     if (isObject(lastUrl)) {
         // regression protection, we saw a user whose site was sometimes sending the string-ified location object
@@ -37,16 +37,25 @@ function URLOrScreen({ lastUrl }: { lastUrl: unknown }): JSX.Element | null {
     }
 
     if (!urlToUse || urlToUse.trim() === '') {
-        return null
+        return { urlToUse: undefined, isValidUrl: false }
     }
 
-    // re-using the rrweb web schema means that this might be a mobile replay screen name
     let isValidUrl = false
     try {
         new URL(urlToUse)
         isValidUrl = true
     } catch (_e) {
         // no valid url
+    }
+
+    return { urlToUse, isValidUrl }
+}
+
+function URLOrScreen({ lastUrl }: { lastUrl: unknown }): JSX.Element | null {
+    const { urlToUse, isValidUrl } = parseUrl(lastUrl)
+
+    if (!urlToUse) {
+        return null
     }
 
     return (
