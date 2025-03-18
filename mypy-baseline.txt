@@ -209,7 +209,6 @@ posthog/hogql/resolver_utils.py:0: error: Item "SelectSetQueryType" of "SelectQu
 posthog/hogql/resolver_utils.py:0: error: Item "SelectSetQueryType" of "SelectQueryType | SelectSetQueryType" has no attribute "parent"  [union-attr]
 posthog/hogql/resolver_utils.py:0: error: Item "SelectSetQueryType" of "SelectQueryType | SelectSetQueryType" has no attribute "parent"  [union-attr]
 posthog/hogql/resolver_utils.py:0: error: Item "SelectSetQueryType" of "SelectQueryType | SelectSetQueryType" has no attribute "tables"  [union-attr]
-posthog/hogql/test/test_property.py:0: error: Argument 1 to "_property_to_expr" of "TestProperty" has incompatible type "HogQLPropertyFilter"; expected "PropertyGroup | Property | dict[Any, Any] | list[Any]"  [arg-type]
 posthog/hogql/transforms/in_cohort.py:0: error: Argument "table" to "JoinExpr" has incompatible type "Expr"; expected "SelectQuery | SelectSetQuery | Placeholder | HogQLXTag | Field | None"  [arg-type]
 posthog/hogql/transforms/in_cohort.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/in_cohort.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]

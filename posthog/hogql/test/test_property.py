@@ -38,7 +38,7 @@ class TestProperty(BaseTest):
 
     def _property_to_expr(
         self,
-        property: Union[PropertyGroup, Property, dict, list],
+        property: Union[PropertyGroup, Property, HogQLPropertyFilter, dict, list],
         team: Optional[Team] = None,
         scope: Optional[Literal["event", "person", "group"]] = None,
     ):
