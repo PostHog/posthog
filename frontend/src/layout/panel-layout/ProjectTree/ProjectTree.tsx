@@ -1,5 +1,4 @@
-import { IconSort } from '@posthog/icons'
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall, IconSort } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -84,6 +83,12 @@ export function ProjectTree(): JSX.Element {
                 // expandedItemIds={expandedFolders}
                 isFinishedBuildingTreeData={Object.keys(loadingPaths).length === 0}
                 defaultSelectedFolderOrNodeId={lastViewedId || undefined}
+                isItemActive={(item) => {
+                    if (!item.record?.href) {
+                        return false
+                    }
+                    return window.location.href.includes(item.record?.href) ? true : false
+                }}
                 onNodeClick={(node) => {
                     if (!isLayoutPanelPinned) {
                         clearActivePanelIdentifier()
