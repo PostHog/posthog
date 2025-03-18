@@ -33,6 +33,7 @@ pub struct Exception {
     pub exception_type: String,
     #[serde(rename = "value")]
     pub exception_message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mechanism: Option<Mechanism>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub module: Option<String>,
