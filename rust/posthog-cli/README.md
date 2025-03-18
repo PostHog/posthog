@@ -1,4 +1,4 @@
-# Posthog CLI
+# The Posthog CLI
 
 ```bash
 > posthog-cli --help
