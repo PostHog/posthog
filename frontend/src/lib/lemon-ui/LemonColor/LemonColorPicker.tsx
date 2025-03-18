@@ -5,14 +5,12 @@ import { useEffect, useState } from 'react'
 import { LemonColorButton } from './LemonColorButton'
 import { LemonColorList } from './LemonColorList'
 
-const colorTokens = Array.from({ length: 15 }, (_, i) => `preset-${i + 1}`)
-
 type LemonColorPickerProps = {
     themeId?: number
-    // colors?: string[]
-    // colorTokens?: DataColorToken[]
-    // selectedColor?: string | null
-    // selectedColorToken?: DataColorToken | null
+    colors?: string[]
+    colorTokens?: DataColorToken[]
+    selectedColor?: string | null
+    selectedColorToken?: DataColorToken | null
     onClick: {
         (color: string): void
         (colorToken: DataColorToken): void
@@ -22,8 +20,12 @@ type LemonColorPickerProps = {
 }
 
 export const LemonColorPickerOverlay = ({
-    onClick,
     themeId,
+    colors,
+    colorTokens,
+    selectedColor,
+    selectedColorToken,
+    onClick,
     showCustomColor = false,
 }: Omit<LemonColorPickerProps, 'hideDropdown'>): JSX.Element => {
     const [color, setColor] = useState('#ff0000')
@@ -42,8 +44,10 @@ export const LemonColorPickerOverlay = ({
             <LemonLabel className="mt-1 mb-0.5">Preset colors</LemonLabel>
             <LemonColorList
                 themeId={themeId}
-                colorTokens={colorTokens.slice(0, 11)}
-                selectedColorToken={colorTokens[3]}
+                colors={colors}
+                colorTokens={colorTokens}
+                selectedColor={selectedColor}
+                selectedColorToken={selectedColorToken}
                 onClick={onClick}
             />
             {showCustomColor && (

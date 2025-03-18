@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { DataColorToken } from 'lib/colors'
 
 import { LemonColorPicker } from './LemonColorPicker'
 
@@ -10,14 +11,16 @@ const meta: Meta<typeof LemonColorPicker> = {
 }
 export default meta
 
+const colorTokens: DataColorToken[] = Array.from({ length: 15 }, (_, i) => `preset-${i + 1}` as DataColorToken)
+
 export const Default: Story = {
-    render: () => <LemonColorPicker />,
+    render: () => <LemonColorPicker colorTokens={colorTokens} onClick={(value) => alert(value)} />,
 }
 
 export const ShowCustomColor: Story = {
-    render: () => <LemonColorPicker showCustomColor />,
+    render: () => <LemonColorPicker colorTokens={colorTokens} onClick={(value) => alert(value)} showCustomColor />,
 }
 
-export const hideDropdown: Story = {
-    render: () => <LemonColorPicker hideDropdown />,
+export const HideDropdown: Story = {
+    render: () => <LemonColorPicker colorTokens={colorTokens} onClick={(value) => alert(value)} hideDropdown />,
 }
