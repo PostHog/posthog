@@ -25,9 +25,6 @@ class FileSystemSyncMixin(models.Model):
     class Meta:
         abstract = True
 
-    #
-    # ABSTRACT METHODS the child must implement:
-    #
     @classmethod
     def get_unfiled_queryset(cls, team: "Team") -> QuerySet[Any]:
         """
@@ -42,9 +39,6 @@ class FileSystemSyncMixin(models.Model):
         """
         raise NotImplementedError()
 
-    #
-    # HELPER to exclude items that already exist in FileSystem
-    #
     @classmethod
     def _filter_unfiled_queryset(cls, qs: QuerySet, team: "Team", ref_field: str) -> QuerySet:
         """
@@ -64,16 +58,9 @@ class FileSystemSyncMixin(models.Model):
         )
         return annotated_qs.filter(already_saved=False)
 
-    #
-    # SIGNALS: We hook into Django's post_save & post_delete to keep FileSystem in sync.
-    #
     @classmethod
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-
-        # If it's still abstract, don't register signals
-        if cls._meta.abstract:
-            return
 
         @receiver(post_save, sender=cls)
         def _file_system_post_save(sender, instance: FileSystemSyncMixin, created, **kwargs):

@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class FeatureFlag(ModelActivityMixin, FileSystemSyncMixin, models.Model):
+class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, models.Model):
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
     name = models.TextField(

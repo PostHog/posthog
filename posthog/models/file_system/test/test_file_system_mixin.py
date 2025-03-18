@@ -4,12 +4,12 @@ from posthog.models import (
     Team,
     User,
     Organization,
-    FeatureFlag,  # Assume each of these models extends FileSystemSyncMixin
-    Experiment,  # and sets file_system_config_key to "experiment", etc.
+    FeatureFlag,
+    Experiment,
     Insight,
     Dashboard,
     Notebook,
-    FileSystem,  # The DB model
+    FileSystem,
 )
 
 

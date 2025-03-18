@@ -15,7 +15,6 @@ if TYPE_CHECKING:
 
 
 class Notebook(FileSystemSyncMixin, UUIDModel):
-    file_system_config_key = "notebook"
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     title = models.CharField(max_length=256, blank=True, null=True)
