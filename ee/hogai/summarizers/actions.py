@@ -1,5 +1,6 @@
 from collections import defaultdict
 
+from ee.hogai.summarizers.utils import Summarizer
 from posthog.models.action.action import Action, ActionStepJSON, ActionStepMatching
 
 from .property_filters import (
@@ -15,7 +16,7 @@ ACTION_MATCH_FILTER_VERBOSE_NAME: dict[ActionStepMatching, str] = {
 }
 
 
-class ActionSummarizer:
+class ActionSummarizer(Summarizer):
     _action: Action
     _taxonomy: set[PropertyFilterTaxonomyEntry]
     _step_descriptions: list[str]
@@ -30,8 +31,7 @@ class ActionSummarizer:
             self._step_descriptions.append(step_desc)
             self._taxonomy.update(used_events)
 
-    @property
-    def summary(self) -> str:
+    def _generate_summary(self) -> str:
         steps = "\n\nOR\n\n".join(self._step_descriptions)
         description = f"Name: {self._action.name}\nDescription: {self._action.description or '-'}\n\n{steps}"
         return description
