@@ -38,7 +38,7 @@ export function ChainedStackTraces({
     }, [exceptionList, loadFromRawIds])
 
     return (
-        <>
+        <div className="flex flex-col gap-y-2">
             {exceptionList.map(({ stacktrace, value, type }, index) => {
                 if (stacktrace && stacktrace.type === 'resolved') {
                     const { frames } = stacktrace
@@ -53,8 +53,13 @@ export function ChainedStackTraces({
                             className={clsx('StackTrace flex flex-col gap-y-2', embedded && 'StackTrace--embedded')}
                         >
                             <div className="flex flex-col gap-0.5">
-                                <h3 className="StackTrace__type mb-0">{type}</h3>
-                                <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs">
+                                <h3 className="StackTrace__type mb-0" title={type}>
+                                    {type}
+                                </h3>
+                                <div
+                                    className="StackTrace__value line-clamp-2 text-secondary italic text-xs"
+                                    title={value}
+                                >
                                     {value}
                                 </div>
                             </div>
@@ -63,7 +68,7 @@ export function ChainedStackTraces({
                     )
                 }
             })}
-        </>
+        </div>
     )
 }
 
