@@ -9,6 +9,7 @@ from rest_framework.parsers import MultiPartParser, FileUploadParser
 
 from django.http import JsonResponse
 from django.conf import settings
+from django.db import transaction
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -132,49 +133,75 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         assignee = request.data.get("assignee", None)
         instance = self.get_object()
 
-        assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=instance.id).first()
-        serialized_assignment_before = (
-            ErrorTrackingIssueAssignmentSerializer(assignment_before).data if assignment_before else None
+        assign_issue(
+            instance, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
         )
 
-        if assignee:
-            assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
-                issue_id=instance.id,
-                defaults={
-                    "user_id": None if assignee["type"] == "user_group" else assignee["id"],
-                    "user_group_id": None if assignee["type"] == "user" else assignee["id"],
-                },
-            )
+        return Response({"success": True})
 
-            serialized_assignment_after = (
-                ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None
-            )
-        else:
-            if assignment_before:
-                assignment_before.delete()
-            serialized_assignment_after = None
+    @action(methods=["POST"], detail=False)
+    def bulk(self, request, **kwargs):
+        action = request.data.get("action")
+        issues = self.queryset.filter(id__in=request.data.get("ids", []))
 
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=request.user,
-            was_impersonated=is_impersonated_session(request),
-            item_id=str(instance.id),
-            scope="ErrorTrackingIssue",
-            activity="assigned",
-            detail=Detail(
-                name=instance.name,
-                changes=[
-                    Change(
-                        type="ErrorTrackingIssue",
-                        field="assignee",
-                        before=serialized_assignment_before,
-                        after=serialized_assignment_after,
-                        action="changed",
+        with transaction.atomic():
+            if action == "resolve":
+                for issue in issues:
+                    log_activity(
+                        organization_id=self.organization.id,
+                        team_id=self.team_id,
+                        user=request.user,
+                        was_impersonated=is_impersonated_session(request),
+                        item_id=issue.id,
+                        scope="ErrorTrackingIssue",
+                        activity="updated",
+                        detail=Detail(
+                            name=issue.name,
+                            changes=[
+                                Change(
+                                    type="ErrorTrackingIssue",
+                                    action="changed",
+                                    field="status",
+                                    before=issue.status,
+                                    after=ErrorTrackingIssue.Status.RESOLVED,
+                                )
+                            ],
+                        ),
                     )
-                ],
-            ),
-        )
+
+                issues.update(status=ErrorTrackingIssue.Status.RESOLVED)
+            elif action == "assign":
+                assignee = request.data.get("assignee", None)
+
+                for issue in issues:
+                    assign_issue(
+                        issue, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
+                    )
+            elif action == "suppress":
+                for issue in issues:
+                    log_activity(
+                        organization_id=self.organization.id,
+                        team_id=self.team_id,
+                        user=request.user,
+                        was_impersonated=is_impersonated_session(request),
+                        item_id=issue.id,
+                        scope="ErrorTrackingIssue",
+                        activity="updated",
+                        detail=Detail(
+                            name=issue.name,
+                            changes=[
+                                Change(
+                                    type="ErrorTrackingIssue",
+                                    action="changed",
+                                    field="status",
+                                    before=issue.status,
+                                    after=ErrorTrackingIssue.Status.SUPPRESSED,
+                                )
+                            ],
+                        ),
+                    )
+
+                issues.update(status=ErrorTrackingIssue.Status.SUPPRESSED)
 
         return Response({"success": True})
 
@@ -203,6 +230,52 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+
+def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_id, was_impersonated):
+    assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).first()
+    serialized_assignment_before = (
+        ErrorTrackingIssueAssignmentSerializer(assignment_before).data if assignment_before else None
+    )
+
+    if assignee:
+        assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
+            issue_id=issue.id,
+            defaults={
+                "user_id": None if assignee["type"] == "user_group" else assignee["id"],
+                "user_group_id": None if assignee["type"] == "user" else assignee["id"],
+            },
+        )
+
+        serialized_assignment_after = (
+            ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None
+        )
+    else:
+        if assignment_before:
+            assignment_before.delete()
+        serialized_assignment_after = None
+
+    log_activity(
+        organization_id=organization.id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=str(issue.id),
+        scope="ErrorTrackingIssue",
+        activity="assigned",
+        detail=Detail(
+            name=issue.name,
+            changes=[
+                Change(
+                    type="ErrorTrackingIssue",
+                    field="assignee",
+                    before=serialized_assignment_before,
+                    after=serialized_assignment_after,
+                    action="changed",
+                )
+            ],
+        ),
+    )
 
 
 class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
@@ -276,12 +349,20 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         data = request.data["file"].read()
         (storage_ptr, content_hash) = upload_content(bytearray(data))
 
-        ErrorTrackingSymbolSet.objects.create(
-            team=self.team,
-            storage_ptr=storage_ptr,
-            content_hash=content_hash,
-            ref=chunk_id,
-        )
+        with transaction.atomic():
+            # Use update_or_create for proper upsert behavior
+            symbol_set, created = ErrorTrackingSymbolSet.objects.update_or_create(
+                team=self.team,
+                ref=chunk_id,
+                defaults={
+                    "storage_ptr": storage_ptr,
+                    "content_hash": content_hash,
+                    "failure_reason": None,
+                },
+            )
+
+            # Delete any existing frames associated with this symbol set
+            ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 

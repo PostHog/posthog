@@ -152,8 +152,9 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                                 disabledReason={billingLoading && 'Please wait...'}
                                 disableClientSideRouting
                                 loading={!!billingLoading}
-                                onClick={showPaymentEntryModal}
+                                onClick={() => showPaymentEntryModal()}
                                 data-attr="onboarding-subscribe-button"
+                                fullWidth
                             >
                                 {planData.ctaText}
                             </BillingUpgradeCTA>
@@ -162,7 +163,6 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                                 to={getUpgradeProductLink({
                                     product,
                                     redirectPath,
-                                    includeAddons: true,
                                 })}
                                 type="primary"
                                 status={highlight ? 'alt' : undefined}
@@ -173,6 +173,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                                     reportBillingUpgradeClicked(product.type)
                                 }}
                                 data-attr="onboarding-subscribe-button"
+                                fullWidth
                             >
                                 {planData.ctaText}
                             </BillingUpgradeCTA>

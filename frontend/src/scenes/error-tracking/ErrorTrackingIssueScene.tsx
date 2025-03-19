@@ -25,11 +25,12 @@ export const scene: SceneExport = {
     }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint }),
 }
 
-const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
+export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
     active: 'Active',
     archived: 'Archived',
     resolved: 'Resolved',
     pending_release: 'Pending release',
+    suppressed: 'Suppressed',
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
@@ -63,6 +64,14 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                         </LemonButton>
                                         <LemonButton type="primary" onClick={() => updateIssue({ status: 'resolved' })}>
                                             Resolve
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="secondary"
+                                            status="danger"
+                                            tooltip="Stop capturing these errors"
+                                            onClick={() => updateIssue({ status: 'suppressed' })}
+                                        >
+                                            Suppress
                                         </LemonButton>
                                     </div>
                                 </div>

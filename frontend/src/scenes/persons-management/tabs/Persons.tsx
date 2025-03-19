@@ -7,5 +7,5 @@ export function Persons(): JSX.Element {
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
 
-    return <Query query={query} setQuery={setQuery} context={{ refresh: true }} dataAttr="persons-table" />
+    return <Query query={query} setQuery={setQuery} context={{ refresh: 'blocking' }} dataAttr="persons-table" />
 }

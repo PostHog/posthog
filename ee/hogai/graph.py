@@ -11,6 +11,7 @@ from ee.hogai.funnels.nodes import (
     FunnelPlannerNode,
     FunnelPlannerToolsNode,
 )
+from ee.hogai.inkeep_docs.nodes import InkeepDocsNode
 from ee.hogai.memory.nodes import (
     MemoryCollectorNode,
     MemoryCollectorToolsNode,
@@ -19,6 +20,7 @@ from ee.hogai.memory.nodes import (
     MemoryOnboardingNode,
 )
 from ee.hogai.query_executor.nodes import QueryExecutorNode
+from ee.hogai.rag.nodes import InsightRagContextNode
 from ee.hogai.retention.nodes import (
     RetentionGeneratorNode,
     RetentionGeneratorToolsNode,
@@ -38,7 +40,6 @@ from ee.hogai.sql.nodes import (
     SQLPlannerNode,
     SQLPlannerToolsNode,
 )
-from ee.hogai.inkeep_docs.nodes import InkeepDocsNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
 
@@ -75,10 +76,7 @@ class AssistantGraph:
     ):
         builder = self._graph
         path_map = path_map or {
-            "trends": AssistantNodeName.TRENDS_PLANNER,
-            "funnel": AssistantNodeName.FUNNEL_PLANNER,
-            "retention": AssistantNodeName.RETENTION_PLANNER,
-            "sql": AssistantNodeName.SQL_PLANNER,
+            "insights": AssistantNodeName.INSIGHT_RAG_CONTEXT,
             "docs": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
@@ -90,6 +88,23 @@ class AssistantGraph:
         builder.add_edge(AssistantNodeName.ROOT, AssistantNodeName.ROOT_TOOLS)
         builder.add_conditional_edges(
             AssistantNodeName.ROOT_TOOLS, root_node_tools.router, path_map=cast(dict[Hashable, str], path_map)
+        )
+        return self
+
+    def add_product_analytics_retriever(self):
+        builder = self._graph
+        retriever = InsightRagContextNode(self._team)
+        builder.add_node(AssistantNodeName.INSIGHT_RAG_CONTEXT, retriever)
+        builder.add_conditional_edges(
+            AssistantNodeName.INSIGHT_RAG_CONTEXT,
+            retriever.router,
+            path_map={
+                "trends": AssistantNodeName.TRENDS_PLANNER,
+                "funnel": AssistantNodeName.FUNNEL_PLANNER,
+                "retention": AssistantNodeName.RETENTION_PLANNER,
+                "sql": AssistantNodeName.SQL_PLANNER,
+                "end": AssistantNodeName.ROOT,
+            },
         )
         return self
 
@@ -362,7 +377,7 @@ class AssistantGraph:
             .add_memory_collector()
             .add_memory_collector_tools()
             .add_root()
-            .add_inkeep_docs()
+            .add_product_analytics_retriever()
             .add_trends_planner()
             .add_trends_generator()
             .add_funnel_planner()
@@ -372,5 +387,6 @@ class AssistantGraph:
             .add_sql_planner()
             .add_sql_generator()
             .add_query_executor()
+            .add_inkeep_docs()
             .compile()
         )

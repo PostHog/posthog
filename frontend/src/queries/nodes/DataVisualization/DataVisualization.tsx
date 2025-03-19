@@ -104,6 +104,8 @@ export function DataTableVisualization({
     // The `as unknown as InsightLogicProps` below is smelly, but it's required because Kea logics can't be generic
     const { exportContext } = useValues(insightDataLogic(insightProps as unknown as InsightLogicProps))
 
+    const { loadData } = useActions(dataVisualizationLogic(dataVisualizationLogicProps))
+
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
@@ -114,6 +116,11 @@ export function DataTableVisualization({
                             key: dataVisualizationLogicProps.key,
                             readOnly: readOnly ?? false,
                             dashboardId: insightProps.dashboardId,
+                            sourceQuery: query,
+                            setQuery: setQuery,
+                            onUpdate: (query: DataVisualizationNode) => {
+                                loadData(true, undefined, query.source)
+                            },
                         }}
                     >
                         <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>

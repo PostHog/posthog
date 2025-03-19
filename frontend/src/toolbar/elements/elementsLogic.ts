@@ -18,6 +18,21 @@ import { heatmapLogic } from './heatmapLogic'
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
+const getMaxZIndex = (element: Element): number => {
+    let maxZIndex = 0
+    let currentElement: Element | null = element
+
+    while (currentElement) {
+        const zIndex = parseInt(getComputedStyle(currentElement).zIndex)
+        if (!isNaN(zIndex) && zIndex > maxZIndex) {
+            maxZIndex = zIndex
+        }
+        currentElement = currentElement.parentElement
+    }
+
+    return maxZIndex
+}
+
 export const elementsLogic = kea<elementsLogicType>([
     path(['toolbar', 'elements', 'elementsLogic']),
     connect(() => ({
@@ -294,7 +309,14 @@ export const elementsLogic = kea<elementsLogicType>([
         elementsToDisplay: [
             (s) => [s.elementsToDisplayRaw],
             (elementsToDisplayRaw) => {
-                return elementsToDisplayRaw.filter(({ rect }) => rect && (rect.width !== 0 || rect.height !== 0))
+                return elementsToDisplayRaw
+                    .filter(({ rect }) => rect && (rect.width !== 0 || rect.height !== 0))
+                    .map((element) => ({
+                        ...element,
+                        // being able to hover over elements might rely on their original z-index
+                        // so we copy it over to the toolbar element
+                        apparentZIndex: getMaxZIndex(element.element),
+                    }))
             },
         ],
 

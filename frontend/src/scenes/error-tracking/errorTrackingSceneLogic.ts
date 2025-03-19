@@ -31,6 +31,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     actions({
         setOrderBy: (orderBy: ErrorTrackingQuery['orderBy']) => ({ orderBy }),
+        setOrderDirection: (orderDirection: ErrorTrackingQuery['orderDirection']) => ({ orderDirection }),
         setStatus: (status: ErrorTrackingQuery['status']) => ({ status }),
         setSelectedIssueIds: (ids: string[]) => ({ ids }),
     }),
@@ -41,6 +42,13 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
+            },
+        ],
+        orderDirection: [
+            'DESC' as ErrorTrackingQuery['orderDirection'],
+            { persist: true },
+            {
+                setOrderDirection: (_, { orderDirection }) => orderDirection,
             },
         ],
         status: [
@@ -60,8 +68,26 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     selectors(({ values }) => ({
         query: [
-            (s) => [s.orderBy, s.status, s.dateRange, s.assignee, s.filterTestAccounts, s.filterGroup, s.searchQuery],
-            (orderBy, status, dateRange, assignee, filterTestAccounts, filterGroup, searchQuery): DataTableNode =>
+            (s) => [
+                s.orderBy,
+                s.status,
+                s.dateRange,
+                s.assignee,
+                s.filterTestAccounts,
+                s.filterGroup,
+                s.searchQuery,
+                s.orderDirection,
+            ],
+            (
+                orderBy,
+                status,
+                dateRange,
+                assignee,
+                filterTestAccounts,
+                filterGroup,
+                searchQuery,
+                orderDirection
+            ): DataTableNode =>
                 errorTrackingQuery({
                     orderBy,
                     status,
@@ -74,6 +100,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     customVolume: values.customSparklineConfig,
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users', 'assignee'],
+                    orderDirection,
                 }),
         ],
     })),
@@ -95,6 +122,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 orderBy: values.orderBy,
                 status: values.status,
                 filterTestAccounts: values.filterTestAccounts,
+                orderDirection: values.orderDirection,
             }
 
             if (values.searchQuery) {
@@ -126,6 +154,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             setFilterGroup: () => buildURL(),
             setSearchQuery: () => buildURL(),
             setFilterTestAccounts: () => buildURL(),
+            setOrderDirection: () => buildURL(),
         }
     }),
 
@@ -148,6 +177,9 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             }
             if (params.searchQuery && !equal(params.searchQuery, values.searchQuery)) {
                 actions.setSearchQuery(params.searchQuery)
+            }
+            if (params.orderDirection && !equal(params.orderDirection, values.orderDirection)) {
+                actions.setOrderDirection(params.orderDirection)
             }
         }
         return {

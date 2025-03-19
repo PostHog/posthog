@@ -1,5 +1,5 @@
 from urllib.parse import urlparse
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 
 CORS_ALLOWED_TRACING_HEADERS = (
     "traceparent",
@@ -20,7 +20,7 @@ CORS_ALLOWED_TRACING_HEADERS = (
 )
 
 
-def cors_response(request, response: HttpResponse) -> HttpResponse:
+def cors_response(request: HttpRequest, response: HttpResponse) -> HttpResponse:
     if not request.META.get("HTTP_ORIGIN"):
         return response
     url = urlparse(request.META["HTTP_ORIGIN"])

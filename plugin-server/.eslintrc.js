@@ -10,6 +10,13 @@ module.exports = {
     extends: ['plugin:@typescript-eslint/recommended', 'plugin:eslint-comments/recommended', 'prettier'],
     ignorePatterns: ['bin', 'dist', 'node_modules', 'src/config/idl'],
     rules: {
+        'no-restricted-syntax': [
+            'error',
+            {
+                selector: 'CallExpression[callee.object.name="JSON"][callee.property.name="parse"]',
+                message: 'Use parseJSON from src/utils/json-parse instead of JSON.parse for better performance',
+            },
+        ],
         'no-only-tests/no-only-tests': 'error',
         'simple-import-sort/imports': 'error',
         'simple-import-sort/exports': 'error',

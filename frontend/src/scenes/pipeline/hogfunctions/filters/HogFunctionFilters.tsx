@@ -51,7 +51,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
 
     if (type === 'broadcast') {
         return (
-            <div className="p-3 deprecated-space-y-2 border rounded bg-surface-primary">
+            <div className="p-3 border rounded deprecated-space-y-2 bg-surface-primary">
                 <LemonField name="filters" label="Filters">
                     {({ value, onChange }) => (
                         <PropertyFilters
@@ -121,6 +121,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                     TaxonomicFilterGroupType.EventFeatureFlags,
                                     TaxonomicFilterGroupType.Elements,
                                     TaxonomicFilterGroupType.HogQLExpression,
+                                    ...groupsTaxonomicTypes,
                                 ]}
                                 onChange={(properties: AnyPropertyFilter[]) => {
                                     onChange({

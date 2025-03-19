@@ -492,7 +492,7 @@ describe('CDP API', () => {
                   "site_url": "http://localhost:8000/project/2",
                   "team_id": 2,
                   "timestamp": "2021-09-28T14:00:00Z",
-                  "url": "https://example.com/events/<REPLACED-UUID-1>/2021-09-28T14:00:00Z",
+                  "url": "https://example.com/events/<REPLACED-UUID-0>/2021-09-28T14:00:00Z",
                   "uuid": "<REPLACED-UUID-0>",
                 }
             `)

@@ -21,7 +21,8 @@
         "start": {
             "dependsOn": ["^build"],
             "persistent": true,
-            "cache": false
+            "cache": false,
+            "passThroughEnv": ["SKIP_TYPEGEN"]
         },
         "dev": {
             "dependsOn": ["^build"],

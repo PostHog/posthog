@@ -127,13 +127,14 @@ class TestSessionRecordingPlaylist(APIBaseTest):
                     "recordings_counts": {
                         "collection": {
                             "count": None,
-                            "watched_count": None,
+                            "watched_count": 0,
                         },
                         "saved_filters": {
                             "count": 2,
                             "has_more": False,
                             "watched_count": 1,
                             "increased": True,
+                            "last_refreshed_at": None,
                         },
                     },
                     "short_id": playlist_two.json()["short_id"],
@@ -173,13 +174,14 @@ class TestSessionRecordingPlaylist(APIBaseTest):
                     "recordings_counts": {
                         "collection": {
                             "count": None,
-                            "watched_count": None,
+                            "watched_count": 0,
                         },
                         "saved_filters": {
                             "count": None,
                             "has_more": None,
                             "watched_count": None,
                             "increased": None,
+                            "last_refreshed_at": None,
                         },
                     },
                     "short_id": playlist_one.json()["short_id"],
@@ -206,13 +208,14 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "recordings_counts": {
                 "collection": {
                     "count": None,
-                    "watched_count": None,
+                    "watched_count": 0,
                 },
                 "saved_filters": {
                     "count": None,
                     "has_more": None,
                     "watched_count": None,
                     "increased": None,
+                    "last_refreshed_at": None,
                 },
             },
         }

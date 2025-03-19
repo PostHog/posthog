@@ -46,8 +46,7 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
                     action = Action.objects.get(id=action_id, team__project_id=team.project_id)
                 exprs.append(action_to_expr(action))
             except KeyError:
-                # If an action doesn't exist, we want to return no events
-                exprs.append(parse_expr("1 = 2"))
+                exprs.append(parse_expr("1 = 2"))  # No events match
 
         # Properties
         if filter.get("properties"):

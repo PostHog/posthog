@@ -493,7 +493,7 @@ describe('HogFunctionManager - Integration Updates', () => {
     it('updates cached integration data when integration changes', async () => {
         // First check - initial state
         const functions = manager.getTeamHogFunctions(teamId)
-        expect(functions[0]?.inputs?.slack.value).toEqual({
+        expect(functions[0]?.inputs?.slack?.value).toEqual({
             team: 'initial-team',
             access_token: 'initial-token',
             integrationId: integration.id,
@@ -530,7 +530,7 @@ describe('HogFunctionManager - Integration Updates', () => {
         await manager.reloadAllIntegrations()
         // Check if the cached data was updated
         const newFunctions = manager.getTeamHogFunctions(teamId)
-        expect(newFunctions[0]?.inputs?.slack.value).toEqual({
+        expect(newFunctions[0]?.inputs?.slack?.value).toEqual({
             team: 'updated-team',
             access_token: 'updated-token',
             integrationId: integration.id,

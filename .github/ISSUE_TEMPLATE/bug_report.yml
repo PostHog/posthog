@@ -6,7 +6,7 @@ body:
       id: bug-description
       attributes:
           label: Bug Description
-          value: "## Bug description\n\n*Please describe.*\n*If this affects the front-end, screenshots would be of great help.*\n\n*If you are on PostHog Cloud it would be really valuable if you can share any links where the problem occurs. This speeds up our ability to troubleshoot tremendously.*\n\n## How to reproduce\n\n1. \n2.\n3. \n\n## Additional context\n\n"
+          value: "*Please describe.*\n*If this affects the front-end, screenshots would be of great help.*\n\n*If you are on PostHog Cloud it would be really valuable if you can share any links where the problem occurs. This speeds up our ability to troubleshoot tremendously.*\n\n## How to reproduce\n\n1. \n2.\n3. \n\n## Additional context\n\n"
 
     - type: textarea
       id: debug-info

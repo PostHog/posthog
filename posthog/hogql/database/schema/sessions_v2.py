@@ -32,7 +32,7 @@ from posthog.models.raw_sessions.sql import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
-from posthog.schema import BounceRatePageViewMode, CustomChannelRule
+from posthog.schema import BounceRatePageViewMode, CustomChannelRule, SessionsV2JoinMode
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -47,15 +47,27 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     # many of the fields in the raw tables are AggregateFunction state, rather than simple types
     "entry_url": DatabaseField(name="entry_url", nullable=False),
     "end_url": DatabaseField(name="end_url", nullable=False),
+    "initial_referring_domain": DatabaseField(name="initial_referring_domain", nullable=False),
+    # UTM parameters
     "initial_utm_source": DatabaseField(name="initial_utm_source", nullable=False),
     "initial_utm_campaign": DatabaseField(name="initial_utm_campaign", nullable=False),
     "initial_utm_medium": DatabaseField(name="initial_utm_medium", nullable=False),
     "initial_utm_term": DatabaseField(name="initial_utm_term", nullable=False),
     "initial_utm_content": DatabaseField(name="initial_utm_content", nullable=False),
-    "initial_referring_domain": DatabaseField(name="initial_referring_domain", nullable=False),
+    # Other Ad / campaign / attribution IDs
     "initial_gclid": DatabaseField(name="initial_gclid", nullable=False),
-    "initial_fbclid": DatabaseField(name="initial_fbclid", nullable=False),
     "initial_gad_source": DatabaseField(name="initial_gad_source", nullable=False),
+    "initial_gclsrc": DatabaseField(name="initial_gclsrc", nullable=False),
+    "initial_dclid": DatabaseField(name="initial_dclid", nullable=False),
+    "initial_gbraid": DatabaseField(name="initial_gbraid", nullable=False),
+    "initial_wbraid": DatabaseField(name="initial_wbraid", nullable=False),
+    "initial_fbclid": DatabaseField(name="initial_fbclid", nullable=False),
+    "initial_msclkid": DatabaseField(name="initial_msclkid", nullable=False),
+    "initial_twclid": DatabaseField(name="initial_twclid", nullable=False),
+    "initial_li_fat_id": DatabaseField(name="initial_li_fat_id", nullable=False),
+    "initial_mc_cid": DatabaseField(name="initial_mc_cid", nullable=False),
+    "initial_igshid": DatabaseField(name="initial_igshid", nullable=False),
+    "initial_ttclid": DatabaseField(name="initial_ttclid", nullable=False),
     "initial__kx": DatabaseField(name="initial__kx", nullable=False),
     "initial_irclid": DatabaseField(name="initial_irclid", nullable=False),
     # do not expose the count fields, as we can't rely on them being accurate due to double-counting events
@@ -84,15 +96,27 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$end_current_url": StringDatabaseField(name="$end_current_url"),
     "$end_pathname": StringDatabaseField(name="$end_pathname"),
     "$end_hostname": StringDatabaseField(name="$end_hostname"),
+    "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
+    # UTM parameters
     "$entry_utm_source": StringDatabaseField(name="$entry_utm_source"),
     "$entry_utm_campaign": StringDatabaseField(name="$entry_utm_campaign"),
     "$entry_utm_medium": StringDatabaseField(name="$entry_utm_medium"),
     "$entry_utm_term": StringDatabaseField(name="$entry_utm_term"),
     "$entry_utm_content": StringDatabaseField(name="$entry_utm_content"),
-    "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
+    # Other Ad / campaign / attribution IDs
     "$entry_gclid": StringDatabaseField(name="$entry_gclid"),
-    "$entry_fbclid": StringDatabaseField(name="$entry_fbclid"),
     "$entry_gad_source": StringDatabaseField(name="$entry_gad_source"),
+    "$entry_gclsrc": StringDatabaseField(name="$entry_gclsrc"),
+    "$entry_dclid": StringDatabaseField(name="$entry_dclid"),
+    "$entry_gbraid": StringDatabaseField(name="$entry_gbraid"),
+    "$entry_wbraid": StringDatabaseField(name="$entry_wbraid"),
+    "$entry_fbclid": StringDatabaseField(name="$entry_fbclid"),
+    "$entry_msclkid": StringDatabaseField(name="$entry_msclkid"),
+    "$entry_twclid": StringDatabaseField(name="$entry_twclid"),
+    "$entry_li_fat_id": StringDatabaseField(name="$entry_li_fat_id"),
+    "$entry_mc_cid": StringDatabaseField(name="$entry_mc_cid"),
+    "$entry_igshid": StringDatabaseField(name="$entry_igshid"),
+    "$entry_ttclid": StringDatabaseField(name="$entry_ttclid"),
     "$entry__kx": StringDatabaseField(name="$entry__kx"),
     "$entry_irclid": StringDatabaseField(name="$entry_irclid"),
     # we expose "count" fields here, though they are actually the aggregates of the uniq columns in the raw tables
@@ -137,8 +161,18 @@ class RawSessionsTableV2(Table):
             "initial_utm_content",
             "initial_referring_domain",
             "initial_gclid",
-            "initial_fbclid",
             "initial_gad_source",
+            "initial_gclsrc",
+            "initial_dclid",
+            "initial_gbraid",
+            "initial_wbraid",
+            "initial_fbclid",
+            "initial_msclkid",
+            "initial_twclid",
+            "initial_li_fat_id",
+            "initial_mc_cid",
+            "initial_igshid",
+            "initial_ttclid",
             "initial__kx",
             "initial_irclid",
             "pageview_uniq",
@@ -224,8 +258,18 @@ def select_from_sessions_table_v2(
         "$entry_utm_content": null_if_empty(arg_min_merge_field("initial_utm_content")),
         "$entry_referring_domain": null_if_empty(arg_min_merge_field("initial_referring_domain")),
         "$entry_gclid": null_if_empty(arg_min_merge_field("initial_gclid")),
-        "$entry_fbclid": null_if_empty(arg_min_merge_field("initial_fbclid")),
         "$entry_gad_source": null_if_empty(arg_min_merge_field("initial_gad_source")),
+        "$entry_gclsrc": null_if_empty(arg_min_merge_field("initial_gclsrc")),
+        "$entry_dclid": null_if_empty(arg_min_merge_field("initial_dclid")),
+        "$entry_gbraid": null_if_empty(arg_min_merge_field("initial_gbraid")),
+        "$entry_wbraid": null_if_empty(arg_min_merge_field("initial_wbraid")),
+        "$entry_fbclid": null_if_empty(arg_min_merge_field("initial_fbclid")),
+        "$entry_msclkid": null_if_empty(arg_min_merge_field("initial_msclkid")),
+        "$entry_twclid": null_if_empty(arg_min_merge_field("initial_twclid")),
+        "$entry_li_fat_id": null_if_empty(arg_min_merge_field("initial_li_fat_id")),
+        "$entry_mc_cid": null_if_empty(arg_min_merge_field("initial_mc_cid")),
+        "$entry_igshid": null_if_empty(arg_min_merge_field("initial_igshid")),
+        "$entry_ttclid": null_if_empty(arg_min_merge_field("initial_ttclid")),
         "$entry__kx": null_if_empty(arg_min_merge_field("initial__kx")),
         "$entry_irclid": null_if_empty(arg_min_merge_field("initial_irclid")),
         # the count columns here do not come from the "count" columns in the raw table, instead aggregate the uniq columns
@@ -437,14 +481,24 @@ def join_events_table_to_sessions_table_v2(
     join_expr = ast.JoinExpr(table=select_from_sessions_table_v2(join_to_add.fields_accessed, node, context))
     join_expr.join_type = "LEFT JOIN"
     join_expr.alias = join_to_add.to_table
-    join_expr.constraint = ast.JoinConstraint(
-        expr=ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=session_id_to_session_id_v7_expr(ast.Field(chain=[join_to_add.from_table, "$session_id"])),
-            right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
-        ),
-        constraint_type="ON",
-    )
+    if context.modifiers.sessionsV2JoinMode == SessionsV2JoinMode.UUID:
+        join_expr.constraint = ast.JoinConstraint(
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, "$session_id_uuid"]),
+                right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
+            ),
+            constraint_type="ON",
+        )
+    else:
+        join_expr.constraint = ast.JoinConstraint(
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=session_id_to_session_id_v7_expr(ast.Field(chain=[join_to_add.from_table, "$session_id"])),
+                right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
+            ),
+            constraint_type="ON",
+        )
     return join_expr
 
 
@@ -507,6 +561,7 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
     return results
 
 
+# NOTE: Keep the AD IDs in sync with `posthog.hogql_queries.web_analytics.session_attribution_explorer_query_runner.py`
 SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_referring_domain": "finalizeAggregation(initial_referring_domain)",
     "$entry_utm_source": "finalizeAggregation(initial_utm_source)",
@@ -529,8 +584,8 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_ttclid": "finalizeAggregation(initial_ttclid)",
     "$entry__kx": "finalizeAggregation(initial__kx)",
     "$entry_irclid": "finalizeAggregation(initial_irclid)",
-    "$entry_current_url": "finalizeAggregation(entry_url)",
     "$entry_pathname": "path(finalizeAggregation(entry_url))",
+    "$entry_current_url": "finalizeAggregation(entry_url)",
     "$end_current_url": "finalizeAggregation(end_url)",
     "$end_pathname": "path(finalizeAggregation(end_url))",
     "$last_external_click_url": "finalizeAggregation(last_external_click_url)",

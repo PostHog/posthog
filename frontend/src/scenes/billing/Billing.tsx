@@ -5,15 +5,15 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { PoliceHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -24,7 +24,6 @@ import { BillingCTAHero } from './BillingCTAHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
 import { CreditCTAHero } from './CreditCTAHero'
-import { PaymentEntryModal } from './PaymentEntryModal'
 import { UnsubscribeCard } from './UnsubscribeCard'
 
 export const scene: SceneExport = {
@@ -38,8 +37,6 @@ export function Billing(): JSX.Element {
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -107,8 +104,6 @@ export function Billing(): JSX.Element {
     const platformAndSupportProduct = products?.find((product) => product.type === 'platform_and_support')
     return (
         <div ref={ref}>
-            <PaymentEntryModal />
-
             {showLicenseDirectInput && (
                 <>
                     <Form
@@ -141,16 +136,23 @@ export function Billing(): JSX.Element {
             )}
 
             {billing?.trial ? (
-                <LemonBanner type="info" className="mb-2">
-                    You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)} plan</b> until{' '}
-                    <b>{dayjs(billing.trial.expires_at).format('LL')}</b>. At the end of the trial{' '}
-                    {billing.trial.type === 'autosubscribe'
-                        ? 'you will be automatically subscribed to the plan.'
-                        : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
+                <LemonBanner type="info" hideIcon className="mb-2">
+                    <div className="flex items-center gap-4">
+                        <PoliceHog className="w-20 h-20 flex-shrink-0" />
+                        <div>
+                            <p className="text-lg">You're on (a) trial</p>
+                            <p>
+                                You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)} plan</b>{' '}
+                                until <b>{dayjs(billing.trial.expires_at).format('LL')}</b>.
+                                {billing.trial.type === 'autosubscribe' &&
+                                    ' At the end of the trial you will be automatically subscribed to the plan.'}
+                            </p>
+                        </div>
+                    </div>
                 </LemonBanner>
             ) : null}
 
-            {!billing?.has_active_subscription && platformAndSupportProduct && (
+            {!billing?.has_active_subscription && !billing?.trial && platformAndSupportProduct && (
                 <div className="mb-4">
                     <BillingCTAHero product={platformAndSupportProduct} />
                 </div>
@@ -195,8 +197,7 @@ export function Billing(): JSX.Element {
                                                               humanFriendlyCurrency(billing.current_total_amount_usd)}
                                                     </div>
                                                 </div>
-                                                {featureFlags[FEATURE_FLAGS.PROJECTED_TOTAL_AMOUNT] &&
-                                                    billing?.projected_total_amount_usd &&
+                                                {billing?.projected_total_amount_usd &&
                                                     parseFloat(billing?.projected_total_amount_usd) > 0 && (
                                                         <div>
                                                             <LemonLabel

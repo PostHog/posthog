@@ -1,4 +1,4 @@
-import { IconCheckCircle, IconPencil } from '@posthog/icons'
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -15,7 +15,7 @@ import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 
-function ExposureCriteriaModal(): JSX.Element {
+export function ExposureCriteriaModal(): JSX.Element {
     const { experiment, isExposureCriteriaModalOpen } = useValues(experimentLogic)
     const { closeExposureCriteriaModal, restoreUnmodifiedExperiment, setExposureCriteria, updateExposureCriteria } =
         useActions(experimentLogic)
@@ -143,23 +143,5 @@ function ExposureCriteriaModal(): JSX.Element {
                 fullWidth
             />
         </LemonModal>
-    )
-}
-
-export function ExposureCriteriaButton(): JSX.Element {
-    const { openExposureCriteriaModal } = useActions(experimentLogic)
-    return (
-        <>
-            <LemonButton
-                icon={<IconPencil />}
-                size="xsmall"
-                className="flex items-center gap-2"
-                type="secondary"
-                onClick={() => openExposureCriteriaModal()}
-            >
-                Change exposure criteria
-            </LemonButton>
-            <ExposureCriteriaModal />
-        </>
     )
 }

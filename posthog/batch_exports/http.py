@@ -7,7 +7,7 @@ import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
-from rest_framework import filters, mixins, request, response, serializers, viewsets
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import (
     NotAuthenticated,
     NotFound,
@@ -49,6 +49,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.temporal.batch_exports.destination_tests import get_destination_test
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
 
@@ -525,6 +526,52 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         instance.save().
         """
         disable_and_delete_export(instance)
+
+    @action(methods=["GET"], detail=False, required_scopes=["INTERNAL"])
+    def test(self, request: request.Request, *args, **kwargs) -> response.Response:
+        destination = request.query_params.get("destination", None)
+        if not destination:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            destination_test = get_destination_test(destination=destination)
+        except ValueError:
+            return response.Response(status=status.HTTP_404_NOT_FOUND)
+
+        return response.Response(destination_test.as_dict())
+
+    @action(methods=["POST"], detail=False, required_scopes=["INTERNAL"])
+    def run_test_step_new(self, request: request.Request, *args, **kwargs) -> response.Response:
+        test_step = request.data.pop("step", 0)
+
+        serializer = self.get_serializer(data=request.data)
+        _ = serializer.is_valid(raise_exception=True)
+
+        destination_test = get_destination_test(
+            destination=serializer.validated_data["destination"]["type"],
+        )
+        test_configuration = serializer.validated_data["destination"]["config"]
+        destination_test.configure(**test_configuration)
+
+        result = destination_test.run_step(test_step)
+        return response.Response(result.as_dict())
+
+    @action(methods=["POST"], detail=True, required_scopes=["INTERNAL"])
+    def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
+        test_step = request.data.pop("step", 0)
+
+        serializer = self.get_serializer(data=request.data)
+        _ = serializer.is_valid(raise_exception=True)
+
+        destination_test = get_destination_test(
+            destination=serializer.validated_data["destination"]["type"],
+        )
+        batch_export = self.get_object()
+        test_configuration = {**batch_export.destination.config, **serializer.validated_data["destination"]["config"]}
+        destination_test.configure(**test_configuration)
+
+        result = destination_test.run_step(test_step)
+        return response.Response(result.as_dict())
 
 
 class BatchExportOrganizationViewSet(BatchExportViewSet):

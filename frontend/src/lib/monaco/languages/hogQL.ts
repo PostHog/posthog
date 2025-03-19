@@ -249,6 +249,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         '_toInt64',
         'toFloat',
         'toDecimal',
+        '_toDate',
         'toDate',
         'toDateTime',
         'toUUID',
