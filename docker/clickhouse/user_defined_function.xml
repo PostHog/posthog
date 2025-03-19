@@ -288,4 +288,22 @@
         <command>aggregate_funnel_array_trends_test.py</command>
         <lifetime>600</lifetime>
     </function>
+
+    <function>
+        <type>executable_pool</type>
+        <name>get_survey_response</name>
+        <return_type>UInt64</return_type>
+        <return_name>result_name</return_name>
+        <argument>
+            <type>UInt64</type>
+            <name>argument_1</name>
+        </argument>
+        <argument>
+            <type>UInt64</type>
+            <name>argument_2</name>
+        </argument>
+        <format>JSONEachRow</format>
+        <command>get_survey_response.py</command>
+        <lifetime>600</lifetime>
+    </function>
 </functions>
