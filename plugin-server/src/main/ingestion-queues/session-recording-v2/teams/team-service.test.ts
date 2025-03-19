@@ -1,6 +1,5 @@
 import { PostgresRouter } from '../../../../utils/db/postgres'
-import { fetchTeamTokensWithRecordings } from '../../../../utils/team-manager'
-import { TeamService } from './team-service'
+import { fetchTeamTokensWithRecordings, TeamService } from './team-service'
 
 jest.mock('~/src/worker/ingestion/team-manager')
 const mockFetchTeamTokens = fetchTeamTokensWithRecordings as jest.MockedFunction<typeof fetchTeamTokensWithRecordings>

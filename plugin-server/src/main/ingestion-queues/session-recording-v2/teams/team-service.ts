@@ -1,9 +1,9 @@
 import { TeamIDWithConfig } from '../../../../cdp/consumers/cdp-base.consumer'
+import { Team } from '../../../../types'
 import { BackgroundRefresher } from '../../../../utils/background-refresher'
-import { PostgresRouter } from '../../../../utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { logger as logger } from '../../../../utils/logger'
-import { fetchTeamTokensWithRecordings } from '../../../../utils/team-manager'
-import { Team } from './types'
+import { TeamForReplay } from './types'
 
 export class TeamService {
     private readonly teamRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
@@ -19,7 +19,7 @@ export class TeamService {
         )
     }
 
-    public async getTeamByToken(token: string): Promise<Team | null> {
+    public async getTeamByToken(token: string): Promise<TeamForReplay | null> {
         const teams = await this.teamRefresher.get()
         const teamConfig = teams[token]
 
@@ -32,4 +32,22 @@ export class TeamService {
             consoleLogIngestionEnabled: teamConfig.consoleLogIngestionEnabled,
         }
     }
+}
+
+export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<Record<string, TeamIDWithConfig>> {
+    const selectResult = await client.query<{ capture_console_log_opt_in: boolean } & Pick<Team, 'id' | 'api_token'>>(
+        PostgresUse.COMMON_READ,
+        `
+            SELECT id, api_token, capture_console_log_opt_in
+            FROM posthog_team
+            WHERE session_recording_opt_in = true
+        `,
+        [],
+        'fetchTeamTokensWithRecordings'
+    )
+
+    return selectResult.rows.reduce((acc, row) => {
+        acc[row.api_token] = { teamId: row.id, consoleLogIngestionEnabled: row.capture_console_log_opt_in }
+        return acc
+    }, {} as Record<string, TeamIDWithConfig>)
 }
