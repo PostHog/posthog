@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { isNotNil } from 'lib/utils'
-import { Dispatch, SetStateAction } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -18,12 +17,12 @@ export function DeleteUserModal({
     setIsOpen,
 }: {
     isOpen: boolean
-    setIsOpen: Dispatch<SetStateAction<boolean>>
+    setIsOpen: (open: boolean) => void
 }): JSX.Element {
     const { user } = useValues(userLogic)
     const { push } = useActions(router)
-    const { updateCurrentOrganization } = useActions(userLogic)
-    const { deleteUser, userLoading } = useActions(userLogic)
+    const { updateCurrentOrganization, deleteUser } = useActions(userLogic)
+    const { userLoading } = useValues(userLogic)
     const { organizationToDelete, isUserDeletionConfirmed } = useValues(userDangerZoneLogic)
     const { leaveOrganization, setOrganizationToDelete, setIsUserDeletionConfirmed } = useActions(userDangerZoneLogic)
     const organizations = (user?.organizations ?? []).filter(isNotNil)
