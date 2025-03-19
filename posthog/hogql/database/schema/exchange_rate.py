@@ -244,10 +244,10 @@ def revenue_expression_for_data_warehouse(
     data_warehouse_config: RevenueTrackingDataWarehouseTable,
     do_currency_conversion: bool = False,
 ) -> ast.Expr:
-    # If there's a revenueCurrencyProperty, convert the revenue to the base currency from that property
+    # Convert the revenue to the base currency based on `data_warehouse_config.revenueCurrencyColumn`
     # Otherwise, assume we're already in the base currency
     # Also, assume that `base_currency` is USD by default, it'll be empty for most customers
-    if data_warehouse_config.revenueColumn and do_currency_conversion:
+    if data_warehouse_config.revenueCurrencyColumn and do_currency_conversion:
         value_expr = ast.Call(
             name="if",
             args=[

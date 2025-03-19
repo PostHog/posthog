@@ -151,7 +151,7 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
             columns={
                 "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                 "revenue_c": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
-                "currency": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                "currency": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                 "timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime", "schema_valid": True},
             },
         )
@@ -197,6 +197,9 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
             (
                 "String",
                 "Float64",
+                "Float64",
+                "String",
+                "String",
             ),
         ),
     )
@@ -225,6 +228,9 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
             (
                 "String",
                 "Float64",
+                "Float64",
+                "String",
+                "String",
             ),
         ),
     )
