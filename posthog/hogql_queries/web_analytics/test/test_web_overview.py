@@ -1,7 +1,6 @@
 from typing import Optional
 from unittest.mock import MagicMock, patch
 
-import sqlparse
 from freezegun import freeze_time
 from contextlib import contextmanager
 
@@ -827,11 +826,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_revenue_with_data_warehouse_table(self, feature_enabled_mock):
-        # Because we're mocking the `clichhouse_driver.Client.execute` method,
-        # we need to track the queries that are being executed because
-        # the original `snapshot_clickhouse_queries` decorator won't run anymore
-        queries = []
-
         # Spy on the `clichhouse_driver.Client.execute` method. This is a bit of
         # a roundabout way to handle this, but it seems tricky to spy on the
         # unbound class method `Client.execute` directly easily
@@ -841,30 +835,12 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 original_client_execute = client.execute
 
                 def execute_wrapper(query, *args, **kwargs):
-                    if (
-                        sqlparse.format(query, strip_comments=True)
-                        .strip()
-                        .startswith(("SELECT", "WITH", "select", "with"))
-                    ):
-                        queries.append(query)
-
                     if "database_with_revenue_column" in query:
                         return (
                             [
-                                [
-                                    0,
-                                    0,  # Visitors
-                                    0,
-                                    0,  # Views
-                                    0,
-                                    0,  # Sessions
-                                    0,
-                                    0,  # Duration
-                                    0,
-                                    0,  # Bounce
-                                    0,
-                                    0,  # Revenue
-                                ]
+                                # Visitors, Views, Session, Duration, Bounce, Revenue
+                                # all times two because it's current/previous
+                                [0] * 6 * 2
                             ],
                             [],
                         )
@@ -918,12 +894,9 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
             # Run this, but don't assert on the output because we're mocking it above
+            # We're interested in the queries that were executed
+            # This is asserted by the `@snapshot_clickhouse_queries` decorator
             self._run_web_overview_query("2023-12-01", "2023-12-03", include_revenue=True)
-
-            # Rather assert on the queries that were executed
-            for query in queries:
-                if "FROM system.columns" not in query:
-                    self.assertQueryMatchesSnapshot(query)
 
     def test_revenue_conversion_event(self):
         s1 = str(uuid7("2023-12-02"))
