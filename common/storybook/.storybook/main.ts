@@ -19,8 +19,6 @@ const config: StorybookConfig = {
         '@storybook/addon-a11y',
         'storybook-addon-pseudo-states',
         '@storybook/addon-mdx-gfm',
-        '@chromatic-com/storybook',
-        '@storybook/addon-webpack5-compiler-swc',
     ],
 
     staticDirs: ['public', { from: '../../../frontend/public', to: '/static' }],
@@ -30,20 +28,7 @@ const config: StorybookConfig = {
 
         // Create a copy of mainConfig's alias without any potential 'storybook' entries
         const safeAliases = { ...mainConfig.resolve.alias }
-        // Delete potentially conflicting aliases
         delete safeAliases['storybook']
-
-        // Filter out the tailwind CSS file
-        const filteredModuleRules = mainConfig.module.rules.map((rule) => {
-            // For CSS/SCSS/SASS rules
-            if (rule.test && rule.test.toString().includes('sa|sc|c')) {
-                return {
-                    ...rule,
-                    exclude: [/tailwind\.css$/, /node_modules/],
-                }
-            }
-            return rule
-        })
 
         return {
             ...config,
@@ -62,12 +47,7 @@ const config: StorybookConfig = {
             module: {
                 ...config.module,
                 rules: [
-                    ...filteredModuleRules,
-                    {
-                        test: /\.css$/,
-                        include: /node_modules/,
-                        use: ['style-loader', 'css-loader'],
-                    },
+                    ...mainConfig.module.rules,
                     ...(config.module?.rules?.filter(
                         (rule: any) => 'test' in rule && rule.test.toString().includes('.mdx')
                     ) ?? []),
