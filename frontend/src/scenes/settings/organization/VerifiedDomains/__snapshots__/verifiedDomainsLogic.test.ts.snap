@@ -107,6 +107,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "baseCurrency": "USD",
           "dataWarehouseTables": [
             {
+              "distinctIdColumn": "distinct_id",
               "revenueColumn": "revenue",
               "revenueCurrencyColumn": {
                 "static": "SCR",
