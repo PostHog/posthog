@@ -1,12 +1,20 @@
 from typing import Optional
 from unittest.mock import MagicMock, patch
 
+import sqlparse
 from freezegun import freeze_time
+from contextlib import contextmanager
+
+from posthog.clickhouse.client.connection import get_client_from_pool
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.models import Action, Element, Cohort
+from posthog.warehouse.models import (
+    DataWarehouseTable,
+    DataWarehouseCredential,
+)
 from posthog.models.utils import uuid7
 from posthog.schema import (
     CompareFilter,
@@ -19,6 +27,10 @@ from posthog.schema import (
     ActionConversionGoal,
     BounceRatePageViewMode,
     WebOverviewQueryResponse,
+    RevenueTrackingConfig,
+    RevenueCurrencyPropertyConfig,
+    RevenueTrackingEventItem,
+    RevenueTrackingDataWarehouseTable,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
@@ -81,6 +93,25 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     elements=elements,
                 )
         return person_result
+
+    def _create_data_warehouse_table(self, name: str, revenue_column: str, timestamp_column: str, currency_column: str):
+        return DataWarehouseTable.objects.create(
+            name=name,
+            format=DataWarehouseTable.TableFormat.Parquet,  # Parquet is commonly used in other tests
+            team=self.team,
+            credential=DataWarehouseCredential.objects.create(
+                team=self.team,
+                access_key="test-key",
+                access_secret="test-secret",
+            ),
+            url_pattern="test://localhost",  # Doesn't matter for tests
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                revenue_column: {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                timestamp_column: {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime", "schema_valid": True},
+                currency_column: {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+            },
+        )
 
     def _run_web_overview_query(
         self,
@@ -651,16 +682,16 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_revenue(self, feature_enabled_mock):
         s1 = str(uuid7("2023-12-02"))
 
-        self.team.revenue_tracking_config = {
-            "events": [
-                {
-                    "eventName": "purchase",
-                    "revenueProperty": "revenue",
-                    "revenueCurrencyProperty": {"property": "currency"},
-                }
+        self.team.revenue_tracking_config = RevenueTrackingConfig(
+            baseCurrency=CurrencyCode.GBP,
+            events=[
+                RevenueTrackingEventItem(
+                    eventName="purchase",
+                    revenueProperty="revenue",
+                    revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
+                )
             ],
-            "baseCurrency": CurrencyCode.GBP,
-        }
+        ).model_dump()
         self.team.save()
 
         self._create_events(
@@ -793,6 +824,106 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         revenue = results[5]
         assert revenue.kind == "currency"
         assert revenue.value is None
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_revenue_with_data_warehouse_table(self, feature_enabled_mock):
+        # Because we're mocking the `clichhouse_driver.Client.execute` method,
+        # we need to track the queries that are being executed because
+        # the original `snapshot_clickhouse_queries` decorator won't run anymore
+        queries = []
+
+        # Spy on the `clichhouse_driver.Client.execute` method. This is a bit of
+        # a roundabout way to handle this, but it seems tricky to spy on the
+        # unbound class method `Client.execute` directly easily
+        @contextmanager
+        def get_client(orig_fn, *args, **kwargs):
+            with orig_fn(*args, **kwargs) as client:
+                original_client_execute = client.execute
+
+                def execute_wrapper(query, *args, **kwargs):
+                    if (
+                        sqlparse.format(query, strip_comments=True)
+                        .strip()
+                        .startswith(("SELECT", "WITH", "select", "with"))
+                    ):
+                        queries.append(query)
+
+                    if "database_with_revenue_column" in query:
+                        return (
+                            [
+                                [
+                                    0,
+                                    0,  # Visitors
+                                    0,
+                                    0,  # Views
+                                    0,
+                                    0,  # Sessions
+                                    0,
+                                    0,  # Duration
+                                    0,
+                                    0,  # Bounce
+                                    0,
+                                    0,  # Revenue
+                                ]
+                            ],
+                            [],
+                        )
+
+                    return original_client_execute(query, *args, **kwargs)
+
+                with patch.object(client, "execute", wraps=execute_wrapper) as _:
+                    yield client
+
+        # Once we leave `with`, the patch is no longer active
+        with get_client_from_pool._temp_patch(get_client) as _:
+            # Create two different data warehouse tables to guarantee they're both added to the query
+            self._create_data_warehouse_table(
+                "database_with_revenue_column_1", "revenue_1", "timestamp_1", "currency_1"
+            )
+            self._create_data_warehouse_table(
+                "database_with_revenue_column_2", "revenue_2", "timestamp_2", "currency_2"
+            )
+
+            self.team.revenue_tracking_config = RevenueTrackingConfig(
+                baseCurrency=CurrencyCode.GBP,
+                events=[
+                    RevenueTrackingEventItem(
+                        eventName="purchase",
+                        revenueProperty="revenue",
+                        revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
+                    )
+                ],
+                dataWarehouseTables=[
+                    RevenueTrackingDataWarehouseTable(
+                        tableName="database_with_revenue_column_1",
+                        revenueColumn="revenue_1",
+                        timestampColumn="timestamp_1",
+                        revenueCurrencyColumn=RevenueCurrencyPropertyConfig(property="currency_1"),
+                    ),
+                    RevenueTrackingDataWarehouseTable(
+                        tableName="database_with_revenue_column_2",
+                        revenueColumn="revenue_2",
+                        timestampColumn="timestamp_2",
+                        revenueCurrencyColumn=RevenueCurrencyPropertyConfig(static=CurrencyCode.EUR),
+                    ),
+                ],
+            ).model_dump()
+            self.team.save()
+
+            self._create_events(
+                [
+                    ("p1", [("2023-12-02", str(uuid7("2023-12-02")), 100, "BRL")]),
+                ],
+                event="purchase",
+            )
+
+            # Run this, but don't assert on the output because we're mocking it above
+            self._run_web_overview_query("2023-12-01", "2023-12-03", include_revenue=True)
+
+            # Rather assert on the queries that were executed
+            for query in queries:
+                if "FROM system.columns" not in query:
+                    self.assertQueryMatchesSnapshot(query)
 
     def test_revenue_conversion_event(self):
         s1 = str(uuid7("2023-12-02"))
