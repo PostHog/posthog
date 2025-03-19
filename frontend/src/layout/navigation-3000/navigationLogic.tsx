@@ -518,7 +518,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                 playlists.count > 0
                                                     ? [
                                                           {
-                                                              title: 'Saved playlists',
+                                                              title: 'Saved filters',
                                                               items: playlists.results.map((playlist) => ({
                                                                   label:
                                                                       playlist.name ||
@@ -539,7 +539,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                               to: urls.replay(ReplayTabs.Home),
                                                           },
                                                           {
-                                                              label: 'Playlists',
+                                                              label: 'Saved filters',
                                                               to: urls.replay(ReplayTabs.Playlists),
                                                           },
                                                       ]

@@ -22,7 +22,7 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.Person]: 'Persons',
     [NotebookNodeType.Query]: 'Queries',
     [NotebookNodeType.Recording]: 'Session recordings',
-    [NotebookNodeType.RecordingPlaylist]: 'Session replay playlists',
+    [NotebookNodeType.RecordingPlaylist]: 'Session replay saved filters',
     [NotebookNodeType.ReplayTimestamp]: 'Session recording comments',
     [NotebookNodeType.Cohort]: 'Cohorts',
     [NotebookNodeType.Group]: 'Groups',

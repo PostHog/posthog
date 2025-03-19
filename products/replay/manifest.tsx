@@ -35,7 +35,7 @@ export const manifest: ProductManifest = {
             icon: <IconRewindPlay />,
         },
         {
-            path: 'Explore/Recordings/Playlists',
+            path: 'Explore/Recordings/Saved filters',
             href: () => urls.replay(ReplayTabs.Playlists),
             icon: <IconRewindPlay />,
         },

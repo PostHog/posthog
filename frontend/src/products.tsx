@@ -269,8 +269,12 @@ export const treeItems = [
     { path: `Create new/Notebook`, type: 'notebook', href: () => urls.notebook('new') },
     { path: 'Explore/Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
     { path: 'Explore/People and groups/People', icon: <IconPerson />, href: () => urls.persons() },
-    { path: 'Explore/Recordings/Playlists', href: () => urls.replay(ReplayTabs.Playlists), icon: <IconRewindPlay /> },
     { path: 'Explore/Recordings/Recordings', href: () => urls.replay(ReplayTabs.Home), icon: <IconRewindPlay /> },
+    {
+        path: 'Explore/Recordings/Saved filters',
+        href: () => urls.replay(ReplayTabs.Playlists),
+        icon: <IconRewindPlay />,
+    },
     {
         path: 'Explore/Recordings/What to watch',
         href: () => urls.replay(ReplayTabs.Templates),
