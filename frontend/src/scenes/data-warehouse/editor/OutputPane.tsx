@@ -217,8 +217,8 @@ export function OutputPane(): JSX.Element {
     }, [])
 
     return (
-        <div className="flex flex-col w-full flex-1 bg-primary">
-            <div className="flex flex-row justify-between align-center py-2 px-4 w-full h-[55px]">
+        <div className="OutputPane flex flex-col w-full flex-1 bg-primary">
+            <div className="flex flex-row justify-between align-center py-2 px-4 w-full h-[50px] border-b">
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={(tab) => setActiveTab(tab as OutputTab)}

@@ -1,5 +1,3 @@
-import './EditorSidebar.scss'
-
 import { IconBrackets, IconInfo, IconServer } from '@posthog/icons'
 import { IconArrowLeft, IconEllipsis } from '@posthog/icons'
 import { useActions, useValues } from 'kea'

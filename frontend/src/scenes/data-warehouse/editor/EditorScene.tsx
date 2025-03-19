@@ -1,3 +1,5 @@
+import './EditorScene.scss'
+
 import { Monaco } from '@monaco-editor/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -110,7 +112,7 @@ export function EditorScene(): JSX.Element {
                         <BindLogic logic={variablesLogic} props={variablesLogicProps}>
                             <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
                                 <BindLogic logic={multitabEditorLogic} props={{ key: codeEditorKey, monaco, editor }}>
-                                    <div className="w-full h-full flex flex-row overflow-hidden" ref={ref}>
+                                    <div className="EditorScene w-full h-full flex flex-row overflow-hidden" ref={ref}>
                                         <EditorSidebar sidebarRef={sidebarRef} codeEditorKey={codeEditorKey} />
                                         <QueryWindow
                                             onSetMonacoAndEditor={(monaco, editor) =>
