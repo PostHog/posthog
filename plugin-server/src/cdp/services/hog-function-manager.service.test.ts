@@ -1,4 +1,4 @@
-import { DateTime, DurationLike } from 'luxon'
+import { DateTime } from 'luxon'
 
 import { HogFunctionType, IntegrationType } from '~/src/cdp/types'
 import { Hub } from '~/src/types'
