@@ -878,6 +878,14 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not User.objects.filter(uuid=user.uuid).exists()
 
+    def test_cannot_delete_another_user(self):
+        user = self._create_user("deleteanotheruser@posthog.com", password="test")
+
+        self.client.force_login(user)
+
+        response = self.client.delete(f"/api/users/{self.user.uuid}/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
     @patch("posthog.api.user.secrets.token_urlsafe")
     def test_redirect_user_to_site_with_toolbar(self, patched_token):
         patched_token.return_value = "tokenvalue"
