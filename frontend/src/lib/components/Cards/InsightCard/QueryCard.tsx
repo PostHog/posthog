@@ -21,12 +21,11 @@ export interface QueryCardProps extends Pick<InsightCardProps, 'highlighted' | '
     title: string
     description?: string
     context?: QueryContext
-    uniqueKey?: string
 }
 
 /** This is like InsightCard, except for presentation of queries that aren't saved insights. */
 export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(function QueryCard(
-    { query, title, description, context, highlighted, ribbonColor, className, uniqueKey, ...divProps },
+    { query, title, description, context, highlighted, ribbonColor, className, ...divProps },
     ref
 ): JSX.Element {
     const { theme } = useValues(themeLogic)
@@ -68,7 +67,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
                     showEditingControls
                 />
                 <div className="InsightCard__viz">
-                    <Query query={query} readOnly embedded context={context} uniqueKey={uniqueKey} />
+                    <Query query={query} readOnly embedded context={context} />
                 </div>
             </ErrorBoundary>
         </div>
