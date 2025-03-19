@@ -322,6 +322,7 @@ class LifecycleQueryRunner(QueryRunner):
             def timezone_wrapper(var: str) -> str:
                 if compare_interval_length(self.query_date_range.interval_type, "<=", IntervalType.DAY):
                     return f"toTimeZone({var}, {{timezone}})"
+                # Above DAY, toStartOfInterval turns the DateTimes into Dates, which no longer take timezones.
                 return var
 
             events_query = parse_select(
