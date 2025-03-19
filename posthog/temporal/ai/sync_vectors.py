@@ -373,11 +373,11 @@ class SyncVectorsWorkflow(PostHogWorkflow):
 
             # Maximum allowed parallel request count to LLMs is 128 (32 * 4).
             if len(tasks) == inputs.max_parallel_requests:
-                await self._process_summaries_batch(tasks, inputs.delay_between_batches)
+                await self._process_summaries_batch(tasks, inputs.delay_between_batches, throttle_enabled=True)
                 tasks = []
 
         if tasks:
-            await self._process_summaries_batch(tasks, inputs.delay_between_batches)
+            await self._process_summaries_batch(tasks, inputs.delay_between_batches, throttle_enabled=False)
 
         while True:
             res = await temporalio.workflow.execute_activity(
@@ -395,14 +395,16 @@ class SyncVectorsWorkflow(PostHogWorkflow):
             if not res.has_more:
                 break
 
-    async def _process_summaries_batch(self, tasks: list[Coroutine[Any, Any, Any]], delay_between_batches: int):
+    async def _process_summaries_batch(
+        self, tasks: list[Coroutine[Any, Any, Any]], delay_between_batches: int, throttle_enabled: bool | None = None
+    ):
         start = temporalio.workflow.time()
         res = await asyncio.gather(*tasks, return_exceptions=True)
         end = temporalio.workflow.time()
         execution_time = end - start
 
         # Throttle the rate of requests to LLMs.
-        if delay_between_batches > execution_time:
+        if throttle_enabled and delay_between_batches > execution_time:
             delay = delay_between_batches - execution_time
             logger.info("Throttling requests to LLMs", delay=delay)
             await asyncio.sleep(delay)
