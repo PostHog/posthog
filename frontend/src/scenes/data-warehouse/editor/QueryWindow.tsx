@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconDownload, IconPlayFilled, IconSidebarOpen } from '@posthog/icons'
+import { IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -52,7 +52,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     <LemonButton
                         onClick={() => resetDefaultSidebarWidth()}
                         className="mt-1 mr-1"
-                        icon={<IconSidebarOpen />}
+                        icon={<IconSidebarClose />}
                         type="tertiary"
                         size="small"
                     />
