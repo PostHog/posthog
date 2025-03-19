@@ -401,7 +401,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.setSubscribedDuringOnboarding(true)
             }
             if (productKey !== values.productKey) {
-                actions.setProductKey(productKey)
+                actions.setProductKey(productKey as ProductKey)
             }
 
             // Reset onboarding steps so they can be populated upon render in the component.

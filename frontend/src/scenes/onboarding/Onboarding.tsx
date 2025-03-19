@@ -20,7 +20,7 @@ import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingD
 import { OnboardingErrorTrackingAlertsStep } from './error-tracking/OnboardingErrorTrackingAlertsStep'
 import { OnboardingErrorTrackingSourceMapsStep } from './error-tracking/OnboardingErrorTrackingSourceMapsStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
-import { onboardingLogic, onboardingLogic, OnboardingLogicProps, OnboardingStepKey } from './onboardingLogic'
+import { onboardingLogic, OnboardingLogicProps, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
