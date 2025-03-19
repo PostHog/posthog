@@ -18,7 +18,7 @@ export interface InfoTabLogicProps {
 }
 
 export const infoTabLogic = kea<infoTabLogicType>([
-    path(['data-warehouse', 'editor', 'outputPaneTabs', 'infoTabLogic']),
+    path(['data-warehouse', 'editor', 'sidebar', 'infoTabLogic']),
     props({} as InfoTabLogicProps),
     key((props) => props.codeEditorKey),
     connect((props: InfoTabLogicProps) => ({
