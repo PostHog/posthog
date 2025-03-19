@@ -26,7 +26,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getEventNamesForAction } from 'lib/utils'
-import { useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -41,8 +41,8 @@ import {
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isStickinessQuery } from '~/queries/utils'
+import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { isInsightVizNode, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
@@ -59,6 +59,9 @@ import {
 
 import { LocalFilter } from '../entityFilterLogic'
 import { entityFilterLogicType } from '../entityFilterLogicType'
+
+// Create a context for passing the typeKey
+export const ActionFilterContext = createContext<{ typeKey: string } | null>(null)
 
 const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
     <span className="ActionFilterRowDragHandle" key="drag-handle" {...props}>
@@ -391,254 +394,264 @@ export function ActionFilterRow({
         : []
 
     return (
-        <li
-            className="ActionFilterRow relative"
-            ref={setNodeRef}
-            {...attributes}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                zIndex: isDragging ? 1 : undefined,
-                transform: CSS.Translate.toString(transform),
-                transition,
-            }}
-        >
-            <div className="ActionFilterRow-content">
-                {renderRow ? (
-                    renderRow({
-                        seriesIndicator,
-                        filter: filterElement,
-                        suffix,
-                        propertyFiltersButton: propertyFiltersButton,
-                        renameRowButton,
-                        deleteButton,
-                    })
-                ) : (
-                    <>
-                        {/* left section fixed */}
-                        {rowStartElements.length ? (
-                            <div className="ActionFilterRow__start">{rowStartElements}</div>
-                        ) : null}
-                        {/* central section flexible */}
-                        <div className="ActionFilterRow__center">
-                            <div className="flex-auto overflow-hidden">{filterElement}</div>
-                            {customRowSuffix !== undefined && <>{suffix}</>}
-                            {mathAvailability !== MathAvailability.None &&
-                                mathAvailability !== MathAvailability.FunnelsOnly && (
-                                    <>
-                                        <MathSelector
-                                            math={math}
-                                            mathGroupTypeIndex={mathGroupTypeIndex}
-                                            index={index}
-                                            onMathSelect={onMathSelect}
-                                            disabled={readOnly}
-                                            style={{ maxWidth: '100%', width: 'initial' }}
-                                            mathAvailability={mathAvailability}
-                                            trendsDisplayCategory={trendsDisplayCategory}
-                                            allowedMathTypes={allowedMathTypes}
-                                        />
-                                        {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
-                                            MathCategory.PropertyValue && (
-                                            <div className="flex-auto overflow-hidden">
-                                                <TaxonomicStringPopover
-                                                    groupType={TaxonomicFilterGroupType.NumericalEventProperties}
-                                                    groupTypes={[
-                                                        TaxonomicFilterGroupType.DataWarehouseProperties,
-                                                        TaxonomicFilterGroupType.NumericalEventProperties,
-                                                        TaxonomicFilterGroupType.SessionProperties,
-                                                        TaxonomicFilterGroupType.PersonProperties,
-                                                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                                                    ]}
-                                                    schemaColumns={
-                                                        filter.type == TaxonomicFilterGroupType.DataWarehouse &&
-                                                        filter.name
-                                                            ? Object.values(
-                                                                  dataWarehouseTablesMap[filter.name]?.fields ?? []
-                                                              )
-                                                            : []
-                                                    }
-                                                    value={mathProperty}
-                                                    onChange={(currentValue, groupType) =>
-                                                        onMathPropertySelect(index, currentValue, groupType)
-                                                    }
-                                                    eventNames={name ? [name] : []}
-                                                    data-attr="math-property-select"
-                                                    showNumericalPropsOnly={showNumericalPropsOnly}
-                                                    renderValue={(currentValue) => (
-                                                        <Tooltip
-                                                            title={
-                                                                currentValue === '$session_duration' ? (
-                                                                    <>
-                                                                        Calculate{' '}
-                                                                        {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
-                                                                        of the session duration. This is based on the{' '}
-                                                                        <code>$session_id</code> property associated
-                                                                        with events. The duration is derived from the
-                                                                        time difference between the first and last event
-                                                                        for each distinct <code>$session_id</code>.
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        Calculate{' '}
-                                                                        {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
-                                                                        from property <code>{currentValue}</code>. Note
-                                                                        that only {name} occurences where{' '}
-                                                                        <code>{currentValue}</code> is set with a
-                                                                        numeric value will be taken into account.
-                                                                    </>
-                                                                )
-                                                            }
-                                                            placement="right"
-                                                        >
-                                                            <PropertyKeyInfo
-                                                                value={currentValue}
-                                                                disablePopover
-                                                                type={TaxonomicFilterGroupType.EventProperties}
-                                                            />
-                                                        </Tooltip>
-                                                    )}
-                                                />
-                                            </div>
-                                        )}
-                                        {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
-                                            MathCategory.HogQLExpression && (
-                                            <div className="flex-auto overflow-hidden">
-                                                <LemonDropdown
-                                                    visible={isHogQLDropdownVisible}
-                                                    closeOnClickInside={false}
-                                                    onClickOutside={() => setIsHogQLDropdownVisible(false)}
-                                                    overlay={
-                                                        // eslint-disable-next-line react/forbid-dom-props
-                                                        <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
-                                                            <HogQLEditor
-                                                                value={mathHogQL}
-                                                                onChange={(currentValue) => {
-                                                                    onMathHogQLSelect(index, currentValue)
-                                                                    setIsHogQLDropdownVisible(false)
-                                                                }}
-                                                            />
-                                                        </div>
-                                                    }
-                                                >
-                                                    <LemonButton
-                                                        fullWidth
-                                                        type="secondary"
-                                                        data-attr={`math-hogql-select-${index}`}
-                                                        onClick={() =>
-                                                            setIsHogQLDropdownVisible(!isHogQLDropdownVisible)
+        <ActionFilterContext.Provider value={{ typeKey }}>
+            <li
+                className="ActionFilterRow relative"
+                ref={setNodeRef}
+                {...attributes}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    zIndex: isDragging ? 1 : undefined,
+                    transform: CSS.Translate.toString(transform),
+                    transition,
+                }}
+            >
+                <div className="ActionFilterRow-content">
+                    {renderRow ? (
+                        renderRow({
+                            seriesIndicator,
+                            filter: filterElement,
+                            suffix,
+                            propertyFiltersButton: propertyFiltersButton,
+                            renameRowButton,
+                            deleteButton,
+                        })
+                    ) : (
+                        <>
+                            {/* left section fixed */}
+                            {rowStartElements.length ? (
+                                <div className="ActionFilterRow__start">{rowStartElements}</div>
+                            ) : null}
+                            {/* central section flexible */}
+                            <div className="ActionFilterRow__center">
+                                <div className="flex-auto overflow-hidden">{filterElement}</div>
+                                {customRowSuffix !== undefined && <>{suffix}</>}
+                                {mathAvailability !== MathAvailability.None &&
+                                    mathAvailability !== MathAvailability.FunnelsOnly && (
+                                        <>
+                                            <MathSelector
+                                                math={math}
+                                                mathGroupTypeIndex={mathGroupTypeIndex}
+                                                index={index}
+                                                onMathSelect={onMathSelect}
+                                                disabled={readOnly}
+                                                style={{ maxWidth: '100%', width: 'initial' }}
+                                                mathAvailability={mathAvailability}
+                                                trendsDisplayCategory={trendsDisplayCategory}
+                                                allowedMathTypes={allowedMathTypes}
+                                            />
+                                            {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
+                                                MathCategory.PropertyValue && (
+                                                <div className="flex-auto overflow-hidden">
+                                                    <TaxonomicStringPopover
+                                                        groupType={TaxonomicFilterGroupType.NumericalEventProperties}
+                                                        groupTypes={[
+                                                            TaxonomicFilterGroupType.DataWarehouseProperties,
+                                                            TaxonomicFilterGroupType.NumericalEventProperties,
+                                                            TaxonomicFilterGroupType.SessionProperties,
+                                                            TaxonomicFilterGroupType.PersonProperties,
+                                                            TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                                        ]}
+                                                        schemaColumns={
+                                                            filter.type == TaxonomicFilterGroupType.DataWarehouse &&
+                                                            filter.name
+                                                                ? Object.values(
+                                                                      dataWarehouseTablesMap[filter.name]?.fields ?? []
+                                                                  )
+                                                                : []
+                                                        }
+                                                        value={mathProperty}
+                                                        onChange={(currentValue, groupType) =>
+                                                            onMathPropertySelect(index, currentValue, groupType)
+                                                        }
+                                                        eventNames={name ? [name] : []}
+                                                        data-attr="math-property-select"
+                                                        showNumericalPropsOnly={showNumericalPropsOnly}
+                                                        renderValue={(currentValue) => (
+                                                            <Tooltip
+                                                                title={
+                                                                    currentValue === '$session_duration' ? (
+                                                                        <>
+                                                                            Calculate{' '}
+                                                                            {mathDefinitions[
+                                                                                math ?? ''
+                                                                            ].name.toLowerCase()}{' '}
+                                                                            of the session duration. This is based on
+                                                                            the <code>$session_id</code> property
+                                                                            associated with events. The duration is
+                                                                            derived from the time difference between the
+                                                                            first and last event for each distinct{' '}
+                                                                            <code>$session_id</code>.
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            Calculate{' '}
+                                                                            {mathDefinitions[
+                                                                                math ?? ''
+                                                                            ].name.toLowerCase()}{' '}
+                                                                            from property <code>{currentValue}</code>.
+                                                                            Note that only {name} occurences where{' '}
+                                                                            <code>{currentValue}</code> is set with a
+                                                                            numeric value will be taken into account.
+                                                                        </>
+                                                                    )
+                                                                }
+                                                                placement="right"
+                                                            >
+                                                                <PropertyKeyInfo
+                                                                    value={currentValue}
+                                                                    disablePopover
+                                                                    type={TaxonomicFilterGroupType.EventProperties}
+                                                                />
+                                                            </Tooltip>
+                                                        )}
+                                                    />
+                                                </div>
+                                            )}
+                                            {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
+                                                MathCategory.HogQLExpression && (
+                                                <div className="flex-auto overflow-hidden">
+                                                    <LemonDropdown
+                                                        visible={isHogQLDropdownVisible}
+                                                        closeOnClickInside={false}
+                                                        onClickOutside={() => setIsHogQLDropdownVisible(false)}
+                                                        overlay={
+                                                            // eslint-disable-next-line react/forbid-dom-props
+                                                            <div
+                                                                className="w-120"
+                                                                style={{ maxWidth: 'max(60vw, 20rem)' }}
+                                                            >
+                                                                <HogQLEditor
+                                                                    value={mathHogQL}
+                                                                    onChange={(currentValue) => {
+                                                                        onMathHogQLSelect(index, currentValue)
+                                                                        setIsHogQLDropdownVisible(false)
+                                                                    }}
+                                                                />
+                                                            </div>
                                                         }
                                                     >
-                                                        <code>{mathHogQL}</code>
-                                                    </LemonButton>
-                                                </LemonDropdown>
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                        </div>
-                        {/* right section fixed */}
-                        {rowEndElements.length ? (
-                            <div className="ActionFilterRow__end">
-                                {mathAvailability === MathAvailability.FunnelsOnly ? (
-                                    <>
-                                        {!hideFilter && propertyFiltersButton}
-                                        <div className="relative">
-                                            <LemonMenu
-                                                visible={isMenuVisible}
-                                                closeOnClickInside={false}
-                                                onVisibilityChange={setIsMenuVisible}
-                                                items={[
-                                                    {
-                                                        label: () => (
-                                                            <>
-                                                                <MathSelector
-                                                                    math={math}
-                                                                    mathGroupTypeIndex={mathGroupTypeIndex}
-                                                                    index={index}
-                                                                    onMathSelect={onMathSelect}
-                                                                    disabled={readOnly}
-                                                                    style={{ maxWidth: '100%', width: 'initial' }}
-                                                                    mathAvailability={mathAvailability}
-                                                                    trendsDisplayCategory={trendsDisplayCategory}
-                                                                />
-                                                                <LemonDivider />
-                                                            </>
-                                                        ),
-                                                    },
-                                                    {
-                                                        label: () => renameRowButton,
-                                                    },
-                                                    {
-                                                        label: () => duplicateRowButton,
-                                                    },
-                                                    {
-                                                        label: () => deleteButton,
-                                                    },
-                                                ]}
-                                            >
-                                                <LemonButton
-                                                    size="medium"
-                                                    aria-label="Show more actions"
-                                                    data-attr={`more-button-${index}`}
-                                                    icon={<IconEllipsis />}
-                                                    noPadding
-                                                />
-                                            </LemonMenu>
-                                            <LemonBadge
-                                                position="top-right"
-                                                size="small"
-                                                visible={math !== undefined}
-                                            />
-                                        </div>
-                                    </>
-                                ) : (
-                                    rowEndElements
-                                )}
+                                                        <LemonButton
+                                                            fullWidth
+                                                            type="secondary"
+                                                            data-attr={`math-hogql-select-${index}`}
+                                                            onClick={() =>
+                                                                setIsHogQLDropdownVisible(!isHogQLDropdownVisible)
+                                                            }
+                                                        >
+                                                            <code>{mathHogQL}</code>
+                                                        </LemonButton>
+                                                    </LemonDropdown>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
                             </div>
-                        ) : null}
-                    </>
-                )}
-            </div>
-
-            {propertyFiltersVisible && (
-                <div className="ActionFilterRow-filters">
-                    <PropertyFilters
-                        pageKey={`${index}-${value}-${typeKey}-filter`}
-                        propertyFilters={filter.properties}
-                        onChange={(properties) => updateFilterProperty({ properties, index })}
-                        showNestedArrow={showNestedArrow}
-                        disablePopover={!propertyFiltersPopover}
-                        metadataSource={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
-                                ? {
-                                      kind: NodeKind.HogQLQuery,
-                                      query: `select ${filter.distinct_id_field} from ${filter.table_name}`,
-                                  }
-                                : undefined
-                        }
-                        taxonomicGroupTypes={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
-                                ? [
-                                      TaxonomicFilterGroupType.DataWarehouseProperties,
-                                      TaxonomicFilterGroupType.HogQLExpression,
-                                  ]
-                                : propertiesTaxonomicGroupTypes
-                        }
-                        eventNames={
-                            filter.type === TaxonomicFilterGroupType.Events && filter.id
-                                ? [String(filter.id)]
-                                : filter.type === TaxonomicFilterGroupType.Actions && filter.id
-                                ? getEventNamesForAction(parseInt(String(filter.id)), actions)
-                                : []
-                        }
-                        schemaColumns={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
-                                ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
-                                : []
-                        }
-                    />
+                            {/* right section fixed */}
+                            {rowEndElements.length ? (
+                                <div className="ActionFilterRow__end">
+                                    {mathAvailability === MathAvailability.FunnelsOnly ? (
+                                        <>
+                                            {!hideFilter && propertyFiltersButton}
+                                            <div className="relative">
+                                                <LemonMenu
+                                                    visible={isMenuVisible}
+                                                    closeOnClickInside={false}
+                                                    onVisibilityChange={setIsMenuVisible}
+                                                    items={[
+                                                        {
+                                                            label: () => (
+                                                                <>
+                                                                    <MathSelector
+                                                                        math={math}
+                                                                        mathGroupTypeIndex={mathGroupTypeIndex}
+                                                                        index={index}
+                                                                        onMathSelect={onMathSelect}
+                                                                        disabled={readOnly}
+                                                                        style={{ maxWidth: '100%', width: 'initial' }}
+                                                                        mathAvailability={mathAvailability}
+                                                                        trendsDisplayCategory={trendsDisplayCategory}
+                                                                    />
+                                                                    <LemonDivider />
+                                                                </>
+                                                            ),
+                                                        },
+                                                        {
+                                                            label: () => renameRowButton,
+                                                        },
+                                                        {
+                                                            label: () => duplicateRowButton,
+                                                        },
+                                                        {
+                                                            label: () => deleteButton,
+                                                        },
+                                                    ]}
+                                                >
+                                                    <LemonButton
+                                                        size="medium"
+                                                        aria-label="Show more actions"
+                                                        data-attr={`more-button-${index}`}
+                                                        icon={<IconEllipsis />}
+                                                        noPadding
+                                                    />
+                                                </LemonMenu>
+                                                <LemonBadge
+                                                    position="top-right"
+                                                    size="small"
+                                                    visible={math !== undefined}
+                                                />
+                                            </div>
+                                        </>
+                                    ) : (
+                                        rowEndElements
+                                    )}
+                                </div>
+                            ) : null}
+                        </>
+                    )}
                 </div>
-            )}
-        </li>
+
+                {propertyFiltersVisible && (
+                    <div className="ActionFilterRow-filters">
+                        <PropertyFilters
+                            pageKey={`${index}-${value}-${typeKey}-filter`}
+                            propertyFilters={filter.properties}
+                            onChange={(properties) => updateFilterProperty({ properties, index })}
+                            showNestedArrow={showNestedArrow}
+                            disablePopover={!propertyFiltersPopover}
+                            metadataSource={
+                                filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                    ? {
+                                          kind: NodeKind.HogQLQuery,
+                                          query: `select ${filter.distinct_id_field} from ${filter.table_name}`,
+                                      }
+                                    : undefined
+                            }
+                            taxonomicGroupTypes={
+                                filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                    ? [
+                                          TaxonomicFilterGroupType.DataWarehouseProperties,
+                                          TaxonomicFilterGroupType.HogQLExpression,
+                                      ]
+                                    : propertiesTaxonomicGroupTypes
+                            }
+                            eventNames={
+                                filter.type === TaxonomicFilterGroupType.Events && filter.id
+                                    ? [String(filter.id)]
+                                    : filter.type === TaxonomicFilterGroupType.Actions && filter.id
+                                    ? getEventNamesForAction(parseInt(String(filter.id)), actions)
+                                    : []
+                            }
+                            schemaColumns={
+                                filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
+                                    ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
+                                    : []
+                            }
+                        />
+                    </div>
+                )}
+            </li>
+        </ActionFilterContext.Provider>
     )
 }
 
@@ -688,10 +701,16 @@ function useMathSelectorOptions({
     trendsDisplayCategory,
     allowedMathTypes,
 }: MathSelectorProps): LemonSelectOptions<string> {
-    const mountedInsightDataLogic = insightDataLogic.findMounted()
+    const actionFilterContext = useContext(ActionFilterContext)
+
+    // Use typeKey as dashboardItemId when finding mounted logic
+    const mountedInsightDataLogic = insightDataLogic.findMounted(
+        actionFilterContext?.typeKey ? { dashboardItemId: actionFilterContext.typeKey } : undefined
+    )
     const query = mountedInsightDataLogic?.values?.query
 
     const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
+    const isTrends = query && isInsightVizNode(query) && isTrendsQuery(query.source)
 
     const {
         needsUpgradeForGroups,
@@ -733,24 +752,54 @@ function useMathSelectorOptions({
             return true
         })
         .map(([key, definition]) => {
-            const shouldWarnAboutTrailingMath =
-                TRAILING_MATH_TYPES.has(key) && trendsDisplayCategory === ChartDisplayCategory.TotalValue
+            let warning: null | 'total' | 'monthly' | 'weekly' = null
+
+            if (isTrends && TRAILING_MATH_TYPES.has(key)) {
+                const trendsQuery = query.source as TrendsQuery
+                const interval = trendsQuery?.interval || 'day'
+                const isWeekOrLongerInterval = interval === 'week' || interval === 'month'
+                const isMonthOrLongerInterval = interval === 'month'
+                if (key === BaseMathType.MonthlyActiveUsers && isMonthOrLongerInterval) {
+                    warning = 'monthly'
+                } else if (key === BaseMathType.WeeklyActiveUsers && isWeekOrLongerInterval) {
+                    warning = 'weekly'
+                } else if (trendsDisplayCategory === ChartDisplayCategory.TotalValue) {
+                    warning = 'total'
+                }
+            }
+
             return {
                 value: key,
-                icon: shouldWarnAboutTrailingMath ? <IconWarning /> : undefined,
+                icon: warning !== null ? <IconWarning /> : undefined,
                 label: definition.name,
-                tooltip: !shouldWarnAboutTrailingMath ? (
-                    definition.description
-                ) : (
-                    <>
-                        <p>{definition.description}</p>
-                        <i>
-                            In total value insights, it's usually not clear what date range "{definition.name}" refers
-                            to. For full clarity, we recommend using "Unique users" here instead.
-                        </i>
-                    </>
-                ),
                 'data-attr': `math-${key}-${index}`,
+                tooltip:
+                    warning === 'total' ? (
+                        <>
+                            <p>{definition.description}</p>
+                            <i>
+                                In total value insights, it's usually not clear what date range "{definition.name}"
+                                refers to. For full clarity, we recommend using "Unique users" here instead.
+                            </i>
+                        </>
+                    ) : warning === null ? (
+                        definition.description
+                    ) : (
+                        <>
+                            {warning === 'weekly' ? (
+                                <p>
+                                    Weekly active users is not meaningful when using week or month intervals because the
+                                    sliding window calculation cannot be properly applied.
+                                </p>
+                            ) : (
+                                <p>
+                                    Monthly active users is not meaningful when using month intervals because the
+                                    sliding window calculation cannot be properly applied.
+                                </p>
+                            )}
+                            This query mode has the same functionality as "Unique users" for this interval.
+                        </>
+                    ),
             }
         })
 
