@@ -464,7 +464,7 @@ def set_org_usage_summary(
 
     has_changed = False
     new_usage = new_usage or cast(Optional[OrganizationUsageInfo], organization.usage)
-    original_usage = copy.deepcopy(cast(Optional[OrganizationUsageInfo], organization.usage))
+    original_usage = cast(dict, copy.deepcopy(organization.usage)) if organization.usage else {}
 
     if not new_usage:
         # If we are not setting it and it doesn't exist we can't update it
@@ -480,13 +480,12 @@ def set_org_usage_summary(
             continue
 
         # Preserve quota_limited_until and quota_limiting_suspended_until if it exists
-        if "quota_limited_until" in original_field_usage and "quota_limited_until" not in resource_usage:
-            resource_usage["quota_limited_until"] = original_field_usage["quota_limited_until"]
-        if (
-            "quota_limiting_suspended_until" in original_field_usage
-            and "quota_limiting_suspended_until" not in resource_usage
-        ):
-            resource_usage["quota_limiting_suspended_until"] = original_field_usage["quota_limiting_suspended_until"]
+        if "quota_limited_until" in original_field_usage:
+            resource_usage["quota_limited_until"] = original_field_usage.get("quota_limited_until")
+        if "quota_limiting_suspended_until" in original_field_usage:
+            resource_usage["quota_limiting_suspended_until"] = original_field_usage.get(
+                "quota_limiting_suspended_until"
+            )
 
         if todays_usage:
             resource_usage["todays_usage"] = todays_usage.get(field, 0)
