@@ -320,7 +320,7 @@ class TestErrorTracking(APIBaseTest):
 
         self.client.post(
             f"/api/projects/{self.team.id}/error_tracking/issue/bulk",
-            data={"ids": [issue_one.id, issue_two.id], "action": "resolve"},
+            data={"ids": [issue_one.id, issue_two.id], "action": "set_status", "status": "resolved"},
         )
 
         issue_one.refresh_from_db()

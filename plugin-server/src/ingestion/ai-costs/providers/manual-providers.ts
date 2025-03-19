@@ -46,7 +46,14 @@ export const manualCosts: ModelRow[] = [
         },
     },
     {
-        model: 'claude-3-7',
+        model: 'claude-3.5',
+        cost: {
+            prompt_token: 0.000003,
+            completion_token: 0.000015,
+        },
+    },
+    {
+        model: 'claude-3.7',
         cost: {
             prompt_token: 0.000003,
             completion_token: 0.000015,

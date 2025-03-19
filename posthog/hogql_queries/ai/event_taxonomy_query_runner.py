@@ -3,9 +3,11 @@ from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.models import Action
 from posthog.schema import (
     CachedEventTaxonomyQueryResponse,
     EventTaxonomyItem,
@@ -15,6 +17,11 @@ from posthog.schema import (
 
 
 class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
+    """
+    Retrieves the event or action taxonomy for the last 30 days: properties and N-most
+    frequent property values for a property.
+    """
+
     query: EventTaxonomyQuery
     response: EventTaxonomyQueryResponse
     cached_response: CachedEventTaxonomyQueryResponse
@@ -132,14 +139,20 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
 
     def _get_subquery_filter(self) -> ast.Expr:
         date_filter = parse_expr("timestamp >= now() - INTERVAL 30 DAY")
-        filter_expr: list[ast.Expr] = [
-            date_filter,
-            ast.CompareOperation(
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=self.query.event),
-                op=ast.CompareOperationOp.Eq,
-            ),
-        ]
+        filter_expr: list[ast.Expr] = [date_filter]
+        if self.query.event:
+            filter_expr.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["event"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=self.query.event),
+                )
+            )
+        elif self.query.actionId:
+            action = Action.objects.get(pk=self.query.actionId, team__project_id=self.team.project_id)
+            filter_expr.append(action_to_expr(action))
+        else:
+            raise ValueError("Either event or action ID must be provided.")
 
         if self.query.properties:
             filter_expr.append(

@@ -38,6 +38,8 @@ import {
     ErrorTrackingQueryResponse,
     EventsQuery,
     EventsQueryResponse,
+    GroupsQuery,
+    GroupsQueryResponse,
     HogQLQueryModifiers,
     HogQLVariable,
     InsightVizNode,
@@ -51,6 +53,7 @@ import {
     isActorsQuery,
     isErrorTrackingQuery,
     isEventsQuery,
+    isGroupsQuery,
     isInsightActorsQuery,
     isInsightQueryNode,
     isPersonsNode,
@@ -145,7 +148,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
     actions({
-        loadData: (refresh = false, alreadyRunningQueryId?: string, overrideQuery?: DataNode<Record<string, any>>) => ({
+        loadData: (
+            refresh?: RefreshType,
+            alreadyRunningQueryId?: string,
+            overrideQuery?: DataNode<Record<string, any>>
+        ) => ({
             refresh,
             queryId: alreadyRunningQueryId || uuid(),
             pollOnly: !!alreadyRunningQueryId,
@@ -173,7 +180,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
                     const query = overrideQuery ?? props.query
-                    const refresh = props.refresh || refreshArg
+                    const refresh = refreshArg ?? props.refresh ?? false
 
                     if (props.doNotLoad) {
                         return props.cachedResults
@@ -300,7 +307,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
-                    if (isEventsQuery(props.query) || isActorsQuery(props.query) || isErrorTrackingQuery(props.query)) {
+                    if (
+                        isEventsQuery(props.query) ||
+                        isActorsQuery(props.query) ||
+                        isGroupsQuery(props.query) ||
+                        isErrorTrackingQuery(props.query)
+                    ) {
                         const newResponse =
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
@@ -311,6 +323,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         const queryResponse = values.response as
                             | EventsQueryResponse
                             | ActorsQueryResponse
+                            | GroupsQueryResponse
                             | ErrorTrackingQueryResponse
                         return {
                             ...queryResponse,
@@ -544,11 +557,22 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }
 
                 if (
-                    (isEventsQuery(query) || isActorsQuery(query) || isErrorTrackingQuery(query)) &&
+                    (isEventsQuery(query) ||
+                        isActorsQuery(query) ||
+                        isGroupsQuery(query) ||
+                        isErrorTrackingQuery(query)) &&
                     !responseError &&
                     !dataLoading
                 ) {
-                    if ((response as EventsQueryResponse | ActorsQueryResponse | ErrorTrackingQueryResponse)?.hasMore) {
+                    if (
+                        (
+                            response as
+                                | EventsQueryResponse
+                                | ActorsQueryResponse
+                                | GroupsQueryResponse
+                                | ErrorTrackingQueryResponse
+                        )?.hasMore
+                    ) {
                         const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
                             const typedResults = (response as EventsQueryResponse)?.results
@@ -571,13 +595,17 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             }
                         } else {
                             const typedResults = (
-                                response as EventsQueryResponse | ActorsQueryResponse | ErrorTrackingQueryResponse
+                                response as
+                                    | EventsQueryResponse
+                                    | ActorsQueryResponse
+                                    | GroupsQueryResponse
+                                    | ErrorTrackingQueryResponse
                             )?.results
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
                                 limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
-                            } as EventsQuery | ActorsQuery | ErrorTrackingQuery
+                            } as EventsQuery | ActorsQuery | GroupsQuery | ErrorTrackingQuery
                         }
                     }
                 }

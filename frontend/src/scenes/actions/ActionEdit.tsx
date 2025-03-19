@@ -9,11 +9,13 @@ import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { ActionHogFunctions } from 'scenes/actions/ActionHogFunctions'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { ActionStepType, FilterLogicalOperator, ReplayTabs } from '~/types'
+import { ActionStepType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
 
 import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
@@ -27,6 +29,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     const { action, actionLoading, actionChanged } = useValues(logic)
     const { submitAction, deleteAction } = useActions(logic)
     const { tags } = useValues(tagsModel)
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const deleteButton = (): JSX.Element => (
         <LemonButton
@@ -126,6 +129,13 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                             ],
                                         },
                                     })}
+                                    onClick={() => {
+                                        addProductIntentForCrossSell({
+                                            from: ProductKey.ACTIONS,
+                                            to: ProductKey.SESSION_REPLAY,
+                                            intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
+                                        })
+                                    }}
                                     sideIcon={<IconPlayCircle />}
                                     data-attr="action-view-recordings"
                                 >

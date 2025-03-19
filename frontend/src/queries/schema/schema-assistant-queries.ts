@@ -1,6 +1,7 @@
 import { BreakdownType, FunnelMathType, IntervalType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
+    ActionsNode,
     CompareFilter,
     EventsNode,
     FunnelExclusionSteps,
@@ -156,9 +157,30 @@ export interface AssistantInsightsQueryBase {
     samplingFactor?: number | null
 }
 
+/**
+ * Defines the event series.
+ */
 export interface AssistantTrendsEventsNode
-    extends Omit<EventsNode, 'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy'> {
+    extends Omit<
+        EventsNode,
+        'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy' | 'orderBy' | 'response'
+    > {
     properties?: AssistantPropertyFilter[]
+}
+
+/**
+ * Defines the action series. You must provide the action ID in the `id` field and the name in the `name` field.
+ */
+export interface AssistantTrendsActionsNode
+    extends Omit<
+        ActionsNode,
+        'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy' | 'orderBy' | 'response' | 'name'
+    > {
+    properties?: AssistantPropertyFilter[]
+    /**
+     * Action name from the plan.
+     */
+    name: string
 }
 
 export interface AssistantBaseMultipleBreakdownFilter {
@@ -288,9 +310,9 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     interval?: IntervalType
 
     /**
-     * Events to include
+     * Events or actions to include
      */
-    series: AssistantTrendsEventsNode[]
+    series: (AssistantTrendsEventsNode | AssistantTrendsActionsNode)[]
 
     /**
      * Properties specific to the trends insight
@@ -298,7 +320,7 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     trendsFilter?: AssistantTrendsFilter
 
     /**
-     * Breakdown of the events
+     * Breakdown of the series
      */
     breakdownFilter?: AssistantTrendsBreakdownFilter
 
@@ -308,9 +330,19 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     compareFilter?: CompareFilter
 }
 
-export type AssistantTrendsMath = FunnelMathType.FirstTimeForUser | FunnelMathType.FirstTimeForUserWithFilters
+export type AssistantFunnelsMath = FunnelMathType.FirstTimeForUser | FunnelMathType.FirstTimeForUserWithFilters
 
-export interface AssistantFunnelsEventsNode extends Node {
+export interface AssistantFunnelNodeShared {
+    /**
+     * Optional math aggregation type for the series. Only specify this math type if the user wants one of these.
+     * `first_time_for_user` - counts the number of users who have completed the event for the first time ever.
+     * `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.
+     */
+    math?: AssistantFunnelsMath
+    properties?: AssistantPropertyFilter[]
+}
+
+export interface AssistantFunnelsEventsNode extends Omit<Node, 'response'>, AssistantFunnelNodeShared {
     kind: NodeKind.EventsNode
     /**
      * Name of the event.
@@ -320,14 +352,21 @@ export interface AssistantFunnelsEventsNode extends Node {
      * Optional custom name for the event if it is needed to be renamed.
      */
     custom_name?: string
-    /**
-     * Optional math aggregation type for the series. Only specify this math type if the user wants one of these.
-     * `first_time_for_user` - counts the number of users who have completed the event for the first time ever.
-     * `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.
-     */
-    math?: AssistantTrendsMath
-    properties?: AssistantPropertyFilter[]
 }
+
+export interface AssistantFunnelsActionsNode extends Omit<Node, 'response'>, AssistantFunnelNodeShared {
+    kind: NodeKind.ActionsNode
+    /**
+     * Action ID from the plan.
+     */
+    id: number
+    /**
+     * Action name from the plan.
+     */
+    name: string
+}
+
+export type AssistantFunnelsNode = AssistantFunnelsEventsNode | AssistantFunnelsActionsNode
 
 /**
  * Exclustion steps for funnels. The "from" and "to" steps must not exceed the funnel's series length.
@@ -417,9 +456,9 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
      */
     interval?: IntervalType
     /**
-     * Events to include
+     * Events or actions to include
      */
-    series: AssistantFunnelsEventsNode[]
+    series: AssistantFunnelsNode[]
     /**
      * Properties specific to the funnels insight
      */
@@ -433,6 +472,40 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
      */
     aggregation_group_type_index?: integer
 }
+
+export interface AssistantRetentionEventsNode {
+    type: 'events'
+    /**
+     * Event name from the plan.
+     */
+    name: string
+    /**
+     * Custom name for the event if it is needed to be renamed.
+     */
+    custom_name?: string
+    /**
+     * Property filters for the event.
+     */
+    properties?: AssistantPropertyFilter[]
+}
+
+export interface AssistantRetentionActionsNode {
+    type: 'actions'
+    /**
+     * Action ID from the plan.
+     */
+    id: number
+    /**
+     * Action name from the plan.
+     */
+    name: string
+    /**
+     * Property filters for the action.
+     */
+    properties?: AssistantPropertyFilter[]
+}
+
+export type AssistantRetentionEntity = AssistantRetentionEventsNode | AssistantRetentionActionsNode
 
 export interface AssistantRetentionFilter {
     /**
@@ -448,9 +521,9 @@ export interface AssistantRetentionFilter {
      */
     totalIntervals?: integer
     /** Retention event (event marking the user coming back). */
-    returningEntity?: RetentionFilterLegacy['returning_entity']
+    returningEntity: AssistantRetentionEntity
     /** Activation event (event putting the actor into the initial cohort). */
-    targetEntity?: RetentionFilterLegacy['target_entity']
+    targetEntity: AssistantRetentionEntity
     /**
      * Retention period, the interval to track cohorts by.
      * @default Day

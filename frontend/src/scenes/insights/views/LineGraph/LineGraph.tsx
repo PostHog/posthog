@@ -321,7 +321,7 @@ export function LineGraph_({
     const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
+    const [lineChart, setLineChart] = useState<Chart<ChartType, any, string>>()
 
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
@@ -478,9 +478,10 @@ export function LineGraph_({
     ): Record<string, ScaleOptions<'linear' | 'logarithmic'>> {
         const defaultYAxisConfig = {
             display: !hideYAxis,
-            ...(isLog10 ? { type: 'logarithmic' as const } : { type: 'linear' as const }),
+            ...(isLog10
+                ? { type: 'logarithmic' as const, min: Math.pow(10, Math.ceil(Math.log10(seriesNonZeroMin)) - 1) }
+                : { type: 'linear' as const }),
             beginAtZero: true,
-            min: isLog10 ? Math.pow(10, Math.ceil(Math.log10(seriesNonZeroMin)) - 1) : undefined,
             stacked: showPercentStackView || isArea,
             ticks: {
                 ...tickOptions,
@@ -556,7 +557,7 @@ export function LineGraph_({
 
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
-        const precision = seriesNonZeroMax < 5 ? 1 : seriesNonZeroMax < 2 ? 2 : 0
+        const precision = seriesNonZeroMax < 2 ? 2 : seriesNonZeroMax < 5 ? 1 : 0
         const goalLines = _goalLines || []
         const goalLinesY = goalLines.map((a) => a.value)
         const goalLinesWithColor = goalLines.filter((goalLine) => Boolean(goalLine.borderColor))
@@ -977,14 +978,17 @@ export function LineGraph_({
         }
         Chart.register(ChartjsPluginStacked100)
         Chart.register(annotationPlugin)
-        const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
+
+        const chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
             options,
             plugins: [ChartDataLabels],
         })
-        setMyLineChart(newChart)
-        return () => newChart.destroy()
+
+        setLineChart(chart)
+
+        return () => chart.destroy()
     }, [
         datasets,
         hiddenLegendIndexes,
@@ -1001,9 +1005,9 @@ export function LineGraph_({
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
             <canvas ref={canvasRef} />
-            {showAnnotations && myLineChart && chartWidth && chartHeight ? (
+            {showAnnotations && lineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
-                    chart={myLineChart}
+                    chart={lineChart}
                     dates={datasets[0]?.days || []}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}

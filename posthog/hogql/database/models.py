@@ -1,15 +1,16 @@
-from dataclasses import dataclass, field
-from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
-from pydantic import ConfigDict, BaseModel
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Optional
+
+from pydantic import BaseModel, ConfigDict
 
 from posthog.hogql.base import Expr
-from posthog.hogql.errors import ResolutionError, NotImplementedError
+from posthog.hogql.errors import NotImplementedError, ResolutionError
 
 if TYPE_CHECKING:
-    from posthog.hogql.context import HogQLContext
-    from posthog.hogql.ast import SelectQuery, LazyJoinType
+    from posthog.hogql.ast import LazyJoinType, SelectQuery
     from posthog.hogql.base import ConstantType
+    from posthog.hogql.context import HogQLContext
 
 
 class FieldOrTable(BaseModel):
@@ -76,6 +77,13 @@ class StringArrayDatabaseField(DatabaseField):
         from posthog.hogql.ast import StringType
 
         return StringType(nullable=self.is_nullable())
+
+
+class FloatArrayDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import FloatType
+
+        return FloatType(nullable=self.is_nullable())
 
 
 class DateDatabaseField(DatabaseField):

@@ -31,7 +31,7 @@ TASK_EXPIRATION_TIME = (
     # we definitely want to expire this task after a while
     # but we don't want to expire it too quickly
     # so we multiply the schedule by some factor or fallback to a long time
-    settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS * 5
+    settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS * 15
     if settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS
     else THIRTY_SIX_HOURS_IN_SECONDS
 )
@@ -284,7 +284,7 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
     # limit how many run per worker instance - if we have 10 workers, this will run 600 times per hour
-    rate_limit="120/h",
+    rate_limit="180/h",
     expires=TASK_EXPIRATION_TIME,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
     # will retry twice, once after 120 seconds (with jitter)
@@ -381,18 +381,8 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
 
 
 def enqueue_recordings_that_match_playlist_filters() -> None:
-    if not settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID or not isinstance(
-        settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID, int
-    ):
-        raise Exception("PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID is not set")
-
-    if settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID == 0:
-        # If we're not processing any teams, we don't need to enqueue anything
-        return
-
     all_playlists = (
         SessionRecordingPlaylist.objects.filter(
-            team_id__lte=int(settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID),
             deleted=False,
             filters__isnull=False,
         )

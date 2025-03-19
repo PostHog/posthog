@@ -6,20 +6,10 @@ import { HogExecutorService } from '../../../src/cdp/services/hog-executor.servi
 import { HogFunctionInvocation, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
-import { status } from '../../../src/utils/status'
+import { logger } from '../../../src/utils/logger'
 import { parseJSON } from '../../utils/json-parse'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../_tests/fixtures'
-
-jest.mock('../../../src/utils/status', () => ({
-    status: {
-        error: jest.fn(),
-        info: jest.fn(),
-        warn: jest.fn(),
-        debug: jest.fn(),
-        updatePrompt: jest.fn(),
-    },
-}))
 
 const setupFetchResponse = (
     invocation: HogFunctionInvocation,
@@ -331,7 +321,7 @@ describe('Hog Executor', () => {
             expect(resultsShouldMatch.logs[0].message).toMatchInlineSnapshot(
                 `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
             )
-            expect(status.error).toHaveBeenCalledWith(
+            expect(logger.error).toHaveBeenCalledWith(
                 '🦔',
                 expect.stringContaining('Error filtering function'),
                 truth(
