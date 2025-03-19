@@ -28,7 +28,6 @@ export const groupsListLogic = kea<groupsListLogicType>([
         ],
     }),
     actions(() => ({
-        setSearch: (search: string, debounce: boolean = true) => ({ search, debounce }),
         setQuery: (query: DataTableNode) => ({ query }),
     })),
     reducers({
