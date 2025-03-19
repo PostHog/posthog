@@ -13,17 +13,18 @@ class SQLTaxonomyAgentToolkit(TaxonomyAgentToolkit):
 
                     Answer in the following format:
                     ```
-                    Events:
-                    - event 1
-                        - how it will be used
-                        - conditions
-                    - event 2
-                        - how it will be used
-                        - conditions
-                    - repeat for each event...
+                    Logic:
+                    - description of each logical layer of the query (if aggregations needed, include which concrete aggregation to use)
 
-                    Aggregation logic:
-                    ...
+
+                    Sources:
+                    - event 1
+                        - how it will be used, most importantly conditions
+                    - action ID 2
+                        - how it will be used, most importantly conditions
+                    - data warehouse table 3
+                        - how it will be used, most importantly conditions
+                    - repeat for each event/action/data warehouse table...
                     ```
 
                     Args:
