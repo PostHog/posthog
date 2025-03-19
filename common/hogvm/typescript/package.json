@@ -39,7 +39,7 @@
         "parcel": "^2.13.3",
         "prettier": "^3.2.5",
         "re2": "^1.21.3",
-        "typescript": "^5.4.5"
+        "typescript": "^5.8.2"
     },
     "files": [
         "dist",
