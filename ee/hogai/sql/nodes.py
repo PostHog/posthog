@@ -46,9 +46,8 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
     hogql_context: HogQLContext
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        self.hogql_context = HogQLContext(
-            team_id=self._team.pk, enable_select_queries=True, database=create_hogql_database(self._team.pk)
-        )
+        database = create_hogql_database(self._team.pk)
+        self.hogql_context = HogQLContext(team_id=self._team.pk, enable_select_queries=True, database=database)
 
         serialized_database = serialize_database(self.hogql_context)
         schema_description = "\n\n".join(
@@ -56,6 +55,8 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
                 f"Table {table_name} with fields:\n"
                 + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
                 for table_name, table in serialized_database.items()
+                # Only the most important core tables, plus all warehouse tables
+                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_tables()
             )
         )
 
