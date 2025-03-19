@@ -200,10 +200,9 @@ describe('LazyLoader', () => {
             })
 
             const result1 = lazyLoader.get('key1')
-            await delay(70)
             // Should join first request
             const result2 = lazyLoader.get('key2')
-            await delay(60)
+            await delay(50)
             // Should load key2 and join second request
             const result3 = lazyLoader.get('key3')
             const result4 = lazyLoader.getMany(['key1', 'key2', 'key3'])
