@@ -1,4 +1,4 @@
-import { IconArrowRight, IconRevert, IconStopFilled } from '@posthog/icons'
+import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -10,7 +10,7 @@ import { maxLogic } from './maxLogic'
 
 export function QuestionInput(): JSX.Element {
     const { question, threadGrouped, threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxLogic)
-    const { askMax, setQuestion, stopGeneration, cleanThread } = useActions(maxLogic)
+    const { askMax, setQuestion, stopGeneration } = useActions(maxLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -86,19 +86,6 @@ export function QuestionInput(): JSX.Element {
                     </div>
                 </div>
             </div>
-            {isFloating && (
-                <div className="flex items-center gap-2 justify-center mb-2">
-                    <LemonButton
-                        icon={<IconRevert />}
-                        onClick={() => cleanThread()}
-                        type="tertiary"
-                        size="xsmall"
-                        tooltip="Reset chat history"
-                    >
-                        Reset chat
-                    </LemonButton>
-                </div>
-            )}
         </>
     )
 }
