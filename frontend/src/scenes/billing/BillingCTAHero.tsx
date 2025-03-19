@@ -111,16 +111,21 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
     const copyVariation = startupProgramLabel ? COPY_VARIATIONS[startupProgramLabel] : COPY_VARIATIONS[billingPlan]
 
     return (
-        <div className="flex relative justify-between items-stretch rounded-lg bg-accent-primary-highlight">
-            <div className="p-4 flex-1 sm:basis-2/3 sm:flex-none">
+        <div className="relative rounded-lg bg-accent-primary-highlight">
+            <div className="@container p-4 relative">
+                <img
+                    src={startupProgramLabel ? STARTUP_PROGRAM_BADGES[startupProgramLabel] : PLAN_BADGES[billingPlan]}
+                    alt={startupProgramLabel ? `${startupProgramLabel} plan badge` : `${billingPlan} plan badge`}
+                    className="float-right w-[33cqw] min-w-32 max-w-48 ml-6 mb-4"
+                />
                 {copyVariation.title && <h1 className="mb-0">{copyVariation.title}</h1>}
                 {copyVariation.subtitle && <h1 className="text-danger">{copyVariation.subtitle}</h1>}
-                <div className="mt-2 mb-0 max-w-xl">{copyVariation.description}</div>
+                <div className="mt-2">{copyVariation.description}</div>
                 {showUpgradeOptions && (
-                    <div className="flex justify-start deprecated-space-x-2">
+                    <div className="flex items-center gap-2">
                         {featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
                             <BillingUpgradeCTA
-                                className="mt-4 inline-block"
+                                className="inline-block"
                                 type="primary"
                                 status="alt"
                                 data-attr="billing-page-core-upgrade-cta"
@@ -132,7 +137,7 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                             </BillingUpgradeCTA>
                         ) : (
                             <BillingUpgradeCTA
-                                className="mt-4 inline-block"
+                                className="inline-block"
                                 to={getUpgradeProductLink({
                                     product,
                                     redirectPath,
@@ -148,7 +153,7 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                             </BillingUpgradeCTA>
                         )}
                         <LemonButton
-                            className="mt-4 inline-block"
+                            className="inline-block"
                             onClick={() => toggleIsPlanComparisonModalOpen()}
                             type="primary"
                         >
@@ -156,13 +161,6 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                         </LemonButton>
                     </div>
                 )}
-            </div>
-            <div className="absolute sm:static top-2 right-2 sm:basis-1/3 sm:flex sm:items-center sm:justify-center">
-                <img
-                    src={startupProgramLabel ? STARTUP_PROGRAM_BADGES[startupProgramLabel] : PLAN_BADGES[billingPlan]}
-                    alt={startupProgramLabel ? `${startupProgramLabel} plan badge` : `${billingPlan} plan badge`}
-                    className="w-20 sm:w-50 object-contain"
-                />
             </div>
             {showUpgradeOptions && (
                 <PlanComparisonModal
