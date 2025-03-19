@@ -2142,12 +2142,13 @@ const api = {
             return await new ApiRequest().errorTrackingAssignIssue(id).update({ data: { assignee } })
         },
 
-        async bulkResolve(ids: ErrorTrackingIssue['id'][]): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'resolve', ids } })
-        },
-
-        async bulkSuppress(ids: ErrorTrackingIssue['id'][]): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'suppress', ids } })
+        async bulkMarkStatus(
+            ids: ErrorTrackingIssue['id'][],
+            status: ErrorTrackingIssue['status']
+        ): Promise<{ content: string }> {
+            return await new ApiRequest()
+                .errorTrackingIssueBulk()
+                .create({ data: { action: 'set_status', ids, status: status } })
         },
 
         async bulkAssign(
