@@ -55,7 +55,7 @@ class Dashboard(models.Model):
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
         choices=RestrictionLevel.choices,
     )
-    insights = models.ManyToManyField(
+    insights: models.ManyToManyField = models.ManyToManyField(
         "posthog.Insight",
         related_name="dashboards",
         through="DashboardTile",

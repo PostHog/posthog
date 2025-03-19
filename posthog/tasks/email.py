@@ -38,7 +38,8 @@ NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled"]
 
 def send_message_to_all_staff_users(message: EmailMessage) -> None:
     for user in User.objects.filter(is_active=True, is_staff=True):
-        message.add_recipient(email=user.email, name=user.first_name)
+        if user.email:  # Only add recipient if email is not None
+            message.add_recipient(email=user.email, name=user.first_name)
 
     message.send()
 

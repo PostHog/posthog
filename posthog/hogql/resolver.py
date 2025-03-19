@@ -150,7 +150,7 @@ class Resolver(CloningVisitor):
 
         return node
 
-    def visit_select_query(self, node: ast.SelectQuery):
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         """Visit each SELECT query or subquery."""
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
@@ -180,7 +180,7 @@ class Resolver(CloningVisitor):
         # Array joins (pass 1 - so we can use aliases from the array join in columns)
         new_node.array_join_op = node.array_join_op
         ac = AliasCollector()
-        array_join_aliases = []
+        array_join_aliases: list[str] = []
         if node.array_join_list:
             for expr in node.array_join_list:
                 ac.visit(expr)
@@ -191,7 +191,7 @@ class Resolver(CloningVisitor):
                 node_type.aliases[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
-        select_nodes = []
+        select_nodes: list[ast.Expr] = []
         for expr in node.select or []:
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
@@ -200,7 +200,7 @@ class Resolver(CloningVisitor):
             else:
                 select_nodes.append(new_expr)
 
-        columns_with_visible_alias = {}
+        columns_with_visible_alias: dict[str, bool] = {}
         for new_expr in select_nodes:
             if isinstance(new_expr.type, ast.FieldAliasType):
                 alias = new_expr.type.alias

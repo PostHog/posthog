@@ -62,10 +62,14 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     def get_is_2fa_enabled(self, instance: OrganizationMembership) -> bool:
         # If we add other forms of 2FA we need to use default_device here instead
         # But not using that here as it increased the number of queries we did by a lot
-        return len(instance.user.totpdevice_set.all()) > 0
+        if not hasattr(instance.user, "totpdevice_set"):
+            return False
+        return instance.user.totpdevice_set.exists()
 
     def get_has_social_auth(self, instance: OrganizationMembership) -> bool:
-        return len(instance.user.social_auth.all()) > 0
+        if not hasattr(instance.user, "social_auth"):
+            return False
+        return instance.user.social_auth.exists()
 
     def update(self, updated_membership, validated_data, **kwargs):
         updated_membership = cast(OrganizationMembership, updated_membership)

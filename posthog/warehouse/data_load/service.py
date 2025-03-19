@@ -128,12 +128,13 @@ def get_calendar_spec(hour_of_day: int, minute_of_hour: int, sync_frequency: tim
 
 
 def get_sync_frequency(external_data_schema: "ExternalDataSchema") -> tuple[timedelta, timedelta]:
-    if external_data_schema.sync_frequency_interval <= timedelta(hours=1):
-        return (external_data_schema.sync_frequency_interval, timedelta(minutes=1))
-    if external_data_schema.sync_frequency_interval <= timedelta(hours=12):
-        return (external_data_schema.sync_frequency_interval, timedelta(minutes=30))
+    interval = external_data_schema.sync_frequency_interval or timedelta(hours=24)
+    if interval <= timedelta(hours=1):
+        return (interval, timedelta(minutes=1))
+    if interval <= timedelta(hours=12):
+        return (interval, timedelta(minutes=30))
 
-    return (external_data_schema.sync_frequency_interval, timedelta(hours=1))
+    return (interval, timedelta(hours=1))
 
 
 def sync_external_data_job_workflow(

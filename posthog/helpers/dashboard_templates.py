@@ -529,16 +529,16 @@ def _create_tile_for_insight(
 ) -> None:
     insight = Insight.objects.create(
         team=dashboard.team,
-        name=name,
-        description=description,
-        is_sample=True,
-        query=query,
+        name=name or "",  # Ensure name is never None
+        description=description or "",  # Ensure description is never None
+        filters=query or {},  # Ensure filters is never None
+        saved=True,
     )
     DashboardTile.objects.create(
-        insight=insight,
         dashboard=dashboard,
+        insight=insight,
         layouts=layouts,
-        color=color,
+        color=color or "white",  # Default to white if color is None
     )
 
 

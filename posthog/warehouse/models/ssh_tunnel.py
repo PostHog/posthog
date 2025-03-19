@@ -1,6 +1,6 @@
 import dataclasses
 from io import StringIO
-from typing import IO, Literal
+from typing import IO, Literal, Union
 from sshtunnel import SSHTunnelForwarder
 from paramiko import RSAKey, Ed25519Key, ECDSAKey, DSSKey, PKey
 from cryptography.hazmat.primitives import serialization as crypto_serialization
@@ -23,10 +23,13 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
             file_bytes,
             password=password if passphrase is not None else None,
         )
+
+        encryption_algorithm: Union[crypto_serialization.BestAvailableEncryption, crypto_serialization.NoEncryption] = (
+            crypto_serialization.NoEncryption()
+        )
         if passphrase:
             encryption_algorithm = crypto_serialization.BestAvailableEncryption(password)
-        else:
-            encryption_algorithm = crypto_serialization.NoEncryption()
+
         file_obj = StringIO(
             key.private_bytes(
                 crypto_serialization.Encoding.PEM,

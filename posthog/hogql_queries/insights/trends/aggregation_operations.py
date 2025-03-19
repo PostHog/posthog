@@ -130,8 +130,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         elif isinstance(self.series, DataWarehouseNode) and self.series.math_property:
             return [self.series.math_property]
         elif self.series.math_property_type == "data_warehouse_person_properties" and self.series.math_property:
-            return ["person", *self.series.math_property.split(".")]
-        return ["properties", self.series.math_property]
+            return ["person", *(self.series.math_property or "").split(".")]
+        return ["properties", self.series.math_property or ""]
 
     def _math_func(self, method: str, override_chain: Optional[list[str | int]] = None) -> ast.Call:
         if override_chain is not None:

@@ -67,17 +67,18 @@ class TotalIntervalsDerivedMixin(IntervalMixin, StickinessDateMixin):
 
         _num_intervals = 0
         _total_seconds = (self.date_to - self.date_from).total_seconds()
-        if self.interval == "hour":
+        interval = self.interval or "day"  # Default to day if interval is None
+        if interval == "hour":
             _num_intervals = int(divmod(_total_seconds, 3600)[0])
-        elif self.interval == "day":
+        elif interval == "day":
             _num_intervals = int(divmod(_total_seconds, 86400)[0])
-        elif self.interval == "week":
+        elif interval == "week":
             _num_intervals = (self.date_to - self.date_from).days // 7
-        elif self.interval == "month":
+        elif interval == "month":
             _num_intervals = (self.date_to.year - self.date_from.year) * 12 + (
                 self.date_to.month - self.date_from.month
             )
         else:
-            raise ValidationError(f"{self.interval} not supported")
+            raise ValidationError(f"{interval} not supported")
         _num_intervals += 2
         return _num_intervals
