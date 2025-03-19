@@ -313,18 +313,28 @@ def org_quota_limited_until(
                     "if_check": not quota_limiting_suspended_until
                     or (
                         (
-                            datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)
-                        ).timestamp()
-                        < billing_period_start
+                            (
+                                datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)
+                            ).timestamp()
+                            < billing_period_start
+                        )
+                        if quota_limiting_suspended_until
+                        else "no quota_limiting_suspended_until"
                     ),
                     "if_check_2": (
                         datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)
-                    ).timestamp(),
+                    ).timestamp()
+                    if quota_limiting_suspended_until
+                    else "no quota_limiting_suspended_until",
                     "if_check_3": (
                         (
-                            datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)
-                        ).timestamp()
-                        < billing_period_start
+                            (
+                                datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)
+                            ).timestamp()
+                            < billing_period_start
+                        )
+                        if quota_limiting_suspended_until
+                        else "no quota_limiting_suspended_until"
                     ),
                 },
             )
