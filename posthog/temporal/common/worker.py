@@ -2,7 +2,6 @@ import asyncio
 import collections.abc
 import datetime as dt
 import signal
-import typing
 from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
@@ -28,7 +27,7 @@ async def start_worker(
     namespace: str,
     task_queue: str,
     workflows: collections.abc.Sequence[type],
-    activities: collections.abc.Sequence[collections.abc.Callable[..., typing.Any]],
+    activities,
     server_root_ca_cert: str | None = None,
     client_cert: str | None = None,
     client_key: str | None = None,
