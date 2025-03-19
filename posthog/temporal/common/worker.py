@@ -1,7 +1,9 @@
 import asyncio
+import collections.abc
+import datetime as dt
 import signal
+import typing
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
 
 from django.conf import settings
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
@@ -20,18 +22,19 @@ def _debug_pyarrows():
 
 
 async def start_worker(
-    host,
-    port,
-    metrics_port,
-    namespace,
-    task_queue,
-    workflows,
-    activities,
-    server_root_ca_cert=None,
-    client_cert=None,
-    client_key=None,
-    max_concurrent_workflow_tasks=None,
-    max_concurrent_activities=None,
+    host: str,
+    port: int,
+    metrics_port: int,
+    namespace: str,
+    task_queue: str,
+    workflows: collections.abc.Sequence[type],
+    activities: collections.abc.Sequence[collections.abc.Callable[..., typing.Any]],
+    server_root_ca_cert: str | None = None,
+    client_cert: str | None = None,
+    client_key: str | None = None,
+    graceful_shutdown_timeout: dt.timedelta | None = None,
+    max_concurrent_workflow_tasks: int | None = None,
+    max_concurrent_activities: int | None = None,
 ):
     _debug_pyarrows()
 
@@ -52,7 +55,7 @@ async def start_worker(
         workflows=workflows,
         activities=activities,
         workflow_runner=UnsandboxedWorkflowRunner(),
-        graceful_shutdown_timeout=timedelta(minutes=5),
+        graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
         interceptors=[SentryInterceptor(), PostHogClientInterceptor()],
         activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
         max_concurrent_activities=max_concurrent_activities or 50,
