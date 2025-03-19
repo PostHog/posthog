@@ -211,8 +211,7 @@ def get_most_recent_status(statuses: list[BackupStatus]) -> Optional[BackupStatu
     """
     statuses = [status for status in statuses if status is not None]
     if statuses:
-        statuses.sort(key=lambda x: x.event_time_microseconds, reverse=True)
-        return statuses[0]
+        return max(statuses, key=lambda x: x.event_time_microseconds)
 
 
 @dagster.op(out=dagster.DynamicOut())
