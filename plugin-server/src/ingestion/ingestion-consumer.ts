@@ -115,6 +115,7 @@ export class IngestionConsumer {
 
     public async start(): Promise<void> {
         await Promise.all([
+            this.hogTransformer.start(),
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()
@@ -143,6 +144,8 @@ export class IngestionConsumer {
         await this.kafkaProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
         await this.kafkaOverflowProducer?.disconnect()
+        logger.info('🔁', `${this.name} - stopping hog transformer`)
+        await this.hogTransformer.stop()
         logger.info('👍', `${this.name} - stopped!`)
     }
 
