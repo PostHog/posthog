@@ -685,7 +685,9 @@ class RetentionQueryRunner(QueryRunner):
 
         return retention_query
 
-    def to_events_query(self, interval: int, person_id: str | None = None) -> ast.SelectQuery:
+    def to_events_query(
+        self, interval: int, breakdown_value: str | None = None, person_id: str | None = None
+    ) -> ast.SelectQuery:
         """
         Returns a query that gets all events (both start and return) that match for a specific interval and optional person.
         These events are the ones that contribute to the 'counts' for the respective interval.
@@ -744,7 +746,10 @@ class RetentionQueryRunner(QueryRunner):
                     {actor_query}
                 """,
                     {
-                        "actor_query": self.actor_query(),
+                        "actor_query": self.actor_query(
+                            selected_breakdown_value=breakdown_value,
+                            start_interval_index_filter=interval,
+                        ),
                     },
                 ),
             )

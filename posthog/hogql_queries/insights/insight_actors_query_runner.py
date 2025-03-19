@@ -103,6 +103,7 @@ class InsightActorsQueryRunner(QueryRunner):
 
             return retention_runner.to_events_query(
                 interval=query.interval,
+                breakdown_value=query.breakdown,
             )
 
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to events query")
