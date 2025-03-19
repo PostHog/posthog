@@ -11,7 +11,7 @@ from posthog.temporal.common.codec import EncryptionCodec
 
 async def connect(
     host: str,
-    port: int,
+    port: int | str,
     namespace: str,
     server_root_ca_cert: str | None = None,
     client_cert: str | None = None,

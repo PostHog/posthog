@@ -1,5 +1,7 @@
 import asyncio
+import collections.abc
 import logging
+import typing
 
 import structlog
 from temporalio import workflow
@@ -113,7 +115,9 @@ class Command(BaseCommand):
 
         try:
             workflows = WORKFLOWS_DICT[task_queue]
-            activities = ACTIVITIES_DICT[task_queue]
+            activities: collections.abc.Sequence[collections.abc.Callable[..., typing.Any]] = ACTIVITIES_DICT[
+                task_queue
+            ]
         except KeyError:
             raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
 
