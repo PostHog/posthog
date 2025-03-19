@@ -1,13 +1,11 @@
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { ProductIntentContext } from 'lib/utils/product-intents'
-import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductKey, UserBasicType, UserGroup } from '~/types'
+import { UserBasicType, UserGroup } from '~/types'
 
 import type { userGroupsLogicType } from './userGroupsLogicType'
 
@@ -15,10 +13,6 @@ export interface UserGroupsFuse extends Fuse<UserGroup> {}
 
 export const userGroupsLogic = kea<userGroupsLogicType>([
     path(['scenes', 'settings', 'environment', 'userGroupsLogic']),
-
-    connect({
-        actions: [teamLogic, ['addProductIntent']],
-    }),
 
     actions({
         ensureAllGroupsLoaded: true,
@@ -30,7 +24,7 @@ export const userGroupsLogic = kea<userGroupsLogicType>([
         search: ['', { setSearch: (_, { search }) => search }],
     }),
 
-    loaders(({ values, actions }) => ({
+    loaders(({ values }) => ({
         userGroups: [
             [] as UserGroup[],
             {
@@ -44,10 +38,6 @@ export const userGroupsLogic = kea<userGroupsLogicType>([
                     return newValues.filter((v) => v.id !== id)
                 },
                 createUserGroup: async (name: string) => {
-                    actions.addProductIntent({
-                        product_type: ProductKey.ERROR_TRACKING,
-                        intent_context: ProductIntentContext.ERROR_TRACKING_USER_GROUP_CREATED,
-                    })
                     const response = await api.userGroups.create(name)
                     return [...values.userGroups, response]
                 },

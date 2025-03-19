@@ -1,11 +1,9 @@
-import { kea, path, props, selectors, useActions } from 'kea'
-import { ProductIntentContext } from 'lib/utils/product-intents'
+import { kea, path, props, selectors } from 'kea'
 import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ProductKey } from '~/types'
+import { Breadcrumb } from '~/types'
 
 import type { errorTrackingAlertSceneLogicType } from './ErrorTrackingAlertType'
 
@@ -53,21 +51,6 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingAlertScene({ id }: Partial<ErrorTrackingAlertSceneLogicProps> = {}): JSX.Element {
-    const { addProductIntent } = useActions(teamLogic)
-
     const props = id && ERROR_TRACKING_TEMPLATE_IDS.includes(id) ? { id: null, templateId: id } : { id }
-
-    return (
-        <HogFunctionConfiguration
-            {...props}
-            displayOptions={{ canEditSource: true }}
-            logicKey="errorTracking"
-            onCreate={() =>
-                addProductIntent({
-                    product_type: ProductKey.ERROR_TRACKING,
-                    intent_context: ProductIntentContext.ERROR_TRACKING_ALERT_CREATED,
-                })
-            }
-        />
-    )
+    return <HogFunctionConfiguration {...props} displayOptions={{ canEditSource: true }} logicKey="errorTracking" />
 }
