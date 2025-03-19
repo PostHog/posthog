@@ -226,7 +226,7 @@ class RetentionQueryRunner(QueryRunner):
         self,
         cumulative: bool = False,
         start_interval_index_filter: Optional[int] = None,
-        selected_breakdown_value: str | None = None,
+        selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
             source=ast.Field(chain=["events", "timestamp"])
@@ -689,7 +689,7 @@ class RetentionQueryRunner(QueryRunner):
         return retention_query
 
     def to_events_query(
-        self, interval: int, breakdown_value: str | None = None, person_id: str | None = None
+        self, interval: int, breakdown_value: str | list[str] | int | None = None, person_id: str | None = None
     ) -> ast.SelectQuery:
         """
         Returns a query that gets all events (both start and return) that match for a specific interval and optional person.
