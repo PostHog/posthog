@@ -24,7 +24,7 @@ function PinToPlaylistButton(): JSX.Element {
     const { maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
 
-    const tooltip = logicProps.pinned ? 'Unpin from this list' : 'Pin to this list'
+    const tooltip = logicProps.pinned ? 'Unpin from this saved filter' : 'Pin to this saved filter'
     const description = 'Pin'
 
     return logicProps.setPinned && !logicProps.pinned ? (

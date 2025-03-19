@@ -54,7 +54,7 @@ export function PlaylistPopoverButton({
                                     className="deprecated-space-y-1"
                                 >
                                     <LemonField name="name">
-                                        <LemonInput placeholder="Playlist name" fullWidth />
+                                        <LemonInput placeholder="Saved filter name" fullWidth />
                                     </LemonField>
                                     <div className="flex items-center gap-2 justify-end">
                                         <LemonButton
@@ -65,7 +65,7 @@ export function PlaylistPopoverButton({
                                             Cancel
                                         </LemonButton>
                                         <LemonButton type="primary" htmlType="submit" icon={<IconPlus />}>
-                                            Create and add to list
+                                            Create and add to saved filter
                                         </LemonButton>
                                     </div>
                                 </Form>
@@ -73,14 +73,11 @@ export function PlaylistPopoverButton({
                                 <>
                                     <LemonInput
                                         type="search"
-                                        placeholder="Search playlists..."
+                                        placeholder="Search saved filters..."
                                         value={searchQuery}
                                         onChange={setSearchQuery}
                                         fullWidth
                                     />
-                                    <LemonButton fullWidth icon={<IconPlus />} onClick={() => setNewFormShowing(true)}>
-                                        New list
-                                    </LemonButton>
                                 </>
                             )}
                         </div>
@@ -126,7 +123,7 @@ export function PlaylistPopoverButton({
                         ) : playlistsLoading ? (
                             <LemonSkeleton className="my-2 h-4" repeat={3} />
                         ) : (
-                            <div className="p-2 text-center text-secondary">No playlists found</div>
+                            <div className="p-2 text-center text-secondary">No saved filters found</div>
                         )}
                     </div>
                 }

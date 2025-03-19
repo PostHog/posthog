@@ -93,7 +93,7 @@ function Header(): JSX.Element {
                                         : saveFiltersPlaylistHandler.onEvent?.(e)
                                 }
                             >
-                                Save as playlist
+                                Save filters
                             </LemonButton>
                             <LemonButton
                                 type="secondary"
@@ -103,17 +103,6 @@ function Header(): JSX.Element {
                                 Configure
                             </LemonButton>
                         </>
-                    )}
-
-                    {tab === ReplayTabs.Playlists && (
-                        <LemonButton
-                            type="primary"
-                            onClick={(e) => newPlaylistHandler.onEvent?.(e)}
-                            data-attr="save-recordings-playlist-button"
-                            loading={newPlaylistHandler.loading}
-                        >
-                            New playlist
-                        </LemonButton>
                     )}
                 </>
             }

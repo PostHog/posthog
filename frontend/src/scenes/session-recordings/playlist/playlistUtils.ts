@@ -80,7 +80,7 @@ export async function updatePlaylist(
 ): Promise<SessionRecordingPlaylistType> {
     const newPlaylist = await api.recordings.updatePlaylist(shortId, playlist)
     if (!silent) {
-        lemonToast.success('Playlist updated successfully')
+        lemonToast.success('Saved filter updated successfully')
     }
     return newPlaylist
 }
@@ -97,7 +97,7 @@ export async function duplicatePlaylist(
         return null
     }
 
-    lemonToast.success('Playlist duplicated successfully')
+    lemonToast.success('Saved filter duplicated successfully')
 
     return newPlaylist
 }
@@ -116,7 +116,7 @@ export async function createPlaylist(
     } catch (e: any) {
         if (e.status === 403) {
             openBillingPopupModal({
-                title: `Upgrade now to unlock unlimited playlists`,
+                title: `Upgrade now to unlock unlimited saved filters`,
                 description: PLAYLIST_LIMIT_REACHED_MESSAGE,
             })
         } else {
