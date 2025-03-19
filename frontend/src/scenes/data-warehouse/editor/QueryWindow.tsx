@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconDownload, IconPlayFilled } from '@posthog/icons'
+import { IconDownload, IconPlayFilled, IconSidebarOpen } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -10,6 +10,7 @@ import type { editor as importedEditor } from 'monaco-editor'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
 import { QueryPane } from './QueryPane'
@@ -41,10 +42,21 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+    const { sidebarWidth } = useValues(editorSizingLogic)
+    const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
-            <div className="overflow-x-auto px-1">
+            <div className="flex flex-row overflow-x-auto px-1">
+                {sidebarWidth == 0 && (
+                    <LemonButton
+                        onClick={() => resetDefaultSidebarWidth()}
+                        className="mt-1 mr-1"
+                        icon={<IconSidebarOpen />}
+                        type="tertiary"
+                        size="small"
+                    />
+                )}
                 <QueryTabs
                     models={allTabs}
                     onClick={selectTab}
