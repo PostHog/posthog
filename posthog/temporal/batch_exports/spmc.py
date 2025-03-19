@@ -67,7 +67,7 @@ class RecordBatchQueue(asyncio.Queue):
         super().__init__(maxsize=max_size_bytes)
         self._bytes_size = 0
         self._schema_set = asyncio.Event()
-        self.record_batch_schema = None
+        self.record_batch_schema: pa.Schema | None = None
         # This is set by `asyncio.Queue.__init__` calling `_init`
         self._queue: collections.deque
 
@@ -99,6 +99,7 @@ class RecordBatchQueue(asyncio.Queue):
         to ensure all record batches have the same schema.
         """
         await self._schema_set.wait()
+        assert self.record_batch_schema is not None
         return self.record_batch_schema
 
     def qsize(self) -> int:
