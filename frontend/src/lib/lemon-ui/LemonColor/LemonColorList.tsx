@@ -2,23 +2,21 @@ import { DataColorToken } from 'lib/colors'
 
 import { LemonColorButton } from './LemonColorButton'
 
-type LemonColorListBaseProps = {
-    themeId?: number
-}
-
-type LemonColorListColorProps = LemonColorListBaseProps & {
+type LemonColorListColorProps = {
     colors: string[]
     selectedColor?: string | null
     onSelectColor?: (color: string) => void
     colorTokens?: never
     selectedColorToken?: never
     onSelectColorToken?: never
+    themeId?: never
 }
 
-type LemonColorListTokenProps = LemonColorListBaseProps & {
+type LemonColorListTokenProps = {
     colorTokens: DataColorToken[]
     selectedColorToken?: DataColorToken | null
     onSelectColorToken?: (colorToken: DataColorToken) => void
+    themeId?: number | null
     colors?: never
     selectedColor?: never
     onSelectColor?: never

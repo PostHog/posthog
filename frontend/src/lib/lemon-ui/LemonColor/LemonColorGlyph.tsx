@@ -11,8 +11,6 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { LemonButtonWithoutSideActionProps } from '../LemonButton'
 
 type LemonColorGlyphBaseProps = {
-    /** Overwrite the theme id from the context e.g. an insight that has a custom theme set. */
-    themeId?: number | null
     /** Additional class names. */
     className?: string
     /** Content to display inside the glyph. */
@@ -23,11 +21,14 @@ type LemonColorGlyphColorProps = LemonColorGlyphBaseProps & {
     /** 6-digit hex color to display. */
     color?: string | null
     colorToken?: never
+    themeId?: never
 }
 
 type LemonColorGlyphTokenProps = LemonColorGlyphBaseProps & {
     /** Color token to display. */
     colorToken?: DataColorToken | null
+    /** Overwrite the theme id from the context e.g. an insight that has a custom theme set. */
+    themeId?: number | null
     color?: never
 }
 

@@ -6,19 +6,22 @@ import { cn } from 'lib/utils/css-classes'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { LemonButton, LemonButtonWithoutSideActionProps } from '../LemonButton'
-import { LemonColorGlyph, LemonColorGlyphProps } from './LemonColorGlyph'
+import { LemonColorGlyph } from './LemonColorGlyph'
 import { colorDescription } from './utils'
 
-type LemonColorButtonBaseProps = Pick<LemonColorGlyphProps, 'themeId'> &
-    LemonButtonWithoutSideActionProps & { hideColorDescription?: boolean }
+type LemonColorButtonBaseProps = LemonButtonWithoutSideActionProps & {
+    hideColorDescription?: boolean
+}
 
 type LemonColorButtonColorProps = LemonColorButtonBaseProps & {
     color?: string | null
     colorToken?: never
+    themeId?: never
 }
 
 type LemonColorButtonTokenProps = LemonColorButtonBaseProps & {
     colorToken?: DataColorToken | null
+    themeId?: number | null
     color?: never
 }
 
@@ -51,7 +54,7 @@ export function LemonColorButton({
             tooltip={effectiveTooltip}
             {...rest}
         >
-            <LemonColorGlyph color={effectiveColor} size={size} themeId={themeId} />
+            <LemonColorGlyph color={effectiveColor} size={size} />
         </LemonButton>
     )
 }

@@ -6,7 +6,6 @@ import { LemonColorButton } from './LemonColorButton'
 import { LemonColorList } from './LemonColorList'
 
 type LemonColorPickerBaseProps = {
-    themeId?: number
     showCustomColor?: boolean
     hideDropdown?: boolean
     preventPopoverClose?: boolean
@@ -19,12 +18,14 @@ type LemonColorPickerColorProps = LemonColorPickerBaseProps & {
     colorTokens?: never
     selectedColorToken?: never
     onSelectColorToken?: never
+    themeId?: never
 }
 
 type LemonColorPickerTokenProps = LemonColorPickerBaseProps & {
     colorTokens: DataColorToken[]
     selectedColorToken?: DataColorToken | null
     onSelectColorToken: (colorToken: DataColorToken) => void
+    themeId?: number | null
     colors?: never
     selectedColor?: never
     onSelectColor?: never
@@ -65,12 +66,7 @@ export const LemonColorPickerOverlay = ({
         >
             <LemonLabel className="mt-1 mb-0.5">Preset colors</LemonLabel>
             {colors ? (
-                <LemonColorList
-                    themeId={themeId}
-                    colors={colors}
-                    selectedColor={selectedColor}
-                    onSelectColor={onSelectColor}
-                />
+                <LemonColorList colors={colors} selectedColor={selectedColor} onSelectColor={onSelectColor} />
             ) : colorTokens ? (
                 <LemonColorList
                     themeId={themeId}
@@ -117,7 +113,7 @@ export const LemonColorPicker = ({ hideDropdown = false, ...props }: LemonColorP
                     type="secondary"
                     {...(props.selectedColor !== undefined
                         ? { color: props.selectedColor }
-                        : { colorToken: props.selectedColorToken })}
+                        : { colorToken: props.selectedColorToken, themeId: props.themeId })}
                     onClick={() => setIsOpen(!isOpen)}
                     sideIcon={hideDropdown ? null : undefined}
                 />
