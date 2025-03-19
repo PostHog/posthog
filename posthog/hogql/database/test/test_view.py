@@ -1,3 +1,4 @@
+from typing import Literal
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.test.tables import (
@@ -30,7 +31,7 @@ class TestView(BaseTest):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
-    def _select(self, query: str, dialect: str = "clickhouse") -> str:
+    def _select(self, query: str, dialect: Literal["clickhouse", "hogql"] = "clickhouse") -> str:
         return print_ast(parse_select(query), self.context, dialect=dialect)
 
     def test_view_table_select(self):

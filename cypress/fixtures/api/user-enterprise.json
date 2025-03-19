@@ -51,7 +51,7 @@
             {
                 "key": "organizations_projects",
                 "name": "Projects",
-                "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+                "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
                 "unit": null,
                 "limit": null,
                 "note": "Unlimited"

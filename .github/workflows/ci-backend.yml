@@ -142,7 +142,7 @@ jobs:
 
             - name: Check static typing
               run: |
-                  mypy --version && mypy -p posthog | mypy-baseline filter || echo "run 'pnpm run mypy-baseline-sync' to update the baseline"
+                  mypy --version && mypy -p posthog | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
 
             - name: Check if "schema.py" is up to date
               run: |
