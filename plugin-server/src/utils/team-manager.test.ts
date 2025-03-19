@@ -36,8 +36,6 @@ describe('TeamManager()', () => {
         team2Id = await createTeam(postgres, team.organization_id)
         team3Id = await createTeam(postgres, otherOrganizationId)
         fetchTeamsSpy = jest.spyOn(teamManager as any, 'fetchTeams')
-        // // @ts-expect-error TODO: Fix underlying settings, is this really working?
-        // Settings.defaultZoneName = 'utc'
     })
 
     const updateOrganizationAvailableFeatures = async (
