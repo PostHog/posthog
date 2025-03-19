@@ -32,11 +32,12 @@ pub async fn update_consumer_loop(
     context: Arc<AppContext>,
     mut channel: mpsc::Receiver<Update>,
 ) {
-    // TODO(eli): temoprary and for PROD-EU ONLY until posthog_eventproperty table is fixed!
+    // NOTE: temoprary fix until event property ID space is widened
     let mut rng = rand::thread_rng();
-    // HACK ALERT: just start somewhere we (hopefully) won't collide with other pods
-    // and count down with each event prop published until something explodes...
-    let mut neg_counter: i64 = rng.gen_range(std::i64::MIN..0);
+    // HACK ALERT: start somewhere in the negative ID space to attempt to avoid
+    // collisions with other stateless pods, then decrement with each event prop
+    // seen until something goes wrong. Restart of the pod will reset the init val
+    let mut neg_counter: i32 = rng.gen_range(std::i32::MIN..0);
 
     loop {
         let mut batch = Vec::with_capacity(config.update_batch_size);
@@ -82,7 +83,7 @@ pub async fn update_consumer_loop(
         if config.deploy_env_is_prod_eu {
             batch.iter_mut().for_each(|update| {
                 if let Update::EventProperty(event_prop) = update {
-                    event_prop.neg_id = neg_counter;
+                    event_prop.id = neg_counter;
                     neg_counter -= 1;
                 }
             });

@@ -131,7 +131,7 @@ pub struct EventDefinition {
 // Derived hash since these are keyed on all fields in the DB
 #[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct EventProperty {
-    pub neg_id: i64, // TEMPORARY: only apply if set; use until posthog_eventproperty table is fixed in prod-eu
+    pub id: i32, // TEMPORARY, remove when ID space is widened on event props table
     pub team_id: i32,
     pub project_id: i64,
     pub event: String,
@@ -287,7 +287,7 @@ impl Event {
             }
 
             updates.push(Update::EventProperty(EventProperty {
-                neg_id: 0, // TODO(eli): temporary - will be replaced with negative ID in PROD-EU deployment only
+                id: 0, // TEMPORARY - will be replaced downstream with negative ID in PROD-EU deployment only
                 team_id: self.team_id,
                 project_id: self.project_id,
                 event: self.event.clone(),
@@ -570,10 +570,10 @@ impl EventProperty {
     {
         let mut res: Result<(), sqlx::Error> = Ok(());
 
-        if self.neg_id < 0 {
+        if self.id < 0 {
             res = sqlx::query!(
                 r#"INSERT INTO posthog_eventproperty (id, event, property, team_id, project_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING"#,
-                self.neg_id,
+                self.id,
                 self.event,
                 self.property,
                 self.team_id,
