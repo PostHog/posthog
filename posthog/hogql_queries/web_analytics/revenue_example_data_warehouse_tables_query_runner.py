@@ -49,6 +49,9 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
                         select=[
                             ast.Alias(alias="table_name", expr=ast.Constant(value=table.tableName)),
                             ast.Alias(
+                                alias="distinct_id", expr=ast.Field(chain=[table.tableName, table.distinctIdColumn])
+                            ),
+                            ast.Alias(
                                 alias="original_revenue",
                                 expr=revenue_expression_for_data_warehouse(
                                     tracking_config, table, do_currency_conversion=False

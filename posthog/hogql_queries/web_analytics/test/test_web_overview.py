@@ -840,12 +840,14 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             dataWarehouseTables=[
                 RevenueTrackingDataWarehouseTable(
                     tableName="database_with_revenue_column_1",
+                    distinctIdColumn="id",
                     revenueColumn="revenue_1",
                     timestampColumn="timestamp_1",
                     revenueCurrencyColumn=RevenueCurrencyPropertyConfig(property="currency_1"),
                 ),
                 RevenueTrackingDataWarehouseTable(
                     tableName="database_with_revenue_column_2",
+                    distinctIdColumn="id",
                     revenueColumn="revenue_2",
                     timestampColumn="timestamp_2",
                     revenueCurrencyColumn=RevenueCurrencyPropertyConfig(static=CurrencyCode.EUR),

@@ -35,6 +35,7 @@ SINGLE_TABLE_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
     dataWarehouseTables=[
         RevenueTrackingDataWarehouseTable(
             tableName="database_with_revenue_column",
+            distinctIdColumn="id",
             revenueColumn="revenue",
             timestampColumn="timestamp",
         )
@@ -47,17 +48,20 @@ MULTIPLE_TABLES_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
     dataWarehouseTables=[
         RevenueTrackingDataWarehouseTable(
             tableName="database_with_revenue_column_a",
+            distinctIdColumn="id",
             revenueColumn="revenue_a",
             timestampColumn="timestamp",
         ),
         RevenueTrackingDataWarehouseTable(
             tableName="database_with_revenue_column_b",
+            distinctIdColumn="id",
             revenueColumn="revenue_b",
             timestampColumn="timestamp",
             revenueCurrencyColumn=RevenueCurrencyPropertyConfig(static=CurrencyCode.EUR),
         ),
         RevenueTrackingDataWarehouseTable(
             tableName="database_with_revenue_column_c",
+            distinctIdColumn="id",
             revenueColumn="revenue_c",
             timestampColumn="timestamp",
             revenueCurrencyColumn=RevenueCurrencyPropertyConfig(property="currency"),
