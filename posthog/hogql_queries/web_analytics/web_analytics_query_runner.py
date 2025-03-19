@@ -273,7 +273,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         params: Optional[list[ast.Expr]] = None,
         extra_args: Optional[list[ast.Expr]] = None,
     ):
-        and_args = [
+        and_args: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["start_timestamp"]),

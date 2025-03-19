@@ -1469,26 +1469,28 @@ def patchable(fn):
         return execute_patch_chain(0, *args, **kwargs)
 
     # Initialize empty patch list
-    inner._patch_list = []  # type: ignore
+    inner._patch_list = []  # type: ignore[attr-defined]
 
     # Function to execute the patch chain starting from a specific index
     def execute_patch_chain(index, *args, **kwargs):
-        if index >= len(inner._patch_list):  # We've gone through all patches
+        # If we've gone through all patches, execute the original function
+        if index >= len(inner._patch_list):  # type: ignore[attr-defined]
             return fn(*args, **kwargs)
+
         # Execute the current patch, passing a function that will invoke the next patch
         next_fn = lambda *a, **kw: execute_patch_chain(index + 1, *a, **kw)
-        return inner._patch_list[index](next_fn, *args, **kwargs)
+        return inner._patch_list[index](next_fn, *args, **kwargs)  # type: ignore[attr-defined]
 
-    inner._execute_patch_chain = execute_patch_chain  # type: ignore
+    inner._execute_patch_chain = execute_patch_chain  # type: ignore[attr-defined]
 
     def patch(wrapper):
         # Add the wrapper to the end of the patch list
-        inner._patch_list.append(wrapper)  # type: ignore
+        inner._patch_list.append(wrapper)  # type: ignore[attr-defined]
 
     def unpatch():
         # Remove the most recent patch if there is one
-        if inner._patch_list:
-            inner._patch_list.pop()  # type: ignore
+        if inner._patch_list:  # type: ignore[attr-defined]
+            inner._patch_list.pop()  # type: ignore[attr-defined]
 
     @contextmanager
     def temp_patch(wrapper):
@@ -1502,9 +1504,9 @@ def patchable(fn):
         finally:
             unpatch()
 
-    inner._patch = patch  # type: ignore
-    inner._unpatch = unpatch  # type: ignore
-    inner._temp_patch = temp_patch  # type: ignore
+    inner._patch = patch  # type: ignore[attr-defined]
+    inner._unpatch = unpatch  # type: ignore[attr-defined]
+    inner._temp_patch = temp_patch  # type: ignore[attr-defined]
 
     return inner
 

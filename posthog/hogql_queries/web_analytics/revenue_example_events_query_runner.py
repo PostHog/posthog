@@ -11,7 +11,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql.database.schema.exchange_rate import (
     revenue_expression_for_events,
     revenue_where_expr_for_events,
-    currency_expression_for_events,
+    currency_expression_for_all_events,
 )
 from posthog.schema import (
     CurrencyCode,
@@ -68,7 +68,7 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
                 ast.Alias(
                     alias="revenue", expr=revenue_expression_for_events(tracking_config, self.do_currency_conversion)
                 ),
-                ast.Alias(alias="original_currency", expr=currency_expression_for_events(tracking_config)),
+                ast.Alias(alias="original_currency", expr=currency_expression_for_all_events(tracking_config)),
                 ast.Alias(
                     alias="currency", expr=ast.Constant(value=(tracking_config.baseCurrency or CurrencyCode.USD).value)
                 ),

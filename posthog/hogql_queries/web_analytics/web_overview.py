@@ -295,15 +295,15 @@ HAVING {inside_start_timestamp_period}
                     ]
                 )
 
-        query = ast.SelectQuery(
-            select=select,
-            select_from=ast.JoinExpr(table=self.inner_select),
-        )
+        query = ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=self.inner_select))
 
+        # If we can find some selects for DW revenue, then join it with that instead of just the inner select
         if self.data_warehouse_revenue_selects:
-            query.select_from.table = ast.SelectSetQuery.create_from_queries(
-                queries=[self.inner_select, *self.data_warehouse_revenue_selects],
-                set_operator="UNION ALL",
+            query.select_from = ast.JoinExpr(
+                table=ast.SelectSetQuery.create_from_queries(
+                    [self.inner_select, *self.data_warehouse_revenue_selects],
+                    set_operator="UNION ALL",
+                )
             )
 
         assert isinstance(query, ast.SelectQuery)
@@ -336,6 +336,9 @@ HAVING {inside_start_timestamp_period}
         for table in self.team.revenue_config.dataWarehouseTables:
             select_columns: list[ast.Expr] = []
             for select in self.inner_select.select:
+                if not isinstance(select, ast.Alias):  # Guarantee type-safety
+                    continue
+
                 new_select = ast.Alias(alias=select.alias, expr=ast.Constant(value=None))
 
                 # Only care about timestamp and revenue, keep the rest as None

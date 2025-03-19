@@ -61,6 +61,29 @@ def currency_expression_for_events(config: RevenueTrackingConfig, event_config: 
     return ast.Constant(value=currency.value)
 
 
+# Given the base config, check that we're looking at the right event and match the right currency to it
+def currency_expression_for_all_events(config: RevenueTrackingConfig) -> ast.Expr:
+    if not config.events:
+        return ast.Constant(value=None)
+
+    exprs: list[ast.Expr] = []
+    for event in config.events:
+        # Only interested in the comparison expr, not the value expr
+        comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
+            config, event, do_currency_conversion=False
+        )
+        exprs.extend(
+            [
+                comparison_expr,
+                currency_expression_for_events(config, event),
+            ]
+        )
+
+    exprs.append(ast.Constant(value=None))
+
+    return ast.Call(name="multiIf", args=exprs)
+
+
 # Tuple of (comparison_expr, value_expr) that can be used to:
 # - Check whether the event is the one we're looking for
 # - Convert the revenue to the base currency if needed
