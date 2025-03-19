@@ -16163,6 +16163,9 @@
                 "response": {
                     "$ref": "#/definitions/TracesQueryResponse"
                 },
+                "showColumnConfigurator": {
+                    "type": "boolean"
+                },
                 "traceId": {
                     "type": "string"
                 }
