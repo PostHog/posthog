@@ -10,18 +10,28 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { LemonButtonWithoutSideActionProps } from '../LemonButton'
 
-export type LemonColorGlyphProps = {
+type LemonColorGlyphBaseProps = {
     /** Overwrite the theme id from the context e.g. an insight that has a custom theme set. */
     themeId?: number | null
     /** Additional class names. */
     className?: string
     /** Content to display inside the glyph. */
     children?: React.ReactNode
+} & Pick<LemonButtonWithoutSideActionProps, 'size'>
+
+type LemonColorGlyphColorProps = LemonColorGlyphBaseProps & {
     /** 6-digit hex color to display. */
     color?: string | null
-    /** Color token to display. Takes precedence over `color`. */
+    colorToken?: never
+}
+
+type LemonColorGlyphTokenProps = LemonColorGlyphBaseProps & {
+    /** Color token to display. */
     colorToken?: DataColorToken | null
-} & Pick<LemonButtonWithoutSideActionProps, 'size'>
+    color?: never
+}
+
+export type LemonColorGlyphProps = LemonColorGlyphColorProps | LemonColorGlyphTokenProps
 
 /** Takes a 6-digit hex color or a color token and displays it as a glyph. */
 export function LemonColorGlyph({

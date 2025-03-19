@@ -1,6 +1,7 @@
 import './LemonColorButton.scss'
 
 import { useValues } from 'kea'
+import { DataColorToken } from 'lib/colors'
 import { cn } from 'lib/utils/css-classes'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
@@ -8,8 +9,20 @@ import { LemonButton, LemonButtonWithoutSideActionProps } from '../LemonButton'
 import { LemonColorGlyph, LemonColorGlyphProps } from './LemonColorGlyph'
 import { colorDescription } from './utils'
 
-export type LemonColorButtonProps = Pick<LemonColorGlyphProps, 'themeId' | 'color' | 'colorToken'> &
+type LemonColorButtonBaseProps = Pick<LemonColorGlyphProps, 'themeId'> &
     LemonButtonWithoutSideActionProps & { hideColorDescription?: boolean }
+
+type LemonColorButtonColorProps = LemonColorButtonBaseProps & {
+    color?: string | null
+    colorToken?: never
+}
+
+type LemonColorButtonTokenProps = LemonColorButtonBaseProps & {
+    colorToken?: DataColorToken | null
+    color?: never
+}
+
+export type LemonColorButtonProps = LemonColorButtonColorProps | LemonColorButtonTokenProps
 
 export function LemonColorButton({
     type = 'secondary',

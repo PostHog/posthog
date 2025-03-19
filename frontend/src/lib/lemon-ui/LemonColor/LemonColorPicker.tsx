@@ -115,8 +115,9 @@ export const LemonColorPicker = ({ hideDropdown = false, ...props }: LemonColorP
             <div className="relative">
                 <LemonColorButton
                     type="secondary"
-                    color={props.selectedColor}
-                    colorToken={props.selectedColorToken}
+                    {...(props.selectedColor !== undefined
+                        ? { color: props.selectedColor }
+                        : { colorToken: props.selectedColorToken })}
                     onClick={() => setIsOpen(!isOpen)}
                     sideIcon={hideDropdown ? null : undefined}
                 />
