@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { useState } from 'react'
 
 import { experimentLogic } from '../experimentLogic'
+import ExperimentDate from './ExperimentDate'
 
 export function ExperimentDates(): JSX.Element {
     const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false)
@@ -27,6 +28,8 @@ export function ExperimentDates(): JSX.Element {
     }
     return (
         <>
+            <ExperimentDate label="Start date" date={start_date} />
+            <ExperimentDate label="End date" date={end_date} />
             <div className="block" data-attr="experiment-start-date">
                 <div
                     className={clsx(
