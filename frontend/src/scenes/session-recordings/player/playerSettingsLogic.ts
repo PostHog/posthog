@@ -60,7 +60,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
         speed: [
-            1.5,
+            1,
             { persist: true },
             {
                 setSpeed: (_, { speed }) => speed,
