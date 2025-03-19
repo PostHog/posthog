@@ -211,10 +211,10 @@ async def sync_action_vectors(
 
         bulk_update = []
         for action, _ in batch:
-            action = Action(id=action["id"], embedding_last_synced_at=workflow_start_dt)
+            action_model = Action(id=action["id"], embedding_last_synced_at=workflow_start_dt)
             if embedding_version is not None:
-                action.embedding_version = embedding_version
-            bulk_update.append(action)
+                action_model.embedding_version = embedding_version
+            bulk_update.append(action_model)
 
         await Action.objects.abulk_update(
             bulk_update,
