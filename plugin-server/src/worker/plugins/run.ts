@@ -95,7 +95,7 @@ async function runSingleTeamPluginComposeWebhook(
     let maybeWebhook: Webhook | null = null
     try {
         if (pluginConfig.plugin?.url === PLUGIN_URL_LEGACY_ACTION_WEBHOOK) {
-            const team = await hub.teamManager.fetchTeam(event.team_id)
+            const team = await hub.teamManager.getTeam(event.team_id)
 
             if (team) {
                 const webhookFormatter = new WebhookFormatter({

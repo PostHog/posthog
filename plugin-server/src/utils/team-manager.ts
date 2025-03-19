@@ -1,9 +1,9 @@
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { ProjectId, Team } from '../../types'
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { LazyLoader } from '../../utils/lazy-loader'
-import { captureTeamEvent } from '../../utils/posthog'
+import { ProjectId, Team } from '../types'
+import { PostgresRouter, PostgresUse } from './db/postgres'
+import { LazyLoader } from './lazy-loader'
+import { captureTeamEvent } from './posthog'
 
 type RawTeam = Omit<Team, 'availableFeatures'> & {
     available_product_features: { key: string; name: string }[]

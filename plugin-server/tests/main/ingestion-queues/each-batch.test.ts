@@ -1,5 +1,5 @@
 import { PostgresRouter } from '~/src/utils/db/postgres'
-import { TeamManager } from '~/src/worker/ingestion/team-manager'
+import { TeamManager } from '~/src/utils/team-manager'
 
 import { buildStringMatcher } from '../../../src/config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'

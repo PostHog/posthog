@@ -2,7 +2,7 @@ import { Settings } from 'luxon'
 
 import { defaultConfig } from '../../../src/config/config'
 import { PostgresRouter, PostgresUse } from '../../../src/utils/db/postgres'
-import { TeamManager } from '../../../src/worker/ingestion/team-manager'
+import { TeamManager } from '../../../src/utils/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/logger')
@@ -29,7 +29,7 @@ describe('TeamManager()', () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:05Z').getTime())
             jest.spyOn(postgres, 'query')
 
-            let team = await teamManager.fetchTeam(2)
+            let team = await teamManager.getTeam(2)
             expect(team!.name).toEqual('TEST PROJECT')
             // expect(team!.__fetch_event_uuid).toEqual('uuid1')
 
@@ -43,7 +43,7 @@ describe('TeamManager()', () => {
 
             jest.mocked(postgres.query).mockClear()
 
-            team = await teamManager.fetchTeam(2)
+            team = await teamManager.getTeam(2)
             expect(team!.name).toEqual('TEST PROJECT')
             // expect(team!.__fetch_event_uuid).toEqual('uuid1')
             expect(postgres.query).toHaveBeenCalledTimes(0)
@@ -51,14 +51,14 @@ describe('TeamManager()', () => {
             // 2min have passed i.e. the cache should have expired
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:02:06Z').getTime())
 
-            team = await teamManager.fetchTeam(2)
+            team = await teamManager.getTeam(2)
             expect(team!.name).toEqual('Updated Name!')
 
             expect(postgres.query).toHaveBeenCalledTimes(1)
         })
 
         it('returns null when no such team', async () => {
-            expect(await teamManager.fetchTeam(-1)).toEqual(null)
+            expect(await teamManager.getTeam(-1)).toEqual(null)
         })
     })
 

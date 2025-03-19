@@ -32,7 +32,7 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
                                 return
                             }
 
-                            const team = await this.hub.teamManager.fetchTeam(event.team_id)
+                            const team = await this.hub.teamManager.getTeam(event.team_id)
                             if (!team) {
                                 return
                             }

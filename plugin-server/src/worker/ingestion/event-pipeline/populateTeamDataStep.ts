@@ -41,7 +41,7 @@ export async function populateTeamDataStep(
             .inc()
         return null
     } else if (event.team_id) {
-        team = await runner.hub.teamManager.fetchTeam(event.team_id)
+        team = await runner.hub.teamManager.getTeam(event.team_id)
     } else if (event.token) {
         // HACK: we've had null bytes end up in the token in the ingest pipeline before, for some reason. We should try to
         // prevent this generally, but if it happens, we should at least simply fail to lookup the team, rather than crashing

@@ -2,7 +2,7 @@ import { TeamIDWithConfig } from '../../../../cdp/consumers/cdp-base.consumer'
 import { BackgroundRefresher } from '../../../../utils/background-refresher'
 import { PostgresRouter } from '../../../../utils/db/postgres'
 import { logger as logger } from '../../../../utils/logger'
-import { fetchTeamTokensWithRecordings } from '../../../../worker/ingestion/team-manager'
+import { fetchTeamTokensWithRecordings } from '../../../../utils/team-manager'
 import { Team } from './types'
 
 export class TeamService {

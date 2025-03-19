@@ -7,8 +7,8 @@ import { convertToHookPayload } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { TeamManager } from '../../utils/team-manager'
 import { AppMetric, AppMetrics } from './app-metrics'
-import { TeamManager } from './team-manager'
 import { WebhookFormatter } from './webhook-formatter'
 
 export const webhookProcessStepDuration = new Histogram({

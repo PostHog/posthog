@@ -16,7 +16,7 @@ import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { now } from '../../utils/now'
 import { bufferToUint32ArrayLE, uint32ArrayLEToBuffer, UUID7 } from '../../utils/utils'
-import { TeamManager } from '../../worker/ingestion/team-manager'
+import { TeamManager } from '../../utils/team-manager'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 import { RedisHelpers } from './redis-helpers'
 

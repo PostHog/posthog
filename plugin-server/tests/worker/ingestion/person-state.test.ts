@@ -129,7 +129,7 @@ describe('PersonState.update()', () => {
             }).updateProperties()
 
             const otherTeamId = await createTeam(hub.db.postgres, organizationId)
-            const otherTeam = (await fetchTeam(hub.db.postgres, otherTeamId))!
+            const otherTeam = (await getTeam(hub, otherTeamId))!
             teamId = otherTeamId
             const [personOtherTeam, kafkaAcksOther] = await personState(
                 {

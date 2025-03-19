@@ -199,7 +199,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                                     return
                                 }
 
-                                const team = await this.hub.teamManager.fetchTeam(clickHouseEvent.team_id)
+                                const team = await this.hub.teamManager.getTeam(clickHouseEvent.team_id)
                                 if (!team) {
                                     return
                                 }
