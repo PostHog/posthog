@@ -1274,7 +1274,7 @@ def is_json(val):
     return True
 
 
-def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:
+def cast_timestamp_or_now(timestamp: Optional[Union[datetime.datetime, str]]) -> str:
     if not timestamp:
         timestamp = timezone.now()
 
