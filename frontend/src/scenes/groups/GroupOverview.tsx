@@ -7,14 +7,14 @@ import { groupLogic } from 'scenes/groups/groupLogic'
 import { DashboardPlacement } from '~/types'
 
 export function GroupOverview(): JSX.Element {
-    const { groupTypeName, groupData, groupTypeOverviewDashboard } = useValues(groupLogic)
+    const { groupTypeName, groupData, groupTypeDetailDashboard } = useValues(groupLogic)
 
-    const { createOverviewDashboard } = useActions(groupLogic)
+    const { createDetailDashboard } = useActions(groupLogic)
 
-    const [creatingOverviewDashboard, setCreatingOverviewDashboard] = useState(false)
+    const [creatingDetailDashboard, setCreatingDetailDashboard] = useState(false)
 
-    if (groupTypeOverviewDashboard) {
-        return <Dashboard id={groupTypeOverviewDashboard.toString()} placement={DashboardPlacement.Group} />
+    if (groupTypeDetailDashboard) {
+        return <Dashboard id={groupTypeDetailDashboard.toString()} placement={DashboardPlacement.Group} />
     }
 
     return (
@@ -30,10 +30,10 @@ export function GroupOverview(): JSX.Element {
                         <LemonButton
                             type="primary"
                             onClick={() => {
-                                setCreatingOverviewDashboard(true)
-                                createOverviewDashboard(groupData?.group_type_index)
+                                setCreatingDetailDashboard(true)
+                                createDetailDashboard(groupData?.group_type_index)
                             }}
-                            disabled={creatingOverviewDashboard}
+                            disabled={creatingDetailDashboard}
                         >
                             Generate dashboard
                         </LemonButton>

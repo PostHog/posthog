@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="grouptypemapping",
-            name="overview_dashboard",
+            name="detail_dashboard",
             field=models.ForeignKey(
                 blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.dashboard"
             ),

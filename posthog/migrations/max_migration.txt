@@ -1,1 +1,1 @@
-0690_grouptypemapping_overview_dashboard
+0690_grouptypemapping_detail_dashboard

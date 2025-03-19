@@ -3407,7 +3407,7 @@ export interface GroupType {
     group_type_index: GroupTypeIndex
     name_singular?: string | null
     name_plural?: string | null
-    overview_dashboard?: number | null
+    detail_dashboard?: number | null
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>

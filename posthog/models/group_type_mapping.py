@@ -12,7 +12,7 @@ class GroupTypeMapping(models.Model):
     name_singular = models.CharField(max_length=400, null=True, blank=True)
     name_plural = models.CharField(max_length=400, null=True, blank=True)
 
-    overview_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
+    detail_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
         indexes = [
