@@ -129,16 +129,15 @@ export class TeamManager {
             'fetch-teams-with-features'
         )
 
-        // TODO: Solve token / team id issue
         return result.rows.reduce((acc, row) => {
             const { available_product_features, ...teamPartial } = row
-            // Could we just return the rows with copies for team id and token?
             const team = {
                 ...teamPartial,
                 // NOTE: The postgres lib loads the bigint as a string, so we need to cast it to a ProjectId
                 project_id: Number(teamPartial.project_id) as ProjectId,
                 available_features: available_product_features?.map((f) => f.key) || [],
             }
+            // We assign to the cache both ID and api_token as keys
             acc[row.id] = team
             acc[row.api_token] = team
             return acc

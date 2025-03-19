@@ -1,8 +1,6 @@
-import { Settings } from 'luxon'
-
 import { forSnapshot } from '~/tests/helpers/snapshots'
 
-import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { defaultConfig } from '../config/config'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from './db/hub'
@@ -14,6 +12,11 @@ describe('TeamManager()', () => {
     let teamManager: TeamManager
     let postgres: PostgresRouter
     let teamId: Team['id']
+    let team2Id: Team['id']
+    let team3Id: Team['id']
+    let teamToken: Team['api_token']
+    let otherOrganizationId: string
+    let organizationId: Team['organization_id']
     let fetchTeamsSpy: jest.SpyInstance
 
     beforeEach(async () => {
@@ -25,11 +28,29 @@ describe('TeamManager()', () => {
 
         postgres = new PostgresRouter(defaultConfig)
         teamManager = new TeamManager(postgres)
-        teamId = (await getFirstTeam(hub)).id
+        const team = await getFirstTeam(hub)
+        teamId = team.id
+        teamToken = team.api_token
+        organizationId = team.organization_id
+        otherOrganizationId = await createOrganization(postgres)
+        team2Id = await createTeam(postgres, team.organization_id)
+        team3Id = await createTeam(postgres, otherOrganizationId)
         fetchTeamsSpy = jest.spyOn(teamManager as any, 'fetchTeams')
         // // @ts-expect-error TODO: Fix underlying settings, is this really working?
         // Settings.defaultZoneName = 'utc'
     })
+
+    const updateOrganizationAvailableFeatures = async (
+        organizationId: string,
+        features: { key: string; name: string }[]
+    ) => {
+        await postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_organization SET available_product_features = $1 WHERE id = $2`,
+            [features, organizationId],
+            'change-team-available-features'
+        )
+    }
 
     afterEach(async () => {
         await closeHub(hub)
@@ -78,6 +99,57 @@ describe('TeamManager()', () => {
             const result3 = await teamManager.getTeamByToken(result!.api_token)
             expect(result3?.id).toEqual(teamId)
             expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('efficiently loads multiple teams', async () => {
+            const promises = [
+                teamManager.getTeam(teamId),
+                teamManager.getTeamByToken(teamToken),
+                teamManager.getTeam(teamId),
+                teamManager.getTeamByToken(teamToken),
+                teamManager.getTeamByToken('missing'),
+            ]
+            const results = await Promise.all(promises)
+            expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
+            expect(results.map((r) => r?.id)).toEqual([teamId, teamId, teamId, teamId, undefined])
+        })
+    })
+
+    describe('hasAvailableFeature()', () => {
+        it('returns false by default', async () => {
+            const result = await teamManager.hasAvailableFeature(teamId, 'feature1')
+            expect(result).toBe(false)
+        })
+
+        it('returns false if the available features does not exist', async () => {
+            await updateOrganizationAvailableFeatures(organizationId, [{ key: 'feature1', name: 'Feature 1' }])
+            const result = await teamManager.hasAvailableFeature(teamId, 'feature2')
+            expect(result).toBe(false)
+        })
+
+        it('returns true if the available features exists', async () => {
+            await updateOrganizationAvailableFeatures(organizationId, [{ key: 'feature1', name: 'Feature 1' }])
+            const result = await teamManager.hasAvailableFeature(teamId, 'feature1')
+            expect(result).toBe(true)
+        })
+
+        it('refreshes relevant teams when the organization available features change', async () => {
+            await updateOrganizationAvailableFeatures(organizationId, [{ key: 'feature1', name: 'Feature 1' }])
+            const results = await Promise.all([
+                teamManager.hasAvailableFeature(teamId, 'feature1'),
+                teamManager.hasAvailableFeature(team2Id, 'feature1'),
+                teamManager.hasAvailableFeature(team3Id, 'feature1'),
+            ])
+            expect(results).toEqual([true, true, false])
+
+            await updateOrganizationAvailableFeatures(organizationId, [{ key: 'feature2', name: 'Feature 2' }])
+            teamManager.orgAvailableFeaturesChanged(organizationId)
+            const results2 = await Promise.all([
+                teamManager.hasAvailableFeature(teamId, 'feature1'),
+                teamManager.hasAvailableFeature(team2Id, 'feature1'),
+                teamManager.hasAvailableFeature(team3Id, 'feature1'),
+            ])
+            expect(results2).toEqual([false, false, false])
         })
     })
 })
