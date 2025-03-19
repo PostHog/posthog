@@ -179,27 +179,6 @@ def test_can_run_s3_test_step_for_destination(client: HttpClient, bucket_name, m
     assert destination_test["result"]["message"] is None
 
 
-REQUIRED_ENV_VARS = (
-    "SNOWFLAKE_WAREHOUSE",
-    "SNOWFLAKE_ACCOUNT",
-    "SNOWFLAKE_USERNAME",
-)
-
-
-def snowflake_env_vars_are_set():
-    if not all(env_var in os.environ for env_var in REQUIRED_ENV_VARS):
-        return False
-    if "SNOWFLAKE_PASSWORD" not in os.environ and "SNOWFLAKE_PRIVATE_KEY" not in os.environ:
-        return False
-    return True
-
-
-SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.skipif(
-    not snowflake_env_vars_are_set(),
-    reason="Snowflake required env vars are not set",
-)
-
-
 @pytest.fixture
 def database():
     """Generate a unique database name for tests."""
@@ -213,11 +192,11 @@ def schema():
 
 
 @pytest.fixture
-def snowflake_config(database, schema) -> dict[str, str]:
+def snowflake_config(database, schema) -> dict[str, str | None]:
     """Return a Snowflake configuration dictionary to use in tests."""
     warehouse = os.getenv("SNOWFLAKE_WAREHOUSE", "warehouse")
     account = os.getenv("SNOWFLAKE_ACCOUNT", "account")
-    role = os.getenv("SNOWFLAKE_ROLE", "role")
+    role = os.getenv("SNOWFLAKE_ROLE", None)
     username = os.getenv("SNOWFLAKE_USERNAME", "username")
     password = os.getenv("SNOWFLAKE_PASSWORD", "password")
     private_key = os.getenv("SNOWFLAKE_PRIVATE_KEY")
