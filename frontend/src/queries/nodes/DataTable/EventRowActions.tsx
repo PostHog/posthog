@@ -1,20 +1,17 @@
 import { IconWarning } from '@posthog/icons'
-import { useActions } from 'kea'
-import { router } from 'kea-router'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import React from 'react'
 import { createActionFromEvent } from 'scenes/activity/explore/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { EventType, ProductKey } from '~/types'
+import { EventType } from '~/types'
 
 interface EventActionProps {
     event: EventType
@@ -22,7 +19,6 @@ interface EventActionProps {
 
 export function EventRowActions({ event }: EventActionProps): JSX.Element {
     const insightUrl = insightUrlForEvent(event)
-    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     return (
         <More
@@ -55,13 +51,6 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                                 ? undefined
                                 : 'Replay was not active when capturing this event'
                         }
-                        onClick={() =>
-                            addProductIntentForCrossSell({
-                                from: ProductKey.PRODUCT_ANALYTICS,
-                                to: ProductKey.SESSION_REPLAY,
-                                intent_context: ProductIntentContext.PRODUCT_ANALYTICS_VIEW_RECORDING_FROM_EVENT,
-                            })
-                        }
                         data-attr="events-table-usage"
                     />
                     {event.event === '$exception' && '$exception_issue_id' in event.properties ? (
@@ -69,19 +58,10 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             fullWidth
                             sideIcon={<IconWarning />}
                             data-attr="events-table-exception-link"
-                            onClick={() => {
-                                addProductIntentForCrossSell({
-                                    from: ProductKey.PRODUCT_ANALYTICS,
-                                    to: ProductKey.ERROR_TRACKING,
-                                    intent_context: ProductIntentContext.PRODUCT_ANALYTICS_VIEW_ISSUE_FROM_EVENT,
-                                })
-                                router.actions.push(
-                                    urls.errorTrackingIssue(
-                                        event.properties.$exception_issue_id,
-                                        event.properties.$exception_fingerprint
-                                    )
-                                )
-                            }}
+                            to={urls.errorTrackingIssue(
+                                event.properties.$exception_issue_id,
+                                event.properties.$exception_fingerprint
+                            )}
                         >
                             Visit issue
                         </LemonButton>
