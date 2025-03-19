@@ -5,6 +5,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { Dispatch, SetStateAction, useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
 
 import type { OrganizationBasicType } from '~/types'
 
@@ -12,16 +13,18 @@ export function DeleteOrganizationModal({
     isOpen,
     setIsOpen,
     organization,
+    redirectPath,
 }: {
     organization: OrganizationBasicType | null
     isOpen: boolean
     setIsOpen: Dispatch<SetStateAction<boolean>>
+    redirectPath?: string
 }): JSX.Element | null {
     const { organizationBeingDeleted } = useValues(organizationLogic)
     const { deleteOrganization } = useActions(organizationLogic)
 
     const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
-    const isDeletionInProgress = !!organization && organizationBeingDeleted?.id === organization.id
+    const isDeletionInProgress = !!organization && organizationBeingDeleted === organization.id
 
     return (
         <LemonModal
@@ -39,7 +42,9 @@ export function DeleteOrganizationModal({
                         loading={isDeletionInProgress}
                         data-attr="delete-organization-ok"
                         onClick={
-                            organization ? () => deleteOrganization({ organizationId: organization.id }) : undefined
+                            organization
+                                ? () => deleteOrganization({ organizationId: organization.id, redirectPath })
+                                : undefined
                         }
                     >{`Delete ${organization ? organization.name : 'the current organization'}`}</LemonButton>
                 </>
@@ -99,6 +104,7 @@ export function OrganizationDangerZone(): JSX.Element {
                     isOpen={isModalVisible}
                     setIsOpen={setIsModalVisible}
                     organization={currentOrganization}
+                    redirectPath={urls.default()}
                 />
             )}
         </>
