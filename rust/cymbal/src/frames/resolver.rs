@@ -78,6 +78,8 @@ impl Resolver {
 #[cfg(test)]
 mod test {
 
+    use std::sync::Arc;
+
     use common_types::ClickHouseEvent;
     use httpmock::MockServer;
     use mockall::predicate;
@@ -88,6 +90,7 @@ mod test {
         config::Config,
         frames::{records::ErrorTrackingStackFrame, resolver::Resolver, RawFrame},
         symbol_store::{
+            chunk_id::ChunkIdFetcher,
             saving::{Saving, SymbolSetRecord},
             sourcemap::SourcemapProvider,
             Catalog, S3Client,
@@ -125,11 +128,19 @@ mod test {
 
         let client = s3_init(&config, client);
 
-        let smp = SourcemapProvider::new(&config);
+        let client = Arc::new(client);
+
+        let chunk_id_smp = ChunkIdFetcher::new(
+            SourcemapProvider::new(&config),
+            client.clone(),
+            pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
         let saving_smp = Saving::new(
-            smp,
-            pool,
-            client,
+            chunk_id_smp,
+            pool.clone(),
+            client.clone(),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );

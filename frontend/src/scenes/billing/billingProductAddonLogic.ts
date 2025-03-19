@@ -23,19 +23,16 @@ export const billingProductAddonLogic = kea<billingProductAddonLogicType>([
                 type: BillingGaugeItemKind
                 text: string
                 value: number
-                top: boolean
             }> => [
                 {
                     type: BillingGaugeItemKind.FreeTier,
                     text: 'Free tier limit',
                     value: addon.tiers?.[0]?.up_to || 0,
-                    top: true,
                 },
                 {
                     type: BillingGaugeItemKind.CurrentUsage,
                     text: 'Current',
                     value: addon.current_usage ?? 0,
-                    top: false,
                 },
             ],
         ],

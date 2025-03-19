@@ -60,10 +60,10 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
             {
                 name: 'stripe_secret_key',
-                label: 'Client secret',
+                label: 'API key',
                 type: 'password',
                 required: true,
-                placeholder: 'sk_live_...',
+                placeholder: 'rk_live_...',
             },
         ],
     },
@@ -629,7 +629,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         name: 'Salesforce',
         fields: [
             {
-                name: 'integration_id',
+                name: 'salesforce_integration_id',
                 label: 'Salesforce account',
                 type: 'oauth',
                 required: true,

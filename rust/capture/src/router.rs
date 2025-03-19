@@ -12,9 +12,11 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use crate::limiters::token_dropper::TokenDropper;
 use crate::test_endpoint;
-use crate::{limiters::redis::RedisLimiter, redis::Client, sinks, time::TimeSource, v0_endpoint};
+use crate::{sinks, time::TimeSource, v0_endpoint};
+use common_redis::Client;
+use limiters::redis::RedisLimiter;
+use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
 use crate::prometheus::{setup_metrics_recorder, track_metrics};

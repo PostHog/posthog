@@ -60,6 +60,7 @@ export interface ElementWithMetadata {
     clickCount?: number
     rageclickCount?: number
     position?: number
+    apparentZIndex?: number
 }
 
 export interface ActionElementWithMetadata extends ElementWithMetadata {

@@ -188,6 +188,7 @@ export function CodeSnippet({
                     }}
                     size={compact ? 'small' : 'medium'}
                     noPadding
+                    tooltip="Copy to clipboard"
                 />
             </div>
             <CodeLine text={displayedText} language={language} wrapLines={wrap} />

@@ -64,7 +64,7 @@ export class TeamManager {
          *
          * Caching is added to reduce the load on Postgres, not to be resilient
          * to failures. If PG is unavailable and the cache expired, this function
-         * will trow and the lookup must be retried later.
+         * will throw and the lookup must be retried later.
          *
          * Returns null if the token is invalid.
          */

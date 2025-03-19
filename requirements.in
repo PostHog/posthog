@@ -70,7 +70,7 @@ pandas==2.2.0
 paramiko==3.4.0
 Pillow==10.2.0
 pdpyras==5.2.0
-posthoganalytics==3.18.1
+posthoganalytics==3.21.0
 psutil==6.0.0
 psycopg2-binary==2.9.7
 pymssql==2.3.1
@@ -113,7 +113,7 @@ mimesis==5.2.1
 more-itertools==9.0.0
 django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
-openai==1.56.2
+openai==1.66.3
 tiktoken==0.9.*
 nh3==0.2.14
 hogql-parser==1.1.0
@@ -125,3 +125,6 @@ grpcio~=1.63.2 # Version constrained so that `deepeval` can be installed in in d
 tenacity~=8.4.2  # Version constrained so that `deepeval` can be installed in in dev
 markdown-it-py~=3.0.0
 tzlocal~=5.1
+python-snappy~=0.7.3
+cohere==5.14.0
+types-cachetools==5.5.0.20240820

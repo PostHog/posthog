@@ -1,4 +1,4 @@
-import { IconPlus } from '@posthog/icons'
+import { IconCheckCircle, IconPlus, IconX } from '@posthog/icons'
 import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -8,17 +8,24 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, BATCH_EXPORT_SERVICE_NAMES, BatchExportService } from '~/types'
+import {
+    AnyPropertyFilter,
+    BATCH_EXPORT_SERVICE_NAMES,
+    BatchExportConfigurationTest,
+    BatchExportConfigurationTestStep,
+    BatchExportService,
+} from '~/types'
 
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './batch-exports/BatchExportEditForm'
 import { BatchExportConfigurationForm } from './batch-exports/types'
@@ -32,6 +39,8 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
 
     const {
         isNew,
+        batchExportConfigTest,
+        batchExportConfigTestLoading,
         configuration,
         tables,
         savedConfiguration,
@@ -40,8 +49,15 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
         configurationChanged,
         batchExportConfig,
         selectedModel,
+        runningStep,
     } = useValues(logic)
-    const { resetConfiguration, submitConfiguration, setSelectedModel, setConfigurationValue } = useActions(logic)
+    const {
+        resetConfiguration,
+        submitConfiguration,
+        setSelectedModel,
+        setConfigurationValue,
+        runBatchExportConfigTestStep,
+    } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
     const sessionsBatchExports = featureFlags[FEATURE_FLAGS.SESSIONS_BATCH_EXPORTS]
@@ -51,6 +67,10 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
     }
 
     if (!batchExportConfig && batchExportConfigLoading) {
+        return <SpinnerOverlay />
+    }
+
+    if (!batchExportConfigTest && batchExportConfigTestLoading) {
         return <SpinnerOverlay />
     }
 
@@ -302,6 +322,16 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                     formValues={configuration as BatchExportConfigurationForm}
                                 />
                             </div>
+                            {batchExportConfigTest && (
+                                <div className="border bg-surface-primary p-3 rounded">
+                                    <BatchExportConfigurationTests
+                                        batchExportConfigTest={batchExportConfigTest}
+                                        batchExportConfigTestLoading={batchExportConfigTestLoading}
+                                        runningStep={runningStep}
+                                        runBatchExportConfigTestStep={runBatchExportConfigTestStep}
+                                    />
+                                </div>
+                            )}
                         </div>
                     </div>
                     <div className="flex gap-2 justify-end">{buttons}</div>
@@ -323,5 +353,91 @@ function BatchExportConfigurationFields({
             <BatchExportGeneralEditFields isNew={isNew} isPipeline batchExportConfigForm={formValues} />
             <BatchExportsEditFields isNew={isNew} batchExportConfigForm={formValues} />
         </>
+    )
+}
+
+export function BatchExportConfigurationTests({
+    batchExportConfigTest,
+    batchExportConfigTestLoading,
+    runningStep,
+    runBatchExportConfigTestStep,
+}: {
+    batchExportConfigTest: BatchExportConfigurationTest
+    batchExportConfigTestLoading: boolean
+    runningStep: number | null
+    runBatchExportConfigTestStep: (step: any) => void
+}): JSX.Element | null {
+    if (!batchExportConfigTest && batchExportConfigTestLoading) {
+        return (
+            <div className="flex items-center justify-center p-4">
+                <Spinner />
+            </div>
+        )
+    }
+
+    if (!batchExportConfigTest) {
+        return null
+    }
+
+    const renderStatusIcon = (step: BatchExportConfigurationTestStep, index: number): JSX.Element => {
+        if (!step.result || runningStep === index) {
+            return <Spinner />
+        }
+
+        return step.result.status === 'Passed' ? (
+            <IconCheckCircle className="text-green-500 shrink-0" />
+        ) : (
+            <IconX className="text-red-500 shrink-0" />
+        )
+    }
+
+    return (
+        <div className="space-y-4">
+            <div className="flex items-center justify-between">
+                <div className="space-y-2">
+                    <h2 className="text-lg font-semibold flex items-center gap-2 m-0">Test configuration</h2>
+                    <p className="text-xs text-secondary">
+                        Test the batch export's configuration to uncover errors before saving it
+                    </p>
+                </div>
+                <LemonButton
+                    onClick={() => runBatchExportConfigTestStep(0)}
+                    disabledReason={runningStep !== null ? 'Test step is running' : null}
+                    size="small"
+                    type="primary"
+                >
+                    {runningStep ? 'Testing...' : 'Start test'}
+                </LemonButton>
+            </div>
+
+            <div className="space-y-4">
+                {batchExportConfigTest.steps.map((step, index) => {
+                    // Only render if the step has a result or is currently running
+                    if (!step.result && index !== runningStep) {
+                        return null
+                    }
+
+                    return (
+                        <div key={`${step.name}-${index}`}>
+                            <div className="flex items-start gap-2">
+                                <div className="mt-1">{renderStatusIcon(step, index)}</div>
+                                <div className="flex-1">
+                                    <LemonLabel info={step.description} className="mb-2">
+                                        {step.name}
+                                    </LemonLabel>
+                                    {step.result && (
+                                        <div className="mt-2">
+                                            <LemonBanner type={step.result.status === 'Passed' ? 'success' : 'error'}>
+                                                {step.result.status === 'Passed' ? 'Success' : `${step.result.message}`}
+                                            </LemonBanner>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )
+                })}
+            </div>
+        </div>
     )
 }

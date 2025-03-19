@@ -232,6 +232,7 @@ export type HogFunctionInvocationResult = {
     error?: any
     // asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
     logs: LogEntry[]
+    metrics?: HogFunctionAppMetric[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
     execResult?: unknown
 }
@@ -302,7 +303,7 @@ export type HogFunctionType = {
     hog: string
     bytecode: HogBytecode
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, HogFunctionInputType>
+    inputs?: Record<string, HogFunctionInputType | null>
     encrypted_inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null

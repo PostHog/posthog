@@ -399,9 +399,11 @@
     --bg-fill-primary: var(--color-white);
     --bg-fill-secondary: var(--primitive-3000-25);
     --bg-fill-tertiary: var(--primitive-3000-50);
+    --bg-fill-highlight-50: color-mix(in oklab, var(--color-black) 5%, transparent);
     --bg-fill-highlight-100: color-mix(in oklab, var(--color-black) 10%, transparent);
     --bg-fill-highlight-150: color-mix(in oklab, var(--color-black) 15%, transparent);
     --bg-fill-highlight-200: color-mix(in oklab, var(--color-black) 20%, transparent);
+    --bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-white) 5%, transparent);
     --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
     --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
     --bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
@@ -555,11 +557,12 @@
     --opacity-disabled: 0.65;
     --font-medium: 500;
     --font-semibold: 600;
-    --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', helvetica, arial,
-        sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --font-title: 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
-        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+    --font-sans: 'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-title: 'Emoji Flags Polyfill', 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-mono: 'Emoji Flags Polyfill', ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas',
+        'Liberation Mono', monospace;
 
     // Dashboard item colors
     --blue: #597dce;
@@ -616,6 +619,8 @@
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
     --z-resizer: 755;
+    --z-project-panel-layout: 1099;
+    --z-project-panel-overlay: 1098;
     --z-main-nav: 750;
     --z-lemon-sidebar: 700;
     --z-lemon-activation-sidebar: 650;
@@ -623,6 +628,10 @@
     --z-top-navigation: 550;
     --z-content-overlay: 500;
     --z-raised: 5;
+
+    // Elements
+    --project-navbar-width: 250px;
+    --project-panel-width: 320px;
 
     // Toasts
     // Update and override from react-toastify
@@ -861,11 +870,13 @@
     --bg-fill-primary: var(--primitive-neutral-cool-900);
     --bg-fill-secondary: var(--primitive-neutral-cool-850);
     --bg-fill-tertiary: var(--primitive-neutral-cool-800);
+    --bg-fill-highlight-50: color-mix(in oklab, var(--color-white) 5%, transparent);
     --bg-fill-highlight-100: color-mix(in oklab, var(--color-white) 10%, transparent);
-    --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-black) 10%, transparent);
     --bg-fill-highlight-150: color-mix(in oklab, var(--color-white) 15%, transparent);
-    --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-black) 15%, transparent);
     --bg-fill-highlight-200: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-black) 15%, transparent);
     --bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-black) 20%, transparent);
     --bg-fill-info-secondary: var(--color-blue-950);
     --bg-fill-info-tertiary: var(--color-blue-950);

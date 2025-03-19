@@ -163,6 +163,239 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    @freeze_time("2021-05-02")
+    def test_group_property_crud_add_success(self):
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": "org:5",
+                "group_properties": {"industry": "technology", "name": "Mr. Krabs"},
+                "group_type_index": 0,
+            },
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("results", response.json())
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["activity"], "update_property")
+        self.assertEqual(response.json()["results"][0]["scope"], "Group")
+        self.assertEqual(response.json()["results"][0]["item_id"], str(group.pk))
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "created")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], None)
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
+
+    @freeze_time("2021-05-02")
+    def test_group_property_crud_update_success(self):
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": "org:5",
+                "group_properties": {"industry": "technology", "name": "Mr. Krabs"},
+                "group_type_index": 0,
+            },
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("results", response.json())
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["activity"], "update_property")
+        self.assertEqual(response.json()["results"][0]["scope"], "Group")
+        self.assertEqual(response.json()["results"][0]["item_id"], str(group.pk))
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
+
+    @freeze_time("2021-05-02")
+    def test_group_property_crud_update_missing_key(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"value": "technology"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @freeze_time("2021-05-02")
+    def test_group_property_crud_update_invalid_group_key(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:0&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    @freeze_time("2021-05-02")
+    def test_group_property_crud_delete_success(self):
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
+            {"$unset": "industry"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": "org:5",
+                "group_properties": {"name": "Mr. Krabs"},
+                "group_type_index": 0,
+            },
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("results", response.json())
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["activity"], "update_property")
+        self.assertEqual(response.json()["results"][0]["scope"], "Group")
+        self.assertEqual(response.json()["results"][0]["item_id"], str(group.pk))
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "deleted")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], None)
+
+    @freeze_time("2021-05-02")
+    def test_group_property_crud_delete_missing_key(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
+            {},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @freeze_time("2021-05-02")
+    def test_group_property_crud_delete_invalid_group_key(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:0&group_type_index=0",
+            {"$unset": "industry"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    @freeze_time("2021-05-02")
+    def test_get_group_activities_success(self):
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        # Triggers the entry
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("results", response.json())
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["activity"], "update_property")
+        self.assertEqual(response.json()["results"][0]["scope"], "Group")
+        self.assertEqual(response.json()["results"][0]["item_id"], str(group.pk))
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
+
+    @freeze_time("2021-05-02")
+    def test_get_group_activities_invalid_group(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        # Triggers the entry
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=1",
+        )
+
+        self.assertEqual(response.status_code, 404)
+
     @freeze_time("2021-05-10")
     @snapshot_clickhouse_queries
     def test_related_groups(self):

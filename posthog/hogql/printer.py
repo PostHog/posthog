@@ -1074,10 +1074,17 @@ class _Printer(Visitor):
 
             params_part = f"({', '.join(params)})" if params is not None else ""
             args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(args)})"
-            return f"{func_meta.clickhouse_name}{params_part}{args_part}"
+
+            return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
 
         elif func_meta := find_hogql_function(node.name):
-            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+            validate_function_args(
+                node.args,
+                func_meta.min_args,
+                func_meta.max_args,
+                node.name,
+            )
+
             if func_meta.min_params:
                 if node.params is None:
                     raise QueryError(f"Function '{node.name}' requires parameters in addition to arguments")
@@ -1090,9 +1097,12 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
+                args_count = len(node.args) - func_meta.passthrough_suffix_args_count
+                node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
+
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []
-                    for idx, arg in enumerate(node.args):
+                    for idx, arg in enumerate(node_args):
                         if idx == 0:
                             if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
                                 args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
@@ -1102,7 +1112,7 @@ class _Printer(Visitor):
                             args.append(self.visit(arg))
                 elif node.name == "concat":
                     args = []
-                    for arg in node.args:
+                    for arg in node_args:
                         if isinstance(arg, ast.Constant):
                             if arg.value is None:
                                 args.append("''")
@@ -1121,10 +1131,30 @@ class _Printer(Visitor):
                         else:
                             args.append(f"ifNull(toString({self.visit(arg)}), '')")
                 else:
-                    args = [self.visit(arg) for arg in node.args]
+                    args = [self.visit(arg) for arg in node_args]
 
+                # Some of these `isinstance` checks are here just to make our type system happy
+                # We have some guarantees in place to ensure that the arguments are string/constants anyway
+                # Here's to hoping Python's type system gets as smart as TS's one day
                 if func_meta.suffix_args:
-                    args += [self.visit(arg) for arg in func_meta.suffix_args]
+                    for suffix_arg in func_meta.suffix_args:
+                        if len(passthrough_suffix_args) > 0:
+                            if not all(isinstance(arg, ast.Constant) for arg in passthrough_suffix_args):
+                                raise QueryError(
+                                    f"Suffix argument '{suffix_arg.value}' expects ast.Constant arguments, but got {', '.join([type(arg).__name__ for arg in passthrough_suffix_args])}"
+                                )
+
+                            suffix_arg_args_values = [
+                                arg.value for arg in passthrough_suffix_args if isinstance(arg, ast.Constant)
+                            ]
+
+                            if isinstance(suffix_arg.value, str):
+                                suffix_arg.value = suffix_arg.value.format(*suffix_arg_args_values)
+                            else:
+                                raise QueryError(
+                                    f"Suffix argument '{suffix_arg.value}' expects a string, but got {type(suffix_arg.value).__name__}"
+                                )
+                        args.append(self.visit(suffix_arg))
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if func_meta.overloads:
@@ -1196,7 +1226,13 @@ class _Printer(Visitor):
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif func_meta := find_hogql_posthog_function(node.name):
-            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+            validate_function_args(
+                node.args,
+                func_meta.min_args,
+                func_meta.max_args,
+                node.name,
+            )
+
             args = [self.visit(arg) for arg in node.args]
 
             if self.dialect in ("hogql", "clickhouse"):

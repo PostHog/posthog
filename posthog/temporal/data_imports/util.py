@@ -1,10 +1,12 @@
 from typing import Optional
+
+from django.conf import settings
+from dlt.common.normalizers.naming.snake_case import NamingConvention
+
 from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
-from django.conf import settings
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 def prepare_s3_files_for_querying(

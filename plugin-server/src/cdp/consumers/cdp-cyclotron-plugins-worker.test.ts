@@ -125,17 +125,11 @@ describe('CdpCyclotronWorkerPlugins', () => {
             expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(intercomPlugin.onEvent!).mock.calls[0][0])).toMatchInlineSnapshot(`
                 {
+                  "$set": undefined,
+                  "$set_once": undefined,
                   "distinct_id": "distinct_id",
                   "event": "mycustomevent",
-                  "person": {
-                    "created_at": "",
-                    "properties": {
-                      "email": "test@posthog.com",
-                      "first_name": "Pumpkin",
-                    },
-                    "team_id": 2,
-                    "uuid": "uuid",
-                  },
+                  "ip": null,
                   "properties": {
                     "email": "test@posthog.com",
                   },

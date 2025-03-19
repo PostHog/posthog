@@ -115,6 +115,8 @@ export const TECHNOLOGY = {
         'IconPullRequest',
         'IconTerminal',
         'IconApp',
+        'IconFolder',
+        'IconFolderOpen',
     ],
     UI: [
         'IconPassword',
@@ -171,6 +173,7 @@ export const ELEMENTS = {
         'IconInfo',
         'IconCheckCircle',
         'IconCheck',
+        'IconCircleDashed',
         'IconX',
         'IconEllipsis',
         'IconHide',

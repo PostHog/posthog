@@ -24,7 +24,7 @@ import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType } from '~/types'
 
-import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, SURVEY_EVENT_NAME } from './constants'
+import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL, SURVEY_EVENT_NAME } from './constants'
 import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import {
@@ -546,12 +546,12 @@ function SurveyNPSResults({
                                 createNPSTrendSeries(
                                     getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
                                     ['9', '10'],
-                                    NPS_PASSIVE_LABEL
+                                    NPS_PROMOTER_LABEL
                                 ),
                                 createNPSTrendSeries(
                                     getResponseFieldWithId(questionIndex, questionId).idBasedKey ?? '',
                                     ['9', '10'],
-                                    NPS_PASSIVE_LABEL
+                                    NPS_PROMOTER_LABEL
                                 ),
                                 createNPSTrendSeries(
                                     getResponseFieldWithId(questionIndex, questionId).indexBasedKey,

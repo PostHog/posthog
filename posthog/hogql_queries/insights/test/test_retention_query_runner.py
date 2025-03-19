@@ -14,6 +14,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
@@ -21,6 +22,7 @@ from posthog.models import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
+from posthog.schema import RetentionQuery
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
@@ -2436,6 +2438,126 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 ]
             ),
         )
+
+    def test_events_query(self):
+        # Create test people
+        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        # Create test events across different days
+        _create_events(
+            self.team,
+            [
+                # Person 1 events - active in day 0, 1, 2, 5, 6
+                ("person1", _date(0)),  # Day 0 - start event
+                ("person1", _date(1)),  # Day 1 - return event
+                ("person1", _date(2)),  # Day 2 - return event
+                ("person1", _date(5)),  # Day 5 - return event
+                ("alias1", _date(5, 9)),  # Day 5 - also a return event (alias)
+                ("person1", _date(6)),  # Day 6 - return event
+                # Person 2 events - active in day 1, 2, 3, 6
+                ("person2", _date(1)),  # Day 1 - start event (not day 0)
+                ("person2", _date(2)),  # Day 2 - return event
+                ("person2", _date(3)),  # Day 3 - return event
+                ("person2", _date(6)),  # Day 6 - return event
+            ],
+        )
+
+        # Set up the query
+        query = RetentionQuery(
+            dateRange={"date_to": _date(6, hour=6)},
+            retentionFilter={
+                "totalIntervals": 7,
+                "period": "Day",
+            },
+        )
+
+        # Create the query runner
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        # Get events query for interval 0 (day 0) and person1
+        events_query = runner.to_events_query(interval=0, person_id=person1.uuid)
+
+        # Execute the query
+        response = execute_hogql_query(
+            query_type="RetentionEventsQuery",
+            query=events_query,
+            team=self.team,
+        )
+
+        # Get the results
+        results = response.results
+
+        # Verify we get both start and return events
+        self.assertTrue(len(results) > 0, "Expected events to be returned")
+
+        # Check that we have at least one start event
+        start_events = [row for row in results if row[5] == "start_event"]
+        self.assertTrue(len(start_events) > 0, "Expected at least one start event")
+
+        # Check that we have at least one return event
+        return_events = [row for row in results if row[5] == "return_event"]
+        self.assertTrue(len(return_events) > 0, "Expected at least one return event")
+
+        # Get specific event types from the results
+        event_timestamps = [(row[0], row[5]) for row in results]
+
+        # Verify the timestamps match what we expect
+        expected_timestamps = [
+            # Start event on day 0
+            (_date(0), "start_event"),
+            # Return events on days 1, 2, 5, 6
+            (_date(1), "return_event"),
+            (_date(2), "return_event"),
+            (_date(5), "return_event"),
+            (_date(5, 9), "return_event"),
+            (_date(6), "return_event"),
+        ]
+
+        # Check that each expected timestamp is in the results
+        for expected_time, expected_type in expected_timestamps:
+            self.assertTrue(
+                any(
+                    datetime.fromisoformat(expected_time).date() == actual_time.date() and expected_type == actual_type
+                    for actual_time, actual_type in event_timestamps
+                ),
+                f"Missing expected {expected_type} at {expected_time}",
+            )
+
+        # Test with a different interval - interval 1 should only return person2
+        events_query_day1 = runner.to_events_query(interval=1, person_id=person2.uuid)
+        response_day1 = execute_hogql_query(
+            query_type="RetentionEventsQuery",
+            query=events_query_day1,
+            team=self.team,
+        )
+        results_day1 = response_day1.results
+
+        # Verify we have events for person2 on day 1
+        self.assertTrue(len(results_day1) > 0, "Expected events for day 1")
+
+        # Check timestamps for day 1 events
+        day1_event_timestamps = [(row[0], row[5]) for row in results_day1]
+
+        # Expected timestamps for person2
+        expected_day1_timestamps = [
+            # Start event on day 1
+            (_date(1), "start_event"),
+            # Return events on days 2, 3, 6
+            (_date(2), "return_event"),
+            (_date(3), "return_event"),
+            (_date(6), "return_event"),
+        ]
+
+        # Check that each expected timestamp is in the day 1 results
+        for expected_time, expected_type in expected_day1_timestamps:
+            self.assertTrue(
+                any(
+                    datetime.fromisoformat(expected_time).date() == actual_time.date() and expected_type == actual_type
+                    for actual_time, actual_type in day1_event_timestamps
+                ),
+                f"Missing expected {expected_type} at {expected_time} for person2 on day 1",
+            )
 
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):

@@ -6,8 +6,6 @@ use std::{
 use axum::async_trait;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
-use crate::error::Error;
-
 use super::Provider;
 
 // Limits the number of concurrent lookups
@@ -69,8 +67,9 @@ where
 {
     type Ref = P::Ref;
     type Set = P::Set;
+    type Err = P::Err;
 
-    async fn lookup(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Error> {
+    async fn lookup(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Self::Err> {
         let lock = self.acquire(format!("{}:{}", team_id, r.to_string())).await;
         let result = self.inner.lookup(team_id, r).await;
         drop(lock);

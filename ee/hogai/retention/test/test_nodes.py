@@ -5,7 +5,10 @@ from langchain_core.runnables import RunnableLambda
 
 from ee.hogai.retention.nodes import RetentionGeneratorNode, RetentionPlannerNode, RetentionSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from posthog.models import Action
 from posthog.schema import (
+    AssistantRetentionActionsNode,
+    AssistantRetentionEventsNode,
     AssistantRetentionFilter,
     AssistantRetentionQuery,
     HumanMessage,
@@ -32,10 +35,11 @@ class TestRetentionGeneratorNode(BaseTest):
 
     def setUp(self):
         super().setUp()
+        self.action = Action.objects.create(team=self.team, name="Test Action")
         self.schema = AssistantRetentionQuery(
             retentionFilter=AssistantRetentionFilter(
-                targetEntity={"id": "targetEntity", "type": "events", "name": "targetEntity"},
-                returningEntity={"id": "returningEntity", "type": "events", "name": "returningEntity"},
+                targetEntity=AssistantRetentionEventsNode(name="targetEntity"),
+                returningEntity=AssistantRetentionActionsNode(name=self.action.name, id=self.action.id),
             )
         )
 

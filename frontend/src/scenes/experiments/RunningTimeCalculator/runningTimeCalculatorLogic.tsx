@@ -29,6 +29,11 @@ export const TIMEFRAME_HISTORICAL_DATA_DAYS = 14
 export const VARIANCE_SCALING_FACTOR_TOTAL_COUNT = 2
 export const VARIANCE_SCALING_FACTOR_SUM = 0.25
 
+export enum ConversionRateInputType {
+    MANUAL = 'manual',
+    AUTOMATIC = 'automatic',
+}
+
 const getKindField = (metric: ExperimentMetric): NodeKind => {
     return metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig
         ? NodeKind.EventsNode
@@ -139,8 +144,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             uniqueUsers: number
             averageEventsPerUser?: number
             averagePropertyValuePerUser?: number
-            conversionRate?: number
+            automaticConversionRateDecimal?: number
         }) => ({ value }),
+        setConversionRateInputType: (value: string) => ({ value }),
+        setManualConversionRate: (value: number) => ({ value }),
     }),
     reducers({
         metricIndex: [
@@ -156,6 +163,11 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 setMinimumDetectableEffect: (_, { value }) => value,
             },
         ],
+        conversionRateInputType: [
+            ConversionRateInputType.MANUAL as string,
+            { setConversionRateInputType: (_, { value }) => value },
+        ],
+        manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
     }),
     loaders(({ values }) => ({
         metricResult: {
@@ -179,7 +191,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         ? getSumQuery(metric, values.experiment)
                         : getFunnelQuery(metric, values.experiment)
 
-                const result = (await performQuery(query)) as Partial<TrendsQueryResponse>
+                const result = (await performQuery(query, undefined, true)) as Partial<TrendsQueryResponse>
 
                 return {
                     uniqueUsers: result?.results?.[0]?.count ?? null,
@@ -192,7 +204,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         ? { averagePropertyValuePerUser: result?.results?.[1]?.count ?? null }
                         : {}),
                     ...(metric.metric_type === ExperimentMetricType.FUNNEL
-                        ? { conversionRate: result?.results?.[1]?.count / result?.results?.[0]?.count || null }
+                        ? {
+                              automaticConversionRateDecimal:
+                                  result?.results?.[1]?.count / result?.results?.[0]?.count || null,
+                          }
                         : {}),
                 }
             },
@@ -223,9 +238,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             (metricResult: { averagePropertyValuePerUser: number }) =>
                 metricResult?.averagePropertyValuePerUser ?? null,
         ],
-        conversionRate: [
+        automaticConversionRateDecimal: [
             (s) => [s.metricResult],
-            (metricResult: { conversionRate: number }) => metricResult?.conversionRate ?? null,
+            (metricResult: { automaticConversionRateDecimal: number }) =>
+                metricResult?.automaticConversionRateDecimal ?? null,
         ],
         variance: [
             (s) => [s.metric, s.averageEventsPerUser, s.averagePropertyValuePerUser],
@@ -260,7 +276,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 s.variance,
                 s.averageEventsPerUser,
                 s.averagePropertyValuePerUser,
-                s.conversionRate,
+                s.automaticConversionRateDecimal,
+                s.manualConversionRate,
+                s.conversionRateInputType,
                 s.numberOfVariants,
             ],
             (
@@ -269,7 +287,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 variance: number,
                 averageEventsPerUser: number,
                 averagePropertyValuePerUser: number,
-                conversionRate: number,
+                automaticConversionRateDecimal: number,
+                manualConversionRate: number,
+                conversionRateInputType: string,
                 numberOfVariants: number
             ): number | null => {
                 if (!metric) {
@@ -333,6 +353,12 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     */
                     sampleSizeFormula = (16 * variance) / d ** 2
                 } else if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+                    const manualConversionRateDecimal = manualConversionRate / 100
+                    const conversionRate =
+                        conversionRateInputType === ConversionRateInputType.MANUAL
+                            ? manualConversionRateDecimal
+                            : automaticConversionRateDecimal
+
                     /*
                         Binomial metric (conversion rate):
                         - Here, "mean" does not exist in the same way as for count/continuous metrics.

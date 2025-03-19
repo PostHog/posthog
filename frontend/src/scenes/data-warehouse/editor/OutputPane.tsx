@@ -14,6 +14,7 @@ import DataGrid, { CellClickArgs } from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
@@ -137,6 +138,8 @@ export function OutputPane(): JSX.Element {
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const [progressCache, setProgressCache] = useState<Record<string, number>>({})
+
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
     const columns = useMemo(() => {
@@ -213,6 +216,10 @@ export function OutputPane(): JSX.Element {
 
     const handleRowClick = useCallback((args: CellClickArgs<any, any>) => {
         setSelectedRow(args.row)
+    }, [])
+
+    const setProgress = useCallback((loadId: string, progress: number) => {
+        setProgressCache((prev) => ({ ...prev, [loadId]: progress }))
     }, [])
 
     return (
@@ -317,11 +324,13 @@ export function OutputPane(): JSX.Element {
                         pollResponse={pollResponse}
                         editorKey={editorKey}
                         onRowClick={handleRowClick}
+                        setProgress={setProgress}
+                        progress={queryId ? progressCache[queryId] : undefined}
                     />
                 </BindLogic>
             </div>
             <div className="flex justify-between px-2 border-t">
-                <div>{response ? <LoadPreviewText /> : <></>}</div>
+                <div>{response && !responseError ? <LoadPreviewText /> : <></>}</div>
                 <ElapsedTime />
             </div>
             <RowDetailsModal
@@ -421,6 +430,8 @@ const Content = ({
     pollResponse,
     editorKey,
     onRowClick,
+    setProgress,
+    progress,
 }: any): JSX.Element | null => {
     if (activeTab === OutputTab.Results) {
         if (responseError) {
@@ -436,11 +447,18 @@ const Content = ({
 
         return responseLoading ? (
             <div className="flex flex-1 p-2 w-full justify-center items-center">
-                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
+                <StatelessInsightLoadingState
+                    queryId={queryId}
+                    pollResponse={pollResponse}
+                    setProgress={setProgress}
+                    progress={progress}
+                />
             </div>
         ) : !response ? (
             <div className="flex flex-1 justify-center items-center">
-                <span className="text-secondary mt-3">Query results will appear here</span>
+                <span className="text-secondary mt-3">
+                    Query results will appear here. Press <KeyboardShortcut command enter /> to run the query.
+                </span>
             </div>
         ) : (
             <TabScroller>

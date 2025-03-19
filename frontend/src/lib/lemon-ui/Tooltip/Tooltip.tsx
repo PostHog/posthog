@@ -109,7 +109,7 @@ export function Tooltip({
     )
 
     if (!title) {
-        return <>{children}</>
+        return <>{child}</>
     }
 
     return (

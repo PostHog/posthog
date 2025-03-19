@@ -24,11 +24,12 @@ function OtherWatchersDisplay({ metadata }: { metadata?: SessionRecordingType })
 
     const count = metadata.viewers.length
     const varyingText = count > 1 ? 'users have' : 'user has'
-    const label = `${count} other ${varyingText} watched this recording.`
     return (
         <div className="flex flex-row deprecated-space-x-2 items-center justify-center px-2 py-1">
             <ProfileBubbles people={metadata.viewers.map((v) => ({ email: v }))} />
-            <span>{label}</span>
+            <span>
+                {count} other ${varyingText} watched this recording.
+            </span>
         </div>
     )
 }

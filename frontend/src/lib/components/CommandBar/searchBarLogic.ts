@@ -23,7 +23,7 @@ function calculateRank(query: string): number {
     return query.length / (query.length + 2.0)
 }
 
-function rankPersons(persons: PersonType[], query: string): PersonResult[] {
+export function rankPersons(persons: PersonType[], query: string): PersonResult[] {
     const rank = calculateRank(query)
     return persons.map((person) => ({
         type: 'person',

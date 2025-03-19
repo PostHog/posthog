@@ -1,6 +1,7 @@
 import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta, UTC
+import re
 from typing import Any, cast
 from urllib.parse import urlparse
 
@@ -50,6 +51,7 @@ from posthog.utils_cors import cors_response
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
+EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 
 
 class SurveySerializer(serializers.ModelSerializer):
@@ -65,6 +67,7 @@ class SurveySerializer(serializers.ModelSerializer):
         required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
     )
     schedule = serializers.CharField(required=False, allow_null=True)
+    enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
 
     def get_feature_flag_keys(self, survey: Survey) -> list:
         return [
@@ -112,6 +115,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "response_sampling_interval",
             "response_sampling_limit",
             "response_sampling_daily_limits",
+            "enable_partial_responses",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -139,6 +143,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
     )
     schedule = serializers.CharField(required=False, allow_null=True)
+    enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
 
     class Meta:
         model = Survey
@@ -174,6 +179,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_interval",
             "response_sampling_limit",
             "response_sampling_daily_limits",
+            "enable_partial_responses",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -292,10 +298,23 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             link = raw_question.get("link")
             if link:
                 parsed_url = urlparse(link)
-                if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES or parsed_url.netloc == "":
+
+                # Check for unsupported schemes
+                if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES:
                     raise serializers.ValidationError(
-                        f"Link must be a URL to resource with one of these schemes [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
+                        f"Link must be a URL with one of these schemes: [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
                     )
+
+                # Separate validation for `mailto:` links
+                if parsed_url.scheme == "mailto":
+                    if not re.match(EMAIL_REGEX, link):
+                        raise serializers.ValidationError(
+                            "Invalid mailto link. Please enter a valid mailto link (e.g., mailto:example@domain.com)."
+                        )
+                # HTTPS validation
+                elif parsed_url.scheme == "https":
+                    if not parsed_url.netloc:
+                        raise serializers.ValidationError("Invalid HTTPS URL. Please enter a valid HTTPS link.")
 
             cleaned_questions.append(cleaned_question)
 
@@ -850,6 +869,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
     targeting_flag_key = serializers.CharField(source="targeting_flag.key", read_only=True)
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions")
+    enable_partial_responses = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Survey
@@ -873,6 +893,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "current_iteration",
             "current_iteration_start_date",
             "schedule",
+            "enable_partial_responses",
         ]
         read_only_fields = fields
 
