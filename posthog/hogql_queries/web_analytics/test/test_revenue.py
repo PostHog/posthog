@@ -87,7 +87,7 @@ class TestWebAnalyticsRevenue(ClickhouseTestMixin, APIBaseTest):
         date_from: str,
         date_to: Optional[str],
         interval: IntervalType,
-        series: list[EventsNode],
+        series: list[EventsNode | DataWarehouseNode],
         properties: Optional[Any] = None,
     ) -> TrendsQueryRunner:
         query = TrendsQuery(
