@@ -52,7 +52,7 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
         serialized_database = serialize_database(self.hogql_context)
         schema_description = "\n\n".join(
             (
-                f"Table {table_name} with fields:\n"
+                f"Table `{table_name}` with fields:\n"
                 + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
                 for table_name, table in serialized_database.items()
                 # Only the most important core tables, plus all warehouse tables
@@ -62,9 +62,14 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
 
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", IDENTITY_MESSAGE),
-                ("system", HOGQL_EXAMPLE_MESSAGE),
-                ("system", SCHEMA_MESSAGE.format(schema_description=schema_description)),
+                (
+                    "system",
+                    IDENTITY_MESSAGE
+                    + "\n\n<example_query>\n"
+                    + HOGQL_EXAMPLE_MESSAGE
+                    + "\n</example_query>\n\n"
+                    + SCHEMA_MESSAGE.format(schema_description=schema_description),
+                ),
             ],
             template_format="mustache",
         )
