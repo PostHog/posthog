@@ -46,7 +46,6 @@ import {
     TimestampFormat,
 } from '../../types'
 import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
-import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { parseRawClickHouseEvent } from '../event'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
@@ -1156,12 +1155,6 @@ export class DB {
 
     public async fetchAction(id: Action['id']): Promise<Action | null> {
         return await fetchAction(this.postgres, id)
-    }
-
-    // Organization
-
-    public async fetchOrganization(organizationId: string): Promise<RawOrganization | undefined> {
-        return await fetchOrganization(this.postgres, organizationId)
     }
 
     // Hook (EE)
