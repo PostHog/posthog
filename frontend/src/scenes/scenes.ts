@@ -497,6 +497,7 @@ export const redirects: Record<
     '/recordings/:id': ({ id }) => urls.replaySingle(id),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
+    '/recordings/settings': () => urls.replaySettings(),
     '/recordings': (_params, _searchParams, hashParams) => {
         if (hashParams.sessionRecordingId) {
             // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar

@@ -739,6 +739,7 @@ export enum ReplayTabs {
     Templates = 'templates',
     Home = 'home',
     Playlists = 'playlists',
+    Settings = 'settings',
 }
 
 export enum ExperimentsTabs {
