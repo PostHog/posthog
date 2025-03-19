@@ -170,26 +170,22 @@ export class HogExecutorService {
             filters: HogFunctionType['filters'],
             filterGlobals: HogFunctionFilterGlobals
         ) => {
-            if (filters?.bytecode) {
-                const filterResults = checkHogFunctionFilters({
-                    hogFunction,
-                    filters,
-                    filterGlobals,
-                    eventUuid: triggerGlobals.event.uuid,
-                    enabledTelemetry: this.telemetryMatcher(hogFunction.team_id),
-                })
+            const filterResults = checkHogFunctionFilters({
+                hogFunction,
+                filters,
+                filterGlobals,
+                eventUuid: triggerGlobals.event.uuid,
+                enabledTelemetry: this.telemetryMatcher(hogFunction.team_id),
+            })
 
-                console.log('RES', filterResults)
+            // Add any generated metrics and logs to our collections
+            metrics.push(...filterResults.metrics)
+            logs.push(...filterResults.logs)
 
-                // Add any generated metrics and logs to our collections
-                metrics.push(...filterResults.metrics)
-                logs.push(...filterResults.logs)
+            // Record the duration for monitoring
+            hogFunctionFilterDuration.observe({ type: hogFunction.type }, filterResults.duration)
 
-                // Record the duration for monitoring
-                hogFunctionFilterDuration.observe({ type: hogFunction.type }, filterResults.duration)
-
-                return filterResults.match
-            }
+            return filterResults.match
         }
 
         const _buildInvocation = (

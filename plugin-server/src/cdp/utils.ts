@@ -1,7 +1,7 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
 import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
-import { Bytecodes } from '@posthog/hogvm'
+import { Bytecodes, ExecResult, HogVMException } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
@@ -24,6 +24,7 @@ import {
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationLogEntry,
     HogFunctionInvocationQueueParameters,
+    HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
     HogFunctionLogEntrySerialized,
     HogFunctionType,
@@ -492,6 +493,7 @@ export function checkHogFunctionFilters(options: {
     const logs: HogFunctionInvocationLogEntry[] = []
     const metrics: HogFunctionAppMetric[] = []
 
+    let execResult: ExecResult | undefined
     const result: HogFunctionFilterResult = {
         match: false,
         logs,
@@ -505,24 +507,17 @@ export function checkHogFunctionFilters(options: {
     }
 
     try {
-        const filterResult = execHog(filters?.bytecode, {
+        console.log('executing', filters.bytecode, 'globals', filterGlobals)
+        execResult = execHog(filters.bytecode, {
             globals: filterGlobals,
             telemetry: enabledTelemetry,
         })
 
-        if (filterResult.error) {
-            logger.error('🦔', `[HogFunction] Error filtering function`, {
-                hogFunctionId: hogFunction.id,
-                hogFunctionName: hogFunction.name,
-                teamId: hogFunction.team_id,
-                error: filterResult.error.message,
-                result: filterResult,
-            })
-
-            result.error = filterResult.error.message
+        if (execResult.error) {
+            throw execResult.error
         }
 
-        result.match = typeof filterResult.result === 'boolean' && filterResult.result
+        result.match = typeof execResult.result === 'boolean' && execResult.result
 
         if (!result.match) {
             metrics.push({
@@ -539,6 +534,7 @@ export function checkHogFunctionFilters(options: {
             hogFunctionName: hogFunction.name,
             teamId: hogFunction.team_id,
             error: error.message,
+            result: execResult,
         })
 
         metrics.push({
