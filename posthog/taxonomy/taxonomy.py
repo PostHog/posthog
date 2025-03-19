@@ -1024,14 +1024,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["beta-feature"],
         },
         "$feature_flag_reason": {
-            "label": "Feature Flag Reason",
+            "label": "Feature Flag Evaluation Reason",
             "description": "The reason the feature flag was matched or not matched.",
             "examples": ["Matched condition set 1"],
         },
         "$feature_flag_request_id": {
             "label": "Feature Flag Request ID",
             "description": "The unique identifier for the request that retrieved this feature flag result. Primarily used by PostHog support for debugging issues with feature flags.",
-            "examples": ["1234567890"],
+            "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
         },
         "$feature_flag_version": {
             "label": "Feature Flag Version",

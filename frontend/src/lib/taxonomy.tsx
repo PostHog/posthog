@@ -1050,7 +1050,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             examples: ['{"flag": "value"}'],
         },
         $feature_flag_reason: {
-            label: 'Feature Flag Reason',
+            label: 'Feature Flag Evaluation Reason',
             description: 'The reason the feature flag was matched or not matched.',
             examples: ['Matched condition set 1'],
         },
