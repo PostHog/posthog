@@ -169,18 +169,20 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: async () => {
                     const events: HogFunctionInvocationGlobals[] = []
+
                     await Promise.all(
                         messages.map(async (message) => {
                             try {
                                 const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                                // if (!this.hogFunctionManager.getHogFunctionListForTeams([clickHouseEvent.team_id], ['destination'])) {
-                                //     // No need to continue if the team doesn't have any functions
-                                //     return
-                                // }
+                                const [teamHogFunctions, team] = await Promise.all([
+                                    this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, [
+                                        'destination',
+                                    ]),
+                                    this.hub.teamManager.fetchTeam(clickHouseEvent.team_id),
+                                ])
 
-                                const team = await this.hub.teamManager.fetchTeam(clickHouseEvent.team_id)
-                                if (!team) {
+                                if (!teamHogFunctions || !team) {
                                     return
                                 }
                                 events.push(

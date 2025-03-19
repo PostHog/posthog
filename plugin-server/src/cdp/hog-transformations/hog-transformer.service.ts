@@ -109,7 +109,6 @@ export class HogTransformerService {
                     'transformation',
                 ])
 
-                console.log('teamHogFunctions', event.team_id, teamHogFunctions)
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
                 await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
 
