@@ -53,6 +53,17 @@ export function ProjectTree(): JSX.Element {
                         <div className="flex gap-1">
                             <LemonButton
                                 size="xsmall"
+                                type="secondary"
+                                onClick={cancelPendingActions}
+                                tooltip={`Cancel ${pendingActions.length} ${
+                                    pendingActions.length === 1 ? 'change' : 'changes'
+                                }`}
+                                tooltipPlacement="bottom"
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                size="xsmall"
                                 type="primary"
                                 status="danger"
                                 onClick={applyPendingActions}
@@ -62,17 +73,6 @@ export function ProjectTree(): JSX.Element {
                                 tooltipPlacement="bottom"
                             >
                                 Save
-                            </LemonButton>
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                onClick={cancelPendingActions}
-                                tooltip={`Cancel ${pendingActions.length} ${
-                                    pendingActions.length === 1 ? 'change' : 'changes'
-                                }`}
-                                tooltipPlacement="bottom"
-                            >
-                                Cancel
                             </LemonButton>
                         </div>
                     ) : (
