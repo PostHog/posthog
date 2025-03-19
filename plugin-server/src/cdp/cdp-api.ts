@@ -266,6 +266,15 @@ export class CdpApi {
                         await this.hogFunctionMonitoringService.processInvocationResults([response])
                     }
                 }
+
+                const wasSkipped = filterMetrics.some((m) => m.metric_name === 'filtered')
+
+                res.json({
+                    result: result,
+                    status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
+                    errors: errors.map((e) => String(e)),
+                    logs: logs,
+                })
             } else if (compoundConfiguration.type === 'transformation') {
                 // NOTE: We override the ID so that the transformer doesn't cache the result
                 // TODO: We could do this with a "special" ID to indicate no caching...

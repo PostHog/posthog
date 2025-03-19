@@ -332,7 +332,9 @@ export function HogFunctionTest(): JSX.Element {
                                     {testResult.status === 'success'
                                         ? 'Success'
                                         : testResult.status === 'skipped'
-                                        ? 'Transformation was skipped because the event did not match the filter criteria'
+                                        ? `${
+                                              type.charAt(0).toUpperCase() + type.slice(1)
+                                          } was skipped because the event did not match the filter criteria`
                                         : 'Error'}
                                 </LemonBanner>
 
