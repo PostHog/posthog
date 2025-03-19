@@ -109,6 +109,9 @@ pub struct Config {
     // once rollout is complete.
     #[envconfig(default = "opt_in")]
     pub filter_mode: TeamFilterMode,
+
+    #[envconfig(default = "false")]
+    pub deploy_env_is_prod_eu: bool,
 }
 
 #[derive(Clone)]

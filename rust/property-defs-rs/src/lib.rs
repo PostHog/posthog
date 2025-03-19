@@ -12,6 +12,7 @@ use metrics_consts::{
     UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use quick_cache::sync::Cache;
+use rand::Rng;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{error, warn};
 use types::{Event, Update};
@@ -31,6 +32,12 @@ pub async fn update_consumer_loop(
     context: Arc<AppContext>,
     mut channel: mpsc::Receiver<Update>,
 ) {
+    // TODO(eli): temoprary and for PROD-EU ONLY until posthog_eventproperty table is fixed!
+    let mut rng = rand::thread_rng();
+    // HACK ALERT: just start somewhere we (hopefully) won't collide with other pods
+    // and count down with each event prop published until something explodes...
+    let mut neg_counter: i64 = rng.gen_range(std::i64::MIN..0);
+
     loop {
         let mut batch = Vec::with_capacity(config.update_batch_size);
 
@@ -72,6 +79,14 @@ pub async fn update_consumer_loop(
         batch.sort_unstable();
         batch.dedup();
 
+        if config.deploy_env_is_prod_eu {
+            batch.iter_mut().for_each(|update| {
+                if let Update::EventProperty(event_prop) = update {
+                    event_prop.neg_id = neg_counter;
+                    neg_counter -= 1;
+                }
+            });
+        }
         metrics::counter!(DUPLICATES_IN_BATCH).increment((start_len - batch.len()) as u64);
 
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
