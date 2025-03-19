@@ -42,7 +42,7 @@ import {
 
 import { actionsModel } from '~/models/actionsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import { getMathTypeWarning, isInsightVizNode, isStickinessQuery } from '~/queries/utils'
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
@@ -438,7 +438,7 @@ export function ActionFilterRow({
                                             mathAvailability={mathAvailability}
                                             trendsDisplayCategory={trendsDisplayCategory}
                                             allowedMathTypes={allowedMathTypes}
-                                            query={query}
+                                            query={query || {}}
                                         />
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.PropertyValue && (
@@ -563,7 +563,7 @@ export function ActionFilterRow({
                                                                     style={{ maxWidth: '100%', width: 'initial' }}
                                                                     mathAvailability={mathAvailability}
                                                                     trendsDisplayCategory={trendsDisplayCategory}
-                                                                    query={query}
+                                                                    query={query || {}}
                                                                 />
                                                                 <LemonDivider />
                                                             </>
@@ -659,7 +659,7 @@ interface MathSelectorProps {
     style?: React.CSSProperties
     /** Only allow these math types in the selector */
     allowedMathTypes?: readonly string[]
-    query: Node<Record<string, any>>
+    query?: Record<string, any>
 }
 
 function isPropertyValueMath(math: string | undefined): math is PropertyMathType {
@@ -669,8 +669,6 @@ function isPropertyValueMath(math: string | undefined): math is PropertyMathType
 function isCountPerActorMath(math: string | undefined): math is CountPerActorMathType {
     return !!math && math in COUNT_PER_ACTOR_MATH_DEFINITIONS
 }
-
-const TRAILING_MATH_TYPES = new Set<string>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
 
 function getDefaultPropertyMathType(
     math: string | undefined,
@@ -696,7 +694,6 @@ function useMathSelectorOptions({
     query,
 }: MathSelectorProps): LemonSelectOptions<string> {
     const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
-    const isTrends = query && isInsightVizNode(query) && isTrendsQuery(query.source)
 
     const {
         needsUpgradeForGroups,
@@ -738,21 +735,7 @@ function useMathSelectorOptions({
             return true
         })
         .map(([key, definition]) => {
-            let warning: null | 'total' | 'monthly' | 'weekly' = null
-
-            if (isTrends && TRAILING_MATH_TYPES.has(key)) {
-                const trendsQuery = query.source as TrendsQuery
-                const interval = trendsQuery?.interval || 'day'
-                const isWeekOrLongerInterval = interval === 'week' || interval === 'month'
-                const isMonthOrLongerInterval = interval === 'month'
-                if (key === BaseMathType.MonthlyActiveUsers && isMonthOrLongerInterval) {
-                    warning = 'monthly'
-                } else if (key === BaseMathType.WeeklyActiveUsers && isWeekOrLongerInterval) {
-                    warning = 'weekly'
-                } else if (trendsDisplayCategory === ChartDisplayCategory.TotalValue) {
-                    warning = 'total'
-                }
-            }
+            const warning = getMathTypeWarning(key, query || {}, trendsDisplayCategory === 'TotalValue')
 
             return {
                 value: key,
@@ -783,7 +766,7 @@ function useMathSelectorOptions({
                                     sliding window calculation cannot be properly applied.
                                 </p>
                             )}
-                            This query mode has the same functionality as "Unique users" for this interval.
+                            <span>This query mode has the same functionality as "Unique users" for this interval.</span>
                         </>
                     ),
             }

@@ -51,7 +51,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { ChartDisplayType, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
@@ -571,4 +571,40 @@ export function isValidQueryForExperiment(query: Node): boolean {
 
 export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {
     return node?.kind === NodeKind.GroupsQuery
+}
+
+const TRAILING_MATH_TYPES = new Set<string>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
+
+/**
+ * Determines if a math type should display a warning based on the trends query interval and display category
+ *
+ * @param key The math type key (e.g. BaseMathType value)
+ * @param query The query containing the trends query configuration
+ * @param trendsDisplayCategory The current display category of the chart
+ * @param TRAILING_MATH_TYPES Set of math types that can be problematic in certain intervals (e.g. WAU, MAU)
+ * @returns The type of warning to display, if any: 'total', 'monthly', 'weekly', or null if no warning
+ */
+export function getMathTypeWarning(
+    key: string,
+    query: Record<string, any>,
+    isTotalValue: boolean
+): null | 'total' | 'monthly' | 'weekly' {
+    let warning: null | 'total' | 'monthly' | 'weekly' = null
+
+    if (isInsightVizNode(query) && isTrendsQuery(query.source) && TRAILING_MATH_TYPES.has(key)) {
+        const trendsQuery = query.source
+        const interval = trendsQuery?.interval || 'day'
+        const isWeekOrLongerInterval = interval === 'week' || interval === 'month'
+        const isMonthOrLongerInterval = interval === 'month'
+
+        if (key === 'monthly_active' && isMonthOrLongerInterval) {
+            warning = 'monthly'
+        } else if (key === 'weekly_active' && isWeekOrLongerInterval) {
+            warning = 'weekly'
+        } else if (isTotalValue) {
+            warning = 'total'
+        }
+    }
+
+    return warning
 }

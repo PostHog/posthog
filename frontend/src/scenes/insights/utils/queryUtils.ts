@@ -4,6 +4,7 @@ import { DataNode, InsightQueryNode, Node } from '~/queries/schema/schema-genera
 import {
     filterForQuery,
     filterKeyForQuery,
+    getMathTypeWarning,
     isEventsNode,
     isFunnelsQuery,
     isHogQLQuery,
@@ -11,8 +12,9 @@ import {
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
     isInsightVizNode,
+    isTrendsQuery,
 } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayType } from '~/types'
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
 
@@ -116,11 +118,15 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
     // remove undefined values, empty arrays and empty objects
     const cleanedQuery = objectCleanWithEmpty(dupQuery) as InsightQueryNode
 
+    const trendsQuery = isTrendsQuery(cleanedQuery)
+
     if (isInsightQueryWithSeries(cleanedQuery)) {
         cleanedQuery.series?.forEach((e) => {
             // event math `total` is the default
             if (isEventsNode(e) && e.math === 'total') {
                 delete e.math
+            } else if (trendsQuery && e.math && getMathTypeWarning(e.math, query, false)) {
+                e.math = BaseMathType.UniqueUsers
             }
         })
     }

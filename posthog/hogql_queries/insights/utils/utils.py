@@ -5,7 +5,7 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import T
 from posthog.hogql_queries.utils.query_date_range import compare_intervals
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.queries.util import get_trunc_func_ch
-from posthog.schema import IntervalType, BaseMathType
+from posthog.schema import IntervalType, BaseMathType, DataWarehouseNode, EventsNode, ActionsNode
 
 
 def get_start_of_interval_hogql(interval: str, *, team: Team, source: Optional[ast.Expr] = None) -> ast.Expr:
@@ -19,6 +19,13 @@ def get_start_of_interval_hogql(interval: str, *, team: Team, source: Optional[a
 def get_start_of_interval_hogql_str(interval: str, *, team: Team, source: str) -> str:
     trunc_func = get_trunc_func_ch(interval)
     return f"{trunc_func}({source}{f', {int((WeekStartDay(team.week_start_day or 0)).clickhouse_mode)}' if trunc_func == 'toStartOfWeek' else ''})"
+
+
+def series_should_be_set_to_dau(interval: IntervalType, series: list[EventsNode | ActionsNode | DataWarehouseNode]):
+    return hasattr(series, "math") and (
+        (series.math == BaseMathType.WEEKLY_ACTIVE and compare_intervals(interval, ">=", IntervalType.WEEK))
+        or (series.math == BaseMathType.MONTHLY_ACTIVE and compare_intervals(interval, ">=", IntervalType.MONTH))
+    )
 
 
 def convert_active_user_math_based_on_interval(query: T) -> T:
@@ -41,10 +48,7 @@ def convert_active_user_math_based_on_interval(query: T) -> T:
     for series in modified_query.series:
         # Convert WAU to DAU for week or longer intervals
         # Convert MAU to DAU for month or longer intervals
-        if hasattr(series, "math") and (
-            (series.math == BaseMathType.WEEKLY_ACTIVE and compare_intervals(interval, ">=", IntervalType.WEEK))
-            or (series.math == BaseMathType.MONTHLY_ACTIVE and compare_intervals(interval, ">=", IntervalType.MONTH))
-        ):
+        if series_should_be_set_to_dau(interval, series):
             series.math = BaseMathType.DAU
 
     return cast(T, modified_query)
