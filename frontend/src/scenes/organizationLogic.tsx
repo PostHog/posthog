@@ -131,19 +131,26 @@ export const organizationLogic = kea<organizationLogicType>([
         deleteOrganization: async ({ organizationId }) => {
             try {
                 await api.delete(`api/organizations/${organizationId}`)
-                router.actions.replace(router.values.currentLocation.pathname, {
-                    ...router.values.searchParams,
-                    organizationDeleted: true,
-                })
-
-                lemonToast.success('Organization has been deleted')
-
-                location.reload()
-
                 actions.deleteOrganizationSuccess()
             } catch {
                 actions.deleteOrganizationFailure()
             }
+        },
+        deleteOrganizationSuccess: () => {
+            router.actions.replace(router.values.currentLocation.pathname, {
+                ...router.values.searchParams,
+                organizationDeleted: true,
+            })
+
+            lemonToast.success('Organization has been deleted', {
+                toastId: 'deleteOrganization',
+            })
+            location.reload()
+        },
+        deleteOrganizationFailure: () => {
+            lemonToast.error('Error deleting organization', {
+                toastId: 'deleteOrganization',
+            })
         },
     })),
     afterMount(({ actions }) => {

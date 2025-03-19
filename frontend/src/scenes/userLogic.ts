@@ -82,13 +82,14 @@ export const userLogic = kea<userLogicType>([
                     return await api
                         .delete('api/users/@me/')
                         .then(() => {
+                            actions.deleteUserSuccess(null)
                             actions.logout()
                             return null
                         })
                         .catch((error) => {
                             console.error(error)
                             actions.deleteUserFailure(error.message)
-                            return null
+                            return values.user
                         })
                 },
                 setUserScenePersonalisation: async ({ scene, dashboard }) => {
@@ -188,6 +189,16 @@ export const userLogic = kea<userLogicType>([
         updateUserFailure: () => {
             lemonToast.error(`Error saving preferences`, {
                 toastId: 'updateUser',
+            })
+        },
+        deleteUserSuccess: () => {
+            lemonToast.success('Account deleted', {
+                toastId: 'deleteUser',
+            })
+        },
+        deleteUserFailure: () => {
+            lemonToast.error('Error deleting account', {
+                toastId: 'deleteUser',
             })
         },
         updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {

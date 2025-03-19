@@ -22,12 +22,6 @@ export const userDangerZoneLogic = kea<userDangerZoneLogicType>({
                 leaveOrganization: async (organizationId: string) => {
                     await api.delete(`api/organizations/${organizationId}/members/@me/`)
 
-                    lemonToast.success('Organization left successfully')
-
-                    router.actions.replace(urls.settings('user-danger-zone'), { deletingUser: true })
-
-                    window.location.reload()
-
                     return null
                 },
             },
@@ -60,6 +54,18 @@ export const userDangerZoneLogic = kea<userDangerZoneLogicType>({
             } else {
                 router.actions.replace(urls.settings('user-danger-zone'))
             }
+        },
+        leaveOrganizationSuccess: () => {
+            router.actions.replace(urls.settings('user-danger-zone'), { deletingUser: true })
+
+            lemonToast.success('Organization left successfully')
+
+            router.actions.replace(urls.settings('user-danger-zone'), { deletingUser: true })
+
+            window.location.reload()
+        },
+        leaveOrganizationFailure: () => {
+            lemonToast.error('Failed to leave organization')
         },
     }),
     urlToAction: ({ actions, values }) => ({
