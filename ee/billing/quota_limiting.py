@@ -48,6 +48,7 @@ class QuotaResource(Enum):
     RECORDINGS = "recordings"
     ROWS_SYNCED = "rows_synced"
     FEATURE_FLAG_REQUESTS = "feature_flag_requests"
+    QAAS_READ_BYTES = "qaas_read_bytes"
 
 
 class QuotaLimitingCaches(Enum):
@@ -60,6 +61,7 @@ OVERAGE_BUFFER = {
     QuotaResource.RECORDINGS: 1000,
     QuotaResource.ROWS_SYNCED: 0,
     QuotaResource.FEATURE_FLAG_REQUESTS: 0,
+    QuotaResource.QAAS_READ_BYTES: 0,
 }
 
 TRUST_SCORE_KEYS = {
@@ -67,6 +69,7 @@ TRUST_SCORE_KEYS = {
     QuotaResource.RECORDINGS: "recordings",
     QuotaResource.ROWS_SYNCED: "rows_synced",
     QuotaResource.FEATURE_FLAG_REQUESTS: "feature_flags",
+    QuotaResource.QAAS_READ_BYTES: "qaas_read_bytes",
 }
 
 
@@ -75,6 +78,7 @@ class UsageCounters(TypedDict):
     recordings: int
     rows_synced: int
     feature_flags: int
+    qaas_read_bytes: int
 
 
 # -------------------------------------------------------------------------------------------------

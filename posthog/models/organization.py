@@ -44,6 +44,7 @@ class OrganizationUsageInfo(TypedDict):
     recordings: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
     feature_flag_requests: Optional[OrganizationUsageResource]
+    qaas_read_bytes: Optional[OrganizationUsageResource]
     period: Optional[list[str]]
 
 
@@ -145,6 +146,7 @@ class Organization(UUIDModel):
     #   'events': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 },
     #   'recordings': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 }
     #   'feature_flags_requests': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 }
+    #   'qaas_read_bytes': { 'usage': 123456789, 'limit': 1000000000000, 'todays_usage': 1234 }
     #   'period': ['2021-01-01', '2021-01-31']
     # }
     # Also currently indicates if the organization is on billing V2 or not
