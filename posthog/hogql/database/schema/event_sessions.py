@@ -120,7 +120,7 @@ class WhereClauseExtractor:
             next_chain = chain_to_parse.pop(0)
             loop_type = loop_type.get_child(str(next_chain), self.context)
             if loop_type is None:
-                return False
+                return False  # type: ignore
 
         return True
 

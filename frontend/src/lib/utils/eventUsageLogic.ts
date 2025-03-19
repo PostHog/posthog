@@ -233,6 +233,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         // timing
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
+        reportGroupPropertyUpdated: (
+            action: 'added' | 'updated' | 'removed',
+            totalProperties: number,
+            oldPropertyType?: string,
+            newPropertyType?: string
+        ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
         // insights
         reportInsightCreated: (query: Node | null) => ({ query }),
         reportInsightSaved: (query: Node | null, isNewInsight: boolean) => ({ query, isNewInsight }),
@@ -596,6 +602,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportTimeToSeeData: async ({ payload }) => {
             posthog.capture('time to see data', payload)
+        },
+        reportGroupPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
+            posthog.capture(`group property ${action}`, {
+                old_property_type: oldPropertyType !== 'undefined' ? oldPropertyType : undefined,
+                new_property_type: newPropertyType !== 'undefined' ? newPropertyType : undefined,
+                total_properties: totalProperties,
+            })
         },
         reportInsightCreated: async ({ query }, breakpoint) => {
             // "insight created" essentially means that the user clicked "New insight"
