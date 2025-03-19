@@ -8,9 +8,9 @@ import { TeamForReplay } from './types'
 export class TeamService {
     private readonly teamRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
 
-    constructor(postgres: PostgresRouter) {
+    constructor(private postgres: PostgresRouter) {
         this.teamRefresher = new BackgroundRefresher(
-            () => fetchTeamTokensWithRecordings(postgres),
+            () => this.fetchTeamTokensWithRecordings(),
             5 * 60 * 1000, // 5 minutes
             (e) => {
                 // We ignore the error and wait for postgres to recover
@@ -31,6 +31,10 @@ export class TeamService {
             teamId: teamConfig.teamId,
             consoleLogIngestionEnabled: teamConfig.consoleLogIngestionEnabled,
         }
+    }
+
+    private async fetchTeamTokensWithRecordings(): Promise<Record<string, TeamIDWithConfig>> {
+        return fetchTeamTokensWithRecordings(this.postgres)
     }
 }
 
