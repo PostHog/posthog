@@ -475,16 +475,15 @@ interface HogFunctionFilterResult {
 /**
  * Shared utility to check if an event matches the filters of a HogFunction.
  * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
- * @param hogFunction The function to check filters for
- * @param filters The function filters
- * @param filterGlobals The globals to use for filter evaluation
- * @param options Optional parameters for telemetry and behavior control
  */
 export function checkHogFunctionFilters(options: {
     hogFunction: HogFunctionType
     filterGlobals: HogFunctionFilterGlobals
+    /** Optional filters to use instead of those on the function */
     filters?: HogFunctionType['filters']
+    /** Whether to enable telemetry for this function at the hogvm level */
     enabledTelemetry?: boolean
+    /** The event UUID to use for logging */
     eventUuid?: string
 }): HogFunctionFilterResult {
     const { hogFunction, filterGlobals, enabledTelemetry, eventUuid } = options
