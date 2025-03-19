@@ -171,27 +171,24 @@ export class HogExecutorService {
             filterGlobals: HogFunctionFilterGlobals
         ) => {
             if (filters?.bytecode) {
-                try {
-                    const filterResults = checkHogFunctionFilters({
-                        hogFunction,
-                        filters,
-                        filterGlobals,
-                        eventUuid: triggerGlobals.event.uuid,
-                        enabledTelemetry: this.telemetryMatcher(hogFunction.team_id),
-                    })
+                const filterResults = checkHogFunctionFilters({
+                    hogFunction,
+                    filters,
+                    filterGlobals,
+                    eventUuid: triggerGlobals.event.uuid,
+                    enabledTelemetry: this.telemetryMatcher(hogFunction.team_id),
+                })
 
-                    // Add any generated metrics and logs to our collections
-                    metrics.push(...filterResults.metrics)
-                    logs.push(...filterResults.logs)
+                console.log('RES', filterResults)
 
-                    // Record the duration for monitoring
-                    hogFunctionFilterDuration.observe({ type: hogFunction.type }, filterResults.duration)
+                // Add any generated metrics and logs to our collections
+                metrics.push(...filterResults.metrics)
+                logs.push(...filterResults.logs)
 
-                    return filterResults.match
-                } catch (error) {
-                    // Already logged in the utility
-                    return false
-                }
+                // Record the duration for monitoring
+                hogFunctionFilterDuration.observe({ type: hogFunction.type }, filterResults.duration)
+
+                return filterResults.match
             }
         }
 

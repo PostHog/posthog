@@ -499,6 +499,11 @@ export function checkHogFunctionFilters(options: {
         duration: 0,
     }
 
+    if (!filters?.bytecode) {
+        result.error = 'No filters bytecode'
+        return result
+    }
+
     try {
         const filterResult = execHog(filters?.bytecode, {
             globals: filterGlobals,
