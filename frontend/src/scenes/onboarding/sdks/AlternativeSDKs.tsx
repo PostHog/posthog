@@ -106,7 +106,6 @@ export function AlternativeSDKs({
     stepKey = OnboardingStepKey.INSTALL,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
-    ...onboardingStepProps
 }: SDKsProps): JSX.Element {
     const { setAvailableSDKInstructionsMap, selectSDK, setSearchTerm, setSelectedTag } = useActions(sdksLogic)
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
@@ -125,7 +124,6 @@ export function AlternativeSDKs({
 
     return (
         <OnboardingStep
-            {...onboardingStepProps}
             title="Install"
             stepKey={stepKey}
             continueOverride={<NextButton installationComplete={installationComplete} />}

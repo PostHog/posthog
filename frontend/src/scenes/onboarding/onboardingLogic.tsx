@@ -19,7 +19,7 @@ import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
 
 export interface OnboardingLogicProps {
-    onCompleteOnboarding?: (key: ProductKey | null) => void
+    onCompleteOnboarding?: (key: ProductKey) => void
 }
 
 export enum OnboardingStepKey {
@@ -107,7 +107,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
     }),
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
-        setProductKey: (productKey: string | null) => ({ productKey }),
+        setProductKey: (productKey: ProductKey | null) => ({ productKey }),
         completeOnboarding: (options?: { redirectUrlOverride?: string }) => ({
             redirectUrlOverride: options?.redirectUrlOverride,
         }),
@@ -123,7 +123,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
     }),
     reducers(() => ({
         productKey: [
-            null as string | null,
+            null as ProductKey | null,
             {
                 setProductKey: (_, { productKey }) => productKey,
             },
@@ -318,12 +318,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
 
         completeOnboarding: ({ redirectUrlOverride }) => {
-            props.onCompleteOnboarding?.(values.productKey)
             if (redirectUrlOverride) {
                 actions.setOnCompleteOnboardingRedirectUrl(redirectUrlOverride)
             }
             if (values.productKey) {
                 const productKey = values.productKey
+                props.onCompleteOnboarding?.(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
                 teamLogic.actions.updateCurrentTeam({
                     has_completed_onboarding_for: {
