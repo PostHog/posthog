@@ -121,7 +121,7 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
     if (isInsightQueryWithSeries(cleanedQuery)) {
         cleanedQuery.series?.forEach((series) => {
             // event math `total` is the default
-            if (isEventsNode(e) && series.math === 'total') {
+            if (isEventsNode(series) && series.math === 'total') {
                 delete series.math
             } else if (isTrendsQuery(cleanedQuery) && series.math && getMathTypeWarning(series.math, query, false)) {
                 series.math = BaseMathType.UniqueUsers
