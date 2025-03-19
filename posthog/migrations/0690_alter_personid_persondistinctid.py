@@ -51,6 +51,11 @@ class Migration(migrations.Migration):
                         on_delete=models.CASCADE,
                     ),
                 ),
+                migrations.AlterField(
+                    model_name="eventproperty",
+                    name="id",
+                    field=models.BigAutoField(primary_key=True, serialize=False),
+                ),
             ],
             database_operations=[
                 migrations.RunSQL(
@@ -78,6 +83,10 @@ class Migration(migrations.Migration):
                         ALTER TABLE "posthog_persondistinctid"
                             ALTER COLUMN "id" TYPE bigint USING "id"::bigint;
                         ALTER SEQUENCE IF EXISTS "posthog_persondistinctid_id_seq" AS bigint;
+
+                        ALTER TABLE "posthog_eventproperty"
+                            ALTER COLUMN "id" TYPE bigint USING "id"::bigint;
+                        ALTER SEQUENCE IF EXISTS "posthog_eventproperty_id_seq" AS bigint;
                     """,
                     reverse_sql=migrations.RunSQL.noop,
                 ),
