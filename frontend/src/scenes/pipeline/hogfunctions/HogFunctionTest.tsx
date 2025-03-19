@@ -338,8 +338,7 @@ export function HogFunctionTest(): JSX.Element {
                                         : 'Error'}
                                 </LemonBanner>
 
-                                {type === 'transformation' &&
-                                (testResult.status === 'success' || testResult.status === 'skipped') ? (
+                                {type === 'transformation' && testResult.status !== 'error' ? (
                                     <>
                                         <div className="flex items-center justify-between gap-2">
                                             <LemonLabel>Transformation result</LemonLabel>
