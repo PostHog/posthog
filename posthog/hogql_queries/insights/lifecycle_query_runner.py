@@ -321,7 +321,7 @@ class LifecycleQueryRunner(QueryRunner):
             # When DST changes, this causes an issue where after we add or subtract one_interval_period from the timestamp, we get a off by an hour error
             def timezone_wrapper(var: str) -> str:
                 if compare_interval_length(self.query_date_range.interval_type, "<=", IntervalType.DAY):
-                    return f"toTimeZone({var}, {{timezone}}"
+                    return f"toTimeZone({var}, {{timezone}})"
                 return var
 
             events_query = parse_select(
