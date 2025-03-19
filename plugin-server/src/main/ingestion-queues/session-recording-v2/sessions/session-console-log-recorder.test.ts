@@ -636,6 +636,37 @@ describe('SessionConsoleLogRecorder', () => {
                     message: 'Third unique message',
                 }),
             ])
+
+            it('should not record logs when consoleLogIngestionEnabled is false', async () => {
+                const now = DateTime.now()
+                const message = createMessage(
+                    'window1',
+                    [
+                        {
+                            timestamp: now.toMillis(),
+                            type: RRWebEventType.Plugin,
+                            data: {
+                                plugin: 'rrweb/console@1',
+                                payload: {
+                                    level: 'log',
+                                    payload: ['test message'],
+                                },
+                            },
+                        },
+                    ],
+                    { consoleLogIngestionEnabled: false }
+                )
+
+                await recorder.recordMessage(message)
+                expect(mockConsoleLogStore.storeSessionConsoleLogs).not.toHaveBeenCalled()
+
+                const result = recorder.end()
+                expect(result).toEqual({
+                    consoleLogCount: 0,
+                    consoleWarnCount: 0,
+                    consoleErrorCount: 0,
+                })
+            })
         })
     })
 })

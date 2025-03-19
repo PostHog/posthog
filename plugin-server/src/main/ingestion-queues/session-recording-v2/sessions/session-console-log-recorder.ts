@@ -102,6 +102,10 @@ export class SessionConsoleLogRecorder {
             throw new Error('Cannot record message after end() has been called')
         }
 
+        if (!message.team.consoleLogIngestionEnabled) {
+            return
+        }
+
         const logsToStore: ConsoleLogEntry[] = []
 
         for (const events of Object.values(message.message.eventsByWindowId)) {
