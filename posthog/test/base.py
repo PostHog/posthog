@@ -1004,8 +1004,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
             with orig_fn(*args, **kwargs) as client:
                 original_client_execute = client.execute
 
-                def execute_wrapper(*args, **kwargs):
-                    query = args[0] if args else kwargs["query"]
+                def execute_wrapper(query, *args, **kwargs):
                     if query_filter(sqlparse.format(query, strip_comments=True).strip()):
                         queries.append(query)
                     return original_client_execute(query, *args, **kwargs)
@@ -1026,8 +1025,7 @@ def failhard_threadhook_context():
 
     def raise_hook(args: threading.ExceptHookArgs):
         if args.exc_value is not None:
-            exc = args.exc_type(args.exc_value).with_traceback(args.exc_traceback)
-            raise AssertionError from exc  # Must be an AssertionError to fail tests
+            raise args.exc_type(args.exc_value)
 
     old_hook, threading.excepthook = threading.excepthook, raise_hook
     try:
