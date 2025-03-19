@@ -38,7 +38,7 @@ function SetPlaybackSpeed(): JSX.Element {
                     </div>
                 ),
                 onClick: () => setSpeed(speedToggle),
-                active: speed === speedToggle && speedToggle !== 1,
+                active: speed === speedToggle && speedToggle !== 1.5,
                 status: speed === speedToggle ? 'danger' : 'default',
             }))}
             label={`Speed ${speed}x`}
