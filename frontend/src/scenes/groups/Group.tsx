@@ -128,7 +128,7 @@ export function Group(): JSX.Element {
                                 properties={groupData.group_properties || {}}
                                 embedded={false}
                                 onEdit={editProperty}
-                                onDelete={(key) => deleteProperty(key)}
+                                onDelete={deleteProperty}
                                 searchable
                             />
                         ),
