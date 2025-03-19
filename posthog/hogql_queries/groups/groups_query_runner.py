@@ -84,7 +84,7 @@ class GroupsQueryRunner(QueryRunner):
                 ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]),
                 *[ast.Field(chain=list(col.split("."))) for col in self.columns[1:]],
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_groups"])),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
             where=where,
             order_by=order_by,
         )
