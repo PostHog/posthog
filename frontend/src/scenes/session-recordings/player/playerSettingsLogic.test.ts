@@ -19,7 +19,7 @@ describe('playerSettingsLogic', () => {
     describe('initialState', () => {
         it('sets default values', () => {
             expectLogic(logic).toMatchValues({
-                speed: 1,
+                speed: 1.5,
                 skipInactivitySetting: true,
             })
         })
