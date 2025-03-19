@@ -130,6 +130,12 @@ class TestPropertyFilterDescriber(BaseTest):
         self.assertIn("Unknown filter type:", str(context.exception))
         self.assertIn("DataWarehousePropertyFilter", str(context.exception))
 
+    def test_property_filter_with_a_single_array_element(self):
+        filter = EventPropertyFilter(key="prop", operator="exact", value=["test"])
+        descriptor = PropertyFilterDescriber(filter=filter)
+        self.assertEqual(descriptor.description, "event property `prop` matches exactly `test`")
+        self.assertFalse(descriptor.taxonomy)
+
 
 class TestPropertyFilterCollectionDescriber(BaseTest):
     def test_multiple_property_filters(self):
