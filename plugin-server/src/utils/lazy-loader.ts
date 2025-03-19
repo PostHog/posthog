@@ -1,5 +1,6 @@
 import { Counter } from 'prom-client'
 
+import { defaultConfig } from '../config/config'
 import { logger } from './logger'
 
 const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
@@ -20,6 +21,12 @@ const lazyLoaderFullCacheHits = new Counter({
 const lazyLoaderBufferUsage = new Counter({
     name: 'lazy_loader_buffer_usage',
     help: 'The number of times we have used the buffer indicating better batching',
+    labelNames: ['name', 'hit'],
+})
+
+const lazyLoaderQueuedCacheHits = new Counter({
+    name: 'lazy_loader_queued_cache_hits',
+    help: 'The number of times we have hit the cached loading promise for a key',
     labelNames: ['name', 'hit'],
 })
 
@@ -77,7 +84,7 @@ export class LazyLoader<T> {
      * This is somewhat complex but simplifies the usage around the codebase as you can safely do multiple gets without worrying about firing off duplicate DB requests
      */
     private async scheduleLoad(keys: string[]): Promise<LazyLoaderMap<T>> {
-        const bufferMs = this.options.bufferMs ?? 100
+        const bufferMs = this.options.bufferMs ?? defaultConfig.LAZY_LOADER_DEFAULT_BUFFER_MS
         const keyPromises: Promise<T | null>[] = []
 
         for (const key of keys) {
@@ -85,8 +92,10 @@ export class LazyLoader<T> {
             if (pendingLoad) {
                 // If we already have a scheduled loader for this key we just add it to the list
                 keyPromises.push(pendingLoad)
+                lazyLoaderQueuedCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
                 continue
             }
+            lazyLoaderQueuedCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
 
             if (!this.buffer) {
                 // If we don't have a buffer then we create one

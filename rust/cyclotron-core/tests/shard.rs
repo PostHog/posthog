@@ -12,6 +12,7 @@ pub fn get_shard(db: PgPool) -> Shard {
         last_healthy: RwLock::new(Utc::now()),
         check_interval: Duration::milliseconds(0), // We always want to check the limit, for these tests
         depth_limit: 10,
+        should_compress_vm_state: true, // Default is "false" ; just for testing
     }
 }
 

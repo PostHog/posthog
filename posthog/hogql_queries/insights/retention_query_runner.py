@@ -342,7 +342,11 @@ class RetentionQueryRunner(QueryRunner):
                 else None
             ),
         )
-        if self.query.samplingFactor is not None and isinstance(self.query.samplingFactor, float):
+        if (
+            self.query.samplingFactor is not None
+            and isinstance(self.query.samplingFactor, float)
+            and inner_query.select_from is not None
+        ):
             inner_query.select_from.sample = ast.SampleExpr(
                 sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
             )
