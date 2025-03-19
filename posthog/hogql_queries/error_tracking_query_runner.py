@@ -198,9 +198,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return ast.And(exprs=exprs)
 
     def calculate(self):
-
-        print(parse_expr("arrayExists(x -> position(x, 'boo') > 0, ['ClickHouse', 'boomer_function_name'])"))
-
         with self.timings.measure("error_tracking_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
@@ -271,7 +268,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     order=(
                         self.query.orderDirection.value
                         if self.query.orderDirection
-                        else "ASC" if self.query.orderBy == "first_seen" else "DESC"
+                        else "ASC"
+                        if self.query.orderBy == "first_seen"
+                        else "DESC"
                     ),
                 )
             ]
