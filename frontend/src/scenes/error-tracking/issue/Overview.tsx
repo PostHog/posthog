@@ -8,16 +8,9 @@ export const Overview = (): JSX.Element => {
 
     const { synthetic, level, browser, os, library, unhandled } = getExceptionAttributes(issueProperties)
 
-    const TableRow = ({ label, value }: { label: string; value: string | undefined }): JSX.Element => (
-        <tr>
-            <td className="text-secondary">{label}</td>
-            <td>{value ?? <div className="italic">unknown</div>}</td>
-        </tr>
-    )
-
     if (issueLoading) {
         return (
-            <div className="deprecated-space-y-2">
+            <div className="space-y-2 p-2">
                 <LemonSkeleton />
                 <LemonSkeleton.Row repeat={2} />
             </div>
@@ -25,28 +18,23 @@ export const Overview = (): JSX.Element => {
     }
 
     return (
-        <div className="px-1">
-            <div className="grid grid-cols-2 gap-2">
-                <table>
-                    {[
-                        { label: 'Level', value: level },
-                        { label: 'Synthetic', value: synthetic },
-                        { label: 'Library', value: library },
-                        { label: 'Unhandled', value: unhandled },
-                    ].map((row, index) => (
-                        <TableRow key={index} {...row} />
-                    ))}
-                </table>
-                <table>
-                    {[
-                        { label: 'Browser', value: browser },
-                        { label: 'OS', value: os },
-                        { label: 'URL', value: issueProperties['$current_url'] },
-                    ].map((row, index) => (
-                        <TableRow key={index} {...row} />
-                    ))}
-                </table>
-            </div>
+        <div className="grid grid-cols-2 gap-2">
+            {[
+                { label: 'Level', value: level },
+                { label: 'Synthetic', value: synthetic },
+                { label: 'Library', value: library },
+                { label: 'Unhandled', value: unhandled },
+                { label: 'Browser', value: browser },
+                { label: 'OS', value: os },
+                { label: 'URL', value: issueProperties['$current_url'] },
+            ]
+                .filter((row) => row.value !== undefined)
+                .map((row, index) => (
+                    <div key={index} className="flex items-center justify-between">
+                        <span className="font-semibold w-full">{row.label}</span>
+                        <span className="w-full truncate">{row.value + ''}</span>
+                    </div>
+                ))}
         </div>
     )
 }

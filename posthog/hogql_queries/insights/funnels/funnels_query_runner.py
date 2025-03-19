@@ -1,10 +1,9 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from math import ceil
 from typing import Optional, Any
 
-from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
@@ -77,7 +76,7 @@ class FunnelsQueryRunner(QueryRunner):
     def to_query(self) -> ast.SelectQuery:
         return self.funnel_class.get_query()
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+    def to_actors_query(self) -> ast.SelectQuery:
         return self.funnel_actor_class.actor_query()
 
     def calculate(self):
