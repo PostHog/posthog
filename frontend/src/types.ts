@@ -1802,6 +1802,10 @@ export interface BillingType {
         target: 'paid' | 'teams' | 'enterprise'
         expires_at: string
     }
+    account_owner?: {
+        email?: string
+        name?: string
+    }
 }
 
 export interface BillingPlanType {

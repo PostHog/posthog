@@ -33,8 +33,15 @@ export const scene: SceneExport = {
 }
 
 export function Billing(): JSX.Element {
-    const { billing, billingLoading, isOnboarding, showLicenseDirectInput, isActivateLicenseSubmitting, billingError } =
-        useValues(billingLogic)
+    const {
+        billing,
+        billingLoading,
+        isOnboarding,
+        showLicenseDirectInput,
+        isActivateLicenseSubmitting,
+        billingError,
+        isManagedAccount,
+    } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -150,13 +157,13 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             ) : null}
 
-            {!billing?.has_active_subscription && platformAndSupportProduct && (
+            {!isManagedAccount && !billing?.has_active_subscription && platformAndSupportProduct && (
                 <div className="mb-4">
                     <BillingCTAHero product={platformAndSupportProduct} />
                 </div>
             )}
 
-            <CreditCTAHero />
+            {!isManagedAccount && <CreditCTAHero />}
 
             <div
                 className={clsx('flex justify-between', {

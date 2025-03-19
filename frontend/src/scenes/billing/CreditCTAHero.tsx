@@ -15,12 +15,12 @@ export const CreditCTAHero = (): JSX.Element | null => {
     const { width, ref: heroRef } = useResizeObserver()
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { creditOverview, isPurchaseCreditsModalOpen, isCreditCTAHeroDismissed, computedDiscount } =
+    const { creditOverview, isPurchaseCreditsModalOpen, isCreditCTAHeroDismissed, computedDiscount, isManagedAccount } =
         useValues(billingLogic)
     const { showPurchaseCreditsModal, toggleCreditCTAHeroDismissed } = useActions(billingLogic)
 
     const isEligible = creditOverview.eligible || featureFlags[FEATURE_FLAGS.SELF_SERVE_CREDIT_OVERRIDE]
-    if (creditOverview.status === 'paid' || !isEligible) {
+    if (isManagedAccount || creditOverview.status === 'paid' || !isEligible) {
         return null
     }
 
