@@ -476,11 +476,23 @@ def set_org_usage_summary(
         if not resource_usage:
             continue
 
+        # Preserve quota limiting fields from existing usage
+        org_usage_data = organization.usage or {}
+        org_field_usage = org_usage_data.get(field, {}) or {}
+
+        # Preserve quota_limited_until and quota_limiting_suspended_until if it exists
+        if "quota_limited_until" in org_field_usage and "quota_limited_until" not in resource_usage:
+            resource_usage["quota_limited_until"] = org_field_usage["quota_limited_until"]
+
+        if (
+            "quota_limiting_suspended_until" in org_field_usage
+            and "quota_limiting_suspended_until" not in resource_usage
+        ):
+            resource_usage["quota_limiting_suspended_until"] = org_field_usage["quota_limiting_suspended_until"]
+
         if todays_usage:
             resource_usage["todays_usage"] = todays_usage.get(field, 0)
         else:
-            org_usage_data = organization.usage or {}
-            org_field_usage = org_usage_data.get(field, {}) or {}
             org_usage = org_field_usage.get("usage")
             # TRICKY: If we are not explicitly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
             if org_usage != resource_usage.get("usage"):
