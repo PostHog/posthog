@@ -54,6 +54,8 @@ export function createInsightStory(
             router.actions.push(`/insights/${insight.short_id}${count}${mode === 'edit' ? '/edit' : ''}`)
         }, [])
 
+        document.body.classList.add('storybook-test-runner')
+
         return <App />
     }
 }
