@@ -61,13 +61,11 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         addGroupFilter: (
             taxonomicGroup: TaxonomicFilterGroup,
             propertyKey: TaxonomicFilterValue,
-            item: { propertyFilterType?: PropertyFilterType; name?: string; key?: string },
-            originalQuery?: string
+            item: { propertyFilterType?: PropertyFilterType; name?: string; key?: string }
         ) => ({
             taxonomicGroup,
             propertyKey,
             item,
-            originalQuery,
         }),
     }),
 
@@ -121,7 +119,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         replaceGroupValue: () => props.onChange(values.filterGroup),
         removeGroupValue: () => props.onChange(values.filterGroup),
 
-        addGroupFilter: ({ taxonomicGroup, propertyKey, item, originalQuery }) => {
+        addGroupFilter: ({ taxonomicGroup, propertyKey, item }) => {
             const newValues = [...values.filterGroup.values]
 
             if (taxonomicGroup.type === TaxonomicFilterGroupType.FeatureFlags) {
@@ -143,8 +141,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         propertyKey,
                         propertyType,
                         taxonomicGroup,
-                        values.describeProperty,
-                        originalQuery
+                        values.describeProperty
                     )
                     newValues.push(newPropertyFilter)
                 } else {
