@@ -17,7 +17,14 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingPlan, BillingPlanType, BillingProductV2Type, BillingType, ProductKey } from '~/types'
+import {
+    BillingPlan,
+    BillingPlanType,
+    BillingProductV2Type,
+    BillingType,
+    ProductKey,
+    StartupProgramLabel,
+} from '~/types'
 
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
@@ -441,28 +448,10 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         creditDiscount: [(s) => [s.computedDiscount], (computedDiscount) => computedDiscount || 0],
-        billingPlan: [
+        billingPlan: [(s) => [s.billing], (billing: BillingType): BillingPlan => billing.billing_plan],
+        startupProgramLabel: [
             (s) => [s.billing],
-            // TODO: Add support for enterprise, startups, YC
-            (billing: BillingType): BillingPlan => {
-                const platformAndSupportProduct = billing?.products?.find(
-                    (product) => product.type == ProductKey.PLATFORM_AND_SUPPORT
-                )
-                if (!platformAndSupportProduct) {
-                    return BillingPlan.Free
-                }
-                const addOns = platformAndSupportProduct?.addons
-                if (!addOns?.length) {
-                    return BillingPlan.Cheap
-                }
-                const teamsAddOn = addOns.find((addOn) =>
-                    addOn.plans.find((plan) => plan.product_key === ProductKey.TEAMS)
-                )
-                if (teamsAddOn) {
-                    return BillingPlan.Teams
-                }
-                return BillingPlan.Cheap
-            },
+            (billing: BillingType): StartupProgramLabel | null => billing.startup_program_label || null,
         ],
     }),
     forms(({ actions, values }) => ({

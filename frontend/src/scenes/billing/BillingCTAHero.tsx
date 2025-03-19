@@ -3,13 +3,13 @@ import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import planCheap from 'public/plan_cheap.svg'
 import planEnterprise from 'public/plan_enterprise.svg'
 import planFree from 'public/plan_free.svg'
+import planPaid from 'public/plan_paid.svg'
 import planStartup from 'public/plan_startup.svg'
 import planYc from 'public/plan_yc.svg'
 
-import { BillingPlan, BillingProductV2Type } from '~/types'
+import { BillingPlan, BillingProductV2Type, StartupProgramLabel } from '~/types'
 
 import { getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -19,11 +19,15 @@ import { PlanComparisonModal } from './PlanComparison'
 
 const PLAN_BADGES: Record<BillingPlan, string> = {
     [BillingPlan.Free]: planFree,
-    [BillingPlan.Cheap]: planCheap,
-    [BillingPlan.Teams]: planCheap,
+    [BillingPlan.Paid]: planPaid,
+    // TODO: Add teams badge
+    [BillingPlan.Teams]: planPaid,
     [BillingPlan.Enterprise]: planEnterprise,
-    [BillingPlan.Startups]: planStartup,
-    [BillingPlan.YC]: planYc,
+}
+
+const STARTUP_PROGRAM_BADGES: Record<StartupProgramLabel, string> = {
+    [StartupProgramLabel.YC]: planYc,
+    [StartupProgramLabel.Startup]: planStartup,
 }
 
 interface CopyVariation {
@@ -32,7 +36,7 @@ interface CopyVariation {
     description: JSX.Element
 }
 
-const COPY_VARIATIONS: Record<BillingPlan, CopyVariation> = {
+const COPY_VARIATIONS: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
     [BillingPlan.Free]: {
         title: 'Get the whole hog.',
         subtitle: 'Only pay for what you use.',
@@ -45,7 +49,7 @@ const COPY_VARIATIONS: Record<BillingPlan, CopyVariation> = {
             </>
         ),
     },
-    [BillingPlan.Cheap]: {
+    [BillingPlan.Paid]: {
         title: 'Good call!',
         subtitle: "You're on the ridiculously cheap plan.",
         description: (
@@ -70,8 +74,8 @@ const COPY_VARIATIONS: Record<BillingPlan, CopyVariation> = {
         subtitle: "You're on the enterprise plan.",
         description: <p>It doesn't get any better than this!</p>,
     },
-    [BillingPlan.Startups]: {
-        title: 'Lucky you!',
+    [StartupProgramLabel.Startup]: {
+        title: 'Good for you!',
         subtitle: "You're on the startup plan.",
         description: (
             <>
@@ -82,7 +86,7 @@ const COPY_VARIATIONS: Record<BillingPlan, CopyVariation> = {
             </>
         ),
     },
-    [BillingPlan.YC]: {
+    [StartupProgramLabel.YC]: {
         title: 'Lucky you!',
         subtitle: "You're on the special YC plan.",
         description: (
@@ -99,12 +103,12 @@ const COPY_VARIATIONS: Record<BillingPlan, CopyVariation> = {
 export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { showPaymentEntryModal } = useActions(paymentEntryLogic)
-    const { redirectPath, billingPlan } = useValues(billingLogic)
+    const { redirectPath, billingPlan, startupProgramLabel } = useValues(billingLogic)
     const { isPlanComparisonModalOpen, billingProductLoading } = useValues(billingProductLogic({ product }))
     const { toggleIsPlanComparisonModalOpen, setBillingProductLoading } = useActions(billingProductLogic({ product }))
 
     const showUpgradeOptions = billingPlan !== BillingPlan.Enterprise
-    const copyVariation = COPY_VARIATIONS[billingPlan]
+    const copyVariation = startupProgramLabel ? COPY_VARIATIONS[startupProgramLabel] : COPY_VARIATIONS[billingPlan]
 
     return (
         <div className="flex relative justify-between items-stretch rounded-lg bg-accent-primary-highlight">
@@ -155,8 +159,8 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
             </div>
             <div className="absolute sm:static top-2 right-2 sm:basis-1/3 sm:flex sm:items-center sm:justify-center">
                 <img
-                    src={PLAN_BADGES[billingPlan]}
-                    alt={`${billingPlan} plan badge`}
+                    src={startupProgramLabel ? STARTUP_PROGRAM_BADGES[startupProgramLabel] : PLAN_BADGES[billingPlan]}
+                    alt={startupProgramLabel ? `${startupProgramLabel} plan badge` : `${billingPlan} plan badge`}
                     className="w-20 sm:w-50 object-contain"
                 />
             </div>

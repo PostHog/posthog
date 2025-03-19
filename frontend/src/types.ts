@@ -214,11 +214,14 @@ export enum LicensePlan {
 
 export enum BillingPlan {
     Free = 'free',
-    Cheap = 'cheap',
+    Paid = 'paid',
     Teams = 'team',
     Enterprise = 'enterprise',
-    Startups = 'startup',
-    YC = 'yc',
+}
+
+export enum StartupProgramLabel {
+    YC = 'Y Combinator',
+    Startup = 'Startup Program',
 }
 
 export enum Realm {
@@ -1813,6 +1816,8 @@ export interface BillingType {
         target: 'paid' | 'teams' | 'enterprise'
         expires_at: string
     }
+    billing_plan: BillingPlan
+    startup_program_label?: StartupProgramLabel | null
 }
 
 export interface BillingPlanType {
