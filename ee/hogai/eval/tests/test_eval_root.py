@@ -28,7 +28,7 @@ def call_node(team, runnable_config: RunnableConfig) -> Callable[[str], str]:
         .compile()
     )
 
-    def callable(message: str) -> str:
+    def callable(message: str) -> AssistantMessage:
         raw_state = graph.invoke(
             AssistantState(messages=[HumanMessage(content=message)]),
             runnable_config,
