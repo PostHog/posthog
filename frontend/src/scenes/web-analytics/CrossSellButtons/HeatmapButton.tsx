@@ -40,9 +40,18 @@ export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.E
         return <></>
     }
 
-    // When there's no domain filter selected, just don't show the button
+    // When there's no domain filter selected, display a disabled button with a tooltip
     if (!webAnalyticsSelectedDomain || webAnalyticsSelectedDomain === 'all') {
-        return <></>
+        return (
+            <LemonButton
+                disabledReason="Select a domain to view heatmaps"
+                icon={<IconHeatmap />}
+                type="tertiary"
+                size="xsmall"
+                tooltip="View heatmap for this page"
+                className="no-underline"
+            />
+        )
     }
 
     // Normalize domain and path then join with a slash

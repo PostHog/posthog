@@ -29,6 +29,7 @@ ActivityScope = Literal[
     "Cohort",
     "FeatureFlag",
     "Person",
+    "Group",
     "Insight",
     "Plugin",
     "PluginConfig",

@@ -246,7 +246,7 @@ jobs:
               # so pointing to v1.1.0 to remove warnings about node version with v1
               # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
               uses: iFaxity/wait-on-action@a7d13170ec542bdca4ef8ac4b15e9c6aa00a6866 # v1.2.1
-              timeout-minutes: 3
+              timeout-minutes: 5
               with:
                   verbose: true
                   log: true
