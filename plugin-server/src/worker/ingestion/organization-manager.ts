@@ -1,8 +1,8 @@
 import { ProductFeature, RawOrganization, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
-import { getByAge } from '../../utils/utils'
 import { TeamManager } from '../../utils/team-manager'
+import { getByAge } from '../../utils/utils'
 
 const ONE_DAY = 24 * 60 * 60 * 1000
 
