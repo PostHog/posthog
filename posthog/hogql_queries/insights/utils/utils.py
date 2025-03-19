@@ -2,7 +2,7 @@ from copy import deepcopy
 from typing import Optional, cast
 from posthog.hogql import ast
 from posthog.hogql_queries.insights.trends.trends_query_runner import T
-from posthog.hogql_queries.utils.query_date_range import compare_intervals
+from posthog.hogql_queries.utils.query_date_range import compare_interval_length
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.queries.util import get_trunc_func_ch
 from posthog.schema import IntervalType, BaseMathType, DataWarehouseNode, EventsNode, ActionsNode
@@ -23,8 +23,8 @@ def get_start_of_interval_hogql_str(interval: str, *, team: Team, source: str) -
 
 def series_should_be_set_to_dau(interval: IntervalType, series: list[EventsNode | ActionsNode | DataWarehouseNode]):
     return hasattr(series, "math") and (
-        (series.math == BaseMathType.WEEKLY_ACTIVE and compare_intervals(interval, ">=", IntervalType.WEEK))
-        or (series.math == BaseMathType.MONTHLY_ACTIVE and compare_intervals(interval, ">=", IntervalType.MONTH))
+        (series.math == BaseMathType.WEEKLY_ACTIVE and compare_interval_length(interval, ">=", IntervalType.WEEK))
+        or (series.math == BaseMathType.MONTHLY_ACTIVE and compare_interval_length(interval, ">=", IntervalType.MONTH))
     )
 
 

@@ -1,3 +1,4 @@
+import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
 import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
@@ -2142,12 +2143,13 @@ const api = {
             return await new ApiRequest().errorTrackingAssignIssue(id).update({ data: { assignee } })
         },
 
-        async bulkResolve(ids: ErrorTrackingIssue['id'][]): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'resolve', ids } })
-        },
-
-        async bulkSuppress(ids: ErrorTrackingIssue['id'][]): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'suppress', ids } })
+        async bulkMarkStatus(
+            ids: ErrorTrackingIssue['id'][],
+            status: ErrorTrackingIssue['status']
+        ): Promise<{ content: string }> {
+            return await new ApiRequest()
+                .errorTrackingIssueBulk()
+                .create({ data: { action: 'set_status', ids, status: status } })
         },
 
         async bulkAssign(
@@ -3110,6 +3112,54 @@ const api = {
                 },
             })
         )
+    },
+
+    /** Stream server-sent events over an EventSource. */
+    async stream(
+        url: string,
+        {
+            method = 'GET',
+            data,
+            onMessage,
+            onError,
+            headers,
+            signal,
+        }:
+            | {
+                  method?: 'GET'
+                  /** GET requests cannot contain a body, use URL params instead. */
+                  data?: never
+                  onMessage: (data: EventSourceMessage) => void
+                  onError: (error: any) => void
+                  headers?: Record<string, string>
+                  signal?: AbortSignal
+              }
+            | {
+                  method: 'POST'
+                  /** Any JSON-serializable object. */
+                  data: any
+                  onMessage: (data: EventSourceMessage) => void
+                  onError: (error: any) => void
+                  headers?: Record<string, string>
+                  signal?: AbortSignal
+              }
+    ): Promise<void> {
+        await fetchEventSource(url, {
+            method,
+            headers: {
+                ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+                'X-CSRFToken': getCookie('posthog_csrftoken') || '',
+                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                ...objectClean(headers ?? {}),
+            },
+            body: data !== undefined ? JSON.stringify(data) : undefined,
+            signal,
+            onmessage: onMessage,
+            onerror: onError,
+            // By default fetch-event-source stops connection when document is no longer focused, but that is not how
+            // EventSource works normally, hence reverting (https://github.com/Azure/fetch-event-source/issues/36)
+            openWhenHidden: true,
+        })
     },
 
     async loadPaginatedResults<T extends Record<string, any>>(

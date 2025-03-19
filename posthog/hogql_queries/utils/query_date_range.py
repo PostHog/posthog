@@ -20,7 +20,7 @@ IntervalLiteral = Literal["minute", "hour", "day", "week", "month"]
 ORDERED_INTERVALS = [IntervalType.MINUTE, IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH]
 
 
-def compare_intervals(
+def compare_interval_length(
     interval1: IntervalType, operator: Literal["<", "<=", "=", ">", ">="], interval2: IntervalType
 ) -> bool:
     if operator == "<":

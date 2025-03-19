@@ -1,0 +1,17 @@
+.EditorScene {
+    .LemonTabs__bar {
+        --lemon-tabs-slider-width: 0px;
+
+        margin-bottom: 0;
+    }
+
+    .OutputPane {
+        .LemonTabs {
+            align-self: center;
+        }
+
+        .LemonTabs__bar::before {
+            display: none;
+        }
+    }
+}

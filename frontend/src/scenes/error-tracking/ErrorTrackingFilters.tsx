@@ -15,7 +15,7 @@ const errorTrackingDateOptions = dateMapping.filter((dm) => dm.key != 'Yesterday
 
 export const ErrorTrackingFilters = (): JSX.Element => {
     return (
-        <div className="deprecated-space-y-1">
+        <div className="space-y-1">
             <div className="flex gap-2 items-center">
                 <DateRange />
                 <FilterGroup />
@@ -31,19 +31,21 @@ const FilterGroup = (): JSX.Element => {
     const { setFilterGroup } = useActions(errorTrackingLogic)
 
     return (
-        <UniversalFilters
-            rootKey="error-tracking"
-            group={filterGroup}
-            // TODO: Probably makes sense to create a new taxonomic group for exception-specific event property filters only, keep it clean.
-            taxonomicGroupTypes={[
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.Cohorts,
-            ]}
-            onChange={setFilterGroup}
-        >
-            <RecordingsUniversalFilterGroup />
-        </UniversalFilters>
+        <span className="bg-surface-primary rounded">
+            <UniversalFilters
+                rootKey="error-tracking"
+                group={filterGroup}
+                // TODO: Probably makes sense to create a new taxonomic group for exception-specific event property filters only, keep it clean.
+                taxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.Cohorts,
+                ]}
+                onChange={setFilterGroup}
+            >
+                <RecordingsUniversalFilterGroup />
+            </UniversalFilters>
+        </span>
     )
 }
 
@@ -84,15 +86,17 @@ const DateRange = (): JSX.Element => {
     const { setDateRange } = useActions(errorTrackingLogic)
 
     return (
-        <DateFilter
-            size="small"
-            dateFrom={dateRange.date_from}
-            dateTo={dateRange.date_to}
-            dateOptions={errorTrackingDateOptions}
-            onChange={(changedDateFrom, changedDateTo) =>
-                setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-            }
-        />
+        <span className="bg-surface-primary rounded">
+            <DateFilter
+                size="small"
+                dateFrom={dateRange.date_from}
+                dateTo={dateRange.date_to}
+                dateOptions={errorTrackingDateOptions}
+                onChange={(changedDateFrom, changedDateTo) =>
+                    setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
+                }
+            />
+        </span>
     )
 }
 
