@@ -19,7 +19,6 @@ import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
@@ -127,7 +126,6 @@ export async function createHub(
         serverConfig.PERSON_INFO_CACHE_TTL
     )
     const teamManager = new TeamManager(postgres)
-    const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const rustyHook = new RustyHook(serverConfig)
@@ -159,7 +157,6 @@ export async function createHub(
         pluginSchedule: null,
 
         teamManager,
-        organizationManager,
         pluginsApiKeyManager,
         rootAccessManager,
         rustyHook,

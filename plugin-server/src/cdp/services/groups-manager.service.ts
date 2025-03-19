@@ -32,7 +32,7 @@ export class GroupsManagerService {
     private async filterTeamsWithGroups(teams: Team['id'][]): Promise<Team['id'][]> {
         const teamIds = await Promise.all(
             teams.map(async (teamId) => {
-                if (await this.hub.organizationManager.hasAvailableFeature(teamId, 'group_analytics')) {
+                if (await this.hub.teamManager.hasAvailableFeature(teamId, 'group_analytics')) {
                     return teamId
                 }
             })
