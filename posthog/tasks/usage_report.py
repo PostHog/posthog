@@ -848,7 +848,6 @@ def get_teams_with_recording_bytes_in_period(
 def capture_report(
     *,
     pha_client: PostHogClient,
-    capture_event_name: str,
     organization_id: Optional[str] = None,
     full_report_dict: dict[str, Any],
     at_date: Optional[str] = None,
@@ -858,7 +857,7 @@ def capture_report(
     try:
         capture_event(
             pha_client=pha_client,
-            name=capture_event_name,
+            name="organization usage report",
             organization_id=organization_id,
             properties=full_report_dict,
             timestamp=at_date,
@@ -870,7 +869,7 @@ def capture_report(
         )
         capture_event(
             pha_client=pha_client,
-            name=f"{capture_event_name} failure",
+            name="organization usage report failure",
             organization_id=organization_id,
             properties={"error": str(err)},
         )
@@ -1292,9 +1291,7 @@ def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[st
 def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
-    capture_event_name: Optional[str] = None,
     skip_capture_event: bool = False,
-    only_organization_id: Optional[str] = None,
 ) -> None:
     import posthoganalytics
     from sentry_sdk import capture_message
@@ -1347,12 +1344,6 @@ def send_all_org_usage_reports(
                 org_count += 1
                 organization_id = org_report.organization_id
 
-                if only_organization_id and only_organization_id != organization_id:
-                    logger.info(
-                        f"Skipping organization {organization_id} as it doesn't match only_organization_id={only_organization_id}"
-                    )  # noqa T201
-                    continue
-
                 full_report = _get_full_org_usage_report(org_report, instance_metadata)
                 full_report_dict = _get_full_org_usage_report_as_dict(full_report)
 
@@ -1365,7 +1356,6 @@ def send_all_org_usage_reports(
                     at_date_str = at_date.isoformat() if at_date else None
                     capture_report(
                         pha_client=pha_client,
-                        capture_event_name=capture_event_name or "organization usage report",
                         organization_id=organization_id,
                         full_report_dict=full_report_dict,
                         at_date=at_date_str,
