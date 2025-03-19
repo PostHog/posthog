@@ -1,3 +1,5 @@
+import './EditorSidebar.scss'
+
 import { IconBrackets, IconInfo, IconServer } from '@posthog/icons'
 import { IconArrowLeft, IconEllipsis } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
@@ -91,14 +93,14 @@ export const EditorSidebar = ({
 
     return (
         <div
-            className="flex flex-col h-full relative"
+            className="EditorSidebar flex flex-col h-full relative"
             ref={sidebarRef}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: `${sidebarWidth}px`,
             }}
         >
-            <div className="border-b w-full pt-1">
+            <div className="w-full pt-2">
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={setActiveTab}

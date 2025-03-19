@@ -93,8 +93,9 @@ function SidebarSearchBar({
     const isLoading = contents.some((item) => item.loading)
 
     return (
-        <div className="h-10">
+        <div className="h-8 m-1.5">
             <LemonInput
+                className="rounded-md border border-border"
                 inputRef={inputElementRef}
                 type="search"
                 value={localSearchTerm}
