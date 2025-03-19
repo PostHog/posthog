@@ -1,6 +1,8 @@
 import '~/styles'
 import type { Meta, Parameters, Preview } from '@storybook/react'
 import { Title, Subtitle, Description, Primary, Controls, Stories } from '@storybook/blocks'
+import React from 'react'
+import { fn } from '@storybook/test'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { withKea } from './decorators/withKea'
@@ -10,6 +12,15 @@ import { withFeatureFlags } from './decorators/withFeatureFlags'
 import { withTheme } from './decorators/withTheme'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { getStorybookAppContext } from './app-context'
+
+// Define window properties for TypeScript
+declare global {
+    interface Window {
+        JS_POSTHOG_HOST: string
+        __mockServiceWorker: any
+        POSTHOG_APP_CONTEXT: any
+    }
+}
 
 const setupMsw = () => {
     // Make sure the msw worker is started
@@ -43,7 +54,10 @@ setupPosthogJs()
 
 /** Storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters */
 export const parameters: Parameters = {
-    actions: { argTypesRegex: '^on[A-Z].*', disabled: true },
+    actions: {
+        // No argTypesRegex setting here, as it's not recommended in Storybook 8
+        // Instead, use fn() from @storybook/test in your individual stories
+    },
     controls: {
         matchers: {
             color: /(background|color)$/i,
@@ -91,7 +105,8 @@ export const decorators: Meta['decorators'] = [
 
 const preview: Preview = {
     parameters: {
-        actions: { argTypesRegex: '^on[A-Z].*' },
+        // No argTypesRegex setting here, as it's not recommended in Storybook 8
+        // Instead, use fn() from @storybook/test in your individual stories
         controls: {
             matchers: {
                 color: /(background|color)$/i,
@@ -111,6 +126,7 @@ const preview: Preview = {
             ),
         },
     },
+
     globalTypes: {
         theme: {
             description: '',
@@ -126,6 +142,8 @@ const preview: Preview = {
             },
         },
     },
+
+    tags: ['autodocs'],
 }
 
 export default preview
