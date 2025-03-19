@@ -60,7 +60,6 @@ export const onboardingErrorTrackingAlertsLogic = kea<onboardingErrorTrackingAle
     }),
     actions({
         setIntegration: (integration: ErrorTrackingAlertIntegrationType | null) => ({ integration }),
-        createDefaultAlerts: () => ({}),
     }),
     reducers({
         integration: [

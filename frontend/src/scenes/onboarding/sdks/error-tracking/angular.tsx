@@ -34,7 +34,7 @@ const Autocapture = (): JSX.Element => {
 
 const autocaptureHandler = `// src/app/posthog-error-handler.ts
 
-import { ErrorHandler, Injectable, OnDestroy, Provider } from '@angular/core';
+import { ErrorHandler, Injectable, Provider } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 
 import posthog from 'posthog-js';

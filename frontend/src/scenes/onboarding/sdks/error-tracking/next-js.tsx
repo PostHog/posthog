@@ -1,14 +1,10 @@
 import { Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { SDKInstallNextJSInstructions } from '../sdk-install-instructions/next-js'
 import { JSManualCapture } from './FinalSteps'
 
 export function NextJSInstructions(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-
     return (
         <>
             <SDKInstallNextJSInstructions />
@@ -24,31 +20,39 @@ export function NextJSInstructions(): JSX.Element {
                 to handle uncaught exceptions by rendering a fallback UI instead of the crashing components.
             </p>
             <p>
-                Create a{' '}
+                To set one up, create a <code>error.tsx</code> file in any of your route directories. This triggers when
+                there is an error rendering your component and should look like this:
+            </p>
+            <CodeSnippet language={Language.JavaScript}>{errorComponent}</CodeSnippet>
+            <p>
+                You can also create a{' '}
                 <Link
                     target="_blank"
                     to="https://nextjs.org/docs/app/building-your-application/routing/error-handling#handling-global-errors"
                 >
                     Global Error component
                 </Link>{' '}
-                in your root layout to capture unhandled exceptions.
+                in your root layout to capture unhandled exceptions in your root layout.
             </p>
             <CodeSnippet language={Language.JavaScript}>{globalErrorComponent}</CodeSnippet>
-            <p>
-                <code>error.tsx</code> files take precedence over the Global error component. If you use{' '}
-                <code>Error</code> components to handle uncaught exceptions at different levels of you route hierarchy
-                and want to capture the associated exception, you will need to do so manually:
-            </p>
-            <CodeSnippet language={Language.JavaScript}>{errorComponent}</CodeSnippet>
             <JSManualCapture />
             <h3>Capturing server errors</h3>
             <p>
-                Next.js offers the <code>onRequestError</code> hook in <code>instrumentation.ts</code> to capture errors
-                that occur during server-side rendering.
+                To capture errors that occur in your server-side code, you can set up a{' '}
+                <Link
+                    target="_blank"
+                    to="https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation"
+                >
+                    instrumentation.ts
+                </Link>{' '}
+                file at the root of your project. This provides a <code>onRequestError</code> hook that you can use to
+                capture errors.
             </p>
-            <CodeSnippet language={Language.TypeScript}>
-                {instrumentationComponent(currentTeam?.api_token ?? '<API_TOKEN>')}
-            </CodeSnippet>
+            <p>
+                You can check the runtime to ensure PostHog works and fetch the <code>distinct_id</code> from the cookie
+                to connect the error to a specific user
+            </p>
+            <CodeSnippet language={Language.TypeScript}>{instrumentationComponent}</CodeSnippet>
         </>
     )
 }
@@ -107,14 +111,34 @@ export default function Error({
 }
 `
 
-const instrumentationComponent = (api_token: string): string => `// instrumentation.ts
+const instrumentationComponent = `// instrumentation.ts
 
-import { type Instrumentation } from 'next'
-import posthog from "posthog-node";
+export function register() {
+  // No-op for initialization
+}
 
-const client = new PostHog('${api_token}')
+export const onRequestError = async (err, request, context) => {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { getPostHogServer } = require('./app/posthog-server')
+    const posthog = await getPostHogServer()
 
-export const onRequestError: Instrumentation.onRequestError = async (err) => {
-  client.captureException(error);
+    let distinctId = null
+    if (request.headers.cookie) {
+      const cookieString = request.headers.cookie
+      const postHogCookieMatch = cookieString.match(/ph_phc_.*?_posthog=([^;]+)/)
+
+      if (postHogCookieMatch && postHogCookieMatch[1]) {
+        try {
+          const decodedCookie = decodeURIComponent(postHogCookieMatch[1])
+          const postHogData = JSON.parse(decodedCookie)
+          distinctId = postHogData.distinct_id
+        } catch (e) {
+          console.error('Error parsing PostHog cookie:', e)
+        }
+      }
+    }
+
+    await posthog.captureException(err, distinctId || undefined)
+  }
 }
 `
