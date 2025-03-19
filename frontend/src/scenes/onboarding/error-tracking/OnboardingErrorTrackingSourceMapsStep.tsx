@@ -58,7 +58,10 @@ export function OnboardingErrorTrackingSourceMapsStep({ stepKey }: { stepKey: On
                                     Cargo and complete the necessary authentication.
                                 </p>
                                 <CodeSnippet language={Language.Bash}>
-                                    {['cargo install posthog-cli', 'posthog-cli login'].join('\n')}
+                                    {[
+                                        "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/PostHog/posthog/releases/download/posthog-cli-v0.0.2/posthog-cli-installer.sh | sh",
+                                        'posthog-cli-update',
+                                    ].join('\n')}
                                 </CodeSnippet>
                                 <p>
                                     Once you've built your application and have bundled assets that serve your site,
