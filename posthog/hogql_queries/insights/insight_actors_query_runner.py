@@ -80,7 +80,7 @@ class InsightActorsQueryRunner(QueryRunner):
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
 
-    def to_events_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+    def to_events_query(self) -> ast.SelectQuery:
         if isinstance(self.source_runner, TrendsQueryRunner):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
             query = cast(InsightActorsQuery, self.query)

@@ -295,9 +295,8 @@ def org_quota_limited_until(
         grace_period_days = GRACE_PERIOD_DAYS[trust_score]
 
         # If the suspension is expired or never set, we want to suspend the limit for a grace period
-        if (
-            not quota_limiting_suspended_until
-            or (datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)).timestamp()
+        if not quota_limiting_suspended_until or (
+            (datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)).timestamp()
             < billing_period_start
         ):
             report_organization_action(
@@ -308,6 +307,35 @@ def org_quota_limited_until(
                     "current_usage": usage + todays_usage,
                     "resource": resource.value,
                     "grace_period_days": grace_period_days,
+                    "quota_limiting_suspended_until": quota_limiting_suspended_until,
+                    "billing_period_start": billing_period_start,
+                    "billing_period_end": billing_period_end,
+                    "if_check": not quota_limiting_suspended_until
+                    or (
+                        (
+                            (
+                                datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)
+                            ).timestamp()
+                            < billing_period_start
+                        )
+                        if quota_limiting_suspended_until
+                        else "no quota_limiting_suspended_until"
+                    ),
+                    "if_check_2": (
+                        datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)
+                    ).timestamp()
+                    if quota_limiting_suspended_until
+                    else "no quota_limiting_suspended_until",
+                    "if_check_3": (
+                        (
+                            (
+                                datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)
+                            ).timestamp()
+                            < billing_period_start
+                        )
+                        if quota_limiting_suspended_until
+                        else "no quota_limiting_suspended_until"
+                    ),
                 },
             )
             quota_limiting_suspended_until = round((today_end + timedelta(days=grace_period_days)).timestamp())
