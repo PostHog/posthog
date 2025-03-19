@@ -41,7 +41,7 @@ export const groupsModel = kea<groupsModelType>([
                         `/api/projects/${values.currentProjectId}/groups_types/create_detail_dashboard`,
                         { group_type_index: groupTypeIndex }
                     )
-                    return [groupType]
+                    return values.groupTypesRaw.map((gt) => (gt.group_type_index === groupTypeIndex ? groupType : gt))
                 },
             },
         ],
