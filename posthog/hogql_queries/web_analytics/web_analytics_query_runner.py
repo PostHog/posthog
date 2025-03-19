@@ -45,14 +45,26 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
     query: WebQueryNode
     query_type: type[WebQueryNode]
     do_currency_conversion: bool = False
+    include_data_warehouse_revenue: bool = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        groups = {"organization": str(self.team.organization_id)}
+        group_properties = {"organization": {"id": str(self.team.organization_id)}}
+
         self.do_currency_conversion = posthoganalytics.feature_enabled(
             "web-analytics-revenue-tracking-conversion",
             str(self.team.organization_id),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
+            groups=groups,
+            group_properties=group_properties,
+        )
+
+        self.include_data_warehouse_revenue = posthoganalytics.feature_enabled(
+            "web-analytics-data-warehouse-revenue-settings",
+            str(self.team.organization_id),
+            groups=groups,
+            group_properties=group_properties,
         )
 
     @cached_property

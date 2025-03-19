@@ -311,7 +311,13 @@ HAVING {inside_start_timestamp_period}
 
     @cached_property
     def data_warehouse_revenue_selects(self) -> list[ast.SelectQuery]:
-        if not self.query.includeRevenue or not self.team.revenue_config.dataWarehouseTables:
+        if not self.include_data_warehouse_revenue:
+            return []
+
+        if not self.query.includeRevenue:
+            return []
+
+        if not self.team.revenue_config.dataWarehouseTables:
             return []
 
         queries: list[ast.SelectQuery] = []
