@@ -8,6 +8,25 @@ import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { captureTeamEvent } from '../../utils/posthog'
 
+const TEAM_FIELDS_TO_SELECT = [
+    'id',
+    'project_id',
+    'uuid',
+    'organization_id',
+    'name',
+    'anonymize_ips',
+    'api_token',
+    'slack_incoming_webhook',
+    'session_recording_opt_in',
+    'person_processing_opt_out',
+    'heatmaps_opt_in',
+    'ingested_event',
+    'person_display_name_properties',
+    'test_account_filters',
+    'cookieless_server_hash_mode',
+    'timezone',
+]
+
 export class TeamManager {
     postgres: PostgresRouter
     teamCache: LRU<TeamId, Team | null>
@@ -46,7 +65,8 @@ export class TeamManager {
 
         const timeout = timeoutGuard(`Still running "fetchTeam". Timeout warning after 30 sec!`)
         try {
-            const team: Team | null = await fetchTeam(this.postgres, teamId)
+            const team = await this.fetchTeamByTokenOrId({ id: teamId })
+
             this.teamCache.set(teamId, team)
             return team
         } finally {
@@ -91,7 +111,8 @@ export class TeamManager {
         // Query PG if token is not in cache. This will throw if PG is unavailable.
         const timeout = timeoutGuard(`Still running "fetchTeamByToken". Timeout warning after 30 sec!`)
         try {
-            const team = await fetchTeamByToken(this.postgres, token)
+            const team = await this.fetchTeamByTokenOrId({ token })
+
             if (!team) {
                 // Cache `null` for unknown tokens to reduce PG load, cache TTL will lead to retries later.
                 this.tokenToTeamIdCache.set(token, null)
@@ -143,71 +164,43 @@ export class TeamManager {
             }
         }
     }
+
+    private async fetchTeamByTokenOrId(params: { token?: string; id?: number }): Promise<Team | null> {
+        if (!params.token && !params.id) {
+            return null
+        }
+
+        const result = await this.postgres.query<Team>(
+            PostgresUse.COMMON_READ,
+            params.token
+                ? `SELECT ${TEAM_FIELDS_TO_SELECT.join(', ')} FROM posthog_team WHERE api_token = $1 LIMIT 1`
+                : `SELECT ${TEAM_FIELDS_TO_SELECT.join(', ')} FROM posthog_team WHERE id = $1 LIMIT 1`,
+            [params.token ?? params.id],
+            'fetchTeam'
+        )
+
+        const team = result.rows[0]
+
+        if (team) {
+            // pg returns int8 as a string, since it can be larger than JS's max safe integer,
+            // but this is not a problem for project_id, which is a long long way from that limit.
+            team.project_id = Number(team.project_id) as ProjectId
+        }
+
+        return team
+    }
 }
 
 export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Promise<Team | null> {
     const selectResult = await client.query<Team>(
         PostgresUse.COMMON_READ,
         `
-            SELECT
-                id,
-                project_id,
-                uuid,
-                organization_id,
-                name,
-                anonymize_ips,
-                api_token,
-                slack_incoming_webhook,
-                session_recording_opt_in,
-                person_processing_opt_out,
-                heatmaps_opt_in,
-                ingested_event,
-                person_display_name_properties,
-                test_account_filters,
-                cookieless_server_hash_mode,
-                timezone
+            SELECT ${TEAM_FIELDS_TO_SELECT.join(', ')}
             FROM posthog_team
             WHERE id = $1
             `,
         [teamId],
         'fetchTeam'
-    )
-    if (selectResult.rows.length === 0) {
-        return null
-    }
-    // pg returns int8 as a string, since it can be larger than JS's max safe integer,
-    // but this is not a problem for project_id, which is a long long way from that limit.
-    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
-    return selectResult.rows[0]
-}
-
-export async function fetchTeamByToken(client: PostgresRouter, token: string): Promise<Team | null> {
-    const selectResult = await client.query<Team>(
-        PostgresUse.COMMON_READ,
-        `
-            SELECT
-                id,
-                project_id,
-                uuid,
-                organization_id,
-                name,
-                anonymize_ips,
-                api_token,
-                slack_incoming_webhook,
-                session_recording_opt_in,
-                person_processing_opt_out,
-                heatmaps_opt_in,
-                ingested_event,
-                person_display_name_properties,
-                test_account_filters,
-                cookieless_server_hash_mode,
-                timezone
-            FROM posthog_team
-            WHERE api_token = $1
-            LIMIT 1
-                `,
-        [token],
-        'fetchTeamByToken'
     )
     if (selectResult.rows.length === 0) {
         return null
