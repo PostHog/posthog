@@ -1,13 +1,20 @@
 from typing import Union
+import posthoganalytics
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
+    CurrencyCode,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleDataWarehouseTablesQueryResponse,
     CachedRevenueExampleDataWarehouseTablesQueryResponse,
+)
+
+from posthog.hogql.database.schema.exchange_rate import (
+    currency_expression_for_data_warehouse,
+    revenue_expression_for_data_warehouse,
 )
 
 
@@ -16,6 +23,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
     response: RevenueExampleDataWarehouseTablesQueryResponse
     cached_response: CachedRevenueExampleDataWarehouseTablesQueryResponse
     paginator: HogQLHasMorePaginator
+    do_currency_conversion: bool = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -23,10 +31,16 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
             limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
         )
 
+        self.do_currency_conversion = posthoganalytics.feature_enabled(
+            "web-analytics-revenue-tracking-conversion",
+            str(self.team.organization_id),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+        )
+
     def to_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
         tracking_config = self.query.revenueTrackingConfig
 
-        # TODO: Convert between currencies
         queries = []
         if tracking_config.dataWarehouseTables:
             for table in tracking_config.dataWarehouseTables:
@@ -34,7 +48,26 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
                     ast.SelectQuery(
                         select=[
                             ast.Alias(alias="table_name", expr=ast.Constant(value=table.tableName)),
-                            ast.Alias(alias="revenue", expr=ast.Field(chain=[table.tableName, table.revenueColumn])),
+                            ast.Alias(
+                                alias="original_revenue",
+                                expr=revenue_expression_for_data_warehouse(
+                                    tracking_config, table, do_currency_conversion=False
+                                ),
+                            ),
+                            ast.Alias(
+                                alias="revenue",
+                                expr=revenue_expression_for_data_warehouse(
+                                    tracking_config, table, self.do_currency_conversion
+                                ),
+                            ),
+                            ast.Alias(
+                                alias="original_currency",
+                                expr=currency_expression_for_data_warehouse(tracking_config, table),
+                            ),
+                            ast.Alias(
+                                alias="currency",
+                                expr=ast.Constant(value=(tracking_config.baseCurrency or CurrencyCode.USD).value),
+                            ),
                         ],
                         select_from=ast.JoinExpr(table=ast.Field(chain=[table.tableName])),
                         order_by=[
@@ -59,7 +92,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
         )
 
         return RevenueExampleDataWarehouseTablesQueryResponse(
-            columns=["table_name", "revenue"],
+            columns=["table_name", "original_revenue", "revenue", "original_currency", "currency"],
             results=response.results,
             timings=response.timings,
             types=response.types,
