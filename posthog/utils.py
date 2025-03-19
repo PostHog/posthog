@@ -523,7 +523,7 @@ async def initialize_self_capture_api_token():
         )
         # Get the current user's team (or first team in the instance) to set self capture configs
         team = None
-        if user and getattr(user, "team", None):
+        if user and getattr(user, "current_team", None):
             team = user.current_team
         else:
             team = await Team.objects.only("api_token").aget()
