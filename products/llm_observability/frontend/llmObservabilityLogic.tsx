@@ -252,9 +252,6 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     },
                     context: {
                         groupTypeLabel: 'traces',
-                        insightProps: {
-                            dashboardItemId: `new-total-cost-query`,
-                        },
                         onDataPointClick: () => {
                             router.actions.push(urls.llmObservabilityTraces(), router.values.searchParams)
                         },
@@ -327,9 +324,6 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     },
                     context: {
                         groupTypeLabel: 'traces',
-                        insightProps: {
-                            dashboardItemId: `new-cost-by-model-query`,
-                        },
                         onDataPointClick: ({ breakdown }) => {
                             router.actions.push(urls.llmObservabilityTraces(), {
                                 ...router.values.searchParams,
@@ -457,9 +451,6 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     },
                     context: {
                         groupTypeLabel: 'generations',
-                        insightProps: {
-                            dashboardItemId: `new-generations-by-http-status-query`,
-                        },
                         onDataPointClick: (series) => {
                             router.actions.push(urls.llmObservabilityGenerations(), {
                                 ...router.values.searchParams,
