@@ -167,7 +167,8 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2021-05-02")
-    def test_group_property_crud_add_success(self):
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_group_property_crud_add_success(self, mock_capture):
         group = create_group(
             team_id=self.team.pk,
             group_type_index=0,
@@ -208,6 +209,25 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.results, [('{"name": "Mr. Krabs", "industry": "technology"}',)])
 
+        mock_capture.assert_called_once_with(
+            distinct_id=str(self.team.uuid),
+            ip=None,
+            site_url=None,
+            token=self.team.api_token,
+            now=mock.ANY,
+            sent_at=None,
+            event={
+                "event": "$groupidentify",
+                "properties": {
+                    "$group_type_index": group.group_type_index,
+                    "$group_key": group.group_key,
+                    "$group_set": {"industry": "technology"},
+                },
+                "distinct_id": str(self.team.uuid),
+                "timestamp": mock.ANY,
+            },
+        )
+
         response = self.client.get(
             f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
         )
@@ -224,7 +244,8 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
 
     @freeze_time("2021-05-02")
-    def test_group_property_crud_update_success(self):
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_group_property_crud_update_success(self, mock_capture):
         group = create_group(
             team_id=self.team.pk,
             group_type_index=0,
@@ -264,6 +285,25 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         self.assertEqual(response.results, [('{"name": "Mr. Krabs", "industry": "technology"}',)])
+
+        mock_capture.assert_called_once_with(
+            distinct_id=str(self.team.uuid),
+            ip=None,
+            site_url=None,
+            token=self.team.api_token,
+            now=mock.ANY,
+            sent_at=None,
+            event={
+                "event": "$groupidentify",
+                "properties": {
+                    "$group_type_index": group.group_type_index,
+                    "$group_key": group.group_key,
+                    "$group_set": {"industry": "technology"},
+                },
+                "distinct_id": str(self.team.uuid),
+                "timestamp": mock.ANY,
+            },
+        )
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
@@ -311,7 +351,8 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 404)
 
     @freeze_time("2021-05-02")
-    def test_group_property_crud_delete_success(self):
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_group_property_crud_delete_success(self, mock_capture):
         group = create_group(
             team_id=self.team.pk,
             group_type_index=0,
@@ -351,6 +392,25 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         self.assertEqual(response.results, [('{"name": "Mr. Krabs"}',)])
+
+        mock_capture.assert_called_once_with(
+            distinct_id=str(self.team.uuid),
+            ip=None,
+            site_url=None,
+            token=self.team.api_token,
+            now=mock.ANY,
+            sent_at=None,
+            event={
+                "event": "$delete_group_property",
+                "properties": {
+                    "$group_type_index": group.group_type_index,
+                    "$group_key": group.group_key,
+                    "$group_unset": ["industry"],
+                },
+                "distinct_id": str(self.team.uuid),
+                "timestamp": mock.ANY,
+            },
+        )
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",

@@ -6,6 +6,7 @@ from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
+from posthog.api.capture import capture_internal
 from posthog.api.utils import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -185,6 +186,24 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                 created_at=group.created_at,
                 timestamp=timezone.now(),
             )
+            capture_internal(
+                distinct_id=str(self.team.uuid),
+                ip=None,
+                site_url=None,
+                token=self.team.api_token,
+                now=timezone.now(),
+                sent_at=None,
+                event={
+                    "event": "$groupidentify",
+                    "properties": {
+                        "$group_type_index": group.group_type_index,
+                        "$group_key": group.group_key,
+                        "$group_set": {request.data["key"]: request.data["value"]},
+                    },
+                    "distinct_id": str(self.team.uuid),
+                    "timestamp": timezone.now().isoformat(),
+                },
+            )
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
@@ -251,6 +270,24 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                 properties=group.group_properties,
                 created_at=group.created_at,
                 timestamp=timezone.now(),
+            )
+            capture_internal(
+                distinct_id=str(self.team.uuid),
+                ip=None,
+                site_url=None,
+                token=self.team.api_token,
+                now=timezone.now(),
+                sent_at=None,
+                event={
+                    "event": "$delete_group_property",
+                    "properties": {
+                        "$group_type_index": group.group_type_index,
+                        "$group_key": group.group_key,
+                        "$group_unset": [request.data["$unset"]],
+                    },
+                    "distinct_id": str(self.team.uuid),
+                    "timestamp": timezone.now().isoformat(),
+                },
             )
             log_activity(
                 organization_id=self.organization.id,
