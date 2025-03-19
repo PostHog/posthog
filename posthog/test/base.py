@@ -996,23 +996,12 @@ class ClickhouseTestMixin(QueryMatchingTest):
     def capture_queries(self, query_filter: Callable[[str], bool]):
         queries = []
 
-        # Spy on the `clichhouse_driver.Client.execute` method. This is a bit of
-        # a roundabout way to handle this, but it seems tricky to spy on the
-        # unbound class method `Client.execute` directly easily
-        @contextmanager
-        def get_client(orig_fn, *args, **kwargs):
-            with orig_fn(*args, **kwargs) as client:
-                original_client_execute = client.execute
+        def execute_wrapper(original_client_execute, query, *args, **kwargs):
+            if query_filter(sqlparse.format(query, strip_comments=True).strip()):
+                queries.append(query)
+            return original_client_execute(query, *args, **kwargs)
 
-                def execute_wrapper(query, *args, **kwargs):
-                    if query_filter(sqlparse.format(query, strip_comments=True).strip()):
-                        queries.append(query)
-                    return original_client_execute(query, *args, **kwargs)
-
-                with patch.object(client, "execute", wraps=execute_wrapper) as _:
-                    yield client
-
-        with get_client_from_pool._temp_patch(get_client) as _:
+        with patch_clickhouse_client_execute(execute_wrapper):
             yield queries
 
 
@@ -1233,6 +1222,22 @@ def also_test_with_person_on_events_v2(fn):
     frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
 
     return fn
+
+
+@contextmanager
+def patch_clickhouse_client_execute(execute_wrapper):
+    @contextmanager
+    def get_client(orig_fn, *args, **kwargs):
+        with orig_fn(*args, **kwargs) as client:
+            original_client_execute = client.execute
+            wrapped_execute = lambda query, *args, **kwargs: execute_wrapper(
+                original_client_execute, query, *args, **kwargs
+            )
+            with patch.object(client, "execute", wraps=wrapped_execute) as _:
+                yield client
+
+    with get_client_from_pool._temp_patch(get_client):
+        yield
 
 
 def _create_insight(

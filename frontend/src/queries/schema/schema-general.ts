@@ -2765,6 +2765,7 @@ export interface RevenueTrackingEventItem {
 
 export interface RevenueTrackingDataWarehouseTable {
     tableName: string
+    distinctIdColumn: string
     timestampColumn: string
     revenueColumn: string
 

@@ -111,6 +111,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         dataWarehouseTables: [
             {
                 tableName: 'mock_table',
+                distinctIdColumn: 'distinct_id',
                 timestampColumn: 'timestamp',
                 revenueColumn: 'revenue',
                 revenueCurrencyColumn: { static: CurrencyCode.SCR },
