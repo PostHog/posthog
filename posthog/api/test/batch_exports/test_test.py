@@ -261,7 +261,14 @@ def test_can_run_snowflake_test_step_for_partial_config(client: HttpClient, snow
             batch_export_data,
         )
 
-        batch_export_data["destination"]["config"] = {"account": "Something", "authentication_type": "password"}
+        batch_export_data = {
+            "name": "my-production-snowflake-destination",
+            "destination": {
+                "type": "Snowflake",
+                "config": {"account": "Something", "authentication_type": "password"},
+            },
+            "interval": "hour",
+        }
 
         with unittest.mock.patch(
             "posthog.temporal.batch_exports.destination_tests.DestinationTest.run_step"
