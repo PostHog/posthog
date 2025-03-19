@@ -81,8 +81,12 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
         assert result.query is not None
         try:
             print_ast(parse_select(result.query), context=self.hogql_context, dialect="clickhouse")
-        except (ExposedHogQLError, ResolutionError) as e:
-            raise PydanticOutputParserException(llm_output=result.query, validation_message=str(e))
+        except (ExposedHogQLError, ResolutionError) as err:
+            err_msg = str(err)
+            if err_msg.startswith("no viable alternative"):
+                # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
+                err_msg = f'This is not valid parsable SQL! The last 5 characters where we tripped up were "{result.query[-5:]}".'
+            raise PydanticOutputParserException(llm_output=result.query, validation_message=err_msg)
         return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=result.query))
 
 
