@@ -728,7 +728,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 actions.tabRight()
             }
 
-            await breakpoint(100)
+            await breakpoint(500)
             if (searchQuery) {
                 posthog.capture('taxonomic_filter_search_query', {
                     searchQuery,
