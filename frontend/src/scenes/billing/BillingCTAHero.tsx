@@ -34,12 +34,14 @@ interface CopyVariation {
     title: string | null
     subtitle: string | null
     description: JSX.Element
+    backgroundColor: string
 }
 
-const COPY_VARIATIONS: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
+const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
     [BillingPlan.Free]: {
         title: 'Get the whole hog.',
         subtitle: 'Only pay for what you use.',
+        backgroundColor: 'bg-danger-highlight',
         description: (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
@@ -52,6 +54,7 @@ const COPY_VARIATIONS: Record<BillingPlan | StartupProgramLabel, CopyVariation> 
     [BillingPlan.Paid]: {
         title: 'Good call!',
         subtitle: "You're on the ridiculously cheap plan.",
+        backgroundColor: 'bg-warning-highlight',
         description: (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
@@ -62,6 +65,7 @@ const COPY_VARIATIONS: Record<BillingPlan | StartupProgramLabel, CopyVariation> 
     [BillingPlan.Teams]: {
         title: 'Good call!',
         subtitle: "You're on the team plan.",
+        backgroundColor: 'bg-warning-highlight',
         description: (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
@@ -72,11 +76,13 @@ const COPY_VARIATIONS: Record<BillingPlan | StartupProgramLabel, CopyVariation> 
     [BillingPlan.Enterprise]: {
         title: 'Good call!',
         subtitle: "You're on the enterprise plan.",
+        backgroundColor: 'bg-success-highlight',
         description: <p>It doesn't get any better than this!</p>,
     },
     [StartupProgramLabel.Startup]: {
         title: 'Good for you!',
         subtitle: "You're on the startup plan.",
+        backgroundColor: 'bg-warning-highlight',
         description: (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
@@ -89,6 +95,7 @@ const COPY_VARIATIONS: Record<BillingPlan | StartupProgramLabel, CopyVariation> 
     [StartupProgramLabel.YC]: {
         title: 'Lucky you!',
         subtitle: "You're on the special YC plan.",
+        backgroundColor: 'bg-warning-highlight',
         description: (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
@@ -108,10 +115,10 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
     const { toggleIsPlanComparisonModalOpen, setBillingProductLoading } = useActions(billingProductLogic({ product }))
 
     const showUpgradeOptions = billingPlan !== BillingPlan.Enterprise
-    const copyVariation = startupProgramLabel ? COPY_VARIATIONS[startupProgramLabel] : COPY_VARIATIONS[billingPlan]
+    const copyVariation = startupProgramLabel ? BADGE_CONFIG[startupProgramLabel] : BADGE_CONFIG[billingPlan]
 
     return (
-        <div className="relative rounded-lg bg-accent-primary-highlight">
+        <div className={`relative rounded-lg ${copyVariation.backgroundColor}`}>
             <div className="@container p-4 relative">
                 <img
                     src={startupProgramLabel ? STARTUP_PROGRAM_BADGES[startupProgramLabel] : PLAN_BADGES[billingPlan]}
