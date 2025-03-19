@@ -119,7 +119,7 @@ function AccountOwner({ name, email }: { name: string; email: string }): JSX.Ele
             onClick={() => void copyToClipboard(email, 'email')}
             fullWidth
             sideIcon={<IconCopy />}
-            tooltip="Click to copy email"
+            tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
         >
             <div className="flex items-center gap-2 grow">
                 <ProfilePicture
