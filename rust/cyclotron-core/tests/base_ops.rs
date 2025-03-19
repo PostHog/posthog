@@ -11,7 +11,7 @@ mod common;
 // I know this should be a bunch of tests, but for hacking together stuff right now, it'll do
 #[sqlx::test(migrations = "./migrations")]
 async fn test_queue(db: PgPool) {
-    let manager = QueueManager::from_pool(db.clone());
+    let manager = QueueManager::from_pool(db.clone(), true); // defaults to vm_state compression; for testing only!
     let mut worker = Worker::from_pool(db, Default::default());
     worker.max_buffered = 0; // No buffering for testing, flush immediately
 
@@ -225,7 +225,7 @@ async fn test_queue(db: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 pub async fn test_bulk_insert(db: PgPool) {
     let worker = Worker::from_pool(db.clone(), Default::default());
-    let manager = QueueManager::from_pool(db.clone());
+    let manager = QueueManager::from_pool(db.clone(), true);
 
     let job_template = create_new_job();
 
