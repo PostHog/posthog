@@ -6,6 +6,10 @@
     }
 
     .OutputPane {
+        .LemonTabs {
+            align-self: center;
+        }
+
         .LemonTabs__bar::before {
             display: none;
         }

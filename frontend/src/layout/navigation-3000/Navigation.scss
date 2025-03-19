@@ -240,7 +240,6 @@
     overflow: hidden;
     font-size: 0.6875rem;
     white-space: nowrap;
-    background: var(--sidebar-background);
 
     // Extend the border into viewport overscroll
     border-right: min(1px, var(--sidebar-width)) solid var(--border-primary);
