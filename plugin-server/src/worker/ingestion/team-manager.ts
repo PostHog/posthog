@@ -172,9 +172,10 @@ export class TeamManager {
 
         const result = await this.postgres.query<Team>(
             PostgresUse.COMMON_READ,
-            params.token
-                ? `SELECT ${TEAM_FIELDS_TO_SELECT.join(', ')} FROM posthog_team WHERE api_token = $1 LIMIT 1`
-                : `SELECT ${TEAM_FIELDS_TO_SELECT.join(', ')} FROM posthog_team WHERE id = $1 LIMIT 1`,
+            `
+                SELECT ${TEAM_FIELDS_TO_SELECT.join(', ')} FROM posthog_team
+                WHERE ${params.token ? 'api_token' : 'id'} = $1 LIMIT 1
+            `,
             [params.token ?? params.id],
             'fetchTeam'
         )
@@ -189,26 +190,6 @@ export class TeamManager {
 
         return team
     }
-}
-
-export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Promise<Team | null> {
-    const selectResult = await client.query<Team>(
-        PostgresUse.COMMON_READ,
-        `
-            SELECT ${TEAM_FIELDS_TO_SELECT.join(', ')}
-            FROM posthog_team
-            WHERE id = $1
-            `,
-        [teamId],
-        'fetchTeam'
-    )
-    if (selectResult.rows.length === 0) {
-        return null
-    }
-    // pg returns int8 as a string, since it can be larger than JS's max safe integer,
-    // but this is not a problem for project_id, which is a long long way from that limit.
-    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
-    return selectResult.rows[0]
 }
 
 export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<Record<string, TeamIDWithConfig>> {
