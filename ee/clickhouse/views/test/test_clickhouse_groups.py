@@ -3,6 +3,7 @@ from uuid import UUID
 
 from freezegun.api import freeze_time
 
+from posthog.helpers.dashboard_templates import create_group_type_mapping_overview_dashboard
 from posthog.hogql.parser import parse_select
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -935,6 +936,42 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             disabled_response.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
         )
+
+    def test_create_overview_dashboard_success(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/create_overview_dashboard",
+            {"group_type_index": 0},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        group_type_mapping.refresh_from_db()
+        self.assertIsNotNone(group_type_mapping.overview_dashboard)
+
+    def test_create_overview_dashboard_duplicate(self):
+        group_type = GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        dashboard = create_group_type_mapping_overview_dashboard(group_type, self.user)
+        group_type.overview_dashboard = dashboard
+        group_type.save()
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/create_overview_dashboard",
+            {"group_type_index": 0},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_create_overview_dashboard_not_found(self):
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/create_overview_dashboard",
+            {"group_type_index": 1},
+        )
+        self.assertEqual(response.status_code, 404)
 
     def _create_related_groups_data(self):
         GroupTypeMapping.objects.create(

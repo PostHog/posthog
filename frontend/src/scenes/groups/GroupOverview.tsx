@@ -1,8 +1,21 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useState } from 'react'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { groupLogic } from 'scenes/groups/groupLogic'
+
+import { DashboardPlacement } from '~/types'
+
 export function GroupOverview(): JSX.Element {
-    const { groupTypeName } = useValues(groupLogic)
+    const { groupTypeName, groupData, groupTypeOverviewDashboard } = useValues(groupLogic)
+
+    const { createOverviewDashboard } = useActions(groupLogic)
+
+    const [creatingOverviewDashboard, setCreatingOverviewDashboard] = useState(false)
+
+    if (groupTypeOverviewDashboard) {
+        return <Dashboard id={groupTypeOverviewDashboard.toString()} placement={DashboardPlacement.Group} />
+    }
 
     return (
         <div className="border-2 border-dashed border-primary w-full p-8 justify-center rounded mt-2 mb-4">
@@ -14,7 +27,14 @@ export function GroupOverview(): JSX.Element {
                         used features, and more.
                     </p>
                     <div className="flex items-center gap-x-4 gap-y-2 mt-6">
-                        <LemonButton type="primary" onClick={() => {}}>
+                        <LemonButton
+                            type="primary"
+                            onClick={() => {
+                                setCreatingOverviewDashboard(true)
+                                createOverviewDashboard(groupData?.group_type_index)
+                            }}
+                            disabled={creatingOverviewDashboard}
+                        >
                             Generate dashboard
                         </LemonButton>
                     </div>
