@@ -109,7 +109,6 @@ HOG_FUNCTION_TEMPLATES = [
     salesforce_create,
     salesforce_update,
     sendgrid,
-    tiktok,
     snapchat_ads,
     snapchat_pixel,
     zapier,
