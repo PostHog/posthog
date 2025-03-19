@@ -286,9 +286,6 @@ importers:
       less-loader:
         specifier: ^7.0.2
         version: 7.3.0(less@4.2.2)(webpack@5.88.2)
-      monaco-editor-webpack-plugin:
-        specifier: ^7.1.0
-        version: 7.1.0(monaco-editor@0.50.0)(webpack@5.88.2)
       postcss-loader:
         specifier: ^4.3.0
         version: 4.3.0(postcss@8.5.3)(webpack@5.88.2)
@@ -11865,12 +11862,6 @@ packages:
 
   moment@2.29.4:
     resolution: {integrity: sha512-5LC9SOxjSc2HF6vO2CyuTDNivEdoz2IvyJJGj6X8DJ0eFyfszE0QiEd+iXmBvUP3WHxSjFH/vIsA0EN00cgr8w==}
-
-  monaco-editor-webpack-plugin@7.1.0:
-    resolution: {integrity: sha512-ZjnGINHN963JQkFqjjcBtn1XBtUATDZBMgNQhDQwd78w2ukRhFXAPNgWuacaQiDZsUr4h1rWv5Mv6eriKuOSzA==}
-    peerDependencies:
-      monaco-editor: '>= 0.31.0'
-      webpack: ^4.5.0 || 5.x
 
   monaco-editor@0.49.0:
     resolution: {integrity: sha512-2I8/T3X/hLxB2oPHgqcNYUVdA/ZEFShT7IAujifIPMfKkNbLOqY8XCoyHCXrsdjb36dW9MwoTwBCFpXKMwNwaQ==}
@@ -29010,12 +29001,6 @@ snapshots:
       xtend: 4.0.2
 
   moment@2.29.4: {}
-
-  monaco-editor-webpack-plugin@7.1.0(monaco-editor@0.50.0)(webpack@5.88.2):
-    dependencies:
-      loader-utils: 2.0.4
-      monaco-editor: 0.50.0
-      webpack: 5.88.2(@swc/core@1.11.11(@swc/helpers@0.5.15))(esbuild@0.25.0)(webpack-cli@5.1.4)
 
   monaco-editor@0.49.0: {}
 
