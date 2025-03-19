@@ -295,9 +295,7 @@ describe('Hogfunction Manager - Execution Order', () => {
 
     it('maintains correct execution order after individual reloads', async () => {
         // Initial order check
-        console.log('Initial order check')
         let teamFunctions = await manager.getHogFunctionsForTeam(teamId, ['transformation'])
-        console.log('Initial order check', teamFunctions)
         expect(teamFunctions).toHaveLength(3)
         expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
             { name: 'fn1', order: 1 },
