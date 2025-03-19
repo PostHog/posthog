@@ -120,7 +120,7 @@ export class TeamManager {
         }
     }
 
-    public async getTeamForEvent(event: { team_id?: number; token?: string }): Promise<Team | null> {
+    public async getTeamForEvent(event: { team_id?: number | null; token?: string | null }): Promise<Team | null> {
         if (event.team_id) {
             return this.getTeam(event.team_id)
         } else if (event.token) {

@@ -148,8 +148,9 @@ export async function eachBatchParallelIngestion(
                         overflowMode == IngestionOverflowMode.ConsumeSplitEvenly) &&
                     currentBatch.length > 0
                 ) {
-                    const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0].pluginEvent)
-                    const distinct_id = currentBatch[0].pluginEvent.distinct_id
+                    const pluginEvent = currentBatch[0].pluginEvent
+                    const team = await queue.pluginsServer.teamManager.getTeamForEvent(pluginEvent)
+                    const distinct_id = pluginEvent.distinct_id
                     if (team) {
                         processingPromises.push(
                             captureIngestionWarning(
