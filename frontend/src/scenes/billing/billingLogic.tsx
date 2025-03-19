@@ -448,6 +448,7 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         creditDiscount: [(s) => [s.computedDiscount], (computedDiscount) => computedDiscount || 0],
+        // TODO: review and fix types and enums for billingPlan and startupProgramLabel
         billingPlan: [(s) => [s.billing], (billing: BillingType): BillingPlan => billing.billing_plan],
         startupProgramLabel: [
             (s) => [s.billing],
