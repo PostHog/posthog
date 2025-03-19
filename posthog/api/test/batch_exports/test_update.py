@@ -510,3 +510,66 @@ def test_switching_snowflake_auth_type_to_keypair_requires_private_key(client: H
         batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
         assert batch_export["destination"]["type"] == "Snowflake"
         assert batch_export["destination"]["config"]["authentication_type"] == "password"
+
+
+def test_can_validate_snowflake_destination_with_patched_config(client: HttpClient, temporal):
+    """Test additional validation checks in Snowflake when patching a batch export."""
+    destination_data = {
+        "type": "Snowflake",
+        "config": {
+            "role": "role",
+            "schema": "posthog",
+            "account": "posthog",
+            "database": "posthog",
+            "warehouse": "warehouse",
+            "table_name": "events",
+            "authentication_type": "password",
+            "user": "posthog",
+            "password": "posthog",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-snowflake-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        batch_export = create_batch_export_ok(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+        old_schedule = describe_schedule(temporal, batch_export["id"])
+
+        new_destination_data = {
+            "type": "Snowflake",
+            "config": {
+                "account": "new_posthog_account",
+            },
+        }
+
+        new_batch_export_data = {
+            "name": "my-production-snowflake-destination",
+            "destination": new_destination_data,
+        }
+
+        response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+        assert batch_export["destination"]["config"]["account"] == "new_posthog_account"
+
+        # validate the underlying temporal schedule has been updated
+        codec = EncryptionCodec(settings=settings)
+        new_schedule = describe_schedule(temporal, batch_export["id"])
+        assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
+        decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
+        args = json.loads(decoded_payload[0].data)
+        assert args["account"] == "new_posthog_account"

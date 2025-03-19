@@ -283,11 +283,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             config = destination_attrs["config"]
             # for updates, get the existing config
             self.instance: BatchExport | None
+            view = self.context.get("view")
+
             if self.instance is not None:
                 existing_config = self.instance.destination.config
+            elif view is not None and "pk" in view.kwargs:
+                # Running validation for a `detail=True` action.
+                instance = view.get_object()
+                existing_config = instance.destination.config
             else:
                 existing_config = {}
             merged_config = {**existing_config, **config}
+
             if config.get("authentication_type") == "password" and merged_config.get("password") is None:
                 raise serializers.ValidationError("Password is required if authentication type is password")
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
@@ -559,6 +566,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
     @action(methods=["POST"], detail=True, required_scopes=["INTERNAL"])
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
         test_step = request.data.pop("step", 0)
+        batch_export = self.get_object()
 
         serializer = self.get_serializer(data=request.data)
         _ = serializer.is_valid(raise_exception=True)
