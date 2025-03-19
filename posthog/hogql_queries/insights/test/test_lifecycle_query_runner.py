@@ -1905,7 +1905,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 (
                     "p1",
                     [
-                        "2025-03-09T12:00:00Z",  # Active on day before DST change
+                        "2025-03-09T12:00:00Z",
                     ],
                 ),
             ]
@@ -1921,7 +1921,6 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ).calculate()
 
-        # User should be new on first day, then dormant for the next 3 days
         assert response.results[0]["status"] == "new"
         assert response.results[0]["data"] == [0, 1, 0, 0]
         assert response.results[0]["days"] == ["2025-03-08", "2025-03-09", "2025-03-10", "2025-03-11"]
