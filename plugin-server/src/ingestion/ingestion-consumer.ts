@@ -280,16 +280,44 @@ export class IngestionConsumer {
                 continue
             }
 
-            // Parse the message payload into the event object
-            const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
-            const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
-            const event: PipelineEvent = normalizeEvent({
-                ...combinedEvent,
+            let event: PipelineEvent | undefined
+
+            try {
+                // Parse the message payload into the event object
+                const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
+                event = { ...parseJSON(dataStr), ...rawEvent }
+            } catch (error) {
+                logger.error('🔥', `Error parsing event`, {
+                    stack: error.stack,
+                    error: error,
+                    partition: message.partition,
+                    offset: message.offset,
+                    topic: message.topic,
+                })
+                captureException(error, {
+                    level: 'error',
+                    extra: {
+                        partition: message.partition,
+                        offset: message.offset,
+                        topic: message.topic,
+                    },
+                })
+                // NOTE: For now continue to throw until we understand why this happens better
+                // If we want to keep this logic then we should write the event to the DLQ
+                throw error
+            }
+
+            if (!event) {
+                continue
+            }
+
+            event = normalizeEvent({
+                ...event,
             })
 
             // In case the headers were not set we check the parsed message now
-            if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
-                this.logDroppedEvent(combinedEvent.token, combinedEvent.distinct_id)
+            if (this.shouldDropEvent(event.token, event.distinct_id)) {
+                this.logDroppedEvent(event.token, event.distinct_id)
                 continue
             }
 
