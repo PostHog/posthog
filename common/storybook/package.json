@@ -28,7 +28,6 @@
         "html-webpack-harddisk-plugin": "^2.0.0",
         "html-webpack-plugin": "^5.5.3",
         "less-loader": "^7.0.2",
-        "monaco-editor-webpack-plugin": "^7.1.0",
         "postcss-loader": "^4.3.0",
         "raw-loader": "^4.0.2",
         "sass-loader": "^10.0.1",
