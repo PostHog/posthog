@@ -291,7 +291,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     def _normalize_ssh_tunnel_structure(self, job_inputs: dict) -> dict:
         """Convert nested SSH tunnel structure to flat keys."""
         if "ssh-tunnel" in job_inputs:
-            ssh_tunnel = job_inputs.pop("ssh-tunnel", {})
+            ssh_tunnel = job_inputs.get("ssh-tunnel", {})
             if ssh_tunnel:
                 job_inputs["ssh_tunnel_enabled"] = ssh_tunnel.get("enabled")
                 job_inputs["ssh_tunnel_host"] = ssh_tunnel.get("host")
