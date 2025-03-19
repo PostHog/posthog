@@ -507,7 +507,6 @@ export function checkHogFunctionFilters(options: {
     }
 
     try {
-        console.log('executing', filters.bytecode, 'globals', filterGlobals)
         execResult = execHog(filters.bytecode, {
             globals: filterGlobals,
             telemetry: enabledTelemetry,
