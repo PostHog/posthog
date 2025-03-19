@@ -774,11 +774,15 @@ class Resolver(CloningVisitor):
 
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)
+        if node is None:
+            return None
         node.type = resolve_constant_data_type(node.value)
         return node
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
+        if node is None:
+            return None
         node.type = ast.BooleanType(
             nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
         )
@@ -786,6 +790,8 @@ class Resolver(CloningVisitor):
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
+        if node is None:
+            return None
         node.type = ast.BooleanType(
             nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
         )
@@ -793,6 +799,8 @@ class Resolver(CloningVisitor):
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
+        if node is None:
+            return None
         node.type = ast.BooleanType(nullable=node.expr.type.resolve_constant_type(self.context).nullable)
         return node
 

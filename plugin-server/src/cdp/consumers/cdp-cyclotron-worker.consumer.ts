@@ -142,7 +142,10 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         await super.start()
 
         this.cyclotronWorker = new CyclotronWorker({
-            pool: { dbUrl: this.hub.CYCLOTRON_DATABASE_URL },
+            pool: {
+                dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
+                shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+            },
             queueName: this.queue,
             includeVmState: true,
             batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,
