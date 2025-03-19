@@ -136,7 +136,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_URL: '',
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
-        LAZY_LOADER_DEFAULT_BUFFER_MS: 100,
+        LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
 
         // posthog
         POSTHOG_API_KEY: '',

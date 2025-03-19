@@ -92,7 +92,9 @@ export class TeamManager {
     private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team>> {
         const [teamIds, tokens] = teamIdOrTokens.reduce(
             ([teamIds, tokens], idOrToken) => {
-                if (parseInt(idOrToken)) {
+                // TRICKY: We are caching ids and tokens so we need to determine which is which
+                // Fix this to be a prefix based lookup
+                if (/^\d+$/.test(idOrToken)) {
                     teamIds.push(parseInt(idOrToken))
                 } else {
                     tokens.push(idOrToken)
