@@ -1,8 +1,8 @@
 import { ExecResult } from '@posthog/hogvm'
-import { logger } from '@sentry/utils'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
+import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import { execHog } from '../services/hog-executor.service'
 import {
