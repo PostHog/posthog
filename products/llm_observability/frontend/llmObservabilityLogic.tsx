@@ -42,7 +42,6 @@ export interface QueryTile {
     layout?: {
         className?: string
     }
-    uniqueKey?: string
 }
 
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
@@ -183,7 +182,6 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
-                    uniqueKey: 'new-traces-query',
                     context: {
                         insightProps: {
                             dashboardItemId: `new-traces-query`,
