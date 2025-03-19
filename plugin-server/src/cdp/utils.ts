@@ -463,16 +463,20 @@ export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean
     return hogFunction.template_id?.startsWith('plugin-') ?? false
 }
 
+interface HogFunctionFilterResult {
+    result: boolean
+    logs: HogFunctionInvocationLogEntry[]
+    metrics: HogFunctionAppMetric[]
+    duration: number
+}
+
 /**
  * Shared utility to check if an event matches the filters of a HogFunction.
  * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
- *
  * @param hogFunction The function to check filters for
  * @param filters The function filters
  * @param filterGlobals The globals to use for filter evaluation
- * @param telemetryMatcher Optional telemetry matcher for monitoring
- * @param eventUuid Optional event UUID for error logging
- * @returns {boolean} Whether the filters pass (true) or not (false)
+ * @param options Optional parameters for telemetry and behavior control
  */
 export function checkHogFunctionFilters(
     hogFunction: HogFunctionType,
@@ -481,15 +485,12 @@ export function checkHogFunctionFilters(
     options?: {
         telemetryMatcher?: (teamId: number) => boolean
         eventUuid?: string
-        metricsCollector?: (metric: HogFunctionAppMetric) => void
-        logsCollector?: (log: HogFunctionInvocationLogEntry) => void
-        durationObserver?: (duration: number) => void
-        // Allow passing a mode parameter to determine different behaviors for transformations vs. destinations
-        mode?: 'transformation' | 'destination'
     }
-): boolean {
+): HogFunctionFilterResult {
     const start = performance.now()
-    const isTransformation = options?.mode === 'transformation'
+    const isTransformation = hogFunction.type === 'transformation'
+    const logs: HogFunctionInvocationLogEntry[] = []
+    const metrics: HogFunctionAppMetric[] = []
 
     try {
         const filterResult = execHog(filters?.bytecode, {
@@ -508,7 +509,12 @@ export function checkHogFunctionFilters(
 
             // For transformations, if there's an error, we should still apply the transformation (maintain original behavior)
             if (isTransformation) {
-                return true
+                return {
+                    result: true,
+                    logs,
+                    metrics,
+                    duration: performance.now() - start,
+                }
             }
 
             throw new Error(`${filterResult.error.message}`)
@@ -516,8 +522,8 @@ export function checkHogFunctionFilters(
 
         const result = typeof filterResult.result === 'boolean' && filterResult.result
 
-        if (!result && options?.metricsCollector) {
-            options.metricsCollector({
+        if (!result) {
+            metrics.push({
                 team_id: hogFunction.team_id,
                 app_source_id: hogFunction.id,
                 metric_kind: 'other',
@@ -526,7 +532,12 @@ export function checkHogFunctionFilters(
             })
         }
 
-        return result
+        return {
+            result,
+            logs,
+            metrics,
+            duration: performance.now() - start,
+        }
     } catch (error) {
         logger.error('🦔', `[HogFunction] Error filtering function`, {
             hogFunctionId: hogFunction.id,
@@ -535,18 +546,16 @@ export function checkHogFunctionFilters(
             error: error.message,
         })
 
-        if (options?.metricsCollector) {
-            options.metricsCollector({
-                team_id: hogFunction.team_id,
-                app_source_id: hogFunction.id,
-                metric_kind: 'other',
-                metric_name: 'filtering_failed',
-                count: 1,
-            })
-        }
+        metrics.push({
+            team_id: hogFunction.team_id,
+            app_source_id: hogFunction.id,
+            metric_kind: 'other',
+            metric_name: 'filtering_failed',
+            count: 1,
+        })
 
-        if (options?.logsCollector && options?.eventUuid) {
-            options.logsCollector({
+        if (options?.eventUuid) {
+            logs.push({
                 team_id: hogFunction.team_id,
                 log_source: 'hog_function',
                 log_source_id: hogFunction.id,
@@ -558,14 +567,14 @@ export function checkHogFunctionFilters(
         }
 
         // For Transformations return true to apply the transformation anyways (maintain original behavior)
-        return isTransformation
+        return {
+            result: isTransformation,
+            logs,
+            metrics,
+            duration: performance.now() - start,
+        }
     } finally {
         const duration = performance.now() - start
-
-        // Call the duration observer if provided (for metrics collection)
-        if (options?.durationObserver) {
-            options.durationObserver(duration)
-        }
 
         // Re-using the constant from hog-executor.service.ts
         const DEFAULT_TIMEOUT_MS = 100
