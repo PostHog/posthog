@@ -2,9 +2,6 @@ from typing import Optional
 from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
-from contextlib import contextmanager
-
-from posthog.clickhouse.client.connection import get_client_from_pool
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
@@ -38,6 +35,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     snapshot_clickhouse_queries,
+    patch_clickhouse_client_execute,
 )
 
 
@@ -826,76 +824,56 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_revenue_with_data_warehouse_table(self, feature_enabled_mock):
-        # Spy on the `clichhouse_driver.Client.execute` method. This is a bit of
-        # a roundabout way to handle this, but it seems tricky to spy on the
-        # unbound class method `Client.execute` directly easily
-        @contextmanager
-        def get_client(orig_fn, *args, **kwargs):
-            with orig_fn(*args, **kwargs) as client:
-                original_client_execute = client.execute
+        # Create two different data warehouse tables to guarantee they're both added to the query
+        self._create_data_warehouse_table("database_with_revenue_column_1", "revenue_1", "timestamp_1", "currency_1")
+        self._create_data_warehouse_table("database_with_revenue_column_2", "revenue_2", "timestamp_2", "currency_2")
 
-                def execute_wrapper(query, *args, **kwargs):
-                    if "database_with_revenue_column" in query:
-                        return (
-                            [
-                                # Visitors, Views, Session, Duration, Bounce, Revenue
-                                # all times two because it's current/previous
-                                [0] * 6 * 2
-                            ],
-                            [],
-                        )
+        self.team.revenue_tracking_config = RevenueTrackingConfig(
+            baseCurrency=CurrencyCode.GBP,
+            events=[
+                RevenueTrackingEventItem(
+                    eventName="purchase",
+                    revenueProperty="revenue",
+                    revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
+                )
+            ],
+            dataWarehouseTables=[
+                RevenueTrackingDataWarehouseTable(
+                    tableName="database_with_revenue_column_1",
+                    revenueColumn="revenue_1",
+                    timestampColumn="timestamp_1",
+                    revenueCurrencyColumn=RevenueCurrencyPropertyConfig(property="currency_1"),
+                ),
+                RevenueTrackingDataWarehouseTable(
+                    tableName="database_with_revenue_column_2",
+                    revenueColumn="revenue_2",
+                    timestampColumn="timestamp_2",
+                    revenueCurrencyColumn=RevenueCurrencyPropertyConfig(static=CurrencyCode.EUR),
+                ),
+            ],
+        ).model_dump()
+        self.team.save()
 
-                    return original_client_execute(query, *args, **kwargs)
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", str(uuid7("2023-12-02")), 100, "BRL")]),
+            ],
+            event="purchase",
+        )
 
-                with patch.object(client, "execute", wraps=execute_wrapper) as _:
-                    yield client
+        # Spy on the `clichhouse_driver.Client.execute` method to avoid querying the data warehouse tables
+        def execute_wrapper(original_client_execute, query, *args, **kwargs):
+            # Visitors, Views, Session, Duration, Bounce, Revenue
+            # all times two because it's current/previous
+            if "database_with_revenue_column" in query:
+                return ([[0] * 6 * 2], [])
 
-        # Once we leave `with`, the patch is no longer active
-        with get_client_from_pool._temp_patch(get_client) as _:
-            # Create two different data warehouse tables to guarantee they're both added to the query
-            self._create_data_warehouse_table(
-                "database_with_revenue_column_1", "revenue_1", "timestamp_1", "currency_1"
-            )
-            self._create_data_warehouse_table(
-                "database_with_revenue_column_2", "revenue_2", "timestamp_2", "currency_2"
-            )
+            return original_client_execute(query, *args, **kwargs)
 
-            self.team.revenue_tracking_config = RevenueTrackingConfig(
-                baseCurrency=CurrencyCode.GBP,
-                events=[
-                    RevenueTrackingEventItem(
-                        eventName="purchase",
-                        revenueProperty="revenue",
-                        revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
-                    )
-                ],
-                dataWarehouseTables=[
-                    RevenueTrackingDataWarehouseTable(
-                        tableName="database_with_revenue_column_1",
-                        revenueColumn="revenue_1",
-                        timestampColumn="timestamp_1",
-                        revenueCurrencyColumn=RevenueCurrencyPropertyConfig(property="currency_1"),
-                    ),
-                    RevenueTrackingDataWarehouseTable(
-                        tableName="database_with_revenue_column_2",
-                        revenueColumn="revenue_2",
-                        timestampColumn="timestamp_2",
-                        revenueCurrencyColumn=RevenueCurrencyPropertyConfig(static=CurrencyCode.EUR),
-                    ),
-                ],
-            ).model_dump()
-            self.team.save()
-
-            self._create_events(
-                [
-                    ("p1", [("2023-12-02", str(uuid7("2023-12-02")), 100, "BRL")]),
-                ],
-                event="purchase",
-            )
-
-            # Run this, but don't assert on the output because we're mocking it above
-            # We're interested in the queries that were executed
-            # This is asserted by the `@snapshot_clickhouse_queries` decorator
+        # Run the query, but don't assert on the output because we're mocking it above
+        # We're interested in the queries that were executed
+        # This is asserted by the global `@snapshot_clickhouse_queries` decorator
+        with patch_clickhouse_client_execute(execute_wrapper):
             self._run_web_overview_query("2023-12-01", "2023-12-03", include_revenue=True)
 
     def test_revenue_conversion_event(self):
