@@ -163,20 +163,17 @@ export class HogTransformerService {
                         // Check if function has filters - if not, always apply
                         if (hogFunction.filters?.bytecode) {
                             try {
-                                const filterResults = checkHogFunctionFilters(
+                                const filterResults = checkHogFunctionFilters({
                                     hogFunction,
-                                    hogFunction.filters,
                                     filterGlobals,
-                                    {
-                                        eventUuid: globals.event?.uuid,
-                                    }
-                                )
+                                    eventUuid: globals.event?.uuid,
+                                })
 
                                 // Track the duration for metrics
                                 hogFunctionFilterDuration.observe({ type: hogFunction.type }, filterResults.duration)
 
-                                // If filter didn't pass, skip this transformation
-                                if (!filterResults.result) {
+                                // If filter didn't pass and there was no error, skip this transformation
+                                if (!filterResults.match && !filterResults.error) {
                                     transformationsSkipped.push(transformationIdentifier)
                                     results.push({
                                         invocation: createInvocation(

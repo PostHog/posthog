@@ -464,7 +464,8 @@ export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean
 }
 
 interface HogFunctionFilterResult {
-    result: boolean
+    match: boolean
+    error?: unknown
     logs: HogFunctionInvocationLogEntry[]
     metrics: HogFunctionAppMetric[]
     duration: number
@@ -478,24 +479,30 @@ interface HogFunctionFilterResult {
  * @param filterGlobals The globals to use for filter evaluation
  * @param options Optional parameters for telemetry and behavior control
  */
-export function checkHogFunctionFilters(
-    hogFunction: HogFunctionType,
-    filters: HogFunctionType['filters'],
-    filterGlobals: HogFunctionFilterGlobals,
-    options?: {
-        telemetryMatcher?: (teamId: number) => boolean
-        eventUuid?: string
-    }
-): HogFunctionFilterResult {
+export function checkHogFunctionFilters(options: {
+    hogFunction: HogFunctionType
+    filterGlobals: HogFunctionFilterGlobals
+    filters?: HogFunctionType['filters']
+    enabledTelemetry?: boolean
+    eventUuid?: string
+}): HogFunctionFilterResult {
+    const { hogFunction, filterGlobals, enabledTelemetry, eventUuid } = options
+    const filters = options.filters ?? hogFunction.filters
     const start = performance.now()
-    const isTransformation = hogFunction.type === 'transformation'
     const logs: HogFunctionInvocationLogEntry[] = []
     const metrics: HogFunctionAppMetric[] = []
+
+    const result: HogFunctionFilterResult = {
+        match: false,
+        logs,
+        metrics,
+        duration: 0,
+    }
 
     try {
         const filterResult = execHog(filters?.bytecode, {
             globals: filterGlobals,
-            telemetry: options?.telemetryMatcher ? options.telemetryMatcher(hogFunction.team_id) : undefined,
+            telemetry: enabledTelemetry,
         })
 
         if (filterResult.error) {
@@ -507,22 +514,12 @@ export function checkHogFunctionFilters(
                 result: filterResult,
             })
 
-            // For transformations, if there's an error, we should still apply the transformation (maintain original behavior)
-            if (isTransformation) {
-                return {
-                    result: true,
-                    logs,
-                    metrics,
-                    duration: performance.now() - start,
-                }
-            }
-
-            throw new Error(`${filterResult.error.message}`)
+            result.error = filterResult.error.message
         }
 
-        const result = typeof filterResult.result === 'boolean' && filterResult.result
+        result.match = typeof filterResult.result === 'boolean' && filterResult.result
 
-        if (!result) {
+        if (!result.match) {
             metrics.push({
                 team_id: hogFunction.team_id,
                 app_source_id: hogFunction.id,
@@ -530,13 +527,6 @@ export function checkHogFunctionFilters(
                 metric_name: 'filtered',
                 count: 1,
             })
-        }
-
-        return {
-            result,
-            logs,
-            metrics,
-            duration: performance.now() - start,
         }
     } catch (error) {
         logger.error('🦔', `[HogFunction] Error filtering function`, {
@@ -554,7 +544,7 @@ export function checkHogFunctionFilters(
             count: 1,
         })
 
-        if (options?.eventUuid) {
+        if (eventUuid) {
             logs.push({
                 team_id: hogFunction.team_id,
                 log_source: 'hog_function',
@@ -562,17 +552,10 @@ export function checkHogFunctionFilters(
                 instance_id: new UUIDT().toString(),
                 timestamp: DateTime.now(),
                 level: 'error',
-                message: `Error filtering event ${options.eventUuid}: ${error.message}`,
+                message: `Error filtering event ${eventUuid}: ${error.message}`,
             })
         }
-
-        // For Transformations return true to apply the transformation anyways (maintain original behavior)
-        return {
-            result: isTransformation,
-            logs,
-            metrics,
-            duration: performance.now() - start,
-        }
+        result.error = error.message
     } finally {
         const duration = performance.now() - start
 
@@ -589,4 +572,8 @@ export function checkHogFunctionFilters(
             })
         }
     }
+
+    result.duration = performance.now() - start
+
+    return result
 }
