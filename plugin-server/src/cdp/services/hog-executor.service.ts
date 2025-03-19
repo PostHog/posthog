@@ -22,7 +22,12 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../types'
-import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
+import {
+    buildExportedFunctionInvoker,
+    checkHogFunctionFilters,
+    convertToHogFunctionFilterGlobal,
+    createInvocation,
+} from '../utils'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -36,11 +41,12 @@ const hogExecutionDuration = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
-const hogFunctionFilterDuration = new Histogram({
+export const hogFunctionFilterDuration = new Histogram({
     name: 'cdp_hog_function_filter_duration_ms',
     help: 'Processing time for filtering a function',
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
+    labelNames: ['type'],
 })
 
 const hogFunctionStateMemory = new Histogram({
@@ -157,84 +163,27 @@ export class HogExecutorService {
         const invocations: HogFunctionInvocation[] = []
 
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
-        const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
+        const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
 
         const _filterHogFunction = (
             hogFunction: HogFunctionType,
             filters: HogFunctionType['filters'],
-            filterGlobals: HogFunctionInvocationGlobals | HogFunctionFilterGlobals
+            filterGlobals: HogFunctionFilterGlobals
         ) => {
             if (filters?.bytecode) {
-                const start = performance.now()
                 try {
-                    const filterResult = execHog(filters.bytecode, {
-                        globals: filterGlobals,
-                        telemetry: this.telemetryMatcher(hogFunction.team_id),
+                    return checkHogFunctionFilters(hogFunction, filters, filterGlobals, {
+                        telemetryMatcher: this.telemetryMatcher,
+                        eventUuid: triggerGlobals.event.uuid,
+                        metricsCollector: (metric) => metrics.push(metric),
+                        logsCollector: (log) => logs.push(log),
+                        durationObserver: (duration) =>
+                            hogFunctionFilterDuration.observe({ type: 'destination' }, duration),
+                        mode: 'destination',
                     })
-                    if (filterResult.error) {
-                        logger.error('🦔', `[HogExecutor] Error filtering function`, {
-                            hogFunctionId: hogFunction.id,
-                            hogFunctionName: hogFunction.name,
-                            teamId: hogFunction.team_id,
-                            error: filterResult.error.message,
-                            result: filterResult,
-                        })
-
-                        throw new Error(`${filterResult.error.message}`)
-                    }
-
-                    const result = typeof filterResult.result === 'boolean' && filterResult.result
-
-                    if (!result) {
-                        metrics.push({
-                            team_id: hogFunction.team_id,
-                            app_source_id: hogFunction.id,
-                            metric_kind: 'other',
-                            metric_name: 'filtered',
-                            count: 1,
-                        })
-                    }
-
-                    return result
                 } catch (error) {
-                    logger.error('🦔', `[HogExecutor] Error filtering function`, {
-                        hogFunctionId: hogFunction.id,
-                        hogFunctionName: hogFunction.name,
-                        teamId: hogFunction.team_id,
-                        error: error.message,
-                    })
-
-                    metrics.push({
-                        team_id: hogFunction.team_id,
-                        app_source_id: hogFunction.id,
-                        metric_kind: 'other',
-                        metric_name: 'filtering_failed',
-                        count: 1,
-                    })
-
-                    logs.push({
-                        team_id: hogFunction.team_id,
-                        log_source: 'hog_function',
-                        log_source_id: hogFunction.id,
-                        instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
-                        timestamp: DateTime.now(),
-                        level: 'error',
-                        message: `Error filtering event ${triggerGlobals.event.uuid}: ${error.message}`,
-                    })
+                    // Already logged in the utility
                     return false
-                } finally {
-                    const duration = performance.now() - start
-                    hogFunctionFilterDuration.observe(performance.now() - start)
-
-                    if (duration > DEFAULT_TIMEOUT_MS) {
-                        logger.error('🦔', `[HogExecutor] Filter took longer than expected`, {
-                            hogFunctionId: hogFunction.id,
-                            hogFunctionName: hogFunction.name,
-                            teamId: hogFunction.team_id,
-                            duration,
-                            eventId: triggerGlobals.event.uuid,
-                        })
-                    }
                 }
             }
         }

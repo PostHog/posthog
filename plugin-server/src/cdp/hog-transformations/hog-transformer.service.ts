@@ -2,17 +2,20 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
 import {
+    HogFunctionAppMetric,
+    HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationLogEntry,
     HogFunctionInvocationResult,
     HogFunctionType,
     HogFunctionTypeType,
 } from '../../cdp/types'
-import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
+import { checkHogFunctionFilters, createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
-import { execHog } from '../services/hog-executor.service'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
+import { hogFunctionFilterDuration } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 import { HogFunctionManagerLazyService } from '../services/hog-function-manager-lazy.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
@@ -158,7 +161,16 @@ export class HogTransformerService {
                     if (this.hub.FILTER_TRANSFORMATIONS_ENABLED) {
                         const globals = this.createInvocationGlobals(event)
                         const filterGlobals = convertToHogFunctionFilterGlobal(globals)
-                        const shouldApplyTransformation = this.checkEventAgainstFilters(hogFunction, filterGlobals)
+                        const filterLogs: HogFunctionInvocationLogEntry[] = []
+                        const filterMetrics: HogFunctionAppMetric[] = []
+
+                        const shouldApplyTransformation = this.shouldApplyTransformation(
+                            hogFunction,
+                            globals,
+                            filterGlobals,
+                            filterLogs,
+                            filterMetrics
+                        )
 
                         if (!shouldApplyTransformation) {
                             transformationsSkipped.push(transformationIdentifier)
@@ -170,16 +182,8 @@ export class HogTransformerService {
                                     },
                                     hogFunction
                                 ),
-                                metrics: [
-                                    {
-                                        team_id: event.team_id,
-                                        app_source_id: hogFunction.id,
-                                        metric_kind: 'other',
-                                        metric_name: 'filtered',
-                                        count: 1,
-                                    },
-                                ],
-                                logs: [],
+                                metrics: filterMetrics,
+                                logs: filterLogs,
                                 error: null,
                                 finished: true,
                             })
@@ -304,36 +308,26 @@ export class HogTransformerService {
     /**
      * Checks if an event matches the filters of a transformation
      */
-    private checkEventAgainstFilters(hogFunction: HogFunctionType, filterGlobals: any): boolean {
-        // If there are no filters, apply the transformation
+    private shouldApplyTransformation(
+        hogFunction: HogFunctionType,
+        globals: HogFunctionInvocationGlobals,
+        filterGlobals: HogFunctionFilterGlobals,
+        logs: HogFunctionInvocationLogEntry[],
+        metrics: HogFunctionAppMetric[]
+    ): boolean {
         if (!hogFunction.filters?.bytecode) {
             return true
         }
-
         try {
-            // Use execHog directly to evaluate the filters
-            const filterResult = execHog(hogFunction.filters.bytecode, {
-                globals: filterGlobals,
+            return checkHogFunctionFilters(hogFunction, hogFunction.filters, filterGlobals, {
+                logsCollector: (log) => logs.push(log),
+                mode: 'transformation',
+                durationObserver: (duration) => hogFunctionFilterDuration.observe({ type: 'transformation' }, duration),
+                eventUuid: globals.event?.uuid,
+                metricsCollector: (metric) => metrics.push(metric),
             })
-
-            // If there was an error evaluating the filters, still apply the transformation
-            if (filterResult.error) {
-                logger.error('🔍', 'Error evaluating filters for transformation - applying anyway', {
-                    error: filterResult.error.message,
-                    transformation_id: hogFunction.id,
-                    transformation_name: hogFunction.name,
-                })
-                return true
-            }
-
-            // The filter result is a boolean indicating whether to apply the transformation
-            return typeof filterResult.result === 'boolean' && filterResult.result
         } catch (error) {
-            logger.error('🔍', 'Exception evaluating filters for transformation - applying anyway', {
-                error: error.message,
-                transformation_id: hogFunction.id,
-                transformation_name: hogFunction.name,
-            })
+            // Already logged in the utility
             return true
         }
     }

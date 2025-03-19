@@ -14,7 +14,9 @@ import { captureException } from '../utils/posthog'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import { MAX_GROUP_TYPES_PER_TEAM } from '../worker/ingestion/group-type-manager'
 import { CdpInternalEvent } from './schema'
+import { execHog } from './services/hog-executor.service'
 import {
+    HogFunctionAppMetric,
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocation,
@@ -459,4 +461,123 @@ export function buildExportedFunctionInvoker(
 
 export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
     return hogFunction.template_id?.startsWith('plugin-') ?? false
+}
+
+/**
+ * Shared utility to check if an event matches the filters of a HogFunction.
+ * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
+ *
+ * @param hogFunction The function to check filters for
+ * @param filters The function filters
+ * @param filterGlobals The globals to use for filter evaluation
+ * @param telemetryMatcher Optional telemetry matcher for monitoring
+ * @param eventUuid Optional event UUID for error logging
+ * @returns {boolean} Whether the filters pass (true) or not (false)
+ */
+export function checkHogFunctionFilters(
+    hogFunction: HogFunctionType,
+    filters: HogFunctionType['filters'],
+    filterGlobals: HogFunctionFilterGlobals,
+    options?: {
+        telemetryMatcher?: (teamId: number) => boolean
+        eventUuid?: string
+        metricsCollector?: (metric: HogFunctionAppMetric) => void
+        logsCollector?: (log: HogFunctionInvocationLogEntry) => void
+        durationObserver?: (duration: number) => void
+        // Allow passing a mode parameter to determine different behaviors for transformations vs. destinations
+        mode?: 'transformation' | 'destination'
+    }
+): boolean {
+    const start = performance.now()
+    const isTransformation = options?.mode === 'transformation'
+
+    try {
+        const filterResult = execHog(filters?.bytecode, {
+            globals: filterGlobals,
+            telemetry: options?.telemetryMatcher ? options.telemetryMatcher(hogFunction.team_id) : undefined,
+        })
+
+        if (filterResult.error) {
+            logger.error('🦔', `[HogFunction] Error filtering function`, {
+                hogFunctionId: hogFunction.id,
+                hogFunctionName: hogFunction.name,
+                teamId: hogFunction.team_id,
+                error: filterResult.error.message,
+                result: filterResult,
+            })
+
+            // For transformations, if there's an error, we should still apply the transformation (maintain original behavior)
+            if (isTransformation) {
+                return true
+            }
+
+            throw new Error(`${filterResult.error.message}`)
+        }
+
+        const result = typeof filterResult.result === 'boolean' && filterResult.result
+
+        if (!result && options?.metricsCollector) {
+            options.metricsCollector({
+                team_id: hogFunction.team_id,
+                app_source_id: hogFunction.id,
+                metric_kind: 'other',
+                metric_name: 'filtered',
+                count: 1,
+            })
+        }
+
+        return result
+    } catch (error) {
+        logger.error('🦔', `[HogFunction] Error filtering function`, {
+            hogFunctionId: hogFunction.id,
+            hogFunctionName: hogFunction.name,
+            teamId: hogFunction.team_id,
+            error: error.message,
+        })
+
+        if (options?.metricsCollector) {
+            options.metricsCollector({
+                team_id: hogFunction.team_id,
+                app_source_id: hogFunction.id,
+                metric_kind: 'other',
+                metric_name: 'filtering_failed',
+                count: 1,
+            })
+        }
+
+        if (options?.logsCollector && options?.eventUuid) {
+            options.logsCollector({
+                team_id: hogFunction.team_id,
+                log_source: 'hog_function',
+                log_source_id: hogFunction.id,
+                instance_id: new UUIDT().toString(),
+                timestamp: DateTime.now(),
+                level: 'error',
+                message: `Error filtering event ${options.eventUuid}: ${error.message}`,
+            })
+        }
+
+        // For Transformations return true to apply the transformation anyways (maintain original behavior)
+        return isTransformation
+    } finally {
+        const duration = performance.now() - start
+
+        // Call the duration observer if provided (for metrics collection)
+        if (options?.durationObserver) {
+            options.durationObserver(duration)
+        }
+
+        // Re-using the constant from hog-executor.service.ts
+        const DEFAULT_TIMEOUT_MS = 100
+
+        if (duration > DEFAULT_TIMEOUT_MS) {
+            logger.error('🦔', `[HogFunction] Filter took longer than expected`, {
+                hogFunctionId: hogFunction.id,
+                hogFunctionName: hogFunction.name,
+                teamId: hogFunction.team_id,
+                duration,
+                eventId: options?.eventUuid,
+            })
+        }
+    }
 }
