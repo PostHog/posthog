@@ -10,6 +10,7 @@ import { insertHogFunction, insertIntegration } from '../_tests/fixtures'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
+    jest.setTimeout(2000)
     let hub: Hub
     let manager: HogFunctionManagerService
 
@@ -245,19 +246,9 @@ describe('Hogfunction Manager - Execution Order', () => {
     let teamId: number
     let teamId2: number
 
-    let time: DateTime
-
-    const advanceTime = (duration: DurationLike) => {
-        time = time.plus(duration)
-        jest.setSystemTime(time.toJSDate())
-    }
-
     beforeEach(async () => {
         // Setup fake timers but exclude nextTick and setImmediate
         // faking them can cause tests to hang or timeout
-        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
-        time = DateTime.now()
-        jest.setSystemTime(time.toJSDate())
 
         hub = await createHub()
         await resetTestDatabase()
@@ -304,7 +295,9 @@ describe('Hogfunction Manager - Execution Order', () => {
 
     it('maintains correct execution order after individual reloads', async () => {
         // Initial order check
+        console.log('Initial order check')
         let teamFunctions = await manager.getHogFunctionsForTeam(teamId, ['transformation'])
+        console.log('Initial order check', teamFunctions)
         expect(teamFunctions).toHaveLength(3)
         expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
             { name: 'fn1', order: 1 },
@@ -372,25 +365,25 @@ describe('Hogfunction Manager - Execution Order', () => {
     })
 
     it('should handle null/undefined execution orders and created_at ordering', async () => {
-        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn1',
             execution_order: undefined,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 1 }).toISO(),
         })
 
-        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn2',
             execution_order: 1,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 2 }).toISO(),
         })
 
-        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn3',
             execution_order: 1,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 3 }).toISO(),
         })
 
         manager['onHogFunctionsReloaded'](teamId2, [hogFunctions[2].id, hogFunctions[1].id])
@@ -406,31 +399,32 @@ describe('Hogfunction Manager - Execution Order', () => {
 
     it('should maintain order with mixed execution orders and timestamps', async () => {
         // Create functions with different timestamps and execution orders
-        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn1',
             execution_order: 2,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 1 }).toISO(),
         })
 
-        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn2',
             execution_order: undefined,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 2 }).toISO(),
         })
 
-        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn3',
             execution_order: 1,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 3 }).toISO(),
         })
 
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn4',
             execution_order: 1,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 4 }).toISO(),
         })
         manager['onHogFunctionsReloaded'](teamId2, [hogFunctions[2].id, hogFunctions[1].id])
         const teamFunctions = await manager.getHogFunctionsForTeam(teamId2, ['transformation'])
