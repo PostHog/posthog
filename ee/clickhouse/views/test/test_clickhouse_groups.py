@@ -3,6 +3,9 @@ from uuid import UUID
 
 from freezegun.api import freeze_time
 
+from posthog.hogql.parser import parse_select
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.models import GroupTypeMapping, Person
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
@@ -188,6 +191,23 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+        response = execute_hogql_query(
+            parse_select(
+                """
+                select properties
+                from groups
+                where index = {index}
+                and key = {key}
+                """,
+                placeholders={
+                    "index": ast.Constant(value=group.group_type_index),
+                    "key": ast.Constant(value=group.group_key),
+                },
+            ),
+            self.team,
+        )
+        self.assertEqual(response.results, [('{"name": "Mr. Krabs", "industry": "technology"}',)])
+
         response = self.client.get(
             f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
         )
@@ -227,6 +247,23 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                 "group_type_index": 0,
             },
         )
+
+        response = execute_hogql_query(
+            parse_select(
+                """
+                select properties
+                from groups
+                where index = {index}
+                and key = {key}
+                """,
+                placeholders={
+                    "index": ast.Constant(value=group.group_type_index),
+                    "key": ast.Constant(value=group.group_key),
+                },
+            ),
+            self.team,
+        )
+        self.assertEqual(response.results, [('{"name": "Mr. Krabs", "industry": "technology"}',)])
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
@@ -297,6 +334,23 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                 "group_type_index": 0,
             },
         )
+
+        response = execute_hogql_query(
+            parse_select(
+                """
+                select properties
+                from groups
+                where index = {index}
+                and key = {key}
+                """,
+                placeholders={
+                    "index": ast.Constant(value=group.group_type_index),
+                    "key": ast.Constant(value=group.group_key),
+                },
+            ),
+            self.team,
+        )
+        self.assertEqual(response.results, [('{"name": "Mr. Krabs"}',)])
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",

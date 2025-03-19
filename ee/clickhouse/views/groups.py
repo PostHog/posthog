@@ -1,4 +1,5 @@
 from collections import defaultdict
+from django.utils import timezone
 from typing import cast
 
 from django.db.models import Q
@@ -17,6 +18,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.group import Group
+from posthog.models.group.util import raw_create_group_ch
 from posthog.models.group_type_mapping import GroupTypeMapping
 from loginas.utils import is_impersonated_session
 
@@ -174,6 +176,15 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             original_value = group.group_properties.get(request.data["key"], None)
             group.group_properties[request.data["key"]] = request.data["value"]
             group.save()
+            # Need to update ClickHouse too
+            raw_create_group_ch(
+                team_id=self.team.pk,
+                group_type_index=group.group_type_index,
+                group_key=group.group_key,
+                properties=group.group_properties,
+                created_at=group.created_at,
+                timestamp=timezone.now(),
+            )
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
@@ -232,6 +243,15 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             original_value = group.group_properties[request.data["$unset"]]
             del group.group_properties[request.data["$unset"]]
             group.save()
+            # Need to update ClickHouse too
+            raw_create_group_ch(
+                team_id=self.team.pk,
+                group_type_index=group.group_type_index,
+                group_key=group.group_key,
+                properties=group.group_properties,
+                created_at=group.created_at,
+                timestamp=timezone.now(),
+            )
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
