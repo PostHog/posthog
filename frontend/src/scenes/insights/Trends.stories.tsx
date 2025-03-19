@@ -7,7 +7,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {
-    title: 'Scenes-App/Insights',
+    title: 'Scenes-App/Insights/Trends',
     parameters: {
         layout: 'fullscreen',
         testOptions: {
@@ -244,120 +244,6 @@ export const TrendsWorldMapEdit: Story = createInsightStory(
 )
 TrendsWorldMapEdit.parameters = { testOptions: { waitForSelector: '.WorldMap' } }
 
-// Funnels
-
-export const FunnelLeftToRight: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json')
-)
-FunnelLeftToRight.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
-}
-export const FunnelLeftToRightEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
-    'edit'
-)
-FunnelLeftToRightEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
-}
-
-export const FunnelLeftToRightBreakdown: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json')
-)
-FunnelLeftToRightBreakdown.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
-}
-export const FunnelLeftToRightBreakdownEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'),
-    'edit'
-)
-FunnelLeftToRightBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
-}
-
-export const FunnelTopToBottom: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json')
-)
-FunnelTopToBottom.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] .funnel-bar', '.PayGateMini'] },
-}
-export const FunnelTopToBottomEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'),
-    'edit'
-)
-FunnelTopToBottomEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] .funnel-bar', '.PayGateMini'] },
-}
-
-export const FunnelTopToBottomBreakdown: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json')
-)
-FunnelTopToBottomBreakdown.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] .funnel-bar', '.PayGateMini'] },
-}
-export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'),
-    'edit'
-)
-FunnelTopToBottomBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] .funnel-bar', '.PayGateMini'] },
-}
-
-export const FunnelHistoricalTrends: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json')
-)
-FunnelHistoricalTrends.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
-}
-export const FunnelHistoricalTrendsEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'),
-    'edit'
-)
-FunnelHistoricalTrendsEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
-}
-
-export const FunnelTimeToConvert: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json')
-)
-FunnelTimeToConvert.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-histogram] svg' } }
-export const FunnelTimeToConvertEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'),
-    'edit'
-)
-FunnelTimeToConvertEdit.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-histogram] svg' } }
-
-// Retention
-
-export const Retention: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/retention.json')
-)
-Retention.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
-export const RetentionEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/retention.json'),
-    'edit'
-)
-RetentionEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
-
-// Lifecycle
-
-export const Lifecycle: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json')
-)
-Lifecycle.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
-export const LifecycleEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'),
-    'edit'
-)
-LifecycleEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
-
 // Stickiness
 // export const Stickiness: Story = createInsightStory(
 //     require('../../mocks/fixtures/api/projects/team_id/insights/stickiness.json')
@@ -372,16 +258,4 @@ LifecycleEdit.parameters = {
 // StickinessEdit.parameters = {
 //     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 // }
-
-// User Paths
-
-export const UserPaths: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json')
-)
-UserPaths.parameters = { testOptions: { waitForSelector: '[data-attr=path-node-card-button]:nth-child(7)' } }
-export const UserPathsEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'),
-    'edit'
-)
-UserPathsEdit.parameters = { testOptions: { waitForSelector: '[data-attr=path-node-card-button]:nth-child(7)' } }
 /* eslint-enable @typescript-eslint/no-var-requires */
