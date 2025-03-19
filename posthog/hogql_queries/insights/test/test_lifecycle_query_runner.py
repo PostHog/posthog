@@ -1895,6 +1895,39 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["data"] == [2, 0, 0, 0]  # new
         assert response.results[2]["data"] == [0, 0, 0, 0]  # resurrecting
 
+    def test_dormant_on_dst(self):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        # Create a user who is active on 2025-03-09 but goes dormant on 2025-03-10 (DST change day)
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2025-03-09T12:00:00Z",
+                    ],
+                ),
+            ]
+        )
+        flush_persons_and_events()
+
+        response = LifecycleQueryRunner(
+            team=self.team,
+            query=LifecycleQuery(
+                dateRange=DateRange(date_from="2025-03-09T00:00:00Z", date_to="2025-03-12T00:00:00Z"),
+                interval=IntervalType.DAY,
+                series=[EventsNode(event="$pageview")],
+            ),
+        ).calculate()
+
+        assert response.results[0]["status"] == "new"
+        assert response.results[0]["data"] == [0, 1, 0, 0]
+        assert response.results[0]["days"] == ["2025-03-08", "2025-03-09", "2025-03-10", "2025-03-11"]
+
+        assert response.results[3]["status"] == "dormant"
+        assert response.results[3]["data"] == [0, 0, -1, 0]
+
     def test_dashboard_breakdown_filter_does_not_update_breakdown_filter(self):
         query_runner = self._create_query_runner(
             "2020-01-09",

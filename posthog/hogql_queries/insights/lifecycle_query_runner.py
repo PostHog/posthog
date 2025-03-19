@@ -14,7 +14,7 @@ from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Action
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare_interval_length
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     CachedLifecycleQueryResponse,
@@ -23,6 +23,7 @@ from posthog.schema import (
     EventsNode,
     LifecycleQueryResponse,
     InsightActorsQueryOptionsResponse,
+    IntervalType,
     StatusItem,
     DayItem,
 )
@@ -304,24 +305,33 @@ class LifecycleQueryRunner(QueryRunner):
     @cached_property
     def events_query(self):
         with self.timings.measure("events_query"):
+            # :TRICKY: Timezone in clickhouse is represented as metadata on a column.
+            # When we group the array, the timezone information is lost.
+            # When DST changes, this causes an issue where after we add or subtract one_interval_period from the timestamp, we get a off by an hour error
+            def timezone_wrapper(var: str) -> str:
+                if compare_interval_length(self.query_date_range.interval_type, "<=", IntervalType.DAY):
+                    return f"toTimeZone({var}, {{timezone}})"
+                # Above DAY, toStartOfInterval turns the DateTimes into Dates, which no longer take timezones.
+                return var
+
             events_query = parse_select(
-                """
+                f"""
                     SELECT
                         min(events.person.created_at) AS created_at,
-                        arraySort(groupUniqArray({trunc_timestamp})) AS all_activity,
-                        arrayPopBack(arrayPushFront(all_activity, {trunc_created_at})) as previous_activity,
-                        arrayPopFront(arrayPushBack(all_activity, {trunc_epoch})) as following_activity,
-                        arrayMap((previous, current, index) -> (previous = current ? 'new' : ((current - {one_interval_period}) = previous AND index != 1) ? 'returning' : 'resurrecting'), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
-                        arrayMap((current, next) -> (current + {one_interval_period} = next ? '' : 'dormant'), all_activity, following_activity) as dormant_status,
-                        arrayMap(x -> x + {one_interval_period}, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                        arraySort(groupUniqArray({{trunc_timestamp}})) AS all_activity,
+                        arrayPopBack(arrayPushFront(all_activity, {{trunc_created_at}})) as previous_activity,
+                        arrayPopFront(arrayPushBack(all_activity, {{trunc_epoch}})) as following_activity,
+                        arrayMap((previous, current, index) -> (previous = current ? 'new' : (({timezone_wrapper('current')} - {{one_interval_period}}) = previous AND index != 1) ? 'returning' : 'resurrecting'), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                        arrayMap((current, next) -> ({timezone_wrapper('current')} + {{one_interval_period}} = {timezone_wrapper('next')} ? '' : 'dormant'), all_activity, following_activity) as dormant_status,
+                        arrayMap(x -> {timezone_wrapper('x')} + {{one_interval_period}}, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
                         arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
                         arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
                         arrayJoin(temp_concat) as period_status_pairs,
                         period_status_pairs.1 as start_of_period,
                         period_status_pairs.2 as status,
-                        {target}
+                        {{target}}
                     FROM events
-                    WHERE {event_filter}
+                    WHERE {{event_filter}}
                     GROUP BY actor_id
                 """,
                 placeholders={
@@ -337,6 +347,7 @@ class LifecycleQueryRunner(QueryRunner):
                     "trunc_epoch": self.query_date_range.date_to_start_of_interval_hogql(
                         ast.Call(name="toDateTime", args=[ast.Constant(value="1970-01-01 00:00:00")])
                     ),
+                    "timezone": ast.Constant(value=self.team.timezone),
                 },
                 timings=self.timings,
             )
