@@ -315,6 +315,9 @@ class LifecycleQueryRunner(QueryRunner):
     @cached_property
     def events_query(self):
         with self.timings.measure("events_query"):
+            # Tricky: Timezone in clickhouse is represented as metadata on a column.
+            # When we group the array, the timezone information is lost.
+            # When DST changes, this causes an issue where after we add or subtract one_interval_period from the timestamp, we get a off by an hour error
             events_query = parse_select(
                 """
                     SELECT
@@ -322,9 +325,9 @@ class LifecycleQueryRunner(QueryRunner):
                         arraySort(groupUniqArray({trunc_timestamp})) AS all_activity,
                         arrayPopBack(arrayPushFront(all_activity, {trunc_created_at})) as previous_activity,
                         arrayPopFront(arrayPushBack(all_activity, {trunc_epoch})) as following_activity,
-                        arrayMap((previous, current, index) -> (previous = current ? 'new' : ((current - {one_interval_period}) = previous AND index != 1) ? 'returning' : 'resurrecting'), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
-                        arrayMap((current, next) -> (current + {one_interval_period} = next ? '' : 'dormant'), all_activity, following_activity) as dormant_status,
-                        arrayMap(x -> x + {one_interval_period}, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                        arrayMap((previous, current, index) -> (previous = current ? 'new' : ((toTimezone(current, {timezone}) - {one_interval_period}) = previous AND index != 1) ? 'returning' : 'resurrecting'), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                        arrayMap((current, next) -> (toTimezone(current, {timezone}) + {one_interval_period} = toTimezone(next, {timezone}) ? '' : 'dormant'), all_activity, following_activity) as dormant_status,
+                        arrayMap(x -> toTimeZone(x, {timezone}) + {one_interval_period}, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
                         arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
                         arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
                         arrayJoin(temp_concat) as period_status_pairs,
@@ -348,6 +351,7 @@ class LifecycleQueryRunner(QueryRunner):
                     "trunc_epoch": self.query_date_range.date_to_start_of_interval_hogql(
                         ast.Call(name="toDateTime", args=[ast.Constant(value="1970-01-01 00:00:00")])
                     ),
+                    "timezone": ast.Constant(value=self.team.timezone),
                 },
                 timings=self.timings,
             )

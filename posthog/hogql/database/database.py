@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypeAlias, Union, cast
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
 from pydantic import BaseModel, ConfigDict
@@ -169,7 +169,8 @@ class Database(BaseModel):
     def __init__(self, timezone: Optional[str] = None, week_start_day: Optional[WeekStartDay] = None):
         super().__init__()
         try:
-            self._timezone = str(ZoneInfo(timezone)) if timezone else None
+            self._timezone = "US/Pacific"
+            # self._timezone = str(ZoneInfo(timezone)) if timezone else None
         except ZoneInfoNotFoundError:
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
         self._week_start_day = week_start_day
