@@ -382,7 +382,7 @@ export function PropertiesSummary({
     )
 }
 
-export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.Element | null {
+export function BreakdownSummary({ query }: { query: InsightQueryNode | HogQLQuery }): JSX.Element | null {
     if (!isInsightQueryWithBreakdown(query) || !isValidBreakdown(query.breakdownFilter)) {
         return null
     }
