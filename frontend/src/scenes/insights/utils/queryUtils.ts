@@ -118,15 +118,13 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
     // remove undefined values, empty arrays and empty objects
     const cleanedQuery = objectCleanWithEmpty(dupQuery) as InsightQueryNode
 
-    const trendsQuery = isTrendsQuery(cleanedQuery)
-
     if (isInsightQueryWithSeries(cleanedQuery)) {
-        cleanedQuery.series?.forEach((e) => {
+        cleanedQuery.series?.forEach((series) => {
             // event math `total` is the default
-            if (isEventsNode(e) && e.math === 'total') {
-                delete e.math
-            } else if (trendsQuery && e.math && getMathTypeWarning(e.math, query, false)) {
-                e.math = BaseMathType.UniqueUsers
+            if (isEventsNode(e) && series.math === 'total') {
+                delete series.math
+            } else if (isTrendsQuery(cleanedQuery) && series.math && getMathTypeWarning(series.math, query, false)) {
+                series.math = BaseMathType.UniqueUsers
             }
         })
     }

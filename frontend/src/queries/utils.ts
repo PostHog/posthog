@@ -30,6 +30,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
+    MathType,
     Node,
     NodeKind,
     PathsQuery,
@@ -573,19 +574,13 @@ export function isGroupsQuery(node?: Record<string, any> | null): node is Groups
     return node?.kind === NodeKind.GroupsQuery
 }
 
-const TRAILING_MATH_TYPES = new Set<string>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
+const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
 
 /**
  * Determines if a math type should display a warning based on the trends query interval and display category
- *
- * @param key The math type key (e.g. BaseMathType value)
- * @param query The query containing the trends query configuration
- * @param trendsDisplayCategory The current display category of the chart
- * @param TRAILING_MATH_TYPES Set of math types that can be problematic in certain intervals (e.g. WAU, MAU)
- * @returns The type of warning to display, if any: 'total', 'monthly', 'weekly', or null if no warning
  */
 export function getMathTypeWarning(
-    key: string,
+    key: MathType,
     query: Record<string, any>,
     isTotalValue: boolean
 ): null | 'total' | 'monthly' | 'weekly' {
@@ -597,9 +592,9 @@ export function getMathTypeWarning(
         const isWeekOrLongerInterval = interval === 'week' || interval === 'month'
         const isMonthOrLongerInterval = interval === 'month'
 
-        if (key === 'monthly_active' && isMonthOrLongerInterval) {
+        if (key === BaseMathType.MonthlyActiveUsers && isMonthOrLongerInterval) {
             warning = 'monthly'
-        } else if (key === 'weekly_active' && isWeekOrLongerInterval) {
+        } else if (key === BaseMathType.WeeklyActiveUsers && isWeekOrLongerInterval) {
             warning = 'weekly'
         } else if (isTotalValue) {
             warning = 'total'
