@@ -64,10 +64,6 @@ class StickinessQueryRunner(QueryRunner):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
     ):
-        if isinstance(query, dict):
-            query = StickinessQuery.model_validate(query)
-
-        # query = convert_active_user_math_based_on_interval(query)
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.series = self.setup_series()
 

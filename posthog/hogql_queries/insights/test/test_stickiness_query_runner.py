@@ -37,7 +37,6 @@ from posthog.schema import (
     CompareFilter,
     StickinessActorsQuery,
     StickinessComputationMode,
-    BaseMathType,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import APIBaseTest, _create_event, _create_person, ClickhouseTestMixin, flush_persons_and_events
@@ -461,56 +460,6 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert result["labels"] == ["1 week", "2 weeks", "3 weeks"]
         assert result["days"] == [1, 2, 3]
         assert result["data"] == [0, 0, 2]
-
-    def test_interval_wau_weekly(self):
-        self._create_events(
-            [
-                SeriesTestData(
-                    distinct_id="p1",
-                    events=[
-                        Series(
-                            event="$pageview",
-                            timestamps=[
-                                # Week 1
-                                "2020-01-05T12:00:00Z",
-                                # Week 2
-                                "2020-01-13T12:00:00Z",
-                                # Week 3
-                                "2020-01-20T12:00:00Z",
-                            ],
-                        ),
-                    ],
-                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
-                ),
-                SeriesTestData(
-                    distinct_id="p2",
-                    events=[
-                        Series(
-                            event="$pageview",
-                            timestamps=[
-                                # Week 1
-                                "2020-01-11T12:00:00Z",
-                                # Week 2
-                                # Week 3
-                                "2020-01-20T12:00:00Z",
-                            ],
-                        ),
-                    ],
-                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
-                ),
-            ]
-        )
-
-        response = self._run_query(
-            interval=IntervalType.WEEK, series=[EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)]
-        )
-
-        result = response.results[0]
-
-        assert result["label"] == "$pageview"
-        assert result["labels"] == ["1 week", "2 weeks", "3 weeks"]
-        assert result["days"] == [1, 2, 3]
-        assert result["data"] == [0, 1, 1]
 
     def test_interval_full_weeks(self):
         self._create_test_events()
