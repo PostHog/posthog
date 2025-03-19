@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::{
     config::{DEFAULT_QUEUE_DEPTH_LIMIT, DEFAULT_SHARD_HEALTH_CHECK_INTERVAL},
     ops::{
-        manager::{bulk_create_jobs_upsert, bulk_create_jobs_copy, create_job},
+        manager::{bulk_create_jobs_copy, bulk_create_jobs_upsert, create_job},
         meta::count_total_waiting_jobs,
     },
     JobInit, ManagerConfig, QueueError,
@@ -44,7 +44,13 @@ impl QueueManager {
 
         for shard in config.shards {
             let pool = shard.connect().await.unwrap();
-            let shard = Shard::new(pool, depth_limit, check_interval, should_compress_vm_state, should_use_bulk_job_copy);
+            let shard = Shard::new(
+                pool,
+                depth_limit,
+                check_interval,
+                should_compress_vm_state,
+                should_use_bulk_job_copy,
+            );
             shards.push(shard);
         }
         Ok(Self {
@@ -54,7 +60,11 @@ impl QueueManager {
     }
 
     #[doc(hidden)] // Mostly for testing, but safe to expose
-    pub fn from_pool(pool: PgPool, should_compress_vm_state: bool, should_use_bulk_job_copy: bool) -> Self {
+    pub fn from_pool(
+        pool: PgPool,
+        should_compress_vm_state: bool,
+        should_use_bulk_job_copy: bool,
+    ) -> Self {
         Self {
             shards: RwLock::new(vec![Shard::new(
                 pool,

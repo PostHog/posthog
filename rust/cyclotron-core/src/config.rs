@@ -38,7 +38,7 @@ pub const DEFAULT_SHARD_HEALTH_CHECK_INTERVAL: u64 = 10;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ManagerConfig {
     pub shards: Vec<PoolConfig>,
-    pub shard_depth_limit: Option<u64>,                  // Defaults to 10_000 available jobs per shard
+    pub shard_depth_limit: Option<u64>, // Defaults to 10_000 available jobs per shard
     pub shard_depth_check_interval_seconds: Option<u64>, // Defaults to 10 seconds - checking shard capacity
     pub should_compress_vm_state: Option<bool>,          // Defaults to "false" for now
     pub should_use_bulk_job_copy: Option<bool>,          // Defaults to "false" for now
