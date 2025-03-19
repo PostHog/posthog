@@ -725,7 +725,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             }
         },
 
-        setSearchQuery: () => {
+        setSearchQuery: async ({ searchQuery }, breakpoint) => {
             const { activeTaxonomicGroup, infiniteListCounts } = values
 
             // Taxonomic group with a local data source, zero results after searching.
@@ -736,6 +736,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 infiniteListCounts[activeTaxonomicGroup.type] === 0
             ) {
                 actions.tabRight()
+            }
+
+            await breakpoint(500)
+            if (searchQuery) {
+                posthog.capture('taxonomic_filter_search_query', {
+                    searchQuery,
+                    groupType: activeTaxonomicGroup?.type,
+                })
             }
         },
 
