@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { createEntry } from '../webpack.config'
 import type { StorybookConfig } from '@storybook/react-webpack5'
 
@@ -28,7 +29,8 @@ const config: StorybookConfig = {
 
         // Create a copy of mainConfig's alias without any potential 'storybook' entries
         const safeAliases = { ...mainConfig.resolve.alias }
-        delete safeAliases['storybook']
+        // TypeScript-safe way to delete a property
+        const { storybook: _, ...cleanedAliases } = safeAliases
 
         return {
             ...config,
@@ -37,7 +39,7 @@ const config: StorybookConfig = {
                 extensions: [...config.resolve!.extensions!, ...mainConfig.resolve.extensions],
                 alias: {
                     ...config.resolve!.alias,
-                    ...safeAliases,
+                    ...cleanedAliases,
                 },
                 fallback: {
                     ...(config.resolve?.fallback || {}),
