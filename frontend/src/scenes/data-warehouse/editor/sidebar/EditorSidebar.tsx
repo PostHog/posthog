@@ -1,5 +1,6 @@
 import { IconBrackets, IconInfo, IconServer } from '@posthog/icons'
 import { IconArrowLeft, IconEllipsis } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DatabaseTableTree } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
@@ -40,37 +41,43 @@ export const EditorSidebar = ({
     }, [sidebarWidth])
 
     // State to track active tab
-    const [activeTab, setActiveTab] = useState('tab1')
+    const [activeTab, setActiveTab] = useState('query_database')
 
     // Define tabs with icons
     const tabs = [
         {
-            key: 'tab1',
+            key: 'query_database',
             label: (
-                <div className="flex justify-center px-2">
-                    <IconServer className="text-xl" />
-                </div>
+                <Tooltip title="Data warehouse">
+                    <div className="flex justify-center px-2">
+                        <IconServer className="text-xl" />
+                    </div>
+                </Tooltip>
             ),
         },
         {
             key: 'query_variables',
             label: (
-                <div className="flex justify-center px-2 relative">
-                    <IconBrackets className="text-xl" />
-                    {variablesForInsight.length > 0 && (
-                        <div className="absolute -top-1 -right-1 flex items-center justify-center bg-danger rounded-full text-white text-[9px] h-3 w-3 min-w-3">
-                            {variablesForInsight.length}
-                        </div>
-                    )}
-                </div>
+                <Tooltip title="Query variables">
+                    <div className="flex justify-center px-2 relative">
+                        <IconBrackets className="text-xl" />
+                        {variablesForInsight.length > 0 && (
+                            <div className="absolute -top-1 -right-1 flex items-center justify-center bg-danger rounded-full text-white text-[9px] h-3 w-3 min-w-3">
+                                {variablesForInsight.length}
+                            </div>
+                        )}
+                    </div>
+                </Tooltip>
             ),
         },
         {
             key: 'query_info',
             label: (
-                <div className="flex justify-center px-2">
-                    <IconInfo className="text-xl" />
-                </div>
+                <Tooltip title="Materialization and query properties">
+                    <div className="flex justify-center px-2">
+                        <IconInfo className="text-xl" />
+                    </div>
+                </Tooltip>
             ),
         },
     ]
@@ -78,7 +85,7 @@ export const EditorSidebar = ({
     // Render the corresponding component based on active tab
     const renderTabContent = (): JSX.Element => {
         switch (activeTab) {
-            case 'tab1':
+            case 'query_database':
                 return <DatabaseExplorer isOpen={sidebarOverlayOpen} />
             case 'query_variables':
                 return <QueryVariables />
