@@ -60,8 +60,6 @@ export const userDangerZoneLogic = kea<userDangerZoneLogicType>({
 
             lemonToast.success('Organization left successfully')
 
-            router.actions.replace(urls.settings('user-danger-zone'), { deletingUser: true })
-
             window.location.reload()
         },
         leaveOrganizationFailure: () => {
