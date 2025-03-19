@@ -974,11 +974,14 @@ export default function SurveyEdit(): JSX.Element {
                                             {surveysEventsAvailable && (
                                                 <LemonField.Pure
                                                     label="User sends events"
-                                                    info="Note that these events are only observed and can trigger this survey within the current user session, but only for events captured using the PostHog SDK."
+                                                    info="It only triggers when the event is captured in the current user session and using the PostHog SDK."
                                                 >
                                                     <>
                                                         <EventSelect
-                                                            filterGroupTypes={[TaxonomicFilterGroupType.CustomEvents]}
+                                                            filterGroupTypes={[
+                                                                TaxonomicFilterGroupType.CustomEvents,
+                                                                TaxonomicFilterGroupType.Events,
+                                                            ]}
                                                             onChange={(includedEvents) => {
                                                                 setSurveyValue('conditions', {
                                                                     ...survey.conditions,
