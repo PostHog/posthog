@@ -292,15 +292,15 @@
     <function>
         <type>executable_pool</type>
         <name>get_survey_response</name>
-        <return_type>UInt64</return_type>
-        <return_name>result_name</return_name>
+        <return_type>String</return_type>
+        <return_name>result</return_name>
         <argument>
-            <type>UInt64</type>
-            <name>argument_1</name>
+            <type>String</type>
+            <name>properties</name>
         </argument>
         <argument>
             <type>UInt64</type>
-            <name>argument_2</name>
+            <name>question_index</name>
         </argument>
         <format>JSONEachRow</format>
         <command>get_survey_response.py</command>
