@@ -25,16 +25,16 @@ export type OrganizationUpdatePayload = Partial<
 export const organizationLogic = kea<organizationLogicType>([
     path(['scenes', 'organizationLogic']),
     actions({
-        deleteOrganization: (organization: OrganizationType) => ({ organization }),
+        deleteOrganization: ({ organizationId }: { organizationId: string }) => ({ organizationId }),
         deleteOrganizationSuccess: true,
         deleteOrganizationFailure: true,
     }),
     connect([userLogic]),
     reducers({
         organizationBeingDeleted: [
-            null as OrganizationType | null,
+            null as string | null,
             {
-                deleteOrganization: (_, { organization }) => organization,
+                deleteOrganization: (_, { organizationId }) => organizationId,
                 deleteOrganizationSuccess: () => null,
                 deleteOrganizationFailure: () => null,
             },
@@ -128,11 +128,13 @@ export const organizationLogic = kea<organizationLogicType>([
         updateOrganizationSuccess: () => {
             lemonToast.success('Organization updated successfully!')
         },
-        deleteOrganization: async ({ organization }) => {
+        deleteOrganization: async ({ organizationId }) => {
             try {
-                await api.delete(`api/organizations/${organization.id}`)
+                await api.delete(`api/organizations/${organizationId}`)
                 router.actions.push(router.values.currentLocation.pathname, 'organizationDeleted=true')
+
                 location.reload()
+
                 actions.deleteOrganizationSuccess()
             } catch {
                 actions.deleteOrganizationFailure()

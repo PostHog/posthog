@@ -188,8 +188,8 @@ export const sceneLogic = kea<sceneLogicType>([
 
             if (params.searchParams?.organizationDeleted && !organizationLogic.values.organizationBeingDeleted) {
                 lemonToast.success('Organization has been deleted')
-                router.actions.push(urls.default())
-                return
+                // router.actions.push(urls.default())
+                // return
             }
 
             if (scene === Scene.Signup && preflight && !preflight.can_create_org) {

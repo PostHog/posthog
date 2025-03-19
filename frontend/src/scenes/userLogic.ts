@@ -2,6 +2,7 @@ import { actions, afterMount, kea, listeners, path, reducers, selectors } from '
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -37,13 +38,13 @@ export const userLogic = kea<userLogicType>([
                 first_name: !first_name
                     ? 'You need to have a name.'
                     : first_name.length > 150
-                        ? 'This name is too long. Please keep it under 151 characters.'
-                        : null,
+                    ? 'This name is too long. Please keep it under 151 characters.'
+                    : null,
                 email: !email
                     ? 'You need to have an email.'
                     : email.length > 254
-                        ? 'This email is too long. Please keep it under 255 characters.'
-                        : null,
+                    ? 'This email is too long. Please keep it under 255 characters.'
+                    : null,
             }),
             submit: (user) => {
                 actions.updateUser(user)
@@ -90,6 +91,16 @@ export const userLogic = kea<userLogicType>([
                             actions.deleteUserFailure(error.message)
                             return null
                         })
+                },
+                leaveOrganization: async (organizationId: string) => {
+                    const user = await api.delete(`api/organizations/${organizationId}/members/@me/`)
+
+                    if (values.user?.organization?.id === organizationId) {
+                        router.actions.push(`${urls.settings('user-danger-zone')}?deletingUser=true`)
+                        location.reload()
+                    }
+
+                    return user
                 },
                 setUserScenePersonalisation: async ({ scene, dashboard }) => {
                     if (!values.user) {
@@ -257,10 +268,10 @@ export const userLogic = kea<userLogicType>([
             (user): OrganizationBasicType[] =>
                 user
                     ? user.organizations
-                        ?.filter((organization) => organization.id !== user.organization?.id)
-                        .sort((orgA, orgB) =>
-                            orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
-                        ) || []
+                          ?.filter((organization) => organization.id !== user.organization?.id)
+                          .sort((orgA, orgB) =>
+                              orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
+                          ) || []
                     : [],
         ],
 
