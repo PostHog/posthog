@@ -95,11 +95,8 @@ describe('eachMessageWebhooksHandlers', () => {
         const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
         await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'organization', 0)
 
-        // const organizationManager = new OrganizationManager(hub.postgres, hub.teamManager)
-        // organizationManager['availableProductFeaturesCache'].set(2, [
-        //     [{ name: 'Group Analytics', key: 'group_analytics' }],
-        //     Date.now(),
-        // ])
+        const team = await hub.teamManager.getTeam(2)
+        team!.available_features = ['group_analytics'] // NOTE: Hacky but this will be removed soon
 
         actionManager['ready'] = true
         actionManager['actionCache'] = {
