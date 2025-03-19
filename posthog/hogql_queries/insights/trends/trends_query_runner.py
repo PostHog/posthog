@@ -141,7 +141,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return queries
 
-    def to_events_query(self, *args, **kwargs) -> ast.SelectQuery | ast.SelectSetQuery:
+    def to_events_query(self, *args, **kwargs) -> ast.SelectQuery:
         with self.timings.measure("trends_to_events_query"):
             query_builder = self._get_trends_actors_query_builder(*args, **kwargs)
             query = query_builder._get_events_query()
