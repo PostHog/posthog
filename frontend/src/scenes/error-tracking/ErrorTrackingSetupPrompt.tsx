@@ -3,6 +3,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -31,7 +32,7 @@ export const ErrorTrackingSetupPrompt = ({ children }: { children: React.ReactEl
 }
 
 const IngestionStatusCheck = (): JSX.Element | null => {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { addProductIntent, updateCurrentTeam } = useActions(teamLogic)
 
     return (
         <ProductIntroduction
@@ -45,7 +46,13 @@ const IngestionStatusCheck = (): JSX.Element | null => {
                 <>
                     <LemonButton
                         type="primary"
-                        onClick={() => updateCurrentTeam({ autocapture_exceptions_opt_in: true })}
+                        onClick={() => {
+                            addProductIntent({
+                                product_type: ProductKey.ERROR_TRACKING,
+                                intent_context: ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
+                            })
+                            updateCurrentTeam({ autocapture_exceptions_opt_in: true })
+                        }}
                     >
                         Enable exception autocapture
                     </LemonButton>
@@ -53,6 +60,12 @@ const IngestionStatusCheck = (): JSX.Element | null => {
                         targetBlank
                         sideIcon={<IconExternal className="w-5 h-5" />}
                         to="https://posthog.com/docs/error-tracking/installation"
+                        onClick={() => {
+                            addProductIntent({
+                                product_type: ProductKey.ERROR_TRACKING,
+                                intent_context: ProductIntentContext.ERROR_TRACKING_DOCS_VIEWED,
+                            })
+                        }}
                     >
                         Read the docs
                     </LemonButton>
