@@ -1,19 +1,73 @@
 import { IconInfo, IconPinFilled } from '@posthog/icons'
-import { LemonButton, Popover, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonSkeleton, Popover, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getFilterLabel } from 'lib/taxonomy'
 import { useState } from 'react'
 
-import { PropertyFilterType } from '~/types'
+import { PropertyFilterType, ReplayTabs } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 export interface ReplayTaxonomicFiltersProps {
     onChange: (value: TaxonomicFilterValue, item?: any) => void
+}
+
+export function ReplayTaxonomicSavedFilters({ onChange }: ReplayTaxonomicFiltersProps): JSX.Element {
+    const logic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+    const { savedFilters, savedFiltersLoading } = useValues(logic)
+
+    const showCountColumn = useFeatureFlag('SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN')
+
+    return (
+        <div className="flex flex-col gap-2 px-1 pt-1.5 pb-2.5">
+            {savedFiltersLoading ? (
+                <div className="flex items-center justify-center h-full">
+                    <LemonSkeleton.Row className="w-full" />
+                    <LemonSkeleton.Row className="w-full" />
+                    <LemonSkeleton.Row className="w-full" />
+                    <LemonSkeleton.Row className="w-full" />
+                </div>
+            ) : (
+                savedFilters.results?.map((playlist) => {
+                    const countBadge =
+                        showCountColumn && playlist?.recordings_counts?.saved_filters?.count ? (
+                            <LemonBadge.Number
+                                status={
+                                    playlist.recordings_counts.saved_filters.watched_count &&
+                                    playlist.recordings_counts.saved_filters.count >
+                                        playlist.recordings_counts.saved_filters.watched_count
+                                        ? 'success'
+                                        : 'muted'
+                                }
+                                size="small"
+                                count={playlist?.recordings_counts?.saved_filters?.count ?? 0}
+                                showZero={true}
+                            />
+                        ) : null
+                    return (
+                        <LemonButton
+                            fullWidth={true}
+                            key={playlist.id}
+                            type="tertiary"
+                            onClick={() => {
+                                return onChange(playlist.name, playlist.filters)
+                            }}
+                        >
+                            {countBadge}
+                            {playlist.name}
+                            {playlist.pinned ? <IconPinFilled /> : null}
+                        </LemonButton>
+                    )
+                })
+            )}
+        </div>
+    )
 }
 
 export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps): JSX.Element {

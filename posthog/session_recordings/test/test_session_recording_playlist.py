@@ -397,6 +397,52 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert len(results) == 1
         assert results[0]["short_id"] == playlist3.short_id
 
+    def test_filters_saved_filters_type(self):
+        # Create a playlist with pinned recordings and no filters
+        playlist1 = SessionRecordingPlaylist.objects.create(team=self.team, name="pinned only", created_by=self.user)
+        recording1 = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist1, recording=recording1)
+
+        # Create a playlist with both pinned recordings and filters
+        playlist2 = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="pinned and filters",
+            created_by=self.user,
+            filters={"events": [{"id": "test"}]},
+        )
+        recording2 = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist2, recording=recording2)
+
+        # Create a playlist with only filters
+        playlist3 = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="filters only",
+            created_by=self.user,
+            filters={"events": [{"id": "test"}]},
+        )
+
+        # Create a playlist with only deleted pinned items
+        playlist4 = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="deleted pinned only",
+            created_by=self.user,
+        )
+        recording4 = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist4, recording=recording4)
+        SessionRecordingPlaylistItem.objects.filter(playlist=playlist4, recording=recording4).update(deleted=True)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists?type=saved_filters",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        # Should only return the playlist with filters and no pinned recordings
+        # since playlist 4 only has deleted pinned items, then it technically has no pinned
+        # so counts has having 0 pinned items
+        # but it also has no filters, so it should not be included
+        assert [r["name"] for r in results] == [playlist3.name]
+
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
     def test_get_pinned_recordings_for_playlist(self, mock_copy_objects: MagicMock) -> None:
         mock_copy_objects.return_value = 2

@@ -21,7 +21,10 @@ import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWare
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
-import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
+import {
+    ReplayTaxonomicFilters,
+    ReplayTaxonomicSavedFilters,
+} from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -535,6 +538,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             }
                         },
                         getPopoverHeader: () => 'Replay',
+                    },
+                    {
+                        name: 'Saved filters',
+                        searchPlaceholder: 'saved filters',
+                        type: TaxonomicFilterGroupType.ReplaySavedFilters,
+                        render: ReplayTaxonomicSavedFilters,
+                        valuesEndpoint: () => {
+                            return undefined
+                        },
+                        getPopoverHeader: () => 'Replay saved filters',
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,

@@ -4,7 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { AnyDataNode } from '~/queries/schema/schema-general'
-import { UniversalFiltersGroup, UniversalFilterValue } from '~/types'
+import { RecordingUniversalFilters, UniversalFiltersGroup, UniversalFilterValue } from '~/types'
 
 import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
@@ -21,12 +21,19 @@ type UniversalFiltersProps = {
     onChange: (group: UniversalFiltersGroup) => void
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     children?: React.ReactNode
+    /**
+     * normally the onChange is used to update specific filters
+     * this is used to override the filters entirely
+     * it isn't typed as it is an escape hatch
+     */
+    overrideFilters?: (filters: Record<string, any>) => void
 }
 
 function UniversalFilters({
     rootKey,
     group = null,
     onChange,
+    overrideFilters,
     taxonomicGroupTypes,
     children,
 }: UniversalFiltersProps): JSX.Element {
@@ -38,6 +45,7 @@ function UniversalFilters({
                 group,
                 onChange,
                 taxonomicGroupTypes,
+                overrideFilters,
             }}
         >
             {children}
@@ -130,7 +138,11 @@ const Value = ({
     )
 }
 
-const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' | 'icon'>): JSX.Element => {
+const AddFilterButton = (
+    props: Omit<LemonButtonProps, 'onClick' | 'sideAction' | 'icon'> & {
+        onSavedFilters?: (filters: RecordingUniversalFilters) => void
+    }
+): JSX.Element => {
     const [dropdownOpen, setDropdownOpen] = useState<boolean>(false)
 
     const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
@@ -141,7 +153,11 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
             overlay={
                 <TaxonomicFilter
                     onChange={(taxonomicGroup, value, item) => {
-                        addGroupFilter(taxonomicGroup, value, item)
+                        if (taxonomicGroup.type === TaxonomicFilterGroupType.ReplaySavedFilters) {
+                            props.onSavedFilters?.(item)
+                        } else {
+                            addGroupFilter(taxonomicGroup, value, item)
+                        }
                         setDropdownOpen(false)
                     }}
                     taxonomicGroupTypes={taxonomicGroupTypes}

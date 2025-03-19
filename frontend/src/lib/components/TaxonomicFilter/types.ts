@@ -127,6 +127,7 @@ export enum TaxonomicFilterGroupType {
     LogEntries = 'log_entries',
     // Misc
     Replay = 'replay',
+    ReplaySavedFilters = 'replay_saved_filters',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
