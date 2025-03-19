@@ -53,7 +53,10 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*Step failures*:\n{'- \n'.join([f'`{step_key}`: {step_failure[:1000]}' for step_key, step_failure in step_failures.items()])}",
+                "text": f"*Step failures*:\n"
+                + "\n".join(
+                    [f"- `{step_key}`: {step_failure[:1000]}" for step_key, step_failure in step_failures.items()]
+                ),
             },
         },
         {
