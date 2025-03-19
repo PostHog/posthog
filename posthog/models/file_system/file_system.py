@@ -30,6 +30,7 @@ def generate_unique_path(team: Team, base_folder: str, name: str) -> str:
     path = desired
     index = 1
 
+    # TODO: speed this up by making just one query, and zero on first insert
     while FileSystem.objects.filter(team=team, path=path).exists():
         path = f"{desired} ({index})"
         index += 1
@@ -56,7 +57,7 @@ def create_or_update_file(
         else:
             # Replace last segment
             segments[-1] = escape_path(name)
-            new_path = "/".join(segments)
+            new_path = join_path(segments)
 
         # Ensure uniqueness
         if FileSystem.objects.filter(team=team, path=new_path).exclude(id=existing.id).exists():

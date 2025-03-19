@@ -296,8 +296,6 @@ posthog/models/dashboard.py:0: error: Need type annotation for "insights"  [var-
 posthog/models/event/util.py:0: error: Incompatible types in assignment (expression has type "str", variable has type "datetime")  [assignment]
 posthog/models/event/util.py:0: error: Module has no attribute "utc"  [attr-defined]
 posthog/models/exported_asset.py:0: error: Value of type variable "_StrOrPromiseT" of "slugify" cannot be "str | None"  [type-var]
-posthog/models/file_system/unfiled_file_saver.py:0: error: Only concrete class can be given where "type[FileSystemSyncMixin]" is expected  [type-abstract]
-posthog/models/file_system/unfiled_file_saver.py:0: error: Only concrete class can be given where "type[FileSystemSyncMixin]" is expected  [type-abstract]
 posthog/models/filters/mixins/simplify.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/models/organization_invite.py:0: error: Argument "level" to "join" of "User" has incompatible type "int"; expected "Level"  [arg-type]
 posthog/models/person/person.py:0: error: "_T" has no attribute "_add_distinct_ids"  [attr-defined]

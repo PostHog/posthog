@@ -72,7 +72,7 @@ class UnfiledFileSaver:
     def save_all_unfiled(self) -> list[FileSystem]:
         created_all = []
         for model_cls in MIXIN_MODELS.values():
-            created_all.extend(self.save_unfiled_for_model(model_cls))
+            created_all.extend(self.save_unfiled_for_model(model_cls))  # type: ignore
         return created_all
 
 
@@ -84,4 +84,4 @@ def save_unfiled_files(team: Team, user: User, file_type: Optional[str] = None) 
     found_cls = MIXIN_MODELS.get(file_type)
     if not found_cls:
         return []
-    return saver.save_unfiled_for_model(found_cls)
+    return saver.save_unfiled_for_model(found_cls)  # type: ignore
