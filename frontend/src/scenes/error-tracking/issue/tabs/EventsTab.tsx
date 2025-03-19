@@ -14,7 +14,7 @@ export const EventsTab = (): JSX.Element => {
 
     const context: QueryContext = {
         columns: {
-            'recording_button(properties.$session_id)': {
+            'recording_button(properties.$session_id, properties.$recording_status)': {
                 title: 'Recording',
                 width: '134px',
             },
