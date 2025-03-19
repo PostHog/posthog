@@ -17,48 +17,8 @@ export class TeamManager {
             name: 'team-manager-v2',
             refreshAge: 2 * 60 * 1000, // 2 minutes
             refreshJitterMs: 30 * 1000, // 30 seconds
-            loader: async (teamIds: string[]) => {
-                const result = await this.postgres.query<RawTeam>(
-                    PostgresUse.COMMON_READ,
-                    `SELECT 
-                        t.id,
-                        t.project_id,
-                        t.uuid,
-                        t.organization_id,
-                        t.name,
-                        t.anonymize_ips,
-                        t.api_token,
-                        t.slack_incoming_webhook
-                        t.session_recording_opt_in
-                        t.person_processing_opt_out
-                        t.heatmaps_opt_in
-                        t.ingested_event
-                        t.person_display_name_properties
-                        t.cookieless_server_hash_mode
-                        t.timezone
-                        o.available_product_features
-                    FROM posthog_team t
-                    JOIN posthog_organization o ON o.id = t.organization_id
-                    WHERE t.id = ANY($1)
-                    `,
-                    [teamIds],
-                    'fetch-teams-with-features'
-                )
-
-                // TODO: Solve token / team id issue
-                return result.rows.reduce((acc, row) => {
-                    const { available_product_features, ...teamPartial } = row
-                    // Could we just return the rows with copies for team id and token?
-                    const team = {
-                        ...teamPartial,
-                        // NOTE: The postgres lib loads the bigint as a string, so we need to cast it to a ProjectId
-                        project_id: Number(teamPartial.project_id) as ProjectId,
-                        available_features: available_product_features?.map((f) => f.key) || [],
-                    }
-                    acc[row.id] = team
-                    acc[row.api_token] = team
-                    return acc
-                }, {} as Record<string, Team>)
+            loader: async (teamIdOrTokens: string[]) => {
+                return await this.fetchTeams(teamIdOrTokens)
             },
         })
     }
@@ -127,5 +87,61 @@ export class TeamManager {
             return this.getTeamByToken(event.token)
         }
         return null
+    }
+
+    private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team>> {
+        const [teamIds, tokens] = teamIdOrTokens.reduce(
+            ([teamIds, tokens], idOrToken) => {
+                if (parseInt(idOrToken)) {
+                    teamIds.push(parseInt(idOrToken))
+                } else {
+                    tokens.push(idOrToken)
+                }
+                return [teamIds, tokens]
+            },
+            [[] as number[], [] as string[]]
+        )
+
+        const result = await this.postgres.query<RawTeam>(
+            PostgresUse.COMMON_READ,
+            `SELECT 
+                t.id,
+                t.project_id,
+                t.uuid,
+                t.organization_id,
+                t.name,
+                t.anonymize_ips,
+                t.api_token,
+                t.slack_incoming_webhook,
+                t.session_recording_opt_in,
+                t.person_processing_opt_out,
+                t.heatmaps_opt_in,
+                t.ingested_event,
+                t.person_display_name_properties,
+                t.cookieless_server_hash_mode,
+                t.timezone,
+                o.available_product_features
+            FROM posthog_team t
+            JOIN posthog_organization o ON o.id = t.organization_id
+            WHERE t.id = ANY($1) OR t.api_token = ANY($2)
+            `,
+            [teamIds, tokens],
+            'fetch-teams-with-features'
+        )
+
+        // TODO: Solve token / team id issue
+        return result.rows.reduce((acc, row) => {
+            const { available_product_features, ...teamPartial } = row
+            // Could we just return the rows with copies for team id and token?
+            const team = {
+                ...teamPartial,
+                // NOTE: The postgres lib loads the bigint as a string, so we need to cast it to a ProjectId
+                project_id: Number(teamPartial.project_id) as ProjectId,
+                available_features: available_product_features?.map((f) => f.key) || [],
+            }
+            acc[row.id] = team
+            acc[row.api_token] = team
+            return acc
+        }, {} as Record<string, Team>)
     }
 }
