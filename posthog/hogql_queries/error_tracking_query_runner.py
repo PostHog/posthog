@@ -159,25 +159,48 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 if not token:
                     continue
 
-                and_exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Gt,
-                        left=ast.Call(
-                            name="position",
+                or_exprs: list[ast.Expr] = []
+
+                props_to_search = [
+                    "$exception_types",
+                    "$exception_values",
+                    "$exception_sources",
+                    "$exception_functions",
+                ]
+                for prop in props_to_search:
+                    or_exprs.append(
+                        ast.Call(
+                            name="arrayExists",
                             args=[
-                                ast.Call(name="lower", args=[ast.Field(chain=["properties", "$exception_list"])]),
-                                ast.Call(name="lower", args=[ast.Constant(value=token)]),
+                                ast.Lambda(
+                                    args=["x"],
+                                    expr=ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Gt,
+                                        left=ast.Call(
+                                            name="position",
+                                            args=[
+                                                ast.Call(name="lower", args=[ast.Field(chain=["x"])]),
+                                                ast.Call(name="lower", args=[ast.Constant(value=token)]),
+                                            ],
+                                        ),
+                                        right=ast.Constant(value=0),
+                                    ),
+                                ),
+                                ast.Field(chain=["properties", prop]),
                             ],
-                        ),
-                        right=ast.Constant(value=0),
+                        )
                     )
-                )
+
+                and_exprs.append(ast.Or(exprs=or_exprs))
 
             exprs.append(ast.And(exprs=and_exprs))
 
         return ast.And(exprs=exprs)
 
     def calculate(self):
+
+        print(parse_expr("arrayExists(x -> position(x, 'boo') > 0, ['ClickHouse', 'boomer_function_name'])"))
+
         with self.timings.measure("error_tracking_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
@@ -248,9 +271,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     order=(
                         self.query.orderDirection.value
                         if self.query.orderDirection
-                        else "ASC"
-                        if self.query.orderBy == "first_seen"
-                        else "DESC"
+                        else "ASC" if self.query.orderBy == "first_seen" else "DESC"
                     ),
                 )
             ]
