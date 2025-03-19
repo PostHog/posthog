@@ -1571,6 +1571,7 @@ name = "cyclotron-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "common-metrics",
  "flate2",
  "futures",
  "serde",
