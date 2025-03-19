@@ -118,7 +118,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         />
                     </div>
 
-                    <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto pt-1">
+                    <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
                         <ScrollableShadows innerClassName="overflow-y-auto px-2 " direction="vertical">
                             <div className="flex flex-col gap-px pb-1">
                                 <LemonButton
