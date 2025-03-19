@@ -3,7 +3,7 @@ from copy import deepcopy
 from datetime import timedelta, datetime
 from math import ceil
 from operator import itemgetter
-from typing import Any, Optional, Union, TypeVar
+from typing import Any, Optional, Union
 
 from django.conf import settings
 from natsort import natsorted, ns
@@ -66,14 +66,10 @@ from posthog.schema import (
     QueryTiming,
     Series,
     TrendsQuery,
-    StickinessQuery,
     TrendsQueryResponse,
 )
 from posthog.utils import format_label_date, multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
-
-# Define a type variable for queries that can be either TrendsQuery or StickinessQuery
-T = TypeVar("T", bound=Union[TrendsQuery, StickinessQuery])
 
 
 class TrendsQueryRunner(QueryRunner):

@@ -1,11 +1,10 @@
 from copy import deepcopy
-from typing import Optional, cast
+from typing import Optional
 from posthog.hogql import ast
-from posthog.hogql_queries.insights.trends.trends_query_runner import T
 from posthog.hogql_queries.utils.query_date_range import compare_interval_length
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.queries.util import get_trunc_func_ch
-from posthog.schema import IntervalType, BaseMathType, DataWarehouseNode, EventsNode, ActionsNode
+from posthog.schema import IntervalType, BaseMathType, DataWarehouseNode, EventsNode, ActionsNode, TrendsQuery
 
 
 def get_start_of_interval_hogql(interval: str, *, team: Team, source: Optional[ast.Expr] = None) -> ast.Expr:
@@ -28,7 +27,7 @@ def series_should_be_set_to_dau(interval: IntervalType, series: list[EventsNode 
     )
 
 
-def convert_active_user_math_based_on_interval(query: T) -> T:
+def convert_active_user_math_based_on_interval(query: TrendsQuery) -> TrendsQuery:
     """
     Convert WAU to DAU for week or longer intervals
     Convert MAU to DAU for month or longer intervals
@@ -51,4 +50,4 @@ def convert_active_user_math_based_on_interval(query: T) -> T:
         if series_should_be_set_to_dau(interval, series):
             series.math = BaseMathType.DAU
 
-    return cast(T, modified_query)
+    return modified_query
