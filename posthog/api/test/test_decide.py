@@ -192,6 +192,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_user_on_evil_site(self, *args):
         user = self.organization.members.first()
+        assert user is not None
         user.toolbar_mode = "toolbar"
         user.save()
 
@@ -2415,6 +2416,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # More in-depth tests in posthog/api/test/test_feature_flag.py
 
         self.team.app_urls = ["https://example.com"]
+        assert self.team is not None
         self.team.save()
         self.client.logout()
         GroupTypeMapping.objects.create(
@@ -2526,6 +2528,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_flag_with_invalid_cohort_filter_condition(self, *args):
         self.team.app_urls = ["https://example.com"]
+        assert self.team is not None
         self.team.save()
         self.client.logout()
 

@@ -97,7 +97,7 @@ class LifecycleQueryRunner(QueryRunner):
         self, day: Optional[str] = None, status: Optional[str] = None
     ) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("actors_query"):
-            exprs = []
+            exprs: list[ast.Expr] = []
             if day is not None:
                 exprs.append(
                     ast.CompareOperation(
