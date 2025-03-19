@@ -269,17 +269,24 @@ export class HogTransformerService {
                     transformationsSucceeded.push(transformationIdentifier)
                 }
 
-                // Only add the properties if there were transformations
-                if (
-                    transformationsSucceeded.length > 0 ||
-                    transformationsFailed.length > 0 ||
-                    transformationsSkipped.length > 0
-                ) {
+                if (transformationsFailed.length > 0) {
+                    event.properties = {
+                        ...event.properties,
+                        $transformations_failed: transformationsFailed,
+                    }
+                }
+
+                if (transformationsSkipped.length > 0) {
+                    event.properties = {
+                        ...event.properties,
+                        $transformations_skipped: transformationsSkipped,
+                    }
+                }
+
+                if (transformationsSucceeded.length > 0) {
                     event.properties = {
                         ...event.properties,
                         $transformations_succeeded: transformationsSucceeded,
-                        $transformations_failed: transformationsFailed,
-                        $transformations_skipped: transformationsSkipped,
                     }
                 }
 
