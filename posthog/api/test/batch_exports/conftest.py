@@ -32,7 +32,7 @@ class ThreadedWorker(Worker):
         Don't use this outside of tests. Once PostHog is fully async we can get rid of this.
         """
         loop = asyncio.new_event_loop()
-        t = threading.Thread(target=self.run, daemon=True, args=(loop,))
+        t = threading.Thread(target=self.run_using_loop, daemon=True, args=(loop,))
         t.start()
 
         try:
@@ -42,7 +42,7 @@ class ThreadedWorker(Worker):
         finally:
             self._shutdown_event.set()
 
-    def run(self, loop):
+    def run_using_loop(self, loop):
         """Setup an event loop to run the Worker.
 
         Using async_to_sync(Worker.run) causes a deadlock.
@@ -95,7 +95,7 @@ def start_test_worker(temporal: TemporalClient):
         client=temporal,
         task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
         workflows=WORKFLOWS,
-        activities=ACTIVITIES,
+        activities=ACTIVITIES,  # type: ignore
         workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         graceful_shutdown_timeout=dt.timedelta(seconds=5),
     ).run_in_thread():

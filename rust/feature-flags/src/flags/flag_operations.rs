@@ -89,13 +89,13 @@ impl FeatureFlagList {
                   f.filters,
                   f.deleted,
                   f.active,
-                  f.ensure_experience_continuity
+                  f.ensure_experience_continuity,
+                  f.version
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
             WHERE t.project_id = $1
               AND f.deleted = false
         "#;
-
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
             .bind(project_id)
             .fetch_all(&mut *conn)
@@ -122,6 +122,7 @@ impl FeatureFlagList {
                     deleted: row.deleted,
                     active: row.active,
                     ensure_experience_continuity: row.ensure_experience_continuity,
+                    version: row.version,
                 })
             })
             .collect::<Result<Vec<FeatureFlag>, FlagError>>()?;
@@ -412,6 +413,7 @@ mod tests {
             deleted: false,
             active: true,
             ensure_experience_continuity: false,
+            version: Some(1),
         };
 
         let flag2 = FeatureFlagRow {
@@ -423,6 +425,7 @@ mod tests {
             deleted: false,
             active: true,
             ensure_experience_continuity: false,
+            version: Some(1),
         };
 
         // Insert multiple flags for the team
@@ -547,6 +550,7 @@ mod tests {
                 deleted: false,
                 active: true,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -646,6 +650,7 @@ mod tests {
                 deleted: false,
                 active: true,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -779,6 +784,7 @@ mod tests {
                 deleted: false,
                 active: true,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -875,6 +881,7 @@ mod tests {
                 deleted: false,
                 active: true,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -961,6 +968,7 @@ mod tests {
                 deleted: true,
                 active: true,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -978,6 +986,7 @@ mod tests {
                 deleted: false,
                 active: false,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -1081,6 +1090,7 @@ mod tests {
                 deleted: false,
                 active: true,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -1160,6 +1170,7 @@ mod tests {
                     deleted: false,
                     active: true,
                     ensure_experience_continuity: false,
+                    version: Some(1),
                 }),
             )
             .await
@@ -1250,6 +1261,7 @@ mod tests {
                     deleted: false,
                     active: true,
                     ensure_experience_continuity: false,
+                    version: Some(1),
                 }),
             )
             .await
@@ -1335,6 +1347,7 @@ mod tests {
                     deleted: false,
                     active: true,
                     ensure_experience_continuity: false,
+                    version: Some(1),
                 }),
             )
             .await
@@ -1448,6 +1461,7 @@ mod tests {
                     deleted: false,
                     active: true,
                     ensure_experience_continuity: false,
+                    version: Some(1),
                 }),
             )
             .await
