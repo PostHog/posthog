@@ -485,6 +485,7 @@ describe('CDP API', () => {
                   "properties": {
                     "$lib_version": "1.0.0",
                     "$transformations_failed": [],
+                    "$transformations_skipped": [],
                     "$transformations_succeeded": [
                       "Filter Out Plugin (<REPLACED-UUID-1>)",
                     ],
