@@ -2,7 +2,6 @@ import { actions, afterMount, kea, listeners, path, reducers, selectors } from '
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
-import { router } from 'kea-router'
 import api from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -91,16 +90,6 @@ export const userLogic = kea<userLogicType>([
                             actions.deleteUserFailure(error.message)
                             return null
                         })
-                },
-                leaveOrganization: async (organizationId: string) => {
-                    const user = await api.delete(`api/organizations/${organizationId}/members/@me/`)
-
-                    if (values.user?.organization?.id === organizationId) {
-                        router.actions.push(`${urls.settings('user-danger-zone')}?deletingUser=true`)
-                        location.reload()
-                    }
-
-                    return user
                 },
                 setUserScenePersonalisation: async ({ scene, dashboard }) => {
                     if (!values.user) {

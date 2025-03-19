@@ -3,7 +3,6 @@ import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
@@ -185,12 +184,6 @@ export const sceneLogic = kea<sceneLogicType>([
             const sceneConfig = sceneConfigurations[scene] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
-
-            if (params.searchParams?.organizationDeleted && !organizationLogic.values.organizationBeingDeleted) {
-                lemonToast.success('Organization has been deleted')
-                // router.actions.push(urls.default())
-                // return
-            }
 
             if (scene === Scene.Signup && preflight && !preflight.can_create_org) {
                 // If user is on an already initiated self-hosted instance, redirect away from signup

@@ -4,13 +4,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { isNotNil } from 'lib/utils'
-import { Dispatch, SetStateAction, useEffect, useState } from 'react'
+import { Dispatch, SetStateAction } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import type { OrganizationBasicType } from '~/types'
-
 import { DeleteOrganizationModal } from '../organization/OrganizationDangerZone'
+import { userDangerZoneLogic } from './userDangerZoneLogic'
 
 const DELETE_CONFIRMATION_TEXT = 'permanently delete data'
 
@@ -23,20 +22,11 @@ export function DeleteUserModal({
 }): JSX.Element {
     const { user } = useValues(userLogic)
     const { push } = useActions(router)
-    const { searchParams } = useValues(router)
     const { updateCurrentOrganization } = useActions(userLogic)
     const { deleteUser, userLoading } = useActions(userLogic)
-    const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
-    const [organizationToDelete, setOrganizationToDelete] = useState<OrganizationBasicType | null>(null)
+    const { organizationToDelete, isUserDeletionConfirmed } = useValues(userDangerZoneLogic)
+    const { leaveOrganization, setOrganizationToDelete, setIsUserDeletionConfirmed } = useActions(userDangerZoneLogic)
     const organizations = (user?.organizations ?? []).filter(isNotNil)
-
-    useEffect(() => {
-        if ((searchParams.organizationDeleted || searchParams.deletingUser) && !isOpen) {
-            setIsOpen(true)
-            router.actions.push(urls.settings('user-danger-zone'))
-        }
-    }, [searchParams?.organizationDeleted, searchParams?.deletingUser, isOpen, setIsOpen])
-
     return (
         <>
             <LemonModal
@@ -53,7 +43,7 @@ export function DeleteUserModal({
                         </LemonButton>
                         <LemonButton
                             type="secondary"
-                            disabled={!isDeletionConfirmed}
+                            disabled={!isUserDeletionConfirmed}
                             loading={userLoading}
                             data-attr="delete-user-ok"
                             status="danger"
@@ -161,7 +151,9 @@ export function DeleteUserModal({
                         <LemonInput
                             type="text"
                             onChange={(value) => {
-                                setIsDeletionConfirmed(value.toLowerCase() === DELETE_CONFIRMATION_TEXT.toLowerCase())
+                                setIsUserDeletionConfirmed(
+                                    value.toLowerCase() === DELETE_CONFIRMATION_TEXT.toLowerCase()
+                                )
                             }}
                         />
                     </>
@@ -177,7 +169,8 @@ export function DeleteUserModal({
 }
 
 export function UserDangerZone(): JSX.Element {
-    const [isModalVisible, setIsModalVisible] = useState(false)
+    const { setDeleteUserModalOpen } = useActions(userDangerZoneLogic)
+    const { deleteUserModalOpen } = useValues(userDangerZoneLogic)
 
     return (
         <>
@@ -189,7 +182,7 @@ export function UserDangerZone(): JSX.Element {
                     <LemonButton
                         status="danger"
                         type="secondary"
-                        onClick={() => setIsModalVisible(true)}
+                        onClick={() => setDeleteUserModalOpen(true)}
                         data-attr="delete-user-button"
                         icon={<IconTrash />}
                     >
@@ -197,7 +190,7 @@ export function UserDangerZone(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            <DeleteUserModal isOpen={isModalVisible} setIsOpen={setIsModalVisible} />
+            <DeleteUserModal isOpen={deleteUserModalOpen} setIsOpen={setDeleteUserModalOpen} />
         </>
     )
 }
