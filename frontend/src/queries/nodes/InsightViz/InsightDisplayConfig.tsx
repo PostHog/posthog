@@ -189,7 +189,7 @@ export function InsightDisplayConfig(): JSX.Element {
                 {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
-                        {breakdownFilter && <RetentionBreakdownFilter />}
+                        {isValidBreakdown(breakdownFilter) && <RetentionBreakdownFilter />}
                     </ConfigFilter>
                 )}
 

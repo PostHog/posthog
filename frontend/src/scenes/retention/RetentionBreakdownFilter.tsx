@@ -14,13 +14,11 @@ export function RetentionBreakdownFilter(): JSX.Element | null {
     }
 
     const options = [
-        { value: null, label: 'All values' },
-        ...breakdownValues
-            .filter((value) => !!value)
-            .map((value) => ({
-                value: value as string | number | boolean,
-                label: value === null ? '(empty)' : value,
-            })),
+        { value: null, label: 'All breakdown values' },
+        ...breakdownValues.map((value) => ({
+            value: value as string | number | boolean,
+            label: value === null || value === '' ? '(empty)' : value,
+        })),
     ]
 
     return (

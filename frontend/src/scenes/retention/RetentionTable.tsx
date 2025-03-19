@@ -10,6 +10,8 @@ import { gradateColor, range } from 'lib/utils'
 import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
 import { NO_BREAKDOWN_VALUE } from './types'
@@ -29,6 +31,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
     const meanRetentionCalculation = retentionFilter?.meanRetentionCalculation ?? 'weighted'
+    const { isDarkModeOn } = useValues(themeLogic)
 
     const totalIntervals = retentionFilter?.totalIntervals ?? 8
 
@@ -58,13 +61,18 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                             <tr
                                 onClick={() => toggleBreakdown(breakdownValue)}
                                 className={clsx('cursor-pointer', {
-                                    'bg-slate-100': expandedBreakdowns[breakdownValue],
+                                    'bg-slate-100': !isDarkModeOn && expandedBreakdowns[breakdownValue],
+                                    'bg-gray-700': isDarkModeOn && expandedBreakdowns[breakdownValue],
                                 })}
                             >
                                 <td>
                                     {expandedBreakdowns[breakdownValue] ? <IconChevronDown /> : <IconChevronRight />}
                                     <span className="pl-2">
-                                        {breakdownValue === NO_BREAKDOWN_VALUE ? 'Weighted Mean' : breakdownValue}{' '}
+                                        {breakdownValue === NO_BREAKDOWN_VALUE
+                                            ? 'Weighted Mean'
+                                            : breakdownValue === null || breakdownValue === ''
+                                            ? '(empty)'
+                                            : breakdownValue}{' '}
                                     </span>
                                 </td>
 
@@ -126,7 +134,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                 openModal(rowIndex)
                                             }
                                         }}
-                                        className="bg-slate-100"
+                                        className={clsx({ 'bg-slate-100': !isDarkModeOn, 'bg-gray-700': isDarkModeOn })}
                                     >
                                         <td className="pl-6">{row.label}</td>
                                         {!hideSizeColumn && (

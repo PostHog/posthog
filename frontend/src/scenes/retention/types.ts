@@ -2,7 +2,7 @@ import { Dayjs } from 'lib/dayjs'
 
 import { ActorType } from '~/types'
 
-export const NO_BREAKDOWN_VALUE = '_no_breakdown_value_'
+export const NO_BREAKDOWN_VALUE = '$$__posthog_...__$$'
 
 export interface ProcessedRetentionValue {
     count: number
