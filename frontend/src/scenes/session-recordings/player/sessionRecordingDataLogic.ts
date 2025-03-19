@@ -576,7 +576,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (!response.sources) {
                         return []
                     }
-                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
+                    const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
+                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY] && anyBlobV2) {
                         return response.sources.filter((s) => s.source === SnapshotSourceType.blob_v2)
                     }
                     return response.sources.filter((s) => s.source !== SnapshotSourceType.blob_v2)
