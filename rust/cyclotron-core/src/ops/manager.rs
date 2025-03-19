@@ -1,11 +1,18 @@
 use chrono::{DateTime, Utc};
+use sqlx::{postgres::PgPoolCopyExt, Pool, Postgres};
 use uuid::Uuid;
 
 use crate::{
     error::QueueError,
     ops::compress::compress_vm_state,
-    types::{JobInit, JobState},
+    types::{Bytes, JobInit, JobState},
 };
+use common_metrics::inc;
+
+// used in bulk_create_jobs_copy
+const CSV_NULL: &str = "_NULL_";
+const ZERO_VALUE: &str = "0";
+const ESTIMATED_RECORD_SIZE: usize = 1024;
 
 pub async fn create_job<'c, E>(
     executor: E,
@@ -64,7 +71,7 @@ VALUES
     Ok(id)
 }
 
-pub async fn bulk_create_jobs<'c, E>(
+pub async fn bulk_create_jobs_upsert<'c, E>(
     executor: E,
     jobs: &[JobInit],
     should_compress_vm_state: bool,
@@ -182,6 +189,144 @@ FROM UNNEST(
     .bind(blob)
     .execute(executor)
     .await?;
+
+    Ok(ids)
+}
+
+// experimental variant of bulk_create_jobs_upsert using Postgres COPY for batch writes
+pub async fn bulk_create_jobs_copy(
+    pool: &Pool<Postgres>,
+    jobs: &[JobInit],
+    should_compress_vm_state: bool,
+) -> Result<Vec<Uuid>, QueueError> {
+    let copy_in_stmt = format!(
+        r#"
+COPY cyclotron_jobs (
+    id, team_id, function_id, created, lock_id, last_heartbeat,
+    janitor_touch_count, transition_count, last_transition, queue_name,
+    state, scheduled, priority, vm_state, metadata, parameters, blob
+)
+FROM STDIN WITH BINARY NULL AS '{}'
+"#,
+        CSV_NULL
+    );
+
+    let mut ids = Vec::with_capacity(jobs.len());
+    let now = Utc::now().to_rfc3339();
+
+    // set up CSV in mem buffer for capturing the row data; try to
+    // avoid too many buffer extension allocations as we fill it
+    let estimated_buffer_size = jobs.len() * ESTIMATED_RECORD_SIZE;
+    let buffer = Bytes::with_capacity(estimated_buffer_size);
+    let mut csv_writer = csv::WriterBuilder::new()
+        .has_headers(false)
+        .from_writer(buffer);
+
+    for j in jobs {
+        let new_id = Uuid::now_v7();
+        ids.push(new_id);
+
+        let mut vm_state = j.vm_state.clone();
+        if should_compress_vm_state {
+            vm_state = compress_vm_state(vm_state)?;
+        }
+
+        // write all columns of CSV record in order defined in COPY stmt
+        csv_writer
+            .write_field(new_id)
+            .map_err(|e| QueueError::CSVError("id", e))?;
+        csv_writer
+            .write_field(j.team_id.to_string())
+            .map_err(|e| QueueError::CSVError("team_id", e))?;
+        if let Some(id) = j.function_id {
+            csv_writer
+                .write_field(id.to_string())
+                .map_err(|e| QueueError::CSVError("function_id", e))?;
+        } else {
+            csv_writer
+                .write_field(CSV_NULL)
+                .map_err(|e| QueueError::CSVError("null_function_id", e))?;
+        }
+        csv_writer
+            .write_field(&now)
+            .map_err(|e| QueueError::CSVError("created", e))?;
+        csv_writer
+            .write_field(CSV_NULL)
+            .map_err(|e| QueueError::CSVError("lock_id", e))?;
+        csv_writer
+            .write_field(CSV_NULL)
+            .map_err(|e| QueueError::CSVError("last_heartbeat", e))?;
+        csv_writer
+            .write_field(ZERO_VALUE)
+            .map_err(|e| QueueError::CSVError("janitor_touch_count", e))?;
+        csv_writer
+            .write_field(ZERO_VALUE)
+            .map_err(|e| QueueError::CSVError("transition_count", e))?;
+        csv_writer
+            .write_field(&now)
+            .map_err(|e| QueueError::CSVError("last_transition", e))?;
+        csv_writer
+            .write_field(&j.queue_name)
+            .map_err(|e| QueueError::CSVError("queue_name", e))?;
+        csv_writer
+            .write_field((JobState::Available as u32).to_string())
+            .map_err(|e| QueueError::CSVError("state", e))?;
+        csv_writer
+            .write_field(j.scheduled.to_string())
+            .map_err(|e| QueueError::CSVError("scheduled", e))?;
+        csv_writer
+            .write_field(j.priority.to_string())
+            .map_err(|e| QueueError::CSVError("priority", e))?;
+        if let Some(vs) = vm_state {
+            csv_writer
+                .write_field(vs)
+                .map_err(|e| QueueError::CSVError("vm_state", e))?;
+        } else {
+            csv_writer
+                .write_field(CSV_NULL)
+                .map_err(|e| QueueError::CSVError("null_vm_state", e))?;
+        }
+        if let Some(m) = &j.metadata {
+            csv_writer
+                .write_field(&m[..])
+                .map_err(|e| QueueError::CSVError("metadata", e))?;
+        } else {
+            csv_writer
+                .write_field(CSV_NULL)
+                .map_err(|e| QueueError::CSVError("null_metadata", e))?;
+        }
+        if let Some(ps) = &j.parameters {
+            csv_writer
+                .write_field(&ps[..])
+                .map_err(|e| QueueError::CSVError("parameters", e))?;
+        } else {
+            csv_writer
+                .write_field(CSV_NULL)
+                .map_err(|e| QueueError::CSVError("null_parameters", e))?;
+        }
+        if let Some(b) = &j.blob {
+            csv_writer
+                .write_field(&b[..])
+                .map_err(|e| QueueError::CSVError("blob", e))?;
+        } else {
+            csv_writer
+                .write_field(CSV_NULL)
+                .map_err(|e| QueueError::CSVError("null_blob", e))?;
+        }
+
+        csv_writer
+            .write_record(None::<&[u8]>)
+            .map_err(|e| QueueError::CSVError("csv_row", e))?; // terminate CSV row
+    }
+
+    csv_writer
+        .flush()
+        .map_err(|e| QueueError::CSVError("csv_flush", e.into()))?;
+
+    let mut stream = pool.copy_in_raw(&copy_in_stmt).await?;
+    let _ = stream.send(&csv_writer.get_ref()[..]).await?;
+    let rows_affected = stream.finish().await?;
+    inc("bulk_create_jobs_copy_rows_affected", &[], rows_affected);
 
     Ok(ids)
 }
