@@ -170,6 +170,8 @@ class PropertyFilterDescriber(BaseModel):
     def _describe_filter_with_value(self, key: Any, operator: PropertyOperator | None, value: Any):
         if value is None:
             formatted_value = None
+        elif isinstance(value, list) and len(value) == 1:
+            return self._describe_filter_with_value(key, operator, value[0])
         elif isinstance(value, list):
             formatted_value = ", ".join(str(v) for v in value)
             formatted_value = f"[{formatted_value}]"

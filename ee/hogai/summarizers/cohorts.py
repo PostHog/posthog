@@ -1,8 +1,10 @@
 from functools import cached_property
 
+from django.utils import timezone
+
 from ee.hogai.summarizers.property_filters import PropertyFilterDescriber, PropertyFilterUnion
 from ee.hogai.summarizers.utils import Summarizer
-from posthog.models import Cohort
+from posthog.models import Cohort, Team
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup, PropertyType
 from posthog.schema import (
     CohortPropertyFilter,
@@ -18,6 +20,7 @@ from posthog.schema import (
     RecordingPropertyFilter,
     SessionPropertyFilter,
 )
+from posthog.utils import relative_date_parse_with_delta_mapping
 
 
 def _format_conditions(conditions: list[str], separator: str) -> str:
@@ -28,10 +31,80 @@ def _append_braces(condition: str) -> str:
     return f"({condition})"
 
 
+def _format_relative_time_delta(team: Team, date_string: str) -> str:
+    """
+    Converts date strings into human-readable descriptions.
+
+    Examples:
+        - '-30d' -> 'in the last 30 days'
+        - '2025-01-02' -> 'on 2025-01-02'
+        - '-1mStart' -> 'at the start of the previous month'
+        - '-1mEnd' -> 'at the end of the previous month'
+    """
+    # Use existing relative_date_parse_with_delta_mapping function
+    dt, delta_mapping, position = relative_date_parse_with_delta_mapping(
+        date_string,
+        team.timezone_info,
+        always_truncate=False,
+        now=timezone.now(),
+    )
+
+    # Not a relative date, it's a specific date
+    if not delta_mapping:
+        return f"on {dt.strftime('%Y-%m-%d')}"
+
+    if not position:
+        position_text = "in the last {text}"
+    elif position == "Start":
+        position_text = "at the start of {text} ago"
+    elif position == "End":
+        position_text = "at the end of {text} ago"
+
+    s = lambda count: "s" if count != 1 else ""
+
+    # Handle different time units
+    if "days" in delta_mapping:
+        days = delta_mapping["days"]
+        if days == 1 and position:
+            return "yesterday"
+        return position_text.format(text=f"{days} day{s(days)}")
+
+    elif "hours" in delta_mapping:
+        hours = delta_mapping["hours"]
+        return position_text.format(text=f"{hours} hour{s(hours)}")
+
+    elif "weeks" in delta_mapping:
+        weeks = delta_mapping["weeks"]
+        if weeks == 1 and position:
+            return position_text.format(text="previous week")
+        return position_text.format(text=f"{weeks} week{s(weeks)}")
+
+    elif "months" in delta_mapping:
+        months = delta_mapping["months"]
+        if months == 1 and position:
+            return position_text.format(text="previous month")
+        return position_text.format(text=f"{months} month{s(months)}")
+
+    elif "years" in delta_mapping:
+        years = delta_mapping["years"]
+        if years == 1 and position:
+            return position_text.format(text="previous year")
+        return position_text.format(text=f"{years} year{s(years)}")
+
+    # Generic fallback - use the existing date format
+    if position:
+        position_text = "start" if position == "Start" else "end"
+        return f"at the {position_text} of {dt.strftime('%Y-%m-%d')}"
+
+    return f"on {dt.strftime('%Y-%m-%d')}"
+
+
 class CohortPropertyDescriber:
+    _team: Team
     _property: Property
 
-    def __init__(self, prop: Property):
+    def __init__(self, team: Team, prop: Property):
+        self._team = team
         self._property = prop
 
     def summarize(self) -> str:
@@ -96,40 +169,41 @@ class CohortPropertyDescriber:
         """
         Generate a human-readable description of a behavioral property.
         """
-        behavioral_type = self._property.value
+        prop = self._property
+        behavioral_type = prop.value
         if not isinstance(behavioral_type, str):
             return "Behavioral Cohort"
 
-        event_type_name = "action" if self._property.event_type == "actions" else "event"
-        event_name = f"`{self._property.key}`"
+        event_type_name = "action" if prop.event_type == "actions" else "event"
+        event_name = f"`{prop.key}`"
 
         # Format time period if available
         time_period = ""
-        if self._property.explicit_datetime:
-            time_period = f"before {self._property.explicit_datetime}"
-        elif self._property.time_value is not None and self._property.time_interval:
-            time_period = f"in the last {self._property.time_value} {self._property.time_interval}{'s' if self._property.time_value != 1 else ''}"
+        if prop.explicit_datetime:
+            time_period = _format_relative_time_delta(self._team, prop.explicit_datetime)
+        elif prop.time_value is not None and prop.time_interval:
+            time_period = f"in the last {prop.time_value} {prop.time_interval}{'s' if prop.time_value != 1 else ''}"
 
         # Format sequential time period if available
         seq_time_period = ""
-        if self._property.seq_time_value is not None and self._property.seq_time_interval:
-            seq_time_period = f"{self._property.seq_time_value} {self._property.seq_time_interval}{'s' if self._property.seq_time_value != 1 else ''}"
+        if prop.seq_time_value is not None and prop.seq_time_interval:
+            seq_time_period = f"{prop.seq_time_value} {prop.seq_time_interval}{'s' if prop.seq_time_value != 1 else ''}"
 
         match behavioral_type:
             case BehavioralPropertyType.PERFORMED_EVENT:
-                return f"people who performed {event_type_name} {event_name} {time_period}"
+                return self._summarize_behavioral_event_filters(event_type_name, event_name, time_period)
 
             case BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE:
                 operator_desc = ""
-                if self._property.operator and self._property.operator_value is not None:
-                    if self._property.operator == "gte":
-                        operator_desc = f"at least {self._property.operator_value} times"
-                    elif self._property.operator == "lte":
-                        operator_desc = f"at most {self._property.operator_value} times"
-                    elif self._property.operator == "eq":
-                        operator_desc = f"exactly {self._property.operator_value} times"
+                if prop.operator and prop.operator_value is not None:
+                    if prop.operator == "gte":
+                        operator_desc = f"at least {prop.operator_value} times"
+                    elif prop.operator == "lte":
+                        operator_desc = f"at most {prop.operator_value} times"
+                    elif prop.operator == "eq":
+                        operator_desc = f"exactly {prop.operator_value} times"
                     else:
-                        operator_desc = f"{self._property.operator} {self._property.operator_value} times"
+                        operator_desc = f"{prop.operator} {prop.operator_value} times"
 
                 return f"people who performed {event_type_name} {event_name} {operator_desc} {time_period}"
 
@@ -137,14 +211,14 @@ class CohortPropertyDescriber:
                 return f"people who performed {event_type_name} {event_name} for the first time {time_period}"
 
             case BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE:
-                seq_event_type_name = "action" if self._property.seq_event_type == "actions" else "event"
-                seq_event_name = f"`{self._property.seq_event}`"
+                seq_event_type_name = "action" if prop.seq_event_type == "actions" else "event"
+                seq_event_name = f"`{prop.seq_event}`"
 
                 return f"people who performed {event_type_name} {event_name} {time_period} followed by {seq_event_type_name} {seq_event_name} within {seq_time_period}"
 
             case BehavioralPropertyType.PERFORMED_EVENT_REGULARLY:
-                min_periods = self._property.min_periods or 0
-                total_periods = self._property.total_periods or 0
+                min_periods = prop.min_periods or 0
+                total_periods = prop.total_periods or 0
 
                 return f"people who performed {event_type_name} {event_name} at least {min_periods} times out of {total_periods} periods {time_period}"
 
@@ -190,6 +264,15 @@ class CohortPropertyDescriber:
 
     def _summarize_static_cohort(self) -> str:
         return "people from the manually uploaded list"
+
+    def _summarize_behavioral_event_filters(self, event_type_name: str, event_name: str, time_period: str) -> str:
+        prop = self._property
+        if prop.event_filters:
+            conditions: list[str] = [
+                CohortPropertyDescriber(self._team, prop).summarize() for prop in prop.event_filters
+            ]
+            return f"people who performed an {event_type_name} {event_name} where the {_format_conditions(conditions, ' AND the ')} {time_period}"
+        return f"people who performed an {event_type_name} {event_name} {time_period}"
 
 
 class CohortPropertyGroupDescriber:
