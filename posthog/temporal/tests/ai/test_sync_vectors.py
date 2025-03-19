@@ -147,6 +147,32 @@ async def test_get_actions_qs(mock_flag, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+async def test_get_actions_qs_with_deleted_actions(mock_flag, actions):
+    start_dt = timezone.now()
+
+    # Never summarized and deleted
+    action_1, action_2, action_3 = actions
+    action_1.deleted = True
+    await action_1.asave()
+
+    # Updated after last summarization
+    action_2.updated_at = start_dt - timedelta(hours=1)
+    action_2.last_summarized_at = start_dt - timedelta(hours=2)
+    await action_2.asave()
+
+    # Deleted but updated after last summarization
+    action_3.updated_at = start_dt - timedelta(hours=2)
+    action_3.last_summarized_at = start_dt - timedelta(hours=1)
+    action_3.deleted = True
+    await action_3.asave()
+
+    qs = await get_actions_qs(start_dt + timedelta(hours=1))
+    assert await qs.acount() == 2
+    assert {a async for a in qs.values_list("id", flat=True)} == {action_2.id, action_3.id}
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
 async def test_get_actions_qs_with_unapproved_organization(mock_flag, aorganization):
     aorganization.is_ai_data_processing_approved = False
     await aorganization.asave()

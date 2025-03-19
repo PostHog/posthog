@@ -44,8 +44,8 @@ async def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_si
         # Only actions updated before the start date
         updated_at__lte=start_dt,
     ) & (
-        # Never summarized actions
-        Q(last_summarized_at__isnull=True)
+        # Never summarized actions but not deleted
+        Q(last_summarized_at__isnull=True, deleted=False)
         # Actions updated after last summarization workflow
         | Q(updated_at__gte=F("last_summarized_at"))
         # The line below preserves the execution order of the workflow. Temporal workflows must be deterministic,
