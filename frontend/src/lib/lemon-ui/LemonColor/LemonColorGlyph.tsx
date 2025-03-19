@@ -10,15 +10,6 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { LemonButtonWithoutSideActionProps } from '../LemonButton'
 
-const getColorFromToken = (colorToken: DataColorToken, theme: Record<string, string>): string => {
-    const colorNo = parseInt(colorToken.replace('preset-', ''))
-    const availableColors = Object.keys(theme).length
-
-    // once all colors are exhausted, start again from the beginning
-    const wrappedNum = ((colorNo - 1) % availableColors) + 1
-    return theme[`preset-${wrappedNum}`]
-}
-
 type LemonColorGlyphBaseProps = {
     /** Additional class names. */
     className?: string
@@ -53,7 +44,7 @@ export function LemonColorGlyph({
     children,
 }: LemonColorGlyphProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
-    const { getTheme } = useValues(dataThemeLogic)
+    const { getTheme, getColorFromToken } = useValues(dataThemeLogic)
 
     const theme = getTheme(themeId)
 
@@ -72,7 +63,7 @@ export function LemonColorGlyph({
         )
     }
 
-    const effectiveColor = colorToken ? getColorFromToken(colorToken, theme!) : color
+    const effectiveColor = colorToken ? getColorFromToken(themeId, colorToken) : color
 
     // display a glyph for an unset color
     if (effectiveColor == null) {

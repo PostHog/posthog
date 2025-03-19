@@ -38,11 +38,9 @@ export function LemonColorButton({
     size,
     ...rest
 }: LemonColorButtonProps): JSX.Element {
-    const { getTheme } = useValues(dataThemeLogic)
+    const { getColorFromToken } = useValues(dataThemeLogic)
 
-    const theme = getTheme(themeId)
-
-    const effectiveColor = colorToken ? (theme?.[colorToken] as string) : color
+    const effectiveColor = colorToken ? getColorFromToken(themeId, colorToken) : color
     const derivedTooltip = hideColorDescription || !effectiveColor ? undefined : colorDescription(effectiveColor)
     const effectiveTooltip = tooltip ?? derivedTooltip
 
