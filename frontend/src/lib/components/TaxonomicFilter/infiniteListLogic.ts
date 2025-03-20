@@ -114,6 +114,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         remoteEndpoint,
                         scopedRemoteEndpoint,
                         swappedInQuery,
+                        searchQuery,
                         excludedProperties,
                         listGroupType,
                         propertyAllowList,
@@ -121,11 +122,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     if (!remoteEndpoint) {
                         // should not have been here in the first place!
-                        return createEmptyListStorage(swappedInQuery)
+                        return createEmptyListStorage(swappedInQuery || searchQuery)
                     }
 
                     const searchParams = {
-                        [`${values.group?.searchAlias || 'search'}`]: swappedInQuery,
+                        [`${values.group?.searchAlias || 'search'}`]: swappedInQuery || searchQuery,
                         limit,
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
@@ -155,7 +156,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     ])
                     breakpoint()
 
-                    const queryChanged = values.remoteItems.searchQuery !== swappedInQuery
+                    const queryChanged = values.remoteItems.searchQuery !== (swappedInQuery || searchQuery)
 
                     await captureTimeToSeeData(values.currentTeamId, {
                         type: 'properties_load',
@@ -174,8 +175,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             response.results || response,
                             offset
                         ),
-                        searchQuery: values.swappedInQuery,
-                        originalQuery: values.searchQuery,
+                        searchQuery: swappedInQuery || searchQuery,
+                        originalQuery: swappedInQuery ? searchQuery : undefined,
                         queryChanged,
                         count:
                             response.count ||
@@ -218,7 +219,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     if (props.listGroupType === TaxonomicFilterGroupType.PersonProperties && isEmail(searchQuery)) {
                         return 'email'
                     }
-                    return searchQuery
+                    return null
                 },
             },
         ],
@@ -323,15 +324,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (s) => [s.rawLocalItems, s.searchQuery, s.swappedInQuery, s.fuse],
             (rawLocalItems, searchQuery, swappedInQuery, fuse): ListStorage => {
                 if (rawLocalItems) {
-                    const filteredItems = searchQuery
-                        ? fuse.search(searchQuery).map((result) => result.item.item)
-                        : rawLocalItems
+                    const filteredItems =
+                        swappedInQuery || searchQuery
+                            ? fuse.search(swappedInQuery || searchQuery).map((result) => result.item.item)
+                            : rawLocalItems
 
                     return {
                         results: filteredItems,
                         count: filteredItems.length,
-                        searchQuery: swappedInQuery,
-                        originalQuery: searchQuery,
+                        searchQuery: swappedInQuery || searchQuery,
+                        originalQuery: swappedInQuery ? searchQuery : undefined,
                     }
                 }
                 return createEmptyListStorage()
