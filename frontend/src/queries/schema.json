@@ -8040,6 +8040,52 @@
             "required": ["variant", "days", "exposure_counts"],
             "type": "object"
         },
+        "ExperimentFunnelMetricConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "funnel": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentFunnelStepConfig"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "ExperimentFunnelMetricConfig",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/ExperimentMetricMathType"
+                }
+            },
+            "required": ["kind", "funnel"],
+            "type": "object"
+        },
+        "ExperimentFunnelStepConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "event": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentFunnelStepConfig",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "order": {
+                    "type": "number"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "event", "order", "properties"],
+            "type": "object"
+        },
         "ExperimentFunnelsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -8154,6 +8200,9 @@
                         },
                         {
                             "$ref": "#/definitions/ExperimentDataWarehouseMetricConfig"
+                        },
+                        {
+                            "$ref": "#/definitions/ExperimentFunnelMetricConfig"
                         }
                     ]
                 },
@@ -11190,6 +11239,8 @@
                 "ExperimentExposureQuery",
                 "ExperimentEventExposureConfig",
                 "ExperimentEventMetricConfig",
+                "ExperimentFunnelMetricConfig",
+                "ExperimentFunnelStepConfig",
                 "ExperimentActionMetricConfig",
                 "ExperimentDataWarehouseMetricConfig",
                 "ExperimentTrendsQuery",
