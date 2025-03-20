@@ -371,7 +371,7 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
             await database_sync_to_async(saved_query.save)()
             raise CannotCoerceColumnException(f"Type coercion error in model {model_label}: {error_message}") from e
         else:
-            saved_query.latest_error = error_message
+            saved_query.latest_error = f"Failed to materialize model {model_label}"
             await database_sync_to_async(saved_query.save)()
             raise Exception(f"Failed to materialize model {model_label}: {error_message}") from e
 
