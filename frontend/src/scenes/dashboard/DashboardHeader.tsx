@@ -190,7 +190,10 @@ export function DashboardHeader(): JSX.Element | null {
                                                 </>
                                             )}
                                             {canEditDashboard && (
-                                                <LemonButton onClick={showInsightColorsModal} fullWidth>
+                                                <LemonButton
+                                                    onClick={() => showInsightColorsModal(dashboard.id)}
+                                                    fullWidth
+                                                >
                                                     Customize Colors
                                                 </LemonButton>
                                             )}
