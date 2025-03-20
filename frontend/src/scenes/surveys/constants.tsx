@@ -331,7 +331,15 @@ export const errorTrackingSurvey: SurveyTemplate = {
             descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
         },
     ],
-    conditions: { url: '', actions: null, events: { values: [{ name: '$exception' }] } },
+    conditions: {
+        url: '',
+        seenSurveyWaitPeriodInDays: 14,
+        actions: null,
+        events: { repeatedActivation: true, values: [{ name: '$exception' }] },
+    },
+    appearance: {
+        surveyPopupDelaySeconds: 2,
+    },
     description: 'Ask users for context when they hit an exception.',
 }
 
