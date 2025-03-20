@@ -1280,7 +1280,7 @@ describe('ActionMatcher', () => {
         let team: Team
         let cohort: Cohort
         let person: InternalPerson
-        let personId: bigint
+        let personId: InternalPerson['id']
         const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
 
         beforeEach(async () => {

@@ -2,7 +2,16 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
-import { BasePerson, Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
+import {
+    BasePerson,
+    Hub,
+    InternalPerson,
+    Person,
+    PropertyOperator,
+    PropertyUpdateOperation,
+    RawAction,
+    Team,
+} from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { DependencyUnavailableError, RedisOperationError } from '../../src/utils/db/error'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -256,7 +265,7 @@ describe('DB', () => {
         })
     })
 
-    async function fetchPersonByPersonId(teamId: number, personId: bigint): Promise<Person | undefined> {
+    async function fetchPersonByPersonId(teamId: number, personId: InternalPerson['id']): Promise<Person | undefined> {
         const selectResult = await db.postgres.query(
             PostgresUse.COMMON_WRITE,
             `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
