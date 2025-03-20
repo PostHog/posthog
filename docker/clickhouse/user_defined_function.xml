@@ -302,6 +302,10 @@
             <type>UInt64</type>
             <name>question_index</name>
         </argument>
+        <argument>
+            <type>String</type>
+            <name>question_id</name>
+        </argument>
         <format>JSONEachRow</format>
         <command>get_survey_response.py</command>
         <lifetime>600</lifetime>

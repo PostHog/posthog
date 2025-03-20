@@ -1234,7 +1234,7 @@ UDFS: dict[str, HogQLFunctionMeta] = {
     "aggregate_funnel_array_trends": HogQLFunctionMeta("aggregate_funnel_array_trends", 7, 7, aggregate=False),
     "aggregate_funnel_cohort_trends": HogQLFunctionMeta("aggregate_funnel_cohort_trends", 7, 7, aggregate=False),
     "aggregate_funnel_test": HogQLFunctionMeta("aggregate_funnel_test", 6, 6, aggregate=False),
-    "get_survey_response": HogQLFunctionMeta("get_survey_response", 2, 2, aggregate=False),
+    "get_survey_response": HogQLFunctionMeta("get_survey_response", 3, 3, aggregate=False),
 }
 # We want CI to fail if there is a breaking change and the version hasn't been incremented
 if is_cloud() or is_ci():
