@@ -6,12 +6,25 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 export function AIConsentPopoverWrapper({
     children,
+    onDismiss,
+    onAccept,
     ...popoverProps
 }: Pick<PopoverProps, 'placement' | 'fallbackPlacements' | 'middleware' | 'showArrow'> & {
     children: JSX.Element
+    onAccept?: () => void
+    onDismiss?: () => void
 }): JSX.Element {
     const { acceptDataProcessing } = useActions(maxGlobalLogic)
     const { dataProcessingApprovalDisabledReason, dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    const handleAcceptDataProcessing = (): void => {
+        acceptDataProcessing()
+        onAccept?.()
+    }
+
+    const handleClickOutside = (): void => {
+        onDismiss?.()
+    }
 
     return (
         <Popover
@@ -29,16 +42,16 @@ export function AIConsentPopoverWrapper({
                         </Tooltip>{' '}
                         for data analysis,
                         <br />
-                        so that you can focus on building. This <em>can</em> include
+                        so that you can focus on building. This <em>can</em> include
                         <br />
-                        identyifying data of your users, if you're capturing it.
+                        identyifying data of your users, if you're capturing it.
                         <br />
                         <em>Your data won't be used for training models.</em>
                     </p>
                     <LemonButton
                         type="secondary"
                         size="small"
-                        onClick={() => acceptDataProcessing()}
+                        onClick={handleAcceptDataProcessing}
                         sideIcon={dataProcessingApprovalDisabledReason ? <IconLock /> : undefined}
                         disabledReason={dataProcessingApprovalDisabledReason}
                         tooltip="You are approving this as an organization admin"
@@ -50,6 +63,7 @@ export function AIConsentPopoverWrapper({
             }
             style={{ zIndex: 'var(--z-modal)' }} // Don't show above the re-authentication modal
             visible={!dataProcessingAccepted}
+            onClickOutside={handleClickOutside}
             {...popoverProps}
         >
             {children}
