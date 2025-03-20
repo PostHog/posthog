@@ -30,7 +30,7 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
             >
                 <div className="flex justify-between p-1 bg-surface-tertiary">
                     <ProjectDropdownMenu />
-                    <div className="flex gap-1 items-center justify-end">
+                    <div className="flex gap-px items-center justify-end">
                         {!isMobileLayout && (
                             <LemonButton
                                 size="small"

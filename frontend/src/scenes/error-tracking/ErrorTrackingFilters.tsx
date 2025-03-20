@@ -40,6 +40,7 @@ const FilterGroup = (): JSX.Element => {
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.HogQLExpression,
                 ]}
                 onChange={setFilterGroup}
             >

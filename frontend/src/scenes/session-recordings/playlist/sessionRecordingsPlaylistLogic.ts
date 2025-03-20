@@ -9,6 +9,7 @@ import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/
 import {
     isActionFilter,
     isEventFilter,
+    isEventPropertyFilter,
     isLogEntryPropertyFilter,
     isRecordingPropertyFilter,
 } from 'lib/components/UniversalFilters/utils'
@@ -622,12 +623,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 const filterValues = filtersFromUniversalFilterGroups(filters)
 
                 const eventFilters = filterValues.filter(isEventFilter)
+                const eventPropertyFilters = filterValues.filter(isEventPropertyFilter)
                 const actionFilters = filterValues.filter(isActionFilter)
                 const hasVisitedPageFilter = filterValues
                     .filter(isRecordingPropertyFilter)
                     .some((f) => f.key === 'visited_page')
 
                 const hasEvents = !!eventFilters.length
+                const hasEventsProperties = !!eventPropertyFilters.length
                 const hasActions = !!actionFilters.length
                 const simpleEventsFilters = (eventFilters || [])
                     .filter((e) => !e.properties || !e.properties.length)
@@ -638,7 +641,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 if (hasActions || hasVisitedPageFilter) {
                     return { matchType: 'backend', filters }
                 }
-                if (!hasEvents) {
+
+                if (!hasEvents && !hasEventsProperties) {
                     return { matchType: 'none' }
                 }
 
@@ -648,6 +652,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         eventNames: simpleEventsFilters,
                     }
                 }
+
                 return {
                     matchType: 'backend',
                     filters,

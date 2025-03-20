@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0689_survey_enable_partial_responses"),
+        ("posthog", "0690_alter_personid_persondistinctid"),
     ]
 
     operations = [
