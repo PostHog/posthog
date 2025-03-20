@@ -726,6 +726,7 @@ class Producer:
         backfill_details: BackfillDetails | None,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
+        query_id: str | None = None,
         **kwargs,
     ) -> asyncio.Task:
         """Dispatch to one of two implementations, depending on `self.model`."""
@@ -736,6 +737,7 @@ class Producer:
                 min_records_per_batch=min_records_per_batch,
                 full_range=full_range,
                 done_ranges=done_ranges,
+                query_id=query_id,
             )
         else:
             return await self.start_without_model(
@@ -746,6 +748,7 @@ class Producer:
                 done_ranges=done_ranges,
                 is_backfill=is_backfill,
                 backfill_details=backfill_details,
+                query_id=query_id,
                 **kwargs,
             )
 
@@ -756,6 +759,7 @@ class Producer:
         done_ranges: list[tuple[dt.datetime, dt.datetime]],
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
+        query_id: str | None = None,
     ):
         assert self.model is not None
 
@@ -769,6 +773,7 @@ class Producer:
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
                 min_records_per_batch=min_records_per_batch,
                 team_id=self.model.team_id,
+                query_id=query_id,
             ),
             name="record_batch_producer",
         )
@@ -789,6 +794,7 @@ class Producer:
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
         filters: list[dict[str, str | list[str]]] | None = None,
+        query_id: str | None = None,
         **parameters,
     ) -> asyncio.Task:
         if fields is None:
@@ -876,6 +882,7 @@ class Producer:
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
                 min_records_per_batch=min_records_per_batch,
                 team_id=team_id,
+                query_id=query_id,
             ),
             name="record_batch_producer",
         )
@@ -892,6 +899,7 @@ class Producer:
         team_id: int,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
+        query_id: str | None = None,
     ):
         """Produce Arrow record batches for a given date range into `queue`.
 
@@ -909,6 +917,8 @@ class Producer:
                 into smaller record batches.
             min_records_batch_per_batch: If slicing a record batch, each slice should contain at least
                 this number of records.
+            query_id: ClickHouse query ID to use. If provided, we will attempt to first KILL any
+                queries with the same ID. Otherwise, a new UUID is used as query ID.
         """
 
         clickhouse_url = None
@@ -930,11 +940,18 @@ class Producer:
             if not await client.is_alive():
                 raise ConnectionError("Cannot establish connection to ClickHouse")
 
+            if query_id is not None:
+                await self.logger.info(
+                    "Received query ID %s, will attempt to kill any running queries with the same ID", query_id
+                )
+                await client.kill_query(query_id)
+            else:
+                query_id = str(uuid.uuid4())
+
             for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
                 if interval_start is not None:
                     query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
                 query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
-                query_id = uuid.uuid4()
 
                 if isinstance(query_or_model, RecordBatchModel):
                     query, query_parameters = await query_or_model.as_query_with_parameters(
@@ -944,8 +961,10 @@ class Producer:
                     query = query_or_model
 
                 try:
+                    await self.logger.info("Streaming record batches query ID %s", query_id)
+
                     async for record_batch in client.astream_query_as_arrow(
-                        query, query_parameters=query_parameters, query_id=str(query_id)
+                        query, query_parameters=query_parameters, query_id=query_id
                     ):
                         for record_batch_slice in slice_record_batch(
                             record_batch, max_record_batch_size_bytes, min_records_per_batch

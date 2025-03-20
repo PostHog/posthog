@@ -14,6 +14,7 @@ import structlog
 from django.conf import settings
 
 import posthog.temporal.common.asyncpa as asyncpa
+from posthog.temporal.common.logger import get_internal_logger
 
 logger = structlog.get_logger()
 
@@ -145,17 +146,23 @@ class ClickHouseClient:
         user: str = "default",
         password: str = "",
         database: str = "default",
+        cluster: str | None = None,
         timeout: None | aiohttp.ClientTimeout = None,
         ssl: ssl.SSLContext | bool = True,
         **kwargs,
     ):
         self.url = url
+        self.cluster = cluster
         self.headers = {}
         self.params = {}
         self.timeout = timeout
         self.ssl = ssl
+        self.running_queries = set()
         self.connector: None | aiohttp.TCPConnector = None
         self.session: None | aiohttp.ClientSession = None
+
+        logger = get_internal_logger()
+        self.logger = logger.bind(url=url, cluster=cluster, user=user, database=database)
 
         if user:
             self.headers["X-ClickHouse-User"] = user
@@ -280,8 +287,10 @@ class ClickHouseClient:
             raise ClickHouseClientNotConnected()
 
         params = {**self.params}
-        if query_id is not None:
-            params["query_id"] = query_id
+        if query_id is None:
+            query_id = str(uuid.uuid4())
+
+        params["query_id"] = query_id
 
         # Certain views, like person_batch_exports* still rely on us formatting arguments.
         params["query"] = self.prepare_query(query, query_parameters)
@@ -291,6 +300,8 @@ class ClickHouseClient:
             for key, value in query_parameters.items():
                 if key in query:
                     params[f"param_{key}"] = str(value)
+
+        self.running_queries.add(query_id)
 
         async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
             await self.acheck_response(response, query)
@@ -320,8 +331,10 @@ class ClickHouseClient:
             raise ClickHouseClientNotConnected()
 
         params = {**self.params}
-        if query_id is not None:
-            params["query_id"] = query_id
+        if query_id is None:
+            query_id = str(uuid.uuid4())
+
+        params["query_id"] = query_id
 
         # Certain views, like person_batch_exports* still rely on us formatting arguments.
         query = self.prepare_query(query, query_parameters)
@@ -338,6 +351,8 @@ class ClickHouseClient:
             params["query"] = query
         else:
             request_data = query.encode("utf-8")
+
+        self.running_queries.add(query_id)
 
         async with self.session.post(url=self.url, params=params, headers=self.headers, data=request_data) as response:
             await self.acheck_response(response, query)
@@ -390,6 +405,23 @@ class ClickHouseClient:
             )
             self.check_response(response, query)
             yield response
+
+    async def kill_query(self, query_id: str, wait_for_cancellation: bool = True) -> None:
+        """Kill the query with given query ID in ClickHouse."""
+        if self.cluster:
+            on_cluster_clause = f"ON CLUSTER {self.cluster}"
+        else:
+            on_cluster_clause = ""
+
+        query = "KILL QUERY" + on_cluster_clause + f"WHERE query_id = {query_id}"
+
+        if wait_for_cancellation:
+            query += " SYNC"
+
+        query += " FORMAT NULL"
+
+        async with self.apost_query(query, query_parameters=None, query_id=None):
+            return None
 
     async def execute_query(self, query, *data, query_parameters=None, query_id: str | None = None) -> None:
         """Execute the given query in ClickHouse.
@@ -491,6 +523,29 @@ class ClickHouseClient:
 
     async def __aexit__(self, exc_type, exc_value, tb):
         """Exit method part of the AsyncContextManager protocol."""
+        if self.running_queries:
+            await self.logger.ainfo(
+                "Exiting ClickHouseClient will attempt to kill running queries",
+                running_queries=self.running_queries,
+            )
+
+            try:
+                async with asyncio.timeout(10):
+                    _ = await asyncio.gather(
+                        *[self.kill_query(query_id, wait_for_cancellation=False) for query_id in self.running_queries],
+                        return_exceptions=True,
+                    )
+            except TimeoutError:
+                await self.logger.awarning(
+                    "Could not kill running queries on exit in time", running_queries=self.running_queries
+                )
+            except Exception as exc:
+                await self.logger.aexception(
+                    "An unexpected error occurred while attempting to kill running queries",
+                    running_queries=self.running_queries,
+                    exc=exc,
+                )
+
         if self.session is not None:
             await self.session.close()
 
@@ -555,6 +610,7 @@ async def get_client(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         database=settings.CLICKHOUSE_DATABASE,
+        cluster=settings.CLICKHOUSE_CLUSTER,
         timeout=timeout,
         ssl=False,
         max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,

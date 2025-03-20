@@ -611,6 +611,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
+            query_id=activity.info().workflow_id,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
