@@ -38,7 +38,7 @@ export function TaxonomicFilter({
     hideBehavioralCohorts,
     showNumericalPropsOnly,
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
-    useVerticalLayout,
+    useVerticalLayout = false,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(

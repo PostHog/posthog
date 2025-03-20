@@ -42,6 +42,11 @@ export interface TaxonomicFilterProps {
     hideBehavioralCohorts?: boolean
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
+    /**
+     * Forces vertical/columnar layout regardless of the number of taxonomic groups.
+     * When undefined, vertical layout is used automatically when there are more than VERTICAL_LAYOUT_THRESHOLD (default 4) groups.
+     * Set to true to force vertical layout, false to force horizontal layout.
+     */
     useVerticalLayout?: boolean
 }
 
