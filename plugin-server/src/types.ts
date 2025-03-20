@@ -821,7 +821,9 @@ export type PropertiesLastOperation = Record<string, PropertyUpdateOperation>
 
 /** Properties shared by RawPerson and Person. */
 export interface BasePerson {
-    id: number
+    // NOTE: id is a bigint in the DB, which pg lib returns as a string
+    // We leave it as a string as dealing with the bigint type is tricky and we don't need any of its features
+    id: string
     team_id: number
     properties: Properties
     is_user_id: number

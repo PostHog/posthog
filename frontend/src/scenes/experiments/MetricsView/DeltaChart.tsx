@@ -77,12 +77,16 @@ export const getMetricTitle = (metric: any, metricType?: InsightType): JSX.Eleme
             const lastStep = series[series.length - 1]?.name
 
             return (
-                <span className="inline-flex items-center gap-1 min-w-0">
-                    <IconFunnels className="text-secondary flex-shrink-0" fontSize="14" />
-                    <span className="truncate">{firstStep}</span>
-                    <IconArrowRight className="text-secondary flex-shrink-0" fontSize="14" />
-                    <span className="truncate">{lastStep}</span>
-                </span>
+                <div className="inline-flex flex-wrap items-center gap-1 min-w-0">
+                    <div className="inline-flex items-center gap-1 min-w-0">
+                        <IconFunnels className="text-secondary flex-shrink-0" fontSize="14" />
+                        <span className="truncate">{firstStep}</span>
+                    </div>
+                    <div className="inline-flex items-center gap-1 min-w-0 @max-[200px]:ml-5">
+                        <IconArrowRight className="text-secondary flex-shrink-0" fontSize="14" />
+                        <span className="truncate">{lastStep}</span>
+                    </div>
+                </div>
             )
         }
     }
@@ -293,7 +297,7 @@ export function DeltaChart({
                     <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
                         <div className="deprecated-space-y-1">
                             <div className="flex items-center gap-2">
-                                <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
+                                <div className="@container cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-start">
                                     <span className="mr-1">{metricIndex + 1}.</span>
                                     {getMetricTitle(metric, metricType)}
                                 </div>

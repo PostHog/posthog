@@ -1173,9 +1173,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.json() == {
             "attr": None,
             "code": "invalid_input",
-            "detail": "Must specify at least one event or action filter",
+            "detail": "Must specify at least one event or action filter, or event properties filter",
             "type": "validation_error",
         }
+
+    def test_get_matching_events_can_send_event_properties_filter(self) -> None:
+        query_params = [
+            f'session_ids=["{str(uuid.uuid4())}"]',
+            # we can send event action or event properties filters and it is valid
+            'properties=[{"key":"$active_feature_flags","value":"query_running_time","operator":"icontains","type":"event"}]',
+        ]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+        assert response.status_code == status.HTTP_200_OK
 
     def test_get_matching_events_for_unknown_session(self) -> None:
         session_id = str(uuid.uuid4())

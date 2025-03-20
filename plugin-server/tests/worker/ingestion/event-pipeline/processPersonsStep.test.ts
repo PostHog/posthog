@@ -66,7 +66,7 @@ describe('processPersonsStep()', () => {
         expect(resEvent).toEqual(pluginEvent)
         expect(resPerson).toEqual(
             expect.objectContaining({
-                id: expect.any(Number),
+                id: expect.any(String),
                 uuid: expect.any(String),
                 properties: { a: 5, $creator_event_uuid: expect.any(String) },
                 version: 0,
@@ -116,7 +116,7 @@ describe('processPersonsStep()', () => {
         })
         expect(resPerson).toEqual(
             expect.objectContaining({
-                id: expect.any(Number),
+                id: expect.any(String),
                 uuid: expect.any(String),
                 properties: {
                     $initial_browser: 'Chrome',
