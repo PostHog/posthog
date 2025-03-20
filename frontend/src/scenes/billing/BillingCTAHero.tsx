@@ -33,7 +33,7 @@ const STARTUP_PROGRAM_BADGES: Record<StartupProgramLabel, string> = {
 interface CopyVariation {
     title: string | null
     subtitle: string | null
-    description: JSX.Element
+    getDescription: (billingPlan: BillingPlan) => JSX.Element
     backgroundColor: string
 }
 
@@ -42,7 +42,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         title: 'Get the whole hog.',
         subtitle: 'Only pay for what you use.',
         backgroundColor: 'bg-danger-highlight',
-        description: (
+        getDescription: () => (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
                 <p>Add your credit card to remove usage limits and unlock all platform features.</p>
@@ -55,10 +55,10 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         title: 'Good call!',
         subtitle: "You're on the ridiculously cheap plan.",
         backgroundColor: 'bg-warning-highlight',
-        description: (
+        getDescription: () => (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
-                <p>If you're growing like crazy, you might want to check out the enterprise plan.</p>
+                <p>If you're growing like crazy, you might want to check out the Teams or Enterprise plan.</p>
             </>
         ),
     },
@@ -66,10 +66,10 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         title: 'Good call!',
         subtitle: "You're on the team plan.",
         backgroundColor: 'bg-warning-highlight',
-        description: (
+        getDescription: () => (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
-                <p>If you're growing like crazy, you might want to check out the enterprise plan.</p>
+                <p>If you're growing like crazy, you might want to check out the Enterprise plan.</p>
             </>
         ),
     },
@@ -77,17 +77,18 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         title: 'Good call!',
         subtitle: "You're on the enterprise plan.",
         backgroundColor: 'bg-success-highlight',
-        description: <p>It doesn't get any better than this!</p>,
+        getDescription: () => <p>It doesn't get any better than this!</p>,
     },
     [StartupProgramLabel.Startup]: {
         title: 'Good for you!',
         subtitle: "You're on the startup plan.",
         backgroundColor: 'bg-warning-highlight',
-        description: (
+        getDescription: (billingPlan: BillingPlan) => (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
                 <p>
-                    If you're growing like crazy, you might want to check out what the enterprise plan could give you.
+                    If you're growing like crazy, you might want to check out the{' '}
+                    {billingPlan !== BillingPlan.Teams ? 'Teams or ' : ''}Enterprise plan.
                 </p>
             </>
         ),
@@ -96,11 +97,12 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         title: 'Lucky you!',
         subtitle: "You're on the special YC plan.",
         backgroundColor: 'bg-warning-highlight',
-        description: (
+        getDescription: (billingPlan: BillingPlan) => (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
                 <p>
-                    If you're growing like crazy, you might want to check out what the enterprise plan could give you.
+                    If you're growing like crazy, you might want to check out the{' '}
+                    {billingPlan !== BillingPlan.Teams ? 'Teams or ' : ''}Enterprise plan.
                 </p>
             </>
         ),
@@ -131,7 +133,7 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                 />
                 {copyVariation.title && <h1 className="mb-0">{copyVariation.title}</h1>}
                 {copyVariation.subtitle && <h1 className="text-danger">{copyVariation.subtitle}</h1>}
-                <div className="mt-2">{copyVariation.description}</div>
+                <div className="mt-2">{copyVariation.getDescription(billingPlan)}</div>
                 {showUpgradeOptions && (
                     <div className="flex items-center gap-2">
                         {featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
