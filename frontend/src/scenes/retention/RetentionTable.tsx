@@ -62,7 +62,6 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                 onClick={() => toggleBreakdown(breakdownValue)}
                                 className={clsx('cursor-pointer', {
                                     'bg-slate-100': !isDarkModeOn && expandedBreakdowns[breakdownValue],
-                                    'bg-gray-700': isDarkModeOn && expandedBreakdowns[breakdownValue],
                                 })}
                             >
                                 <td>
@@ -134,7 +133,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                 openModal(rowIndex)
                                             }
                                         }}
-                                        className={clsx({ 'bg-slate-100': !isDarkModeOn, 'bg-gray-700': isDarkModeOn })}
+                                        className={clsx({ 'bg-slate-100': !isDarkModeOn })}
                                     >
                                         <td className="pl-6">{row.label}</td>
                                         {!hideSizeColumn && (
