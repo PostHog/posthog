@@ -220,8 +220,8 @@ export enum BillingPlan {
 }
 
 export enum StartupProgramLabel {
-    YC = 'Y Combinator',
-    Startup = 'Startup Program',
+    YC = 'YC',
+    Startup = 'Startup',
 }
 
 export enum Realm {
