@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "0689_survey_enable_partial_responses"),
-    ]
+    dependencies = [("posthog", "0690_alter_personid_persondistinctid")]
 
     operations = [
         migrations.AddField(
