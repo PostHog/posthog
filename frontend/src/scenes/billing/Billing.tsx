@@ -168,14 +168,14 @@ export function Billing(): JSX.Element {
                     'flex-row': size !== 'small',
                 })}
             >
-                {!!billingPlan && !billing?.trial && !!platformAndSupportProduct && (
-                    <div className="flex-1">
-                        <BillingHero product={platformAndSupportProduct} />
-                    </div>
-                )}
                 {showBillingSummary && (
                     <div className="flex-1">
                         <BillingSummary />
+                    </div>
+                )}
+                {!!billingPlan && !billing?.trial && !!platformAndSupportProduct && (
+                    <div className="flex-1">
+                        <BillingHero product={platformAndSupportProduct} />
                     </div>
                 )}
             </div>
