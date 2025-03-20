@@ -113,9 +113,9 @@ export const RecordingsUniversalFilters = ({
                 callback={(toolOutput: Record<string, any>) => {
                     // Improve type
                     setFilters({
-                        filter_group: toolOutput.data.filter_group,
-                        date_from: toolOutput.data.date_from,
-                        date_to: toolOutput.data.date_to,
+                        filter_group: toolOutput.filter_group,
+                        date_from: toolOutput.date_from,
+                        date_to: toolOutput.date_to,
                     })
                     setIsFiltersExpanded(true)
                 }}

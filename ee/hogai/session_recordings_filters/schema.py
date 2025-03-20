@@ -4,12 +4,6 @@ from typing import Optional
 from pydantic import BaseModel
 
 
-class ResultEnum(str, Enum):
-    QUESTION = "question"
-    FILTER = "filter"
-    MAXAI = "maxai"
-
-
 class FilterOperatorEnum(str, Enum):
     EXACT = "exact"
     IS_NOT = "is_not"
@@ -80,19 +74,11 @@ class OuterFilterGroup(BaseModel):
         extra = "forbid"
 
 
-class FilterData(BaseModel):
+class RecordingsFilters(BaseModel):
     question: Optional[str] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     filter_group: Optional[OuterFilterGroup] = None
-
-    class Config:
-        extra = "forbid"
-
-
-class AiFilterSchema(BaseModel):
-    result: ResultEnum
-    data: FilterData
 
     class Config:
         extra = "forbid"

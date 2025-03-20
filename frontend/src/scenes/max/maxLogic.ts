@@ -27,7 +27,13 @@ import { Conversation, SidePanelTab } from '~/types'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
-import { isAssistantMessage, isHumanMessage, isReasoningMessage, isVisualizationMessage } from './utils'
+import {
+    isAssistantMessage,
+    isAssistantToolCallMessage,
+    isHumanMessage,
+    isReasoningMessage,
+    isVisualizationMessage,
+} from './utils'
 
 export interface MaxLogicProps {
     conversationId?: string
@@ -225,7 +231,7 @@ export const maxLogic = kea<maxLogicType>([
                                     ...parsedResponse,
                                     status: 'completed',
                                 })
-                            } else if ('ui_payload' in parsedResponse) {
+                            } else if (isAssistantToolCallMessage(parsedResponse)) {
                                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
                                     values.toolMap[toolName]?.callback(toolResult)
                                 }
