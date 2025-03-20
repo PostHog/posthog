@@ -282,7 +282,7 @@ interface VariableComponentProps {
     variableSettingsOnClick?: () => void
 }
 
-const VariableComponent = ({
+export const VariableComponent = ({
     variable,
     showEditingUI,
     onChange,

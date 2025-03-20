@@ -44,9 +44,9 @@ export const NEW_QUERY = 'Untitled'
 
 const getNextUntitledNumber = (tabs: QueryTab[]): number => {
     const untitledNumbers = tabs
-        .filter((tab) => tab.name.startsWith(NEW_QUERY))
+        .filter((tab) => tab.name?.startsWith(NEW_QUERY))
         .map((tab) => {
-            const match = tab.name.match(/Untitled (\d+)/)
+            const match = tab.name?.match(/Untitled (\d+)/)
             return match ? parseInt(match[1]) : 0
         })
         .filter((num) => !isNaN(num))
@@ -520,7 +520,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             dataNodeLogic({
                 key: values.currentDataLogicKey,
                 query: newSource,
-            }).actions.loadData(!switchTab)
+            }).actions.loadData(!switchTab ? 'force_async' : 'async')
         },
         saveAsView: async () => {
             LemonDialog.openForm({
