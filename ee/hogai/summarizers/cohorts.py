@@ -24,14 +24,6 @@ from posthog.schema import (
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 
-def _format_conditions(conditions: list[str], separator: str) -> str:
-    return separator.join(conditions)
-
-
-def _append_braces(condition: str) -> str:
-    return f"({condition})"
-
-
 def _format_relative_time_delta(team: Team, date_string: str) -> str:
     """
     Converts date strings into human-readable descriptions.
@@ -100,10 +92,6 @@ def _format_relative_time_delta(team: Team, date_string: str) -> str:
     return f"on {dt.strftime('%Y-%m-%d')}"
 
 
-def _pluralize(noun: str, count: int) -> str:
-    return f"{noun}s" if count != 1 else noun
-
-
 def _convert_property_to_property_filter(prop: Property) -> PropertyFilterUnion:
     property_type_to_schema: dict[PropertyType, PropertyFilterUnion] = {
         "event": EventPropertyFilter,
@@ -130,21 +118,20 @@ def _convert_property_to_property_filter(prop: Property) -> PropertyFilterUnion:
             schema = HogQLPropertyFilter(key=prop.key)
         case _:
             keys = ["key", "label", "operator", "value"]
-            kwargs = {key: getattr(prop, key) for key in keys if hasattr(prop, key)}
+            kwargs = {key: getattr(prop, key, None) for key in keys if hasattr(prop, key)}
             schema = property_type_to_schema[prop.type].model_validate(kwargs)
 
     return schema
 
 
-class CohortPropertyDescriber:
-    _team: Team
+class CohortPropertyDescriber(Summarizer):
     _property: Property
 
     def __init__(self, team: Team, prop: Property):
-        self._team = team
+        super().__init__(team)
         self._property = prop
 
-    def summarize(self) -> str:
+    def _generate_summary(self) -> str:
         match self._property.type:
             case "static-cohort":
                 return self._summarize_static_cohort()
@@ -178,7 +165,7 @@ class CohortPropertyDescriber:
                 # If the cohort has properties, add a short description of them
                 property_groups = cohort.properties
                 if property_groups and property_groups.values:
-                    describer = CohortSummarizer(cohort, inline_conditions=True)
+                    describer = CohortSummarizer(self._team, cohort, inline_conditions=True)
                     description += f"\n\nThe cohort includes {describer.summary}"
 
                 return description
@@ -219,14 +206,14 @@ class CohortPropertyDescriber:
         return f"the event `{key}`"
 
     def _format_time_period(self, time_value: int, time_interval: str) -> str:
-        return f"{time_value} {_pluralize(time_interval, time_value)}"
+        return f"{time_value} {self.pluralize(time_interval, time_value)}"
 
     @cached_property
     def _frequency(self) -> str:
         prop = self._property
         operator_desc = ""
         if prop.operator and prop.operator_value is not None:
-            operator_desc = _pluralize("time", prop.operator_value)
+            operator_desc = self.pluralize("time", prop.operator_value)
             if prop.operator == "gte":
                 operator_desc = f"at least {prop.operator_value} {operator_desc}"
             elif prop.operator == "lte":
@@ -284,9 +271,12 @@ class CohortPropertyDescriber:
         prop = self._property
         schema = _convert_property_to_property_filter(prop)
         cohort_name = self._cohort_name
-        verb = "do not have" if prop.negation else "have"
+        if prop.type == "cohort":
+            verb = "are not a part of" if prop.negation else "are a part of"
+        else:
+            verb = "do not have" if prop.negation else "have"
         return (
-            f"{cohort_name} {verb} the {PropertyFilterDescriber(filter=schema, use_relative_pronoun=True).description}"
+            f"{cohort_name} {verb} the {PropertyFilterDescriber(self._team, schema, use_relative_pronoun=True).summary}"
         )
 
     def _summarize_static_cohort(self) -> str:
@@ -309,10 +299,10 @@ class CohortPropertyDescriber:
 
         if prop.event_filters:
             conditions: list[str] = [
-                PropertyFilterDescriber(filter=_convert_property_to_property_filter(prop)).description
+                PropertyFilterDescriber(self._team, _convert_property_to_property_filter(prop)).summary
                 for prop in prop.event_filters
             ]
-            conditions_str = _format_conditions(conditions, " AND the ")
+            conditions_str = self.join_conditions(conditions, " AND the ")
             return f"{self._cohort_name} {verb} {verbose_name} where the {conditions_str}{frequency} {time_period}"
         return f"{self._cohort_name} {verb} {verbose_name}{frequency} {time_period}"
 
@@ -336,26 +326,27 @@ class CohortPropertyDescriber:
         return f"{cohort_name} {verb} {first_event} in {time_period} followed by {second_event} within {seq_time_period} of the initial event"
 
 
-class CohortPropertyGroupDescriber:
+class CohortPropertyGroupDescriber(Summarizer):
     _property_group: PropertyGroup
     _inline_conditions: bool
 
-    def __init__(self, prop_group: PropertyGroup, inline_conditions: bool = False):
+    def __init__(self, team: Team, prop_group: PropertyGroup, inline_conditions: bool = False):
+        super().__init__(team)
         self._property_group = prop_group
         self._inline_conditions = inline_conditions
 
-    def summarize(self) -> str:
+    def _generate_summary(self) -> str:
         summaries: list[str] = []
         for group in self._property_group.values:
             if isinstance(group, PropertyGroup):
-                summary = CohortPropertyGroupDescriber(group, self._is_next_level_inline).summarize()
+                summary = CohortPropertyGroupDescriber(self._team, group, self._is_next_level_inline).summary
             else:
-                summary = CohortPropertyDescriber(group).summarize()
+                summary = CohortPropertyDescriber(self._team, group).summary
             summaries.append(summary)
         # No need to concatenate if there's only one condition
-        summary = _format_conditions(summaries, self._separator) if len(summaries) > 1 else summaries[0]
+        summary = self.join_conditions(summaries, self._separator) if len(summaries) > 1 else summaries[0]
         if self._inline_conditions:
-            return _append_braces(summary)
+            return self.parenthesize(summary)
         return summary
 
     @property
@@ -374,7 +365,8 @@ class CohortPropertyGroupDescriber:
 class CohortSummarizer(Summarizer):
     _cohort: Cohort
 
-    def __init__(self, cohort: Cohort, inline_conditions: bool = False):
+    def __init__(self, team: Team, cohort: Cohort, inline_conditions: bool = False):
+        super().__init__(team)
         self._cohort = cohort
         self._inline_conditions = inline_conditions
 
@@ -382,31 +374,66 @@ class CohortSummarizer(Summarizer):
         """
         Generate a human-readable summary of the cohort.
         """
-        if not self._cohort or self._cohort.deleted:
+        if self._inline_conditions:
+            return self._summarize_inline()
+        return self._summarize_multiline()
+
+    def _summarize_multiline(self) -> str:
+        cohort = self._cohort
+        if not cohort or cohort.deleted:
             return "This cohort has been deleted."
 
         summary_parts = []
 
         # Add cohort name and description
-        summary_parts.append(f"Name: {self._cohort.name}")
-        if self._cohort.description:
-            summary_parts.append(f"Description: {self._cohort.description}")
+        summary_parts.append(f"Name: {cohort.name}")
+        if cohort.description:
+            summary_parts.append(f"Description: {cohort.description}")
 
         # Add cohort size if available
-        if self._cohort.count is not None:
-            summary_parts.append(f"Size: {self._cohort.count} people")
+        if cohort.count is not None:
+            summary_parts.append(f"Size: {cohort.count} people")
 
         # Add cohort type information
-        if self._cohort.is_static:
+        if cohort.is_static:
             summary_parts.append("Type: Static (manually created list)")
         else:
             summary_parts.append("Type: Dynamic (based on filters)")
 
         # Add property filters
-        property_groups = self._cohort.properties
-        if property_groups and property_groups.values:
+        if properties_summary := self._summarize_property_filters():
             summary_parts.append("\nFilters:")
-            describer = CohortPropertyGroupDescriber(property_groups, self._inline_conditions)
-            summary_parts.append(describer.summarize())
+            summary_parts.append(properties_summary)
 
         return "\n".join(summary_parts)
+
+    def _summarize_inline(self) -> str:
+        cohort = self._cohort
+        if not cohort or cohort.deleted:
+            return "deleted cohort"
+
+        summary_parts = []
+
+        # Add cohort name and description
+        cohort_type = "static" if cohort.is_static else "dynamic"
+        summary_parts.append(f"{cohort_type} cohort `{cohort.name}` with ID `{cohort.id}`")
+        if cohort.description:
+            summary_parts.append(f"described as `{cohort.description}`")
+
+        # Add cohort size if available
+        if cohort.count is not None:
+            summary_parts.append(f"having a size of {cohort.count} people")
+
+        # Add property filters
+        if properties_summary := self._summarize_property_filters():
+            summary_parts.append("having the following filters")
+            summary_parts.append(properties_summary)
+
+        return " ".join(part for part in summary_parts if part)
+
+    def _summarize_property_filters(self) -> str | None:
+        property_groups = self._cohort.properties
+        if property_groups and property_groups.values:
+            describer = CohortPropertyGroupDescriber(self._team, property_groups, self._inline_conditions)
+            return describer.summary
+        return None
