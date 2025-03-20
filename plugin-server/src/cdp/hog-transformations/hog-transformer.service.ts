@@ -142,12 +142,12 @@ export class HogTransformerService {
 
                 // Get states for all functions to check if any are disabled - only if feature flag is enabled
                 let states: Record<string, { state: HogWatcherState }> = {}
-                const timer = transformEventHogWatcherLatency.startTimer()
                 if (this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
+                    const timer = transformEventHogWatcherLatency.startTimer()
                     states = await this.hogWatcher.getStates(teamHogFunctions.map((hf) => hf.id))
+                    const durationSeconds = timer()
+                    transformEventHogWatcherLatency.observe({ operation: 'getStates' }, durationSeconds * 1000) // Convert seconds to milliseconds
                 }
-                const durationSeconds = timer()
-                transformEventHogWatcherLatency.observe({ operation: 'getStates' }, durationSeconds * 1000) // Convert seconds to milliseconds
 
                 // For now, execute each transformation function in sequence
                 for (const hogFunction of teamHogFunctions) {
