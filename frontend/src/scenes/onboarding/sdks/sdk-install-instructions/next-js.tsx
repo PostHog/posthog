@@ -170,7 +170,7 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const showSetupWizard = useFeatureFlag('AI_SETUP_WIZARD') && !hideWizard && isCloudOrDev
 
-    const region = preflight?.region ?? 'EU'
+    const region = preflight?.region
 
     const wizardCommand = `npx @posthog/wizard${region ? ` --region ${region.toLowerCase()}` : ''}`
     return (
