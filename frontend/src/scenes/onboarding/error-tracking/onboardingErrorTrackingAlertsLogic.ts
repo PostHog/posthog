@@ -107,7 +107,7 @@ export const onboardingErrorTrackingAlertsLogic = kea<onboardingErrorTrackingAle
                 } else if (values.integration === 'discord') {
                     configuration.inputs = {
                         webhookUrl: { value: formValues.discordWebhookUrl },
-                        text: { value: '**🔴 {event.properties.name} created:** {event.properties.description}' },
+                        content: { value: '**🔴 {event.properties.name} created:** {event.properties.description}' },
                     }
                 } else if (values.integration === 'slack') {
                     configuration.inputs = {
