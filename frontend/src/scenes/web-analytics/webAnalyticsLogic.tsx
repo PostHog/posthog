@@ -1889,7 +1889,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal && featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
+                    !conversionGoal
                         ? {
                               kind: 'error_tracking',
                               tileId: TileId.ERROR_TRACKING,
