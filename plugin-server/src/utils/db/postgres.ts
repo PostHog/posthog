@@ -157,6 +157,7 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
             console.error('🔴', 'Postgres query error', {
                 query: queryConfig.text,
                 error,
+                stack: error.stack,
             })
             throw error
         }
