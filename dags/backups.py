@@ -9,6 +9,7 @@ import dagster
 from django.conf import settings
 import pydantic
 from dags.common import JobOwners
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster
 
 from dagster_aws.s3 import S3Resource
@@ -315,7 +316,7 @@ def run_backup(
     if backup.shard:
         cluster.map_any_host_in_shards({backup.shard: backup.create}).result()
     else:
-        cluster.any_host(backup.create).result()
+        cluster.any_host_by_role(backup.create, NodeRole.DATA).result()
 
     return backup
 
