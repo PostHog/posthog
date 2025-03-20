@@ -645,7 +645,7 @@ describe('HogTransformer', () => {
             })
 
             await insertHogFunction(hub.db.postgres, teamId, hogFunction)
-            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent(
                 {
@@ -729,7 +729,10 @@ describe('HogTransformer', () => {
 
             await insertHogFunction(hub.db.postgres, teamId, successFunction)
             await insertHogFunction(hub.db.postgres, teamId, skippedFunction)
-            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
+                successFunction.id,
+                skippedFunction.id,
+            ])
 
             const event = createPluginEvent({ event: 'does-not-match' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
@@ -947,7 +950,7 @@ describe('HogTransformer', () => {
             })
 
             await insertHogFunction(hub.db.postgres, teamId, hogFunction)
-            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent({ event: 'does-not-match-me' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
@@ -993,7 +996,7 @@ describe('HogTransformer', () => {
             })
 
             await insertHogFunction(hub.db.postgres, teamId, hogFunction)
-            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             // Test event that should match the filter
             const matchingEvent = createPluginEvent({ event: 'match-me' }, teamId)
@@ -1045,7 +1048,7 @@ describe('HogTransformer', () => {
             })
 
             await insertHogFunction(hub.db.postgres, teamId, hogFunction)
-            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent({ event: 'any-event' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
@@ -1114,7 +1117,10 @@ describe('HogTransformer', () => {
 
             await insertHogFunction(hub.db.postgres, teamId, errorFunction)
             await insertHogFunction(hub.db.postgres, teamId, workingFunction)
-            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
+                errorFunction.id,
+                workingFunction.id,
+            ])
 
             const event = createPluginEvent({ event: 'test-event' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
@@ -1164,7 +1170,7 @@ describe('HogTransformer', () => {
             })
 
             await insertHogFunction(hub.db.postgres, teamId, hogFunction)
-            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent({ event: 'match-me' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
@@ -1211,7 +1217,7 @@ describe('HogTransformer', () => {
             })
 
             await insertHogFunction(hub.db.postgres, teamId, hogFunction)
-            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent({ event: 'does-not-match-any' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
@@ -1261,7 +1267,7 @@ describe('HogTransformer', () => {
             })
 
             await insertHogFunction(hub.db.postgres, teamId, hogFunction)
-            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent({ event: 'match-me-1' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)

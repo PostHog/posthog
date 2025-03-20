@@ -2854,7 +2854,7 @@ export interface Survey {
     targeting_flag_filters?: FeatureFlagFilters
     conditions: {
         url: string
-        selector: string
+        selector?: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyMatchType
         deviceTypes?: string[]
