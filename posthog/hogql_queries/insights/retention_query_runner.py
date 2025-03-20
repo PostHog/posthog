@@ -488,6 +488,8 @@ class RetentionQueryRunner(QueryRunner):
                 },
                 timings=self.timings,
             )
+            assert isinstance(retention_query, ast.SelectQuery)
+
             # We want to expose each interval as a separate column
             for i in range(self.query_date_range.lookahead):
                 retention_query.select.append(
