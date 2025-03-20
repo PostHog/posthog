@@ -10,7 +10,7 @@ use crate::{
 use common_metrics::inc;
 
 // used in bulk_create_jobs_copy
-const CSV_NULL: &str = "_NULL_";
+const CSV_NULL: &str = "NULL";
 const ZERO_VALUE: &str = "0";
 const ESTIMATED_RECORD_SIZE: usize = 1024;
 
@@ -200,17 +200,13 @@ pub async fn bulk_create_jobs_copy(
     should_compress_vm_state: bool,
 ) -> Result<Vec<Uuid>, QueueError> {
     let copy_in_stmt = format!(
-        r#"
-COPY cyclotron_jobs (
-    id, team_id, function_id, created, lock_id, last_heartbeat,
-    janitor_touch_count, transition_count, last_transition, queue_name,
-    state, scheduled, priority, vm_state, metadata, parameters, blob
-)
-FROM STDIN WITH NULL AS '{}'
-"#,
-        CSV_NULL
-    );
-
+        r#"COPY "cyclotron_jobs"
+        (id, team_id, function_id, created, lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition, queue_name, state, scheduled, priority, vm_state, metadata, parameters, blob)
+        FROM STDIN WITH
+        (FORMAT CSV,
+         NULL '{}',
+         ENCODING 'UTF8',
+         QUOTE '"')"#, CSV_NULL);
     let mut ids = Vec::with_capacity(jobs.len());
     let now = Utc::now().to_rfc3339();
 
@@ -219,6 +215,7 @@ FROM STDIN WITH NULL AS '{}'
     let estimated_buffer_size = jobs.len() * ESTIMATED_RECORD_SIZE;
     let buffer = Bytes::with_capacity(estimated_buffer_size);
     let mut csv_writer = csv::WriterBuilder::new()
+        .delimiter(b',')
         .has_headers(false)
         .from_writer(buffer);
 
@@ -279,7 +276,7 @@ FROM STDIN WITH NULL AS '{}'
             .map_err(|e| QueueError::CSVError("priority", e))?;
         if let Some(vs) = vm_state {
             csv_writer
-                .write_field(vs)
+                .write_field(encode_pg_bytea(&vs))
                 .map_err(|e| QueueError::CSVError("vm_state", e))?;
         } else {
             csv_writer
@@ -288,7 +285,7 @@ FROM STDIN WITH NULL AS '{}'
         }
         if let Some(m) = &j.metadata {
             csv_writer
-                .write_field(&m[..])
+                .write_field(encode_pg_bytea(&m))
                 .map_err(|e| QueueError::CSVError("metadata", e))?;
         } else {
             csv_writer
@@ -297,7 +294,7 @@ FROM STDIN WITH NULL AS '{}'
         }
         if let Some(ps) = &j.parameters {
             csv_writer
-                .write_field(&ps[..])
+                .write_field(encode_pg_bytea(&ps))
                 .map_err(|e| QueueError::CSVError("parameters", e))?;
         } else {
             csv_writer
@@ -306,7 +303,7 @@ FROM STDIN WITH NULL AS '{}'
         }
         if let Some(b) = &j.blob {
             csv_writer
-                .write_field(&b[..])
+                .write_field(encode_pg_bytea(&b))
                 .map_err(|e| QueueError::CSVError("blob", e))?;
         } else {
             csv_writer
@@ -329,4 +326,10 @@ FROM STDIN WITH NULL AS '{}'
     inc("bulk_create_jobs_copy_rows_affected", &[], rows_affected);
 
     Ok(ids)
+}
+
+// encode bytea columns as strings for CSV COPY input
+//
+fn encode_pg_bytea(data: &Vec<u8>) -> String {
+    format!("\\x{}", hex::encode(data))
 }
