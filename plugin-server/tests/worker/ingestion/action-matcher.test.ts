@@ -8,7 +8,6 @@ import {
     Hub,
     InternalPerson,
     ISOTimestamp,
-    Person,
     PostIngestionEvent,
     PropertyOperator,
     RawAction,
