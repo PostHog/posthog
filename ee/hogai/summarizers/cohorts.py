@@ -142,53 +142,6 @@ class CohortPropertyDescriber(Summarizer):
         # Regular property filters or precalculated cohorts.
         return self._summarize_property_group()
 
-    def _summarize_precalculated_cohort(self) -> str:
-        """
-        Generate a human-readable description of a precalculated cohort property.
-        Retrieves the actual cohort and uses the CohortSummarizer to generate details.
-        """
-        try:
-            cohort_id = self._property.key
-            if not cohort_id or not isinstance(cohort_id, int | str):
-                return "people in an unknown precalculated cohort"
-
-            # Try to get the cohort by ID
-            try:
-                cohort = Cohort.objects.get(pk=cohort_id)
-
-                # Generate a short summary
-                if cohort.name:
-                    description = f"people in the precalculated cohort `{cohort.name}` (ID: {cohort_id})"
-                else:
-                    description = f"people in the precalculated cohort with ID {cohort_id}"
-
-                # If the cohort has properties, add a short description of them
-                property_groups = cohort.properties
-                if property_groups and property_groups.values:
-                    describer = CohortSummarizer(self._team, cohort, inline_conditions=True)
-                    description += f"\n\nThe cohort includes {describer.summary}"
-
-                return description
-
-            except Cohort.DoesNotExist:
-                # Cohort ID not found, use the value as name if available
-                cohort_name = self._property.value
-                if isinstance(cohort_name, str) and cohort_name:
-                    return f"people in the precalculated cohort `{cohort_name}` (ID: {cohort_id}, deleted)"
-                else:
-                    return f"people in the precalculated cohort with ID {cohort_id} (deleted)"
-            except Exception:
-                # In case of any other errors, fall back to basic information
-                cohort_name = self._property.value
-                if isinstance(cohort_name, str) and cohort_name:
-                    return f"people in the precalculated cohort `{cohort_name}` (ID: {cohort_id})"
-                else:
-                    return f"people in the precalculated cohort with ID {cohort_id}"
-
-        except Exception:
-            # Fallback if anything goes wrong
-            return "people in a precalculated cohort"
-
     def _get_action_name(self, key: str) -> str:
         try:
             action = Action.objects.get(pk=key, team__project_id=self._team.project_id)
@@ -245,7 +198,7 @@ class CohortPropertyDescriber(Summarizer):
                 return self._summarize_behavioral_event_filters()
 
             case BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME:
-                return f"people who performed {verbose_name} for the first time {time_period}"
+                return self._summarize_lifecycle_first_time_event()
 
             case BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE:
                 return self._summarize_behavioral_event_sequence()
@@ -322,6 +275,19 @@ class CohortPropertyDescriber(Summarizer):
         seq_time_period = self._format_time_period(prop.seq_time_value, prop.seq_time_interval)
 
         return f"{cohort_name} {verb} {first_event} in {time_period} followed by {second_event} within {seq_time_period} of the initial event"
+
+    def _summarize_lifecycle_first_time_event(self) -> str:
+        prop = self._property
+
+        # Validation of Property will skip creating a property if any of these are missing,
+        # so we can safely assume they are not None. This is for mypy to be happy.
+        assert prop.event_type is not None
+        assert prop.time_interval is not None and prop.time_value is not None
+
+        verb = "did not perform" if prop.negation else "performed"
+        time_period = self._format_time_period(prop.time_value, prop.time_interval)
+
+        return f"people who {verb} {self._get_verbose_name(prop.event_type, prop.key)} for the first time in the last {time_period}"
 
 
 class CohortPropertyGroupDescriber(Summarizer):

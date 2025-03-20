@@ -335,3 +335,34 @@ class TestPropertySummarizer(BaseTest):
             CohortPropertyDescriber(self.team, prop).summary
             == f"people who are a part of the dynamic cohort `Visited homepage` with ID `{self.cohort.id}` having the following filters (people who have the event property `$title` that is one of the values in `Homepage`)"
         )
+
+    def test_lifecycle_first_time_event(self):
+        prop = Property(
+            type="behavioral",
+            value="performed_event_first_time",
+            key="$pageview",
+            event_type="events",
+            time_value=30,
+            time_interval="day",
+            negation=False,
+        )
+        assert (
+            CohortPropertyDescriber(self.team, prop).summary
+            == "people who performed the event `$pageview` for the first time in the last 30 days"
+        )
+
+    def test_lifecycle_first_time_action(self):
+        action = self.action
+        prop = Property(
+            type="behavioral",
+            value="performed_event_first_time",
+            key=str(action.id),
+            event_type="actions",
+            time_value=1,
+            time_interval="month",
+            negation=True,
+        )
+        assert (
+            CohortPropertyDescriber(self.team, prop).summary
+            == f"people who did not perform the action `Completed onboarding` with ID `{action.id}` for the first time in the last 1 month"
+        )
