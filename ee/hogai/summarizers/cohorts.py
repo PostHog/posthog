@@ -161,21 +161,28 @@ class CohortPropertyDescriber(Summarizer):
     def _format_time_period(self, time_value: int, time_interval: str) -> str:
         return f"{time_value} {self.pluralize(time_interval, time_value)}"
 
+    def _format_times_value(self, operator_value: int):
+        if operator_value == 1:
+            return "once"
+        return f"{operator_value} {self.pluralize('time', operator_value)}"
+
+    def _format_periods_value(self, period_count: int):
+        if period_count == 1:
+            return "period"
+        return f"{period_count} {self.pluralize('period', period_count)}"
+
     @cached_property
     def _frequency(self) -> str:
         prop = self._property
-        operator_desc = ""
-        if prop.operator and prop.operator_value is not None:
-            operator_desc = self.pluralize("time", prop.operator_value)
-            if prop.operator == "gte":
-                operator_desc = f"at least {prop.operator_value} {operator_desc}"
-            elif prop.operator == "lte":
-                operator_desc = f"at most {prop.operator_value} {operator_desc}"
-            elif prop.operator == "exact":
-                operator_desc = f"exactly {prop.operator_value} {operator_desc}"
-            else:
-                operator_desc = f"{prop.operator} {prop.operator_value} {operator_desc}"
-        return operator_desc
+        assert prop.operator is not None and prop.operator_value is not None
+        operator_desc = self._format_times_value(prop.operator_value)
+        if prop.operator == "gte":
+            return f"at least {operator_desc}"
+        elif prop.operator == "lte":
+            return f"at most {operator_desc}"
+        elif prop.operator == "exact":
+            return f"exactly {operator_desc}"
+        return f"{prop.operator} {operator_desc}"
 
     def _summarize_behavioral(self) -> str:
         """
@@ -204,10 +211,7 @@ class CohortPropertyDescriber(Summarizer):
                 return self._summarize_behavioral_event_sequence()
 
             case BehavioralPropertyType.PERFORMED_EVENT_REGULARLY:
-                min_periods = prop.min_periods or 0
-                total_periods = prop.total_periods or 0
-
-                return f"people who performed {verbose_name} at least {min_periods} times out of {total_periods} periods {time_period}"
+                return self._summarize_lifecycle_performing_event_regularly()
 
             case BehavioralPropertyType.STOPPED_PERFORMING_EVENT:
                 return f"people who performed {verbose_name} {time_period} but not in the following {seq_time_period}"
@@ -246,6 +250,7 @@ class CohortPropertyDescriber(Summarizer):
         # Frequency
         frequency = f" {self._frequency}" if self._frequency else ""
 
+        cohort_name = self._cohort_name
         verb = "did not complete" if prop.negation else "completed"
 
         if prop.event_filters:
@@ -254,8 +259,8 @@ class CohortPropertyDescriber(Summarizer):
                 for prop in prop.event_filters
             ]
             conditions_str = self.join_conditions(conditions, " AND the ")
-            return f"{self._cohort_name} {verb} {verbose_name} where the {conditions_str}{frequency} {time_period}"
-        return f"{self._cohort_name} {verb} {verbose_name}{frequency} {time_period}"
+            return f"{cohort_name} {verb} {verbose_name} where the {conditions_str}{frequency} {time_period}"
+        return f"{cohort_name} {verb} {verbose_name}{frequency} {time_period}"
 
     def _summarize_behavioral_event_sequence(self) -> str:
         prop = self._property
@@ -284,10 +289,28 @@ class CohortPropertyDescriber(Summarizer):
         assert prop.event_type is not None
         assert prop.time_interval is not None and prop.time_value is not None
 
+        cohort_name = self._cohort_name
         verb = "did not perform" if prop.negation else "performed"
         time_period = self._format_time_period(prop.time_value, prop.time_interval)
 
-        return f"people who {verb} {self._get_verbose_name(prop.event_type, prop.key)} for the first time in the last {time_period}"
+        return f"{cohort_name} {verb} {self._get_verbose_name(prop.event_type, prop.key)} for the first time in the last {time_period}"
+
+    def _summarize_lifecycle_performing_event_regularly(self) -> str:
+        prop = self._property
+        # Validation of Property will skip creating a property if any of these are missing,
+        # so we can safely assume they are not None. This is for mypy to be happy.
+        assert prop.event_type is not None
+        assert prop.time_interval is not None and prop.time_value is not None
+        assert prop.min_periods is not None and prop.total_periods is not None
+
+        cohort_name = self._cohort_name
+        verbose_name = self._get_verbose_name(prop.event_type, prop.key)
+        verb = "did not perform" if prop.negation else "performed"
+        time_period = self._format_time_period(prop.time_value, prop.time_interval)
+        frequency = f" {self._frequency}" if self._frequency else ""
+        quantifier = "any of" if prop.min_periods > 1 else ""
+
+        return f"{cohort_name} {verb} {verbose_name} {frequency} per {time_period} for at least {self._format_times_value(prop.min_periods)} in{quantifier} the last {self._format_periods_value(prop.total_periods)}"
 
 
 class CohortPropertyGroupDescriber(Summarizer):

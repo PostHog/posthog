@@ -366,3 +366,41 @@ class TestPropertySummarizer(BaseTest):
             CohortPropertyDescriber(self.team, prop).summary
             == f"people who did not perform the action `Completed onboarding` with ID `{action.id}` for the first time in the last 1 month"
         )
+
+    def test_lifecycle_regular_event(self):
+        prop = Property(
+            type="behavioral",
+            value="performed_event_regularly",
+            key="contacted support",
+            event_type="events",
+            negation=False,
+            operator="exact",
+            operator_value=5,
+            time_value=1,
+            time_interval="day",
+            min_periods=3,
+            total_periods=6,
+        )
+        assert (
+            CohortPropertyDescriber(self.team, prop).summary
+            == "people who performed the event `contacted support` exactly 5 times in the last 1 day and at least 3 times in any of the last 6 periods"
+        )
+
+    def test_lifecycle_regular_event_once_values(self):
+        prop = Property(
+            type="behavioral",
+            value="performed_event_regularly",
+            key="contacted support",
+            event_type="events",
+            negation=True,
+            operator="lte",
+            operator_value=1,
+            time_value=1,
+            time_interval="month",
+            min_periods=1,
+            total_periods=1,
+        )
+        assert (
+            CohortPropertyDescriber(self.team, prop).summary
+            == "people who did not the event `contacted support` at least once in the last 1 day and at least once in the last period"
+        )
