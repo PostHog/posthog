@@ -409,7 +409,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def test_recursion_error_is_handled(self):
         class FakeStream:
-            def __init__(*args, **kwargs):
+            def __init__(self, *args, **kwargs):
                 pass
 
             def __iter__(self):

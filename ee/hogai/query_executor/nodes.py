@@ -103,8 +103,8 @@ class QueryExecutorNode(AssistantNode):
                     FailureMessage(content=f"There was an error running this query: {err_message}", id=str(uuid4()))
                 ]
             )
-        except:
-            capture_exception()
+        except Exception as err:
+            capture_exception(err)
             return PartialAssistantState(
                 messages=[FailureMessage(content="There was an unknown error running this query.", id=str(uuid4()))]
             )
