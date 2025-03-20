@@ -352,6 +352,15 @@ export function getDefaultContinuousMetric(): ExperimentMetric {
     }
 }
 
+export function getDefaultExperimentMetric(metricType: ExperimentMetricType): ExperimentMetric {
+    switch (metricType) {
+        case ExperimentMetricType.FUNNEL:
+            return getDefaultFunnelMetric()
+        default:
+            return getDefaultCountMetric()
+    }
+}
+
 export function getExperimentMetricFromInsight(
     insight: QueryBasedInsightModel | null
 ): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined {
@@ -448,26 +457,36 @@ export function metricToFilter(
 
     switch (metric.metric_type) {
         case ExperimentMetricType.FUNNEL:
+            const events = (metric.metric_config as ExperimentFunnelMetricConfig).funnel.map((step, index) => ({
+                id: step.event,
+                name: step.event,
+                event: step.event,
+                order: index,
+                type: 'events',
+                kind: NodeKind.EventsNode,
+                properties: step.properties,
+            })) || []
+            console.log('metricToFilter funnel events', events)
             return {
-                // events: [
-                //     (metric.metric_config as ExperimentFunnelMetricConfig).funnel.map((step, index) => ({
-                //         id: step.event,
-                //         name: step.event,
-                //         order: index,
-                //         kind: NodeKind.EventsNode,
-                //         type: 'events',
-                //         properties: step.properties,
-                //     })) || [],
-                // ],
-                events: [
-                    {
+                events: 
+                    (metric.metric_config as ExperimentFunnelMetricConfig).funnel.map((step, index) => ({
+                        id: step.event,
+                        name: step.event,
+                        event: step.event,
+                        order: index,
+                        type: 'events',
                         kind: NodeKind.EventsNode,
-                        id: 'experiment created',
-                        name: 'experiment created',
-                        order: 1,
-                        properties: [],
-                    },
-                ],
+                        properties: step.properties,
+                    })) || [],
+                // events: [
+                //     {
+                //         kind: NodeKind.EventsNode,
+                //         id: 'experiment created',
+                //         name: 'experiment created',
+                //         order: 1,
+                //         properties: [],
+                //     },
+                // ],
                 actions: [],
                 data_warehouse: [],
             }
@@ -654,22 +673,6 @@ export function metricToQuery(
                 properties: [],
                 order: 0
             })
-            // const events = [
-            //     {
-            //         kind: NodeKind.EventsNode,
-            //         id: '$pageview',
-            //         name: '$pageview',
-            //         order: 0,
-            //         properties: [],
-            //     },
-            //     {
-            //         kind: NodeKind.EventsNode,
-            //         id: 'experiment created',
-            //         name: 'experiment created',
-            //         order: 1,
-            //         properties: [],
-            //     },
-            // ]
             return {
                 kind: NodeKind.FunnelsQuery,
                 filterTestAccounts,

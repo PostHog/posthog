@@ -9,7 +9,14 @@ import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/sche
 import { FilterType } from '~/types'
 
 import { commonActionFilterProps } from './Metrics/Selectors'
-import { filterToMetricConfig, getAllowedMathTypes, getMathAvailability, metricToFilter, metricToQuery } from './utils'
+import {
+    filterToMetricConfig,
+    getAllowedMathTypes,
+    getDefaultExperimentMetric,
+    getMathAvailability,
+    metricToFilter,
+    metricToQuery,
+} from './utils'
 
 const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
     {
@@ -43,6 +50,7 @@ export function ExperimentMetricForm({
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
 
     const isDataWarehouseMetric = metric.metric_config.kind === NodeKind.ExperimentDataWarehouseMetricConfig
+    console.log('metric', metric)
 
     return (
         <div className="deprecated-space-y-4">
@@ -52,16 +60,8 @@ export function ExperimentMetricForm({
                     data-attr="metrics-selector"
                     value={metric.metric_type}
                     onChange={(newMetricType: ExperimentMetricType) => {
-                        const newAllowedMathTypes = getAllowedMathTypes(newMetricType)
                         handleSetMetric({
-                            newMetric: {
-                                ...metric,
-                                metric_type: newMetricType,
-                                metric_config: {
-                                    ...metric.metric_config,
-                                    math: newAllowedMathTypes[0],
-                                },
-                            },
+                            newMetric: getDefaultExperimentMetric(newMetricType),
                         })
                     }}
                     options={[
@@ -127,7 +127,6 @@ export function ExperimentMetricForm({
                                 events,
                                 data_warehouse
                             )
-                            console.log('metricConfig', metricConfig)
                             if (metricConfig) {
                                 handleSetMetric({
                                     newMetric: {
@@ -136,7 +135,6 @@ export function ExperimentMetricForm({
                                     },
                                 })
                             }
-                            console.log('new metric', metric)
                         }}
                         typeKey="experiment-metric"
                         buttonCopy="Add step"
