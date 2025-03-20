@@ -574,7 +574,7 @@ export function isGroupsQuery(node?: Record<string, any> | null): node is Groups
     return node?.kind === NodeKind.GroupsQuery
 }
 
-const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
+export const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
 
 /**
  * Determines if a math type should display a warning based on the trends query interval and display category

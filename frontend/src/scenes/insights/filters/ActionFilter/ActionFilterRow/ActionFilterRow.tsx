@@ -41,8 +41,8 @@ import {
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { getMathTypeWarning, isInsightVizNode, isStickinessQuery } from '~/queries/utils'
+import { MathType, NodeKind } from '~/queries/schema/schema-general'
+import { getMathTypeWarning, isInsightVizNode, isStickinessQuery, TRAILING_MATH_TYPES } from '~/queries/utils'
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
@@ -720,9 +720,10 @@ function useMathSelectorOptions({
 
     const options: LemonSelectOption<string>[] = Object.entries(definitions)
         .filter(([key]) => {
+            const mathTypeKey = key as MathType
             if (isStickiness) {
                 // Remove WAU and MAU from stickiness insights
-                return !TRAILING_MATH_TYPES.has(key)
+                return !TRAILING_MATH_TYPES.has(mathTypeKey)
             }
 
             if (allowedMathTypes) {
@@ -735,10 +736,11 @@ function useMathSelectorOptions({
             return true
         })
         .map(([key, definition]) => {
-            const warning = getMathTypeWarning(key, query || {}, trendsDisplayCategory === 'TotalValue')
+            const mathTypeKey = key as MathType
+            const warning = getMathTypeWarning(mathTypeKey, query || {}, trendsDisplayCategory === 'TotalValue')
 
             return {
-                value: key,
+                value: mathTypeKey,
                 icon: warning !== null ? <IconWarning /> : undefined,
                 label: definition.name,
                 'data-attr': `math-${key}-${index}`,
