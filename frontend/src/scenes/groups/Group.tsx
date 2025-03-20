@@ -127,12 +127,8 @@ export function Group(): JSX.Element {
                                 type={PropertyDefinitionType.Group}
                                 properties={groupData.group_properties || {}}
                                 embedded={false}
-                                onEdit={featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] ? editProperty : undefined}
-                                onDelete={
-                                    featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]
-                                        ? (key) => deleteProperty(key)
-                                        : undefined
-                                }
+                                onEdit={editProperty}
+                                onDelete={deleteProperty}
                                 searchable
                             />
                         ),
@@ -144,7 +140,7 @@ export function Group(): JSX.Element {
                             <Query
                                 query={groupEventsQuery}
                                 setQuery={setGroupEventsQuery}
-                                context={{ refresh: true }}
+                                context={{ refresh: 'force_blocking' }}
                             />
                         ) : (
                             <Spinner />
@@ -243,24 +239,22 @@ export function Group(): JSX.Element {
                             />
                         ),
                     },
-                    featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]
-                        ? {
-                              key: PersonsTabType.HISTORY,
-                              label: 'History',
-                              content: (
-                                  <ActivityLog
-                                      scope={ActivityScope.GROUP}
-                                      id={`${groupTypeIndex}-${groupKey}`}
-                                      caption={
-                                          <LemonBanner type="info">
-                                              This page only shows changes made by users in the PostHog site. Automatic
-                                              changes from the API aren't shown here.
-                                          </LemonBanner>
-                                      }
-                                  />
-                              ),
-                          }
-                        : null,
+                    {
+                        key: PersonsTabType.HISTORY,
+                        label: 'History',
+                        content: (
+                            <ActivityLog
+                                scope={ActivityScope.GROUP}
+                                id={`${groupTypeIndex}-${groupKey}`}
+                                caption={
+                                    <LemonBanner type="info">
+                                        This page only shows changes made by users in the PostHog site. Automatic
+                                        changes from the API aren't shown here.
+                                    </LemonBanner>
+                                }
+                            />
+                        ),
+                    },
                     showCustomerSuccessDashboards
                         ? {
                               key: PersonsTabType.DASHBOARD,

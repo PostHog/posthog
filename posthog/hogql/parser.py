@@ -733,9 +733,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         elif ctx.PERCENT():
             op = ast.ArithmeticOperationOp.Mod
         else:
-            raise NotImplementedError(
-                f"Unsupported ColumnExprPrecedence1: {ctx.operator.text if ctx.operator is not None else 'None'}"
-            )
+            raise NotImplementedError(f"Unsupported ColumnExprPrecedence1: {ctx.getText()}")
         left = self.visit(ctx.left)
         right = self.visit(ctx.right)
         return ast.ArithmeticOperation(left=left, right=right, op=op)
@@ -762,9 +760,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
             return ast.Call(name="concat", args=args)
         else:
-            raise NotImplementedError(
-                f"Unsupported ColumnExprPrecedence2: {ctx.operator.text if ctx.operator is not None else 'None'}"
-            )
+            raise NotImplementedError(f"Unsupported ColumnExprPrecedence2: {ctx.getText()}")
 
     def visitColumnExprPrecedence3(self, ctx: HogQLParser.ColumnExprPrecedence3Context):
         left = self.visit(ctx.left)

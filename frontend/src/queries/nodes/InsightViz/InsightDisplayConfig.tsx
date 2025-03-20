@@ -23,13 +23,13 @@ import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeries
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
-import { RetentionMeanDropdown } from 'scenes/insights/filters/RetentionMeanDropdown'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
 import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
+import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { useDebouncedCallback } from 'use-debounce'
 
@@ -189,7 +189,7 @@ export function InsightDisplayConfig(): JSX.Element {
                 {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
-                        <RetentionMeanDropdown />
+                        {isValidBreakdown(breakdownFilter) && <RetentionBreakdownFilter />}
                     </ConfigFilter>
                 )}
 
