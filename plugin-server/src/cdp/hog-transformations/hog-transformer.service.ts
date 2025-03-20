@@ -1,12 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter, Histogram } from 'prom-client'
 
-import {
-    HogFunctionInvocationGlobals,
-    HogFunctionInvocationResult,
-    HogFunctionType,
-    HogFunctionTypeType,
-} from '../../cdp/types'
+import { HogFunctionInvocationGlobals, HogFunctionInvocationResult, HogFunctionType } from '../../cdp/types'
 import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
@@ -14,7 +9,6 @@ import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
-import { HogFunctionManagerLazyService } from '../services/hog-function-manager-lazy.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '../services/hog-watcher.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
@@ -65,7 +59,6 @@ export class HogTransformerService {
     private hub: Hub
     private pluginExecutor: LegacyPluginExecutorService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
-    private hogFunctionManagerLazy: HogFunctionManagerLazyService
     private hogWatcher: HogWatcherService
     private redis: CdpRedis
 
@@ -73,11 +66,18 @@ export class HogTransformerService {
         this.hub = hub
         this.redis = createCdpRedisPool(hub)
         this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogFunctionManagerLazy = new HogFunctionManagerLazyService(hub)
         this.hogExecutor = new HogExecutorService(hub)
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
+    }
+
+    public async start(): Promise<void> {
+        await this.hogFunctionManager.start()
+    }
+
+    public async stop(): Promise<void> {
+        await this.hogFunctionManager.stop()
     }
 
     private async getTransformationFunctions() {
@@ -109,38 +109,15 @@ export class HogTransformerService {
         }
     }
 
-    public async start(): Promise<void> {
-        const hogTypes: HogFunctionTypeType[] = ['transformation']
-        await this.hogFunctionManager.start(hogTypes)
-    }
-
-    public async stop(): Promise<void> {
-        await this.hogFunctionManager.stop()
-    }
-
     public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
             func: async () => {
                 hogTransformationAttempts.inc({ type: 'with_messages' })
 
-                const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
-                if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
-                    try {
-                        const teamHogFunctionsLazy = await this.hogFunctionManagerLazy.getHogFunctionsForTeam(
-                            event.team_id,
-                            ['transformation']
-                        )
-                        if (teamHogFunctionsLazy.length !== teamHogFunctions.length) {
-                            logger.warn('loaded different number of functions', {
-                                lazy: teamHogFunctionsLazy.length,
-                                eager: teamHogFunctions.length,
-                            })
-                        }
-                    } catch (e) {
-                        logger.error('Error lazy loading hog functions', { error: e })
-                    }
-                }
+                const teamHogFunctions = await this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, [
+                    'transformation',
+                ])
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
                 await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
 
