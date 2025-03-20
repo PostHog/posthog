@@ -74,17 +74,33 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                         return customTheme.colors.reduce((theme, color, index) => {
                             theme[`preset-${index + 1}`] = color
                             return theme
-                        }, {} as Record<string, string>)
+                        }, {} as DataColorTheme)
                     }
 
                     if (defaultTheme) {
                         return defaultTheme.colors.reduce((theme, color, index) => {
                             theme[`preset-${index + 1}`] = color
                             return theme
-                        }, {})
+                        }, {} as DataColorTheme)
                     }
 
                     return null
+                },
+        ],
+        getColorFromToken: [
+            (s) => [s.getTheme],
+            (getTheme: (themeId: string | number | null | undefined) => DataColorTheme | null) =>
+                (themeId: string | number | null | undefined, colorToken: string): string | null => {
+                    const theme = getTheme(themeId)
+                    if (!theme) {
+                        return null
+                    }
+                    const colorNo = parseInt(colorToken.replace('preset-', ''))
+                    const availableColors = Object.keys(theme).length
+
+                    // once all colors are exhausted, start again from the beginning
+                    const wrappedNum = ((colorNo - 1) % availableColors) + 1
+                    return theme[`preset-${wrappedNum}`]
                 },
         ],
     }),

@@ -96,13 +96,13 @@ export const EditorSidebar = ({
                 width: `${sidebarWidth}px`,
             }}
         >
-            <div className="w-full pt-2">
+            <div className="w-full">
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={setActiveTab}
                     tabs={tabs}
                     size="small"
-                    barClassName="flex justify-center"
+                    barClassName="flex justify-center h-10 items-center"
                 />
             </div>
             {renderTabContent()}

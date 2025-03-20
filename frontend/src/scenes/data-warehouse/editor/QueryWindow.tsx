@@ -47,7 +47,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
-            <div className="flex flex-row overflow-x-auto px-1">
+            <div className="flex flex-row overflow-x-auto">
                 {sidebarWidth === 0 && (
                     <LemonButton
                         onClick={() => resetDefaultSidebarWidth()}
