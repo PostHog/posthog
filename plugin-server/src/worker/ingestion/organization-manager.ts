@@ -53,7 +53,7 @@ export class OrganizationManager {
         const result = await this._hasAvailableFeature(teamId, feature, team)
 
         try {
-            // NOTE: This is testing code to coompare the outputs and ensure all is valid
+            // NOTE: This is testing code to compare the outputs and ensure all is valid
             if (defaultConfig.LAZY_TEAM_MANAGER_COMPARISON && this.teamManagerLazy) {
                 const lazyResult = await this.teamManagerLazy.hasAvailableFeature(teamId, feature)
 
