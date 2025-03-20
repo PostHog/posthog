@@ -1,4 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { ScaleOptions } from 'chart.js'
+import { dayjs } from 'lib/dayjs'
 
 import { Sparkline } from './Sparkline'
 
@@ -17,4 +19,38 @@ export const BarChart: Story = Template.bind({})
 BarChart.args = {
     data: [10, 5, 3, 30, 22, 10, 2],
     labels: ['Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat', 'Sun'],
+}
+
+const dataRange = Array.from({ length: 50 }, (_, i) => i)
+export const TimeserieChart: Story = Template.bind({})
+TimeserieChart.args = {
+    data: [
+        {
+            name: 'occurence',
+            values: dataRange.map(() => Math.floor(Math.random() * 100)),
+            color: 'primitive-neutral-800',
+            hoverColor: 'primary-3000',
+        },
+    ],
+    labels: dataRange.map((i) => dayjs().subtract(i, 'day').format()),
+    renderLabel: (label) => dayjs(label).format('MMM D'),
+    withXScale: (scale: ScaleOptions) => {
+        return {
+            ...scale,
+            type: 'timeseries',
+            ticks: {
+                ...scale.ticks,
+                display: true,
+                maxRotation: 0,
+                maxTicksLimit: 5,
+            },
+            time: {
+                unit: 'day',
+                round: 'day',
+                displayFormats: {
+                    day: 'MMM D',
+                },
+            },
+        } as ScaleOptions
+    },
 }
