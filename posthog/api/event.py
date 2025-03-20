@@ -373,7 +373,6 @@ class EventViewSet(
             result = execute_hogql_query(query, team=team)
             values = []
             for value in result.results:
-                # If the value is a basic type (float, int, bool) append it, otherwise try parsing it as JSON
                 if isinstance(value, float | int | bool):
                     values.append(value)
                 else:
