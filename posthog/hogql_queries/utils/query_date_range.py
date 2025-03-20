@@ -248,7 +248,7 @@ class QueryDateRange:
         if not is_relative or not interval:
             return True
 
-        is_delta_hours = delta_mapping.get("hours", None) is not None
+        is_delta_hours = delta_mapping and delta_mapping.get("hours", None) is not None
 
         if interval in (IntervalType.HOUR, IntervalType.MINUTE):
             return False

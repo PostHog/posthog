@@ -255,6 +255,8 @@ export function getDefaultConfig(): PluginsServerConfig {
                 24) * // amount of time salt is valid in one timezone
             60 *
             60,
+
+        LAZY_TEAM_MANAGER_COMPARISON: false,
     }
 }
 
