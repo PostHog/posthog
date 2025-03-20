@@ -87,7 +87,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     "$current_url",  # Gets renamed to just $url
     "$host",
     "$pathname",
-    "referrer",
+    "$referrer",
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
