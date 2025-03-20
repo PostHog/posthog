@@ -109,7 +109,7 @@ def retrieve_hardcoded_taxonomy(taxonomy_group: str, key: str) -> str | None:
     return None
 
 
-class PropertyFilterDescriber(Summarizer):
+class PropertyFilterSummarizer(Summarizer):
     _filter: PropertyFilterUnion
     _use_relative_pronoun: bool
 
@@ -229,14 +229,14 @@ class PropertyFilterCollectionValidator(BaseModel):
     ]
 
 
-class PropertyFilterCollectionDescriber(Summarizer):
+class PropertyFilterCollectionSummarizer(Summarizer):
     _filters: list[PropertyFilterUnion]
-    _property_summarizers: list[PropertyFilterDescriber]
+    _property_summarizers: list[PropertyFilterSummarizer]
 
     def __init__(self, team: Team, filters: list[dict]):
         super().__init__(team)
         self._filters = PropertyFilterCollectionValidator(filters=filters).filters
-        self._property_summarizers = [PropertyFilterDescriber(self._team, filter) for filter in self._filters]
+        self._property_summarizers = [PropertyFilterSummarizer(self._team, filter) for filter in self._filters]
 
     def _generate_summary(self) -> str:
         return self.join_conditions([describer.summary for describer in self._property_summarizers])

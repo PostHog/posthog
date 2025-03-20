@@ -5,7 +5,7 @@ from posthog.models import Action, Team
 from posthog.models.action.action import ActionStepJSON, ActionStepMatching
 
 from .property_filters import (
-    PropertyFilterCollectionDescriber,
+    PropertyFilterCollectionSummarizer,
     PropertyFilterTaxonomyEntry,
     retrieve_hardcoded_taxonomy,
 )
@@ -81,7 +81,7 @@ class ActionSummarizer(Summarizer):
             description.append(url_desc)
 
         if step.properties:
-            prop_summarizer = PropertyFilterCollectionDescriber(self._team, step.properties)
+            prop_summarizer = PropertyFilterCollectionSummarizer(self._team, step.properties)
             description.append(prop_summarizer.summary)
             taxonomy.update(prop_summarizer.taxonomy)
 

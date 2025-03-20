@@ -3,7 +3,7 @@ from typing import Literal
 
 from django.utils import timezone
 
-from ee.hogai.summarizers.property_filters import PropertyFilterDescriber, PropertyFilterUnion
+from ee.hogai.summarizers.property_filters import PropertyFilterSummarizer, PropertyFilterUnion
 from ee.hogai.summarizers.utils import Summarizer
 from posthog.models import Action, Cohort, Team
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup, PropertyType
@@ -275,9 +275,7 @@ class CohortPropertyDescriber(Summarizer):
             verb = "are not a part of" if prop.negation else "are a part of"
         else:
             verb = "do not have" if prop.negation else "have"
-        return (
-            f"{cohort_name} {verb} the {PropertyFilterDescriber(self._team, schema, use_relative_pronoun=True).summary}"
-        )
+        return f"{cohort_name} {verb} the {PropertyFilterSummarizer(self._team, schema, use_relative_pronoun=True).summary}"
 
     def _summarize_static_cohort(self) -> str:
         return "people from the manually uploaded list"
@@ -299,7 +297,7 @@ class CohortPropertyDescriber(Summarizer):
 
         if prop.event_filters:
             conditions: list[str] = [
-                PropertyFilterDescriber(self._team, _convert_property_to_property_filter(prop)).summary
+                PropertyFilterSummarizer(self._team, _convert_property_to_property_filter(prop)).summary
                 for prop in prop.event_filters
             ]
             conditions_str = self.join_conditions(conditions, " AND the ")
