@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, Literal, Optional, TypedDict, Union
 
 import requests
+import structlog
 import logging
 from cachetools import cached
 from celery import shared_task
@@ -50,7 +51,8 @@ from posthog.warehouse.models import ExternalDataJob
 from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
 
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class Period(TypedDict):
@@ -1367,7 +1369,7 @@ def send_all_org_usage_reports(
                         at_date=at_date_str,
                     )
                 except Exception as capture_err:
-                    logger.exception(f"Failed to capture report for organization {organization_id}: {capture_err}")
+                    logger.exception(f"Failed to capture report for organization {organization_id}", error=capture_err)
 
             # Then send the reports to billing through SQS (only if the producer is available)
             if has_non_zero_usage(full_report) and producer:
@@ -1375,10 +1377,10 @@ def send_all_org_usage_reports(
                     _queue_report(producer, organization_id, full_report_dict)
                     total_orgs_sent += 1
                 except Exception as err:
-                    logger.exception(f"Failed to queue report for organization {organization_id}: {err}")
+                    logger.exception(f"Failed to queue report for organization {organization_id}", error=err)
 
         except Exception as loop_err:
-            logger.exception(f"Failed to process organization {organization_id}: {loop_err}")
+            logger.exception(f"Failed to process organization {organization_id}", error=loop_err)
 
     queue_time_duration = (datetime.now() - queue_time_start).total_seconds()
     pha_client.capture(
