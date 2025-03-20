@@ -33,165 +33,6 @@ from posthog.test.base import (
 )
 
 
-SAMPLE_STACK_TRACE = [
-    {
-        "abs_path": "/code/posthog/clickhouse/client/execute.py",
-        "context_line": "            result = client.execute(",
-        "filename": "posthog/clickhouse/client/execute.py",
-        "function": "sync_execute",
-        "in_app": True,
-        "lineno": 142,
-        "module": "posthog.clickhouse.client.execute",
-        "post_context": [
-            "                prepared_sql,",
-            "                params=prepared_args,",
-            "                settings=settings,",
-            "                with_column_types=with_column_types,",
-            "                query_id=query_id,",
-        ],
-        "pre_context": [
-            "            **core_settings,",
-            '            "log_comment": json.dumps(tags, separators=(",", ":")),',
-            "        }",
-            "",
-            "        try:",
-        ],
-    },
-    {
-        "abs_path": "/python-runtime/clickhouse_driver/client.py",
-        "context_line": "                rv = self.process_ordinary_query(",
-        "filename": "clickhouse_driver/client.py",
-        "function": "execute",
-        "lineno": 382,
-        "module": "clickhouse_driver.client",
-        "post_context": [
-            "                    query, params=params, with_column_types=with_column_types,",
-            "                    external_tables=external_tables,",
-            "                    query_id=query_id, types_check=types_check,",
-            "                    columnar=columnar",
-            "                )",
-        ],
-        "pre_context": [
-            "                    query, params, external_tables=external_tables,",
-            "                    query_id=query_id, types_check=types_check,",
-            "                    columnar=columnar",
-            "                )",
-            "            else:",
-        ],
-    },
-    {
-        "abs_path": "/python-runtime/clickhouse_driver/client.py",
-        "context_line": "        return self.receive_result(with_column_types=with_column_types,",
-        "filename": "clickhouse_driver/client.py",
-        "function": "process_ordinary_query",
-        "lineno": 580,
-        "module": "clickhouse_driver.client",
-        "post_context": [
-            "                                   columnar=columnar)",
-            "",
-            "    def iter_process_ordinary_query(",
-            "            self, query, params=None, with_column_types=False,",
-            "            external_tables=None, query_id=None,",
-        ],
-        "pre_context": [
-            "                query, params, self.connection.context",
-            "            )",
-            "        self.connection.send_query(query, query_id=query_id, params=params)",
-            "        self.connection.send_external_tables(external_tables,",
-            "                                             types_check=types_check)",
-        ],
-    },
-    {
-        "abs_path": "/python-runtime/clickhouse_driver/client.py",
-        "context_line": "            return result.get_result()",
-        "filename": "clickhouse_driver/client.py",
-        "function": "receive_result",
-        "lineno": 213,
-        "module": "clickhouse_driver.client",
-        "post_context": [
-            "",
-            "    def iter_receive_result(self, with_column_types=False):",
-            "        gen = self.packet_generator()",
-            "",
-            "        result = self.iter_query_result_cls(",
-        ],
-        "pre_context": [
-            "",
-            "        else:",
-            "            result = self.query_result_cls(",
-            "                gen, with_column_types=with_column_types, columnar=columnar",
-            "            )",
-        ],
-    },
-    {
-        "abs_path": "/python-runtime/clickhouse_driver/result.py",
-        "context_line": "        for packet in self.packet_generator:",
-        "filename": "clickhouse_driver/result.py",
-        "function": "get_result",
-        "lineno": 50,
-        "module": "clickhouse_driver.result",
-        "post_context": [
-            "            self.store(packet)",
-            "",
-            "        data = self.data",
-            "        if self.columnar:",
-            "            data = [tuple(c) for c in self.data]",
-        ],
-        "pre_context": [
-            "    def get_result(self):",
-            '        """',
-            "        :return: stored query result.",
-            '        """',
-            "",
-        ],
-    },
-    {
-        "abs_path": "/python-runtime/clickhouse_driver/client.py",
-        "context_line": "                packet = self.receive_packet()",
-        "filename": "clickhouse_driver/client.py",
-        "function": "packet_generator",
-        "lineno": 229,
-        "module": "clickhouse_driver.client",
-        "post_context": [
-            "                if not packet:",
-            "                    break",
-            "",
-            "                if packet is True:",
-            "                    continue",
-        ],
-        "pre_context": [
-            "                yield row",
-            "",
-            "    def packet_generator(self):",
-            "        while True:",
-            "            try:",
-        ],
-    },
-    {
-        "abs_path": "/python-runtime/clickhouse_driver/client.py",
-        "context_line": "            raise packet.exception",
-        "filename": "clickhouse_driver/client.py",
-        "function": "receive_packet",
-        "lineno": 246,
-        "module": "clickhouse_driver.client",
-        "post_context": [
-            "",
-            "        elif packet.type == ServerPacketTypes.PROGRESS:",
-            "            self.last_query.store_progress(packet.progress)",
-            "            return packet",
-            "",
-        ],
-        "pre_context": [
-            "",
-            "    def receive_packet(self):",
-            "        packet = self.connection.receive_packet()",
-            "",
-            "        if packet.type == ServerPacketTypes.EXCEPTION:",
-        ],
-    },
-]
-
-
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     distinct_id_one = "user_1"
     distinct_id_two = "user_2"
@@ -211,7 +52,9 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
         return issue
 
-    def create_events_and_issue(self, issue_id, fingerprint, distinct_ids, timestamp=None, exception_list=None):
+    def create_events_and_issue(
+        self, issue_id, fingerprint, distinct_ids, timestamp=None, exception_list=None, additional_properties=None
+    ):
         self.create_issue(issue_id, fingerprint)
 
         event_properties = {"$exception_issue_id": issue_id, "$exception_fingerprint": fingerprint}
@@ -223,7 +66,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 distinct_id=distinct_id,
                 event="$exception",
                 team=self.team,
-                properties=event_properties,
+                properties={**event_properties, **additional_properties} if additional_properties else event_properties,
                 timestamp=timestamp,
             )
 
@@ -337,18 +180,21 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 fingerprint="fingerprint_DatabaseNotFoundX",
                 distinct_ids=[self.distinct_id_one],
                 exception_list=[{"type": "DatabaseNotFoundX", "value": "this is the same error message"}],
+                additional_properties={"$exception_types": "['DatabaseNotFoundX']"},
             )
             self.create_events_and_issue(
                 issue_id="01936e81-f5ce-79b1-99f1-f0e9675fcfef",
                 fingerprint="fingerprint_DatabaseNotFoundY",
                 distinct_ids=[self.distinct_id_one],
                 exception_list=[{"type": "DatabaseNotFoundY", "value": "this is the same error message"}],
+                additional_properties={"$exception_types": "['DatabaseNotFoundY']"},
             )
             self.create_events_and_issue(
                 issue_id="01936e82-241e-7e27-b47d-6659c54eb0be",
                 fingerprint="fingerprint_xyz",
                 distinct_ids=[self.distinct_id_two],
                 exception_list=[{"type": "xyz", "value": "this is the same error message"}],
+                additional_properties={"$exception_types": "['xyz']"},
             )
             flush_persons_and_events()
 
@@ -383,26 +229,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 issue_id="01936e81-b0ce-7b56-8497-791e505b0d0c",
                 fingerprint="fingerprint_DatabaseNotFoundX",
                 distinct_ids=[self.distinct_id_one],
-                exception_list=[
-                    {
-                        "type": "DatabaseNotFoundX",
-                        "value": "this is the same error message",
-                        "stack_trace": {"frames": SAMPLE_STACK_TRACE},
-                    }
-                ],
+                additional_properties={
+                    "$exception_types": "['DatabaseNotFoundX']",
+                    "$exception_values": "['this is the same error message']",
+                    "$exception_sources": "['posthog/clickhouse/client/execute.py']",
+                },
             )
 
             self.create_events_and_issue(
                 issue_id="01936e81-f5ce-79b1-99f1-f0e9675fcfef",
                 fingerprint="fingerprint_DatabaseNotFoundY",
                 distinct_ids=[self.distinct_id_two],
-                exception_list=[
-                    {
-                        "type": "DatabaseNotFoundY",
-                        "value": "this is the same error message",
-                        "stack_trace": {"frames": SAMPLE_STACK_TRACE},
-                    }
-                ],
+                additional_properties={
+                    "$exception_types": "['DatabaseNotFoundY']",
+                    "$exception_values": "['this is the same error message']",
+                    "$exception_sources": "['posthog/clickhouse/client/execute.py']",
+                },
             )
             flush_persons_and_events()
 
