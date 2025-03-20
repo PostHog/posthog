@@ -404,3 +404,25 @@ class TestPropertySummarizer(BaseTest):
             CohortPropertyDescriber(self.team, prop).summary
             == "people who did not the event `contacted support` at least once in the last 1 day and at least once in the last period"
         )
+
+    def test_lifecycle_stopped_performing_event(self):
+        prop = Property(
+            type="behavioral",
+            value="stopped_performing_event",
+            key="contacted support",
+            event_type="events",
+            time_value=4,
+            time_interval="week",
+            seq_time_value=2,
+            seq_time_interval="week",
+            negation=False,
+        )
+        assert (
+            CohortPropertyDescriber(self.team, prop).summary
+            == "people who stopped doing the event `contacted support` in the last 2 weeks but had done it in the last 4 weeks prior now"
+        )
+        prop.negation = True
+        assert (
+            CohortPropertyDescriber(self.team, prop).summary
+            == "people who did the event `contacted support` in the last 2 weeks but had done it in the last 4 weeks prior now"
+        )

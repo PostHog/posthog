@@ -214,7 +214,7 @@ class CohortPropertyDescriber(Summarizer):
                 return self._summarize_lifecycle_performing_event_regularly()
 
             case BehavioralPropertyType.STOPPED_PERFORMING_EVENT:
-                return f"people who performed {verbose_name} {time_period} but not in the following {seq_time_period}"
+                return self._summarize_lifecycle_stopped_performing_event()
 
             case BehavioralPropertyType.RESTARTED_PERFORMING_EVENT:
                 return (
@@ -311,6 +311,23 @@ class CohortPropertyDescriber(Summarizer):
         quantifier = "any of" if prop.min_periods > 1 else ""
 
         return f"{cohort_name} {verb} {verbose_name} {frequency} per {time_period} for at least {self._format_times_value(prop.min_periods)} in{quantifier} the last {self._format_periods_value(prop.total_periods)}"
+
+    def _summarize_lifecycle_stopped_performing_event(self) -> str:
+        prop = self._property
+
+        # Validation of Property will skip creating a property if any of these are missing,
+        # so we can safely assume they are not None. This is for mypy to be happy.
+        assert prop.event_type is not None
+        assert prop.time_interval is not None and prop.time_value is not None
+        assert prop.seq_time_interval is not None and prop.seq_time_value is not None
+
+        cohort_name = self._cohort_name
+        verbose_name = self._get_verbose_name(prop.event_type, prop.key)
+        verb = "did" if prop.negation else "stopped doing"
+        had_done_period = self._format_time_period(prop.time_value, prop.time_interval)
+        stopped_period = self._format_time_period(prop.seq_time_value, prop.seq_time_interval)
+
+        return f"{cohort_name} {verb} {verbose_name} in the last {stopped_period} but had done it in the last {had_done_period} prior now"
 
 
 class CohortPropertyGroupDescriber(Summarizer):
