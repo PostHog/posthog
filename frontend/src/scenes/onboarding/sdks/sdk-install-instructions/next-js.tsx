@@ -6,6 +6,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { JSInstallSnippet } from './js-web'
@@ -163,10 +164,15 @@ function SuspendedPostHogPageView() {
     )
 }
 
-export function SDKInstallNextJSInstructions(): JSX.Element {
+export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: boolean }): JSX.Element {
     const { nextJsRouter } = useValues(nextJsInstructionsLogic)
     const { setNextJsRouter } = useActions(nextJsInstructionsLogic)
-    const showSetupWizard = useFeatureFlag('AI_SETUP_WIZARD')
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
+    const showSetupWizard = useFeatureFlag('AI_SETUP_WIZARD') && !hideWizard && isCloudOrDev
+
+    const region = preflight?.region
+
+    const wizardCommand = `npx @posthog/wizard${region ? ` --region ${region.toLowerCase()}` : ''}`
     return (
         <>
             {showSetupWizard && (
@@ -178,7 +184,7 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
                         <p className="font-normal pb-2">
                             Try using the AI setup wizard to automatically install PostHog with a single command.
                         </p>
-                        <CodeSnippet language={Language.Bash}>npx @posthog/wizard</CodeSnippet>
+                        <CodeSnippet language={Language.Bash}>{wizardCommand}</CodeSnippet>
                     </div>
                 </LemonBanner>
             )}

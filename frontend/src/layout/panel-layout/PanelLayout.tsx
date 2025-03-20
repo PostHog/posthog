@@ -1,11 +1,11 @@
 import { cva } from 'class-variance-authority'
 import { useActions, useValues } from 'kea'
 import { cn } from 'lib/utils/css-classes'
+import { useEffect } from 'react'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { panelLayoutLogic } from './panelLayoutLogic'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
-import { PersonsTree } from './PersonsTree/PersonsTree'
 import { ProjectTree } from './ProjectTree/ProjectTree'
 
 const panelLayoutStyles = cva('gap-0 w-fit relative h-screen z-[var(--z-project-panel-layout)]', {
@@ -61,13 +61,19 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         isLayoutPanelVisible,
         isLayoutNavbarVisibleForMobile,
         isLayoutNavbarVisibleForDesktop,
-        activeLayoutNavBarItem,
+        activePanelIdentifier,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { showLayoutPanel, showLayoutNavBar, clearActiveLayoutNavBarItem } = useActions(panelLayoutLogic)
-
+    const { showLayoutPanel, showLayoutNavBar, clearActivePanelIdentifier, setMainContentRef } =
+        useActions(panelLayoutLogic)
     const showMobileNavbarOverlay = isLayoutNavbarVisibleForMobile
     const showDesktopNavbarOverlay = isLayoutNavbarVisibleForDesktop && !isLayoutPanelPinned && isLayoutPanelVisible
+
+    useEffect(() => {
+        if (mainRef.current) {
+            setMainContentRef(mainRef)
+        }
+    }, [mainRef, setMainContentRef])
 
     return (
         <div className="relative">
@@ -84,17 +90,18 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 )}
             >
                 <PanelLayoutNavBar>
-                    {activeLayoutNavBarItem === 'project' && <ProjectTree mainRef={mainRef} />}
-                    {activeLayoutNavBarItem === 'persons' && <PersonsTree mainRef={mainRef} />}
+                    {activePanelIdentifier === 'project' && <ProjectTree />}
+                    {/* {activePanelIdentifier === 'persons' && <PersonsTree />} */}
                 </PanelLayoutNavBar>
             </div>
 
             {isMobileLayout && showMobileNavbarOverlay && (
                 <div
                     onClick={() => {
+                        // Pinned or not, hide the navbar and panel
                         showLayoutNavBar(false)
                         showLayoutPanel(false)
-                        clearActiveLayoutNavBarItem()
+                        clearActivePanelIdentifier()
                     }}
                     className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
                 />
@@ -102,8 +109,10 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
             {!isMobileLayout && showDesktopNavbarOverlay && (
                 <div
                     onClick={() => {
-                        showLayoutPanel(false)
-                        clearActiveLayoutNavBarItem()
+                        if (!isLayoutPanelPinned) {
+                            showLayoutPanel(false)
+                            clearActivePanelIdentifier()
+                        }
                     }}
                     className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
                 />

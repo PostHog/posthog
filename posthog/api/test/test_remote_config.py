@@ -15,6 +15,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
         self.team.recording_domains = ["https://*.example.com"]
         self.team.session_recording_opt_in = True
+        self.team.surveys_opt_in = True
         self.team.save()
 
         cache.clear()
