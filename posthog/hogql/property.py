@@ -360,6 +360,7 @@ def property_to_expr(
         return parse_expr(property.key)
     elif (
         property.type == "event"
+        or property.type == "event_metadata"
         or property.type == "feature"
         or property.type == "person"
         or property.type == "group"
@@ -369,7 +370,11 @@ def property_to_expr(
         or property.type == "recording"
         or property.type == "log_entry"
     ):
-        if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
+        if (
+            (scope == "person" and property.type != "person")
+            or (scope == "session" and property.type != "session")
+            or (scope != "event" and property.type == "event_metadata")
+        ):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
@@ -417,7 +422,7 @@ def property_to_expr(
                 raise QueryError("Data warehouse person property filter value must be a string")
         elif property.type == "group" and scope != "group":
             chain = [f"group_{property.group_type_index}", "properties"]
-        elif property.type in ["recording", "data_warehouse", "log_entry"]:
+        elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
             chain = []
         elif property.type == "session" and scope in ["event", "replay"]:
             chain = ["session"]
@@ -550,48 +555,6 @@ def property_to_expr(
                 else ast.CompareOperationOp.InCohort
             ),
             right=ast.Constant(value=cohort.pk),
-        )
-    elif property.type == "event_metadata":
-        if scope != "event":
-            raise NotImplementedError(f"The '{property.type}' property filter does not work in '{scope}' scope")
-        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
-        value = property.value
-
-        if isinstance(value, list):
-            if len(value) == 0:
-                return ast.Constant(value=1)
-            elif len(value) == 1:
-                value = value[0]
-            else:
-                # Using an AND here instead of `in()` or `notIn()`, due to Clickhouses poor handling of `null` values
-                exprs = [
-                    property_to_expr(
-                        Property(
-                            type=property.type,
-                            key=property.key,
-                            operator=property.operator,
-                            value=v,
-                        ),
-                        team,
-                        scope,
-                    )
-                    for v in value
-                ]
-                if (
-                    operator == PropertyOperator.NOT_ICONTAINS
-                    or operator == PropertyOperator.NOT_REGEX
-                    or operator == PropertyOperator.IS_NOT
-                ):
-                    return ast.And(exprs=exprs)
-                return ast.Or(exprs=exprs)
-
-        return _expr_to_compare_op(
-            expr=ast.Field(chain=[property.key]),
-            value=value,
-            operator=operator,
-            team=team,
-            property=property,
-            is_json_field=False,
         )
 
     # TODO: Add support for these types: "recording", "behavioral"
