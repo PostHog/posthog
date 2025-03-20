@@ -87,6 +87,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     "$current_url",  # Gets renamed to just $url
     "$host",
     "$pathname",
+    "referrer",
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
@@ -1686,9 +1687,9 @@ for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
         }
 
 for key in SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS:
-    naming_key = key if key != "$current_url" else "$url"
+    mapped_key = key.lstrip("$") if key != "$current_url" else "url"
 
-    CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"][f"$session_entry_{naming_key}"] = {
+    CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"][f"$session_entry_{mapped_key}"] = {
         **CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"][key],
         "label": f"Session entry {CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['label']}",
         "description": (
