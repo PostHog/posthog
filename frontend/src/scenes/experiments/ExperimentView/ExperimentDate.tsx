@@ -1,17 +1,21 @@
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCalendarSelectInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useState } from 'react'
 
-import { experimentLogic } from '../experimentLogic'
-
-const ExperimentDate = ({ label, date }: { label: string; date?: string | null }): JSX.Element | null => {
+const ExperimentDate = ({
+    label,
+    date,
+    onChange,
+}: {
+    label: string
+    date?: string | null
+    onChange?: (date: string) => void
+}): JSX.Element | null => {
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
 
-    const { changeExperimentStartDate } = useActions(experimentLogic)
     if (!date) {
         return null
     }
@@ -28,8 +32,8 @@ const ExperimentDate = ({ label, date }: { label: string; date?: string | null }
                         visible
                         value={dayjs(date)}
                         onChange={(newDate) => {
-                            if (newDate) {
-                                changeExperimentStartDate(newDate.toISOString())
+                            if (newDate && onChange) {
+                                onChange(newDate.toISOString())
                             }
                         }}
                         onClose={() => setIsDatePickerOpen(false)}

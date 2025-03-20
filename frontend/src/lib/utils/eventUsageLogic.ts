@@ -979,6 +979,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 new_start_date: newStartDate,
             })
         },
+        reportExperimentEndDateChange: ({ experiment, newEndDate }) => {
+            posthog.capture('experiment end date changed', {
+                ...getEventPropertiesForExperiment(experiment),
+                old_end_date: experiment.end_date,
+                new_end_date: newEndDate,
+            })
+        },
         reportExperimentCompleted: ({ experiment, endDate, duration, significant }) => {
             posthog.capture('experiment completed', {
                 ...getEventPropertiesForExperiment(experiment),
