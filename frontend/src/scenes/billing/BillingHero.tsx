@@ -21,7 +21,7 @@ import { PlanComparisonModal } from './PlanComparison'
 const PLAN_BADGES: Record<BillingPlan, string> = {
     [BillingPlan.Free]: planFree,
     [BillingPlan.Paid]: planPaid,
-    // TODO: Add teams badge
+    // TODO: Add teams badge once ready
     [BillingPlan.Teams]: planPaid,
     [BillingPlan.Enterprise]: planEnterprise,
 }
@@ -164,7 +164,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
     },
 }
 
-export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
+export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { showPaymentEntryModal } = useActions(paymentEntryLogic)
     const { redirectPath, billingPlan, startupProgramLabel } = useValues(billingLogic)

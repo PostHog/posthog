@@ -19,7 +19,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BillingCTAHero } from './BillingCTAHero'
+import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
 import { BillingSummary } from './BillingSummary'
@@ -168,7 +168,7 @@ export function Billing(): JSX.Element {
             >
                 {!!billingPlan && !billing?.trial && !!platformAndSupportProduct && (
                     <div className="flex-1">
-                        <BillingCTAHero product={platformAndSupportProduct} />
+                        <BillingHero product={platformAndSupportProduct} />
                     </div>
                 )}
                 {showBillingSummary && (
