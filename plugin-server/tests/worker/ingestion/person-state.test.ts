@@ -92,6 +92,8 @@ describe('PersonState.update()', () => {
         )
     }
 
+    const sortPersons = (persons: InternalPerson[]) => persons.sort((a, b) => Number(a.id) - Number(b.id))
+
     async function fetchPostgresPersonsH() {
         return await fetchPostgresPersons(hub.db, teamId)
     }
@@ -374,7 +376,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -406,7 +408,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -467,7 +469,7 @@ describe('PersonState.update()', () => {
             )
             expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -509,7 +511,7 @@ describe('PersonState.update()', () => {
             )
             expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -545,7 +547,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -595,7 +597,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
         })
@@ -632,7 +634,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
         })
@@ -666,7 +668,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual([
                 expect.objectContaining({
                     id: expect.any(Number),
@@ -708,7 +710,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person) // We updated PG as it's a person event
         })
@@ -742,7 +744,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person) // We updated PG as it was undefined before
         })
@@ -784,7 +786,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person) // We updated PG as it's an initial property
         })
@@ -831,7 +833,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
         })
@@ -867,7 +869,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
         })
@@ -901,7 +903,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -917,7 +919,7 @@ describe('PersonState.update()', () => {
             const mergeDeletedPerson: InternalPerson = {
                 created_at: timestamp,
                 version: 0,
-                id: 0,
+                id: BigInt(0),
                 team_id: teamId,
                 properties: { a: 5, b: 7 },
                 is_user_id: 0,
@@ -959,7 +961,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(2)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
         })
@@ -1159,7 +1161,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
             expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
@@ -1226,7 +1228,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
             expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
@@ -1295,7 +1297,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = (await fetchPostgresPersonsH()).sort((a, b) => a.id - b.id)
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(2)
             expect(persons[0]).toEqual(
                 expect.objectContaining({
@@ -1346,7 +1348,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = (await fetchPostgresPersonsH()).sort((a, b) => a.id - b.id)
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(2)
             expect(persons[0]).toEqual(
                 expect.objectContaining({
@@ -1399,7 +1401,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
             expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
@@ -1481,7 +1483,7 @@ describe('PersonState.update()', () => {
             )
             // expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -1579,7 +1581,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
             expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
@@ -2002,7 +2004,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
             expect(hub.db.kafkaProducer.queueMessages).toHaveBeenCalledTimes(1)
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -2081,7 +2083,7 @@ describe('PersonState.update()', () => {
             jest.spyOn(hub.db.postgres, 'transaction').mockRestore()
             expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
@@ -2129,7 +2131,7 @@ describe('PersonState.update()', () => {
             jest.spyOn(state, 'mergePeople').mockRestore()
             expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
@@ -2182,7 +2184,7 @@ describe('PersonState.update()', () => {
             jest.spyOn(state, 'mergePeople').mockRestore()
             expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({

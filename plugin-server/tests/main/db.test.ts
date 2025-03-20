@@ -256,7 +256,7 @@ describe('DB', () => {
         })
     })
 
-    async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person | undefined> {
+    async function fetchPersonByPersonId(teamId: number, personId: bigint): Promise<Person | undefined> {
         const selectResult = await db.postgres.query(
             PostgresUse.COMMON_WRITE,
             `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
