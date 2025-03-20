@@ -1,10 +1,12 @@
 from collections import defaultdict
+from django.utils import timezone
 from typing import cast
 
 from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
+from posthog.api.capture import capture_internal
 from posthog.api.utils import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -17,6 +19,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.group import Group
+from posthog.models.group.util import raw_create_group_ch
 from posthog.models.group_type_mapping import GroupTypeMapping
 from loginas.utils import is_impersonated_session
 
@@ -174,6 +177,33 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             original_value = group.group_properties.get(request.data["key"], None)
             group.group_properties[request.data["key"]] = request.data["value"]
             group.save()
+            # Need to update ClickHouse too
+            raw_create_group_ch(
+                team_id=self.team.pk,
+                group_type_index=group.group_type_index,
+                group_key=group.group_key,
+                properties=group.group_properties,
+                created_at=group.created_at,
+                timestamp=timezone.now(),
+            )
+            capture_internal(
+                distinct_id=str(self.team.uuid),
+                ip=None,
+                site_url=None,
+                token=self.team.api_token,
+                now=timezone.now(),
+                sent_at=None,
+                event={
+                    "event": "$groupidentify",
+                    "properties": {
+                        "$group_type_index": group.group_type_index,
+                        "$group_key": group.group_key,
+                        "$group_set": {request.data["key"]: request.data["value"]},
+                    },
+                    "distinct_id": str(self.team.uuid),
+                    "timestamp": timezone.now().isoformat(),
+                },
+            )
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
@@ -232,6 +262,33 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             original_value = group.group_properties[request.data["$unset"]]
             del group.group_properties[request.data["$unset"]]
             group.save()
+            # Need to update ClickHouse too
+            raw_create_group_ch(
+                team_id=self.team.pk,
+                group_type_index=group.group_type_index,
+                group_key=group.group_key,
+                properties=group.group_properties,
+                created_at=group.created_at,
+                timestamp=timezone.now(),
+            )
+            capture_internal(
+                distinct_id=str(self.team.uuid),
+                ip=None,
+                site_url=None,
+                token=self.team.api_token,
+                now=timezone.now(),
+                sent_at=None,
+                event={
+                    "event": "$delete_group_property",
+                    "properties": {
+                        "$group_type_index": group.group_type_index,
+                        "$group_key": group.group_key,
+                        "$group_unset": [request.data["$unset"]],
+                    },
+                    "distinct_id": str(self.team.uuid),
+                    "timestamp": timezone.now().isoformat(),
+                },
+            )
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,

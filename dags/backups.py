@@ -346,7 +346,11 @@ def wait_for_backup(
 )
 def sharded_backup():
     """
-    Backup ClickHouse database / table to S3 once per shard
+    Backup ClickHouse database / table to S3 once per shard.
+
+    The job, under the hood, will dynamically launch the same backup for each shard (running the ops once per shard). Shards are dynamically loaded from the ClickHouse cluster.
+
+    For each backup, the logic is exactly the same as the described in the `non_sharded_backup` job.
     """
 
     def run_backup_for_shard(shard: int):
@@ -364,6 +368,19 @@ def sharded_backup():
 def non_sharded_backup():
     """
     Backup ClickHouse database / table to S3 once (chooses a random shard)
+
+    First, it will get the latest backup metadata from S3. This will be useful to check if the requested backup was already done, is in progress or it failed.
+    If it failed, it will raise an error. If it is in progress, it will wait for it to finish.
+
+    Then, it will run the backup. If the requested backup is the same as the latest backup, it will skip the run.
+    Otherwise, if the requested backup is incremental, it will use the latest backup as the base backup for this new one.
+
+    Finally, it will wait for the backup to complete.
+
+    If the backup fails, it will raise an error.
+
+    Since we don't want to keep the state about which host was selected to run the backup, we always search backups by their name in every node.
+    When we find it in one of the nodes, we keep waiting on it only in that node. This is handy when we retry the job and a backup is in progress in any node, as we'll always wait for it to finish.
     """
     latest_backup = get_latest_backup()
     new_backup = run_backup(check_latest_backup_status(latest_backup))

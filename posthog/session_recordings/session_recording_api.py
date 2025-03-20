@@ -42,7 +42,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     PersonalApiKeyRateThrottle,
 )
-from posthog.schema import HogQLQueryModifiers, QueryTiming, RecordingsQuery
+from posthog.schema import HogQLQueryModifiers, PropertyFilterType, QueryTiming, RecordingsQuery
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -444,9 +444,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 "Must specify exactly one session_id",
             )
 
-        if not query.events and not query.actions:
+        has_event_properties = any(
+            getattr(p, "type", None) == PropertyFilterType.EVENT for p in (query.properties or [])
+        )
+
+        if not query.events and not query.actions and not has_event_properties:
             raise exceptions.ValidationError(
-                "Must specify at least one event or action filter",
+                "Must specify at least one event or action filter, or event properties filter",
             )
 
         distinct_id = str(cast(User, request.user).distinct_id)
@@ -701,6 +705,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     ),
                     key=lambda x: x[0],
                 )
+                # If we started recording halfway through the session, we should not serve v2 sources
+                # as we don't have the complete recording from the start
+                if blocks and blocks[0][0] != v2_metadata["start_time"]:
+                    blocks = []
                 for i, (start_timestamp, end_timestamp, _) in enumerate(blocks):
                     sources.append(
                         {
