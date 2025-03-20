@@ -169,9 +169,9 @@ class CohortPropertyDescriber:
         prop = self._property
         try:
             action = Action.objects.get(pk=prop.key, team__project_id=self._team.project_id)
-            return f"action `{action.name}` with ID {prop.key}"
+            return f"the action `{action.name}` with ID `{prop.key}`"
         except Action.DoesNotExist:
-            return f"unknown action with ID {prop.key}"
+            return f"an unknown action with ID `{prop.key}`"
 
     @property
     def _cohort_name(self) -> str:
@@ -182,7 +182,7 @@ class CohortPropertyDescriber:
         prop = self._property
         if prop.event_type == "actions":
             return self._get_action_name()
-        return f"event `{prop.key}`"
+        return f"the event `{prop.key}`"
 
     @cached_property
     def _time_period(self) -> str:
@@ -302,8 +302,8 @@ class CohortPropertyDescriber:
                 CohortPropertyDescriber(self._team, prop).summarize() for prop in prop.event_filters
             ]
             conditions_str = _format_conditions(conditions, " AND the ")
-            return f"{self._cohort_name} {verb} an {verbose_name} where the {conditions_str}{frequency} {time_period}"
-        return f"{self._cohort_name} {verb} an {verbose_name}{frequency} {time_period}"
+            return f"{self._cohort_name} {verb} {verbose_name} where the {conditions_str}{frequency} {time_period}"
+        return f"{self._cohort_name} {verb} {verbose_name}{frequency} {time_period}"
 
 
 class CohortPropertyGroupDescriber:

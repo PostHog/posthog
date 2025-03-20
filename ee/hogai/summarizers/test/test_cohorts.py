@@ -28,7 +28,7 @@ class TestPropertySummarizer(BaseTest):
         )
         assert (
             CohortPropertyDescriber(self.team, prop).summarize()
-            == "people who completed an event `$pageview` where the event property `$browser` matches exactly `Chrome` in the last 30 days"
+            == "people who completed the event `$pageview` where the event property `$browser` matches exactly `Chrome` in the last 30 days"
         )
 
     def test_behavioral_cohort_performed_event_with_multiple_filters(self):
@@ -56,7 +56,7 @@ class TestPropertySummarizer(BaseTest):
         )
         assert (
             CohortPropertyDescriber(self.team, prop).summarize()
-            == "people who completed an event `$pageview` where the person property `name` matches exactly `John` AND the person property `surname` contains `Mc` yesterday"
+            == "people who completed the event `$pageview` where the person property `name` matches exactly `John` AND the person property `surname` contains `Mc` yesterday"
         )
 
     def test_behavioral_cohort_performed_event_with_negation(self):
@@ -70,7 +70,7 @@ class TestPropertySummarizer(BaseTest):
         )
         assert (
             CohortPropertyDescriber(self.team, prop).summarize()
-            == "people who did not complete an event `$pageview` on 2025-03-10"
+            == "people who did not complete the event `$pageview` on 2025-03-10"
         )
 
     def test_behavioral_cohort_performed_action(self):
@@ -86,5 +86,33 @@ class TestPropertySummarizer(BaseTest):
         )
         assert (
             CohortPropertyDescriber(self.team, prop).summarize()
-            == "people who completed an action `Completed onboarding` on 2025-03-10"
+            == f"people who completed the action `Completed onboarding` with ID `{action.id}` on 2025-03-10"
+        )
+
+    def test_behavioral_cohort_performed_unexisting_action_with_negation(self):
+        prop = Property(
+            key="0",
+            type="behavioral",
+            value="performed_event",
+            negation=True,
+            event_type="actions",
+            explicit_datetime="2025-03-10",
+        )
+        assert (
+            CohortPropertyDescriber(self.team, prop).summarize()
+            == f"people who did not complete an unknown action with ID `0` on 2025-03-10"
+        )
+
+    def test_behavioral_cohort_performed_event_multiple_times(self):
+        prop = Property(
+            key="$pageview",
+            type="behavioral",
+            value="performed_event_multiple",
+            negation=False,
+            event_type="events",
+            explicit_datetime="-7d",
+        )
+        assert (
+            CohortPropertyDescriber(self.team, prop).summarize()
+            == "people who did not complete the event `$pageview` on 2025-03-10"
         )
