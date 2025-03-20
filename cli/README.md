@@ -36,6 +36,8 @@ git commit -m "Bump version number"
 git tag "posthog-cli-v0.1.0-prerelease.1"
 git push
 git push --tags
+# Optional - also publish to crates.io
+cd cli && cargo publish
 ```
 
 We manage publishing releases through [`cargo-dist`](https://github.com/axodotdev/cargo-dist)
