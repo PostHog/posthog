@@ -38,6 +38,8 @@ import {
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
+import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
+import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
@@ -63,6 +65,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
+    const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
 
     const { user } = useValues(userLogic)
 
@@ -122,6 +125,7 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
+                    {canEditDashboard && <DashboardInsightColorsModal />}
                 </>
             )}
 
@@ -184,6 +188,11 @@ export function DashboardHeader(): JSX.Element | null {
                                                     </div>
                                                     <LemonDivider />
                                                 </>
+                                            )}
+                                            {canEditDashboard && (
+                                                <LemonButton onClick={showInsightColorsModal} fullWidth>
+                                                    Customize Colors
+                                                </LemonButton>
                                             )}
                                             {canEditDashboard && (
                                                 <LemonButton
