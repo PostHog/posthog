@@ -3,6 +3,7 @@ import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import merge from 'lodash.merge'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 
 import {
     AnyEntityNode,
@@ -13,6 +14,7 @@ import {
     ExperimentEventMetricConfig,
     ExperimentFunnelMetricConfig,
     ExperimentFunnelsQuery,
+    ExperimentFunnelStepConfig,
     ExperimentMetric,
     ExperimentMetricType,
     ExperimentTrendsQuery,
@@ -313,8 +315,16 @@ export function getDefaultFunnelMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         metric_type: ExperimentMetricType.FUNNEL,
         metric_config: {
-            kind: NodeKind.ExperimentEventMetricConfig,
-            event: '$pageview',
+            kind: NodeKind.ExperimentFunnelMetricConfig,
+            funnel: [
+                {
+                    kind: NodeKind.ExperimentFunnelStepConfig,
+                    event: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                    properties: [],
+                },
+            ],
         },
     }
 }
@@ -439,7 +449,25 @@ export function metricToFilter(
     switch (metric.metric_type) {
         case ExperimentMetricType.FUNNEL:
             return {
-                events: [],
+                // events: [
+                //     (metric.metric_config as ExperimentFunnelMetricConfig).funnel.map((step, index) => ({
+                //         id: step.event,
+                //         name: step.event,
+                //         order: index,
+                //         kind: NodeKind.EventsNode,
+                //         type: 'events',
+                //         properties: step.properties,
+                //     })) || [],
+                // ],
+                events: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        id: 'experiment created',
+                        name: 'experiment created',
+                        order: 1,
+                        properties: [],
+                    },
+                ],
                 actions: [],
                 data_warehouse: [],
             }
@@ -518,7 +546,13 @@ export function filterToMetricConfig(
         case ExperimentMetricType.FUNNEL:
             return {
                 kind: NodeKind.ExperimentFunnelMetricConfig,
-                funnel: [],
+                funnel: 
+                    events?.map((event) => ({
+                        kind: NodeKind.ExperimentFunnelStepConfig,
+                        event: event.id,
+                        order: event.order,
+                        properties: event.properties,
+                    } as ExperimentFunnelStepConfig)) || [],
             }
         case ExperimentMetricType.MEAN:
             if (events?.[0]) {
@@ -608,6 +642,34 @@ export function metricToQuery(
                     } as TrendsQuery
             }
         case ExperimentMetricType.FUNNEL:
+            const filter = metricToFilter(metric)
+            const { events } = filter
+            // NOTE: hack for now
+            // insert a pageview event at the beginning of the funnel to simulate the exposure criteria
+            console.log('events in funnel query', events)
+            events?.unshift({
+                kind: NodeKind.EventsNode,
+                id: '$pageview',
+                event: '$pageview',
+                properties: [],
+                order: 0
+            })
+            // const events = [
+            //     {
+            //         kind: NodeKind.EventsNode,
+            //         id: '$pageview',
+            //         name: '$pageview',
+            //         order: 0,
+            //         properties: [],
+            //     },
+            //     {
+            //         kind: NodeKind.EventsNode,
+            //         id: 'experiment created',
+            //         name: 'experiment created',
+            //         order: 1,
+            //         properties: [],
+            //     },
+            // ]
             return {
                 kind: NodeKind.FunnelsQuery,
                 filterTestAccounts,
@@ -619,16 +681,11 @@ export function metricToQuery(
                 funnelsFilter: {
                     layout: FunnelLayout.horizontal,
                 },
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: '$feature_flag_called',
-                    },
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: (metric.metric_config as ExperimentEventMetricConfig).event,
-                    },
-                ],
+                series: actionsAndEventsToSeries(
+                        { actions: [], events, data_warehouse: [] } as any,
+                        true,
+                        MathAvailability.None
+                    )
             } as FunnelsQuery
         default:
             return undefined

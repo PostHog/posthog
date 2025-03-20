@@ -121,10 +121,22 @@ export function ExperimentMetricForm({
                         bordered
                         filters={metricToFilter(metric)}
                         setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-                            console.log('metric', metric)
-                            console.log('actions', actions)
-                            console.log('events', events)
-                            console.log('data_warehouse', data_warehouse)
+                            const metricConfig = filterToMetricConfig(
+                                metric.metric_type,
+                                actions,
+                                events,
+                                data_warehouse
+                            )
+                            console.log('metricConfig', metricConfig)
+                            if (metricConfig) {
+                                handleSetMetric({
+                                    newMetric: {
+                                        ...metric,
+                                        metric_config: metricConfig,
+                                    },
+                                })
+                            }
+                            console.log('new metric', metric)
                         }}
                         typeKey="experiment-metric"
                         buttonCopy="Add step"
