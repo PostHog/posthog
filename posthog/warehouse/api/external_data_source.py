@@ -230,6 +230,23 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
+            # Reconstruct ssh-tunnel (if needed) structure for UI handling
+            if "ssh_tunnel_enabled" in job_inputs:
+                ssh_tunnel = {
+                    "enabled": job_inputs.pop("ssh_tunnel_enabled", False),
+                    "host": job_inputs.pop("ssh_tunnel_host", None),
+                    "port": job_inputs.pop("ssh_tunnel_port", None),
+                    "auth_type": {
+                        "selection": job_inputs.pop("ssh_tunnel_auth_type", None),
+                        "username": job_inputs.pop("ssh_tunnel_auth_type_username", None),
+                        "password": job_inputs.pop("ssh_tunnel_auth_type_password", None),
+                        "passphrase": job_inputs.pop("ssh_tunnel_auth_type_passphrase", None),
+                        "private_key": job_inputs.pop("ssh_tunnel_auth_type_private_key", None),
+                    },
+                }
+                job_inputs["ssh-tunnel"] = ssh_tunnel
+
+            # Remove sensitive fields
             for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
                 if key not in whitelisted_keys:
                     job_inputs.pop(key, None)
@@ -291,7 +308,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     def _normalize_ssh_tunnel_structure(self, job_inputs: dict) -> dict:
         """Convert nested SSH tunnel structure to flat keys."""
         if "ssh-tunnel" in job_inputs:
-            ssh_tunnel = job_inputs.get("ssh-tunnel", {})
+            ssh_tunnel = job_inputs.pop("ssh-tunnel", {})  # Remove the nested structure after extracting
             if ssh_tunnel:
                 job_inputs["ssh_tunnel_enabled"] = ssh_tunnel.get("enabled")
                 job_inputs["ssh_tunnel_host"] = ssh_tunnel.get("host")
