@@ -278,7 +278,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         existing_job_inputs = instance.job_inputs
 
         new_job_inputs = validated_data.get("job_inputs", {})
-        new_job_inputs = self._normalize_ssh_tunnel_structure(new_job_inputs)
+        self._normalize_ssh_tunnel_structure(new_job_inputs)
 
         if existing_job_inputs:
             new_job_inputs = validated_data.get("job_inputs", {})
