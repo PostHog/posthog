@@ -19,7 +19,7 @@ export function isUniversalGroupFilterLike(filter?: UniversalFiltersGroupValue):
 export function isEntityFilter(filter: UniversalFilterValue): filter is ActionFilter {
     return isEventFilter(filter) || isActionFilter(filter)
 }
-export function isEventFilter(filter: UniversalFilterValue): filter is EventFilter {
+export function isEventFilter(filter: UniversalFilterValue): filter is ActionFilter {
     return filter.type === 'events'
 }
 export function isEventPropertyFilter(filter: UniversalFilterValue): filter is EventPropertyFilter {
