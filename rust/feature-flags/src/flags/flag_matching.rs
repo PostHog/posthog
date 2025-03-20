@@ -33,7 +33,7 @@ use tracing::{error, info};
 #[cfg(test)]
 use crate::api::types::{FlagValue, LegacyFlagsResponse}; // Only used in the tests
 
-pub type PersonId = i32;
+pub type PersonId = i64;
 pub type GroupTypeIndex = i32;
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
 pub type PostgresWriter = Arc<dyn DatabaseClient + Send + Sync>;
@@ -1356,7 +1356,7 @@ impl FeatureFlagMatcher {
 /// Evaluate static cohort filters by checking if the person is in each cohort.
 async fn evaluate_static_cohorts(
     reader: PostgresReader,
-    person_id: i32,
+    person_id: PersonId,
     cohort_ids: Vec<CohortId>,
 ) -> Result<Vec<(CohortId, bool)>, FlagError> {
     let mut conn = reader.get_connection().await?;
@@ -1621,7 +1621,7 @@ async fn fetch_and_locally_cache_all_relevant_properties(
     let group_type_indexes_vec: Vec<GroupTypeIndex> = group_type_indexes.iter().cloned().collect();
     let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
-    let row: (Option<i32>, Option<Value>, Option<Value>) = sqlx::query_as(query)
+    let row: (Option<PersonId>, Option<Value>, Option<Value>) = sqlx::query_as(query)
         .bind(&distinct_id)
         .bind(team_id)
         .bind(&group_type_indexes_vec)
@@ -1678,7 +1678,7 @@ async fn fetch_person_properties_from_db(
     reader: PostgresReader,
     distinct_id: String,
     team_id: TeamId,
-) -> Result<(HashMap<String, Value>, i32), FlagError> {
+) -> Result<(HashMap<String, Value>, PersonId), FlagError> {
     let mut conn = reader.as_ref().get_connection().await?;
 
     let query = r#"
@@ -1691,7 +1691,7 @@ async fn fetch_person_properties_from_db(
            LIMIT 1
        "#;
 
-    let row: Option<(i32, Value)> = sqlx::query_as(query)
+    let row: Option<(PersonId, Value)> = sqlx::query_as(query)
         .bind(&distinct_id)
         .bind(team_id)
         .fetch_optional(&mut *conn)
@@ -1791,15 +1791,16 @@ async fn get_feature_flag_hash_key_overrides(
             WHERE team_id = $1 AND distinct_id = ANY($2)
         "#;
 
-    let person_and_distinct_ids: Vec<(i32, String)> = sqlx::query_as(person_and_distinct_id_query)
-        .bind(team_id)
-        .bind(&distinct_id_and_hash_key_override)
-        .fetch_all(&mut *conn)
-        .await?;
+    let person_and_distinct_ids: Vec<(PersonId, String)> =
+        sqlx::query_as(person_and_distinct_id_query)
+            .bind(team_id)
+            .bind(&distinct_id_and_hash_key_override)
+            .fetch_all(&mut *conn)
+            .await?;
 
-    let person_id_to_distinct_id: HashMap<i32, String> =
+    let person_id_to_distinct_id: HashMap<PersonId, String> =
         person_and_distinct_ids.into_iter().collect();
-    let person_ids: Vec<i32> = person_id_to_distinct_id.keys().cloned().collect();
+    let person_ids: Vec<PersonId> = person_id_to_distinct_id.keys().cloned().collect();
 
     // Get hash key overrides
     let hash_key_override_query = r#"
@@ -1808,7 +1809,7 @@ async fn get_feature_flag_hash_key_overrides(
             WHERE team_id = $1 AND person_id = ANY($2)
         "#;
 
-    let overrides: Vec<(String, String, i32)> = sqlx::query_as(hash_key_override_query)
+    let overrides: Vec<(String, String, PersonId)> = sqlx::query_as(hash_key_override_query)
         .bind(team_id)
         .bind(&person_ids)
         .fetch_all(&mut *conn)

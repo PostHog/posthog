@@ -1,5 +1,4 @@
-import { fetchEventSource } from '@microsoft/fetch-event-source'
-import api, { ApiMethodOptions, getCookie } from 'lib/api'
+import api, { ApiMethodOptions } from 'lib/api'
 import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
@@ -112,59 +111,55 @@ async function executeQuery<N extends DataNode>(
             return new Promise((resolve, reject) => {
                 const abortController = new AbortController()
 
-                void fetchEventSource(`/api/environments/${currentTeamId}/query_awaited/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Accept: 'text/event-stream',
-                        'X-CSRFToken': getCookie('posthog_csrftoken') || '',
-                    },
-                    openWhenHidden: true,
-                    body: JSON.stringify({
-                        query: queryNode,
-                        client_query_id: queryId,
-                        refresh: refreshParam,
-                        filters_override: filtersOverride,
-                        variables_override: variablesOverride,
-                    }),
-                    signal: abortController.signal,
-                    onmessage(ev) {
-                        try {
-                            const data = JSON.parse(ev.data)
-                            if (data.error) {
-                                logQueryEvent('error', data, queryNode)
-                                abortController.abort()
-                                // Create an error object that matches the API error format
-                                const error = {
-                                    message: data.error,
-                                    status: data.status_code || 500,
-                                    detail: data.error_message || data.error,
-                                    type: 'network_error',
+                void api
+                    .stream(`/api/environments/${currentTeamId}/query_awaited/`, {
+                        method: 'POST',
+                        data: {
+                            query: queryNode,
+                            client_query_id: queryId,
+                            refresh: refreshParam,
+                            filters_override: filtersOverride,
+                            variables_override: variablesOverride,
+                        },
+                        signal: abortController.signal,
+                        onMessage(ev) {
+                            try {
+                                const data = JSON.parse(ev.data)
+                                if (data.error) {
+                                    logQueryEvent('error', data, queryNode)
+                                    abortController.abort()
+                                    // Create an error object that matches the API error format
+                                    const error = {
+                                        message: data.error,
+                                        status: data.status_code || 500,
+                                        detail: data.error_message || data.error,
+                                        type: 'network_error',
+                                    }
+                                    reject(error)
+                                } else if (data.complete === false) {
+                                    // Progress event - no results yet
+                                    logQueryEvent('progress', data, queryNode)
+                                    if (setPollResponse) {
+                                        setPollResponse(data)
+                                    }
+                                } else {
+                                    // Final results
+                                    logQueryEvent('data', data, queryNode)
+                                    abortController.abort()
+                                    resolve(data)
                                 }
-                                reject(error)
-                            } else if (data.complete === false) {
-                                // Progress event - no results yet
-                                logQueryEvent('progress', data, queryNode)
-                                if (setPollResponse) {
-                                    setPollResponse(data)
-                                }
-                            } else {
-                                // Final results
-                                logQueryEvent('data', data, queryNode)
+                            } catch (e) {
                                 abortController.abort()
-                                resolve(data)
+                                reject(e)
                             }
-                        } catch (e) {
+                        },
+                        onError(err) {
                             abortController.abort()
-                            reject(e)
-                        }
-                    },
-                    onerror(err) {
-                        abortController.abort()
-                        reject(err)
-                        throw err // make sure fetchEventSource doesn't attempt to retry
-                    },
-                }).catch(reject)
+                            reject(err)
+                            throw err // make sure fetchEventSource doesn't attempt to retry
+                        },
+                    })
+                    .catch(reject)
             })
         }
         const response = await api.query(
