@@ -1,16 +1,64 @@
+import { LemonModal } from '@posthog/lemon-ui'
+import { LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { AnimationType } from 'lib/animations/animations'
+import { Animation } from 'lib/components/Animation/Animation'
+import stringWithWBR from 'lib/utils/stringWithWBR'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 
 export function DashboardInsightColorsModal(): JSX.Element {
-    const { isOpen, breakdownValues } = useValues(dashboardInsightColorsModalLogic)
+    const { isOpen, insightTilesLoading, breakdownValues } = useValues(dashboardInsightColorsModalLogic)
     const { hideInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
+
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const { cohorts } = useValues(cohortsModel)
+
+    const columns: LemonTableColumns<string[]> = [
+        {
+            title: 'Color',
+            key: 'color',
+            render: (_, breakdownValue) => {
+                return <LemonColorPicker onSelectColorToken={(colorToken) => alert(colorToken)} colorToken={null} />
+            },
+        },
+        {
+            title: 'Breakdown',
+            key: 'breakdown_value',
+            // width: 0,
+            render: (_, breakdownValue) => {
+                // TODO: support for cohorts and nested breakdowns
+                const breakdownFilter = {}
+                const breakdownLabel = formatBreakdownLabel(
+                    breakdownValue,
+                    breakdownFilter,
+                    cohorts?.results,
+                    formatPropertyValueForDisplay
+                )
+                const formattedLabel = stringWithWBR(breakdownLabel, 20)
+
+                return <span>{formattedLabel}</span>
+            },
+        },
+    ]
+
     return (
         <LemonModal title="Customize Colors" isOpen={isOpen} onClose={hideInsightColorsModal}>
-            {breakdownValues.map((value) => (
-                <div key={value}>{value}</div>
-            ))}
+            {insightTilesLoading ? (
+                <div className="flex flex-col items-center">
+                    {/* Slightly offset to the left for visual balance. */}
+                    <Animation type={AnimationType.SportsHog} size="large" className="-ml-4" />
+                    <p className="text-primary">Waiting for dashboard tiles to load and refresh…</p>
+                </div>
+            ) : (
+                <>
+                    <LemonTable columns={columns} dataSource={breakdownValues} loading={insightTilesLoading} />
+                </>
+            )}
         </LemonModal>
     )
 }
