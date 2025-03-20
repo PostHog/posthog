@@ -208,7 +208,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
          * since that's almost certainly what you want
          */
         swappedInQuery: [
-            '',
+            null as string | null,
             {
                 setSearchQuery: (_, { searchQuery }) => {
                     if (props.listGroupType === TaxonomicFilterGroupType.EventProperties && isURL(searchQuery)) {
