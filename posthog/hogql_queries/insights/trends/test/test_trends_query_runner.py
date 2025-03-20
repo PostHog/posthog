@@ -5305,7 +5305,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._run_trends_query(
             date_from="2020-01-09",
             date_to="2020-01-19",
-            interval="day",
+            interval=IntervalType.DAY,
             series=[
                 EventsNode(
                     event="$pageview",
