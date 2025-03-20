@@ -43,9 +43,9 @@ import type {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
-    InsightVizNode,
     Node,
     NodeKind,
+    QuerySchema,
     QueryStatus,
     RecordingOrder,
     RecordingsQuery,
@@ -2799,7 +2799,7 @@ export interface HistogramGraphDatum {
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
-export interface InsightLogicProps<T = InsightVizNode> {
+export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
@@ -2811,8 +2811,8 @@ export interface InsightLogicProps<T = InsightVizNode> {
     loadPriority?: number
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** query when used as ad-hoc insight */
-    query?: T
-    setQuery?: (node: T) => void
+    query?: Q
+    setQuery?: (node: Q) => void
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
