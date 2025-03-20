@@ -3,8 +3,8 @@ import { StorybookConfig } from '@storybook/react-webpack5'
 
 const config: StorybookConfig = {
     stories: [
-        '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx)',
-        '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx)',
+        '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)',
+        '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx|mdx)',
     ],
 
     addons: [
