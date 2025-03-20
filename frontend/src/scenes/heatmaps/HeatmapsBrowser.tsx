@@ -21,7 +21,7 @@ import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 function UrlSearchHeader(): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
-    const { browserUrlSearchOptions, browserUrl } = useValues(logic)
+    const { browserUrlSearchOptions, browserUrl, isBrowserUrlValid } = useValues(logic)
     const { setBrowserSearch, setBrowserUrl } = useActions(logic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
@@ -42,6 +42,7 @@ function UrlSearchHeader(): JSX.Element {
                             key: x,
                         })) ?? []
                     }
+                    className={!isBrowserUrlValid ? 'border-red-500' : undefined}
                 />
             </span>
 
@@ -130,6 +131,14 @@ function ForbiddenURL(): JSX.Element {
 
             <h2>Authorized Toolbar URLs</h2>
             <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
+        </div>
+    )
+}
+
+function InvalidURL(): JSX.Element {
+    return (
+        <div className="flex-1 p-4 gap-y-4">
+            <LemonBanner type="error">Not a valid URL. Can't load a heatmap for that 😰</LemonBanner>
         </div>
     )
 }
@@ -341,7 +350,7 @@ export function HeatmapsBrowser(): JSX.Element {
 
     const logic = heatmapsBrowserLogic({ iframeRef })
 
-    const { browserUrl, isBrowserUrlAuthorized } = useValues(logic)
+    const { browserUrl, isBrowserUrlAuthorized, isBrowserUrlValid } = useValues(logic)
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
@@ -355,6 +364,8 @@ export function HeatmapsBrowser(): JSX.Element {
                             <>
                                 {!isBrowserUrlAuthorized ? (
                                     <ForbiddenURL />
+                                ) : !isBrowserUrlValid ? (
+                                    <InvalidURL />
                                 ) : (
                                     <EmbeddedHeatmapBrowser iframeRef={iframeRef} />
                                 )}

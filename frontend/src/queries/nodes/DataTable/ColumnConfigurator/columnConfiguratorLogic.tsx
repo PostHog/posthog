@@ -1,4 +1,6 @@
-import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HOGQL_COLUMNS_KEY } from '~/queries/nodes/DataTable/defaultEventsQuery'
@@ -10,6 +12,10 @@ export interface ColumnConfiguratorLogicProps {
     columns: string[]
     setColumns: (columns: string[]) => void
     isPersistent?: boolean
+    context?: {
+        type: 'event_definition' | 'team_columns'
+        eventDefinitionId?: string
+    }
 }
 
 export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
@@ -26,6 +32,12 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         save: true,
         toggleSaveAsDefault: true,
     }),
+    selectors(() => ({
+        context: [
+            () => [(_, props) => props.context],
+            (context: NonNullable<ColumnConfiguratorLogicProps['context']>) => context,
+        ],
+    })),
     reducers(({ props }) => ({
         saveAsDefault: [
             false,
@@ -63,10 +75,31 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         }
     }),
     listeners(({ values, props }) => ({
-        save: () => {
-            if (props.isPersistent && values.saveAsDefault) {
+        save: async () => {
+            if (!props.isPersistent || !values.saveAsDefault) {
+                props.setColumns(values.columns)
+                return
+            }
+
+            if (props.context?.type === 'event_definition' && props.context.eventDefinitionId) {
+                try {
+                    await api.eventDefinitions.update({
+                        eventDefinitionId: props.context.eventDefinitionId,
+                        eventDefinitionData: {
+                            default_columns: values.columns,
+                        },
+                    })
+                    lemonToast.success('Default columns saved for this event')
+                } catch (error) {
+                    console.error('Error saving default columns to event definition:', error)
+                    lemonToast.error('Failed to save columns to event definition')
+                }
+            } else {
+                // Team-wide default columns
                 teamLogic.actions.updateCurrentTeam({ live_events_columns: [HOGQL_COLUMNS_KEY, ...values.columns] })
             }
+
+            // Always update the columns in the query
             props.setColumns(values.columns)
         },
     })),

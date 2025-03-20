@@ -110,6 +110,7 @@ export type CdpConfig = {
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
+    CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
@@ -256,8 +257,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
-    USE_SIMD_JSON_PARSE: boolean
-    USE_SIMD_JSON_PARSE_FOR_COMPARISON: boolean
+    LAZY_LOADER_DEFAULT_BUFFER_MS: number
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
     STARTUP_PROFILE_CPU: boolean
@@ -821,7 +821,9 @@ export type PropertiesLastOperation = Record<string, PropertyUpdateOperation>
 
 /** Properties shared by RawPerson and Person. */
 export interface BasePerson {
-    id: number
+    // NOTE: id is a bigint in the DB, which pg lib returns as a string
+    // We leave it as a string as dealing with the bigint type is tricky and we don't need any of its features
+    id: string
     team_id: number
     properties: Properties
     is_user_id: number

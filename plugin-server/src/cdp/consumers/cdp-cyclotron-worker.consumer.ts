@@ -104,9 +104,14 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             hogFunctionIds.push(job.functionId)
         }
 
-        if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED) {
+        if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && hogFunctionIds.length > 0) {
             const hogFunctions = await this.hogFunctionManagerLazy.getHogFunctions(hogFunctionIds)
-            logger.info('🧐', `Lazy loaded ${Object.keys(hogFunctions).length} hog functions`)
+            if (Object.keys(hogFunctions).length !== hogFunctionIds.length) {
+                logger.warn('Lazy loaded different number of functions', {
+                    lazy: Object.keys(hogFunctions).length,
+                    eager: hogFunctionIds.length,
+                })
+            }
         }
 
         for (const job of jobs) {
@@ -137,7 +142,10 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         await super.start()
 
         this.cyclotronWorker = new CyclotronWorker({
-            pool: { dbUrl: this.hub.CYCLOTRON_DATABASE_URL },
+            pool: {
+                dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
+                shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+            },
             queueName: this.queue,
             includeVmState: true,
             batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,

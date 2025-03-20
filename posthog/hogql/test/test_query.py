@@ -140,8 +140,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 pretty=False,
             )
-            self.assertTrue(isinstance(response.timings, list) and len(response.timings) > 0)
-            self.assertTrue(isinstance(response.timings[0], QueryTiming))
+            assert response.timings is not None
+            assert isinstance(response.timings, list)
+            assert len(response.timings) > 0
+            assert isinstance(response.timings[0], QueryTiming)
             self.assertEqual(response.timings[-1].k, ".")
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -242,7 +244,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][0], "bla")
             self.assertEqual(
                 response.results[0][1],
-                datetime.datetime(2020, 1, 10, 0, 0, tzinfo=timezone.utc),
+                datetime.datetime(2020, 1, 10, 0, 0, tzinfo=datetime.UTC),
             )
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -1058,17 +1060,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             [
                 (
                     (
-                        datetime.datetime(2020, 1, 1, 0, 0, tzinfo=timezone.utc),
-                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                        datetime.datetime(2020, 1, 1, 0, 0, tzinfo=datetime.UTC),
+                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
                     ),
-                    datetime.datetime(2020, 1, 1, 0, 0, tzinfo=timezone.utc),
-                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                    datetime.datetime(2020, 1, 1, 0, 0, tzinfo=datetime.UTC),
+                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
                     (
-                        datetime.datetime(2019, 12, 31, 0, 0, tzinfo=timezone.utc),
-                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                        datetime.datetime(2019, 12, 31, 0, 0, tzinfo=datetime.UTC),
+                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
                     ),
-                    datetime.datetime(2019, 12, 31, 0, 0, tzinfo=timezone.utc),
-                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                    datetime.datetime(2019, 12, 31, 0, 0, tzinfo=datetime.UTC),
+                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
                 )
             ],
         )

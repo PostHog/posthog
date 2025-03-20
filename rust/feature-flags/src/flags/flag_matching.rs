@@ -1,5 +1,5 @@
 use crate::api::errors::FlagError;
-use crate::api::types::{FlagValue, FlagsResponse};
+use crate::api::types::{FlagDetails, FlagsResponse, FromFeatureAndMatch};
 use crate::client::database::Client as DatabaseClient;
 use crate::cohort::cohort_cache_manager::CohortCacheManager;
 use crate::cohort::cohort_models::{Cohort, CohortId};
@@ -21,6 +21,7 @@ use petgraph::graph::DiGraph;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, FromRow, Row};
+use std::collections::hash_map::Entry;
 use std::fmt::Write;
 use std::sync::Arc;
 use std::{
@@ -30,7 +31,10 @@ use std::{
 use tokio::time::{sleep, timeout};
 use tracing::{error, info};
 
-pub type PersonId = i32;
+#[cfg(test)]
+use crate::api::types::{FlagValue, LegacyFlagsResponse}; // Only used in the tests
+
+pub type PersonId = i64;
 pub type GroupTypeIndex = i32;
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
 pub type PostgresWriter = Arc<dyn DatabaseClient + Send + Sync>;
@@ -42,7 +46,7 @@ struct SuperConditionEvaluation {
     reason: FeatureFlagMatchReason,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FeatureFlagMatch {
     pub matches: bool,
     pub variant: Option<String>,
@@ -307,13 +311,11 @@ impl FeatureFlagMatcher {
             )
             .await;
 
-        FlagsResponse {
-            errors_while_computing_flags: initial_error
-                || flags_response.errors_while_computing_flags,
-            feature_flags: flags_response.feature_flags,
-            feature_flag_payloads: flags_response.feature_flag_payloads,
-            quota_limited: None,
-        }
+        FlagsResponse::new(
+            initial_error || flags_response.errors_while_computing_flags,
+            flags_response.flags,
+            None,
+        )
     }
 
     /// Processes hash key overrides for feature flags with experience continuity enabled.
@@ -433,8 +435,7 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> FlagsResponse {
         let mut errors_while_computing_flags = false;
-        let mut feature_flags_map = HashMap::new();
-        let mut feature_flag_payloads_map = HashMap::new();
+        let mut flag_details_map = HashMap::new();
         let mut flags_needing_db_properties = Vec::new();
 
         // Step 1: Evaluate flags with locally computable property overrides first
@@ -453,12 +454,8 @@ impl FeatureFlagMatcher {
                 .await
             {
                 Ok(Some(flag_match)) => {
-                    let flag_value = self.flag_match_to_value(&flag_match);
-                    feature_flags_map.insert(flag.key.clone(), flag_value);
-
-                    if let Some(payload) = flag_match.payload {
-                        feature_flag_payloads_map.insert(flag.key.clone(), payload);
-                    }
+                    flag_details_map
+                        .insert(flag.key.clone(), FlagDetails::create(flag, &flag_match));
                 }
                 Ok(None) => {
                     flags_needing_db_properties.push(flag.clone());
@@ -556,12 +553,8 @@ impl FeatureFlagMatcher {
                     .await
                 {
                     Ok(flag_match) => {
-                        let flag_value = self.flag_match_to_value(&flag_match);
-                        feature_flags_map.insert(flag.key.clone(), flag_value);
-
-                        if let Some(payload) = flag_match.payload {
-                            feature_flag_payloads_map.insert(flag.key.clone(), payload);
-                        }
+                        flag_details_map
+                            .insert(flag.key.clone(), FlagDetails::create(&flag, &flag_match));
                     }
                     Err(e) => {
                         errors_while_computing_flags = true;
@@ -576,18 +569,14 @@ impl FeatureFlagMatcher {
                             &[("reason".to_string(), reason.to_string())],
                             1,
                         );
-                        feature_flags_map.insert(flag.key.clone(), FlagValue::Boolean(false));
+                        flag_details_map
+                            .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
                     }
                 }
             }
         }
 
-        FlagsResponse {
-            errors_while_computing_flags,
-            feature_flags: feature_flags_map,
-            feature_flag_payloads: feature_flag_payloads_map,
-            quota_limited: None,
-        }
+        FlagsResponse::new(errors_while_computing_flags, flag_details_map, None)
     }
 
     /// Matches a feature flag with property overrides.
@@ -673,17 +662,6 @@ impl FeatureFlagMatcher {
         person_property_overrides.as_ref().and_then(|overrides| {
             locally_computable_property_overrides(&Some(overrides.clone()), flag_property_filters)
         })
-    }
-
-    fn flag_match_to_value(&self, flag_match: &FeatureFlagMatch) -> FlagValue {
-        if flag_match.matches {
-            match &flag_match.variant {
-                Some(variant) => FlagValue::String(variant.clone()),
-                None => FlagValue::Boolean(true),
-            }
-        } else {
-            FlagValue::Boolean(false)
-        }
     }
 
     /// Determines if a feature flag matches for the current context.
@@ -824,7 +802,7 @@ impl FeatureFlagMatcher {
     /// It compares the current match reason with a new match reason and returns the higher priority one.
     /// The priority is determined by the ordering of FeatureFlagMatchReason variants.
     /// It's used to keep track of the most significant reason why a flag matched or didn't match,
-    /// which is especially useful when multiple conditions are evaluated.
+    /// especially useful when multiple conditions are evaluated.
     fn get_highest_priority_match_evaluation(
         &self,
         current_match: FeatureFlagMatchReason,
@@ -1022,13 +1000,13 @@ impl FeatureFlagMatcher {
         // Split the cohorts into static and dynamic, since the dynamic ones have property filters
         // and we need to evaluate them based on the target properties, whereas the static ones are
         // purely based on person properties and are membership-based.
-        let (static_cohorts, dynamic_cohorts): (Vec<_>, Vec<_>) =
-            cohorts.iter().partition(|c| c.is_static);
+        let (static_cohorts, _): (Vec<_>, Vec<_>) = cohorts.iter().partition(|c| c.is_static);
 
         // Store all cohort match results in a HashMap to avoid re-evaluating the same cohort multiple times,
         // since the same cohort could appear in multiple property filters.
         let mut cohort_matches = HashMap::new();
 
+        // Always evaluate static cohorts first
         if !static_cohorts.is_empty() {
             let results = evaluate_static_cohorts(
                 self.reader.clone(),
@@ -1039,14 +1017,16 @@ impl FeatureFlagMatcher {
             cohort_matches.extend(results);
         }
 
-        if !dynamic_cohorts.is_empty() {
-            for filter in cohort_property_filters {
-                let cohort_id = filter
-                    .get_cohort_id()
-                    .ok_or(FlagError::CohortFiltersParsingError)?;
+        // For any cohorts not yet evaluated (i.e., dynamic ones), evaluate them
+        for filter in cohort_property_filters {
+            let cohort_id = filter
+                .get_cohort_id()
+                .ok_or(FlagError::CohortFiltersParsingError)?;
+
+            if let Entry::Vacant(e) = cohort_matches.entry(cohort_id) {
                 let match_result =
                     evaluate_dynamic_cohorts(cohort_id, target_properties, &cohorts)?;
-                cohort_matches.insert(cohort_id, match_result);
+                e.insert(match_result);
             }
         }
 
@@ -1379,7 +1359,7 @@ impl FeatureFlagMatcher {
 /// Evaluate static cohort filters by checking if the person is in each cohort.
 async fn evaluate_static_cohorts(
     reader: PostgresReader,
-    person_id: i32,
+    person_id: PersonId,
     cohort_ids: Vec<CohortId>,
 ) -> Result<Vec<(CohortId, bool)>, FlagError> {
     let mut conn = reader.get_connection().await?;
@@ -1423,6 +1403,18 @@ fn evaluate_dynamic_cohorts(
     target_properties: &HashMap<String, Value>,
     cohorts: &[Cohort],
 ) -> Result<bool, FlagError> {
+    // First check if this is a static cohort
+    let initial_cohort = cohorts
+        .iter()
+        .find(|c| c.id == initial_cohort_id)
+        .ok_or(FlagError::CohortNotFound(initial_cohort_id.to_string()))?;
+
+    // If it's static, we don't need to evaluate dependencies - the membership was already
+    // checked in evaluate_static_cohorts and stored in cohort_matches
+    if initial_cohort.is_static {
+        return Ok(false); // Static cohorts are handled by evaluate_static_cohorts
+    }
+
     let cohort_dependency_graph = build_cohort_dependency_graph(initial_cohort_id, cohorts)?;
 
     // We need to sort cohorts topologically to ensure we evaluate dependencies before the cohorts that depend on them.
@@ -1644,7 +1636,7 @@ async fn fetch_and_locally_cache_all_relevant_properties(
     let group_type_indexes_vec: Vec<GroupTypeIndex> = group_type_indexes.iter().cloned().collect();
     let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
-    let row: (Option<i32>, Option<Value>, Option<Value>) = sqlx::query_as(query)
+    let row: (Option<PersonId>, Option<Value>, Option<Value>) = sqlx::query_as(query)
         .bind(&distinct_id)
         .bind(team_id)
         .bind(&group_type_indexes_vec)
@@ -1701,7 +1693,7 @@ async fn fetch_person_properties_from_db(
     reader: PostgresReader,
     distinct_id: String,
     team_id: TeamId,
-) -> Result<(HashMap<String, Value>, i32), FlagError> {
+) -> Result<(HashMap<String, Value>, PersonId), FlagError> {
     let mut conn = reader.as_ref().get_connection().await?;
 
     let query = r#"
@@ -1714,7 +1706,7 @@ async fn fetch_person_properties_from_db(
            LIMIT 1
        "#;
 
-    let row: Option<(i32, Value)> = sqlx::query_as(query)
+    let row: Option<(PersonId, Value)> = sqlx::query_as(query)
         .bind(&distinct_id)
         .bind(team_id)
         .fetch_optional(&mut *conn)
@@ -1814,15 +1806,16 @@ async fn get_feature_flag_hash_key_overrides(
             WHERE team_id = $1 AND distinct_id = ANY($2)
         "#;
 
-    let person_and_distinct_ids: Vec<(i32, String)> = sqlx::query_as(person_and_distinct_id_query)
-        .bind(team_id)
-        .bind(&distinct_id_and_hash_key_override)
-        .fetch_all(&mut *conn)
-        .await?;
+    let person_and_distinct_ids: Vec<(PersonId, String)> =
+        sqlx::query_as(person_and_distinct_id_query)
+            .bind(team_id)
+            .bind(&distinct_id_and_hash_key_override)
+            .fetch_all(&mut *conn)
+            .await?;
 
-    let person_id_to_distinct_id: HashMap<i32, String> =
+    let person_id_to_distinct_id: HashMap<PersonId, String> =
         person_and_distinct_ids.into_iter().collect();
-    let person_ids: Vec<i32> = person_id_to_distinct_id.keys().cloned().collect();
+    let person_ids: Vec<PersonId> = person_id_to_distinct_id.keys().cloned().collect();
 
     // Get hash key overrides
     let hash_key_override_query = r#"
@@ -1831,7 +1824,7 @@ async fn get_feature_flag_hash_key_overrides(
             WHERE team_id = $1 AND person_id = ANY($2)
         "#;
 
-    let overrides: Vec<(String, String, i32)> = sqlx::query_as(hash_key_override_query)
+    let overrides: Vec<(String, String, PersonId)> = sqlx::query_as(hash_key_override_query)
         .bind(team_id)
         .bind(&person_ids)
         .fetch_all(&mut *conn)
@@ -2063,6 +2056,7 @@ mod tests {
             deleted: deleted.unwrap_or(false),
             active: active.unwrap_or(true),
             ensure_experience_continuity: ensure_experience_continuity.unwrap_or(false),
+            version: Some(1),
         }
     }
 
@@ -2218,8 +2212,8 @@ mod tests {
             .await;
         assert!(!result.errors_while_computing_flags);
         assert_eq!(
-            result.feature_flags.get("test_flag"),
-            Some(&FlagValue::Boolean(true))
+            result.flags.get("test_flag").unwrap().to_value(),
+            FlagValue::Boolean(true)
         );
     }
 
@@ -2293,9 +2287,10 @@ mod tests {
             .evaluate_all_feature_flags(flags, None, Some(group_overrides), None)
             .await;
 
-        assert!(!result.errors_while_computing_flags);
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
         assert_eq!(
-            result.feature_flags.get("test_flag"),
+            legacy_response.feature_flags.get("test_flag"),
             Some(&FlagValue::Boolean(true))
         );
     }
@@ -2447,6 +2442,7 @@ mod tests {
             deleted: false,
             active: true,
             ensure_experience_continuity: false,
+            version: Some(1),
         }
     }
 
@@ -2510,9 +2506,10 @@ mod tests {
             )
             .await;
 
-        assert!(!result.errors_while_computing_flags);
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
         assert_eq!(
-            result.feature_flags.get("test_flag"),
+            legacy_response.feature_flags.get("test_flag"),
             Some(&FlagValue::Boolean(true))
         );
 
@@ -4597,6 +4594,7 @@ mod tests {
             deleted: flag.deleted,
             active: flag.active,
             ensure_experience_continuity: flag.ensure_experience_continuity,
+            version: flag.version,
         };
 
         // Insert the feature flag into the database
@@ -4668,6 +4666,7 @@ mod tests {
             deleted: flag.deleted,
             active: flag.active,
             ensure_experience_continuity: flag.ensure_experience_continuity,
+            version: flag.version,
         };
 
         // Insert the feature flag into the database
@@ -4774,12 +4773,13 @@ mod tests {
         .evaluate_all_feature_flags(flags, None, None, Some("hash_key_continuity".to_string()))
         .await;
 
+        let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
-            !result.errors_while_computing_flags,
+            !legacy_response.errors_while_computing_flags,
             "No error should occur"
         );
         assert_eq!(
-            result.feature_flags.get("flag_continuity"),
+            legacy_response.feature_flags.get("flag_continuity"),
             Some(&FlagValue::Boolean(true)),
             "Flag should be evaluated as true with continuity"
         );
@@ -4848,12 +4848,15 @@ mod tests {
         .evaluate_all_feature_flags(flags, None, None, None)
         .await;
 
+        assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
+
+        let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
-            !result.errors_while_computing_flags,
+            !legacy_response.errors_while_computing_flags,
             "No error should occur"
         );
         assert_eq!(
-            result.feature_flags.get("flag_continuity_missing"),
+            legacy_response.feature_flags.get("flag_continuity_missing"),
             Some(&FlagValue::Boolean(true)),
             "Flag should be evaluated as true even without continuity override"
         );
@@ -4967,17 +4970,18 @@ mod tests {
         )
         .await;
 
+        let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(
-            !result.errors_while_computing_flags,
+            !legacy_response.errors_while_computing_flags,
             "No error should occur"
         );
         assert_eq!(
-            result.feature_flags.get("flag_continuity_mix"),
+            legacy_response.feature_flags.get("flag_continuity_mix"),
             Some(&FlagValue::Boolean(true)),
             "Continuity flag should be evaluated as true"
         );
         assert_eq!(
-            result.feature_flags.get("flag_no_continuity_mix"),
+            legacy_response.feature_flags.get("flag_no_continuity_mix"),
             Some(&FlagValue::Boolean(true)),
             "Non-continuity flag should be evaluated based on properties"
         );
@@ -5117,5 +5121,90 @@ mod tests {
         // so it should fall back to hash-based variant computation
         assert!(result_invalid.matches);
         assert!(result_invalid.variant.is_some()); // Will be either "control" or "test" based on hash
+    }
+
+    #[tokio::test]
+    async fn test_static_cohort_evaluation_skips_dependency_graph() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        // Insert a static cohort
+        let cohort = insert_cohort_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            Some("Static Cohort".to_string()),
+            json!({}), // Static cohorts don't have property filters
+            true,      // is_static = true
+        )
+        .await
+        .unwrap();
+
+        // Insert a person
+        let distinct_id = "static_user".to_string();
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "static@user.com"})),
+        )
+        .await
+        .unwrap();
+
+        // Get person ID and add to cohort
+        let person_id = get_person_id_by_distinct_id(reader.clone(), team.id, &distinct_id)
+            .await
+            .unwrap();
+        add_person_to_cohort(reader.clone(), person_id, cohort.id)
+            .await
+            .unwrap();
+
+        // Define a flag that references the static cohort
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(cohort.id),
+                        operator: Some(OperatorType::In),
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: Some(false),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        // This should not throw CohortNotFound because we skip dependency graph evaluation for static cohorts
+        let result = matcher.get_match(&flag, None, None).await;
+        assert!(result.is_ok(), "Should not throw CohortNotFound error");
+
+        let match_result = result.unwrap();
+        assert!(match_result.matches, "User should match the static cohort");
     }
 }

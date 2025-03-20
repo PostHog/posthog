@@ -195,6 +195,7 @@ distro==1.9.0
     # via
     #   anthropic
     #   openai
+    #   posthoganalytics
 dj-database-url==0.5.0
     # via -r requirements.in
 django==4.2.18
@@ -580,7 +581,7 @@ pluggy==1.5.0
     # via dlt
 ply==3.11
     # via jsonpath-ng
-posthoganalytics==3.20.0
+posthoganalytics==3.21.0
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus

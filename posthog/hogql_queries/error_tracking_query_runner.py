@@ -162,9 +162,10 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 or_exprs: list[ast.Expr] = []
 
                 props_to_search = [
-                    "$exception_list",
-                    "$exception_type",
-                    "$exception_message",
+                    "$exception_types",
+                    "$exception_values",
+                    "$exception_sources",
+                    "$exception_functions",
                 ]
                 for prop in props_to_search:
                     or_exprs.append(
@@ -173,6 +174,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
                             left=ast.Call(
                                 name="position",
                                 args=[
+                                    # This actually searches the entire stingified array rather than
+                                    # individual elements using the arrayExists function because the
+                                    # materialized column is a nullable string which causes typing issues
                                     ast.Call(name="lower", args=[ast.Field(chain=["properties", prop])]),
                                     ast.Call(name="lower", args=[ast.Constant(value=token)]),
                                 ],
@@ -181,11 +185,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         )
                     )
 
-                and_exprs.append(
-                    ast.Or(
-                        exprs=or_exprs,
-                    )
-                )
+                and_exprs.append(ast.Or(exprs=or_exprs))
+
             exprs.append(ast.And(exprs=and_exprs))
 
         return ast.And(exprs=exprs)
@@ -258,11 +259,13 @@ class ErrorTrackingQueryRunner(QueryRunner):
             [
                 ast.OrderExpr(
                     expr=ast.Field(chain=[self.query.orderBy]),
-                    order=self.query.orderDirection.value
-                    if self.query.orderDirection
-                    else "ASC"
-                    if self.query.orderBy == "first_seen"
-                    else "DESC",
+                    order=(
+                        self.query.orderDirection.value
+                        if self.query.orderDirection
+                        else "ASC"
+                        if self.query.orderBy == "first_seen"
+                        else "DESC"
+                    ),
                 )
             ]
             if self.query.orderBy

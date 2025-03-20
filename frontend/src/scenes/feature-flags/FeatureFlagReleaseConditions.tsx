@@ -236,7 +236,7 @@ export function FeatureFlagReleaseConditions({
                             These properties aren't immediately available on first page load for unidentified persons.
                             This feature flag requires that at least one event is sent prior to becoming available to
                             your product or website.{' '}
-                            <Link to="https://posthog.com/docs/libraries/js#bootstrapping-flags" target="_blank">
+                            <Link to="https://posthog.com/docs/feature-flags/bootstrapping" target="_blank">
                                 {' '}
                                 Learn more about how to make feature flags available instantly.
                             </Link>

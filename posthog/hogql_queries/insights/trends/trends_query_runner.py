@@ -1,12 +1,11 @@
 import threading
 from copy import deepcopy
-from datetime import timedelta
+from datetime import timedelta, datetime
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
 
 from django.conf import settings
-from django.utils.timezone import datetime
 from natsort import natsorted, ns
 
 from posthog.caching.insights_api import (
@@ -87,6 +86,14 @@ class TrendsQueryRunner(QueryRunner):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
     ):
+        from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
+
+        if isinstance(query, dict):
+            query = TrendsQuery.model_validate(query)
+
+        # Use the new function to handle WAU/MAU conversions
+        query = convert_active_user_math_based_on_interval(query)
+
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.update_hogql_modifiers()
         self.series = self.setup_series()
@@ -141,14 +148,14 @@ class TrendsQueryRunner(QueryRunner):
 
         return queries
 
-    def to_events_query(self, *args, **kwargs) -> ast.SelectQuery | ast.SelectSetQuery:
+    def to_events_query(self, *args, **kwargs) -> ast.SelectQuery:
         with self.timings.measure("trends_to_events_query"):
             query_builder = self._get_trends_actors_query_builder(*args, **kwargs)
             query = query_builder._get_events_query()
 
         return query
 
-    def to_actors_query(self, *args, **kwargs) -> ast.SelectQuery | ast.SelectSetQuery:
+    def to_actors_query(self, *args, **kwargs) -> ast.SelectQuery:
         with self.timings.measure("trends_to_actors_query"):
             query_builder = self._get_trends_actors_query_builder(*args, **kwargs)
             query = query_builder.build_actors_query()
@@ -435,7 +442,7 @@ class TrendsQueryRunner(QueryRunner):
             for result in returned_results:
                 if isinstance(result, list):
                     final_result.extend(result)
-                elif isinstance(result, dict):
+                elif isinstance(result, dict):  # type: ignore [unreachable]
                     raise ValueError("This should not happen")
 
         timings_matrix[-1] = self.timings.to_list()

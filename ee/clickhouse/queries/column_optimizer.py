@@ -85,6 +85,10 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
             if entity.math_property:
                 counter[(entity.math_property, "event", None)] += 1
 
+            # Revenue currency properties are also implicitly used.
+            if entity.math_property_revenue_currency and entity.math_property_revenue_currency.property:
+                counter[(entity.math_property_revenue_currency.property, "event", None)] += 1
+
             # If groups are involved, they're also used
             #
             # See posthog/queries/trends/util.py#process_math

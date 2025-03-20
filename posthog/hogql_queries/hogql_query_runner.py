@@ -6,7 +6,6 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.utils import deserialize_hx_ast
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -26,9 +25,7 @@ class HogQLQueryRunner(QueryRunner):
     response: HogQLQueryResponse
     cached_response: CachedHogQLQueryResponse
 
-    def to_query(self) -> ast.SelectQuery:
-        if self.timings is None:
-            self.timings = HogQLTimings()
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         values: Optional[dict[str, ast.Expr]] = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
@@ -45,7 +42,7 @@ class HogQLQueryRunner(QueryRunner):
                     parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
         return parsed_select
 
-    def to_actors_query(self) -> ast.SelectQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
 
     def calculate(self) -> HogQLQueryResponse:

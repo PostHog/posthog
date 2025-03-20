@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { ParsedMessageData } from '../kafka/types'
 import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
+import { MessageWithTeam } from '../teams/types'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 
@@ -41,25 +41,31 @@ describe('SessionConsoleLogRecorder', () => {
     const createMessage = (
         windowId: string,
         events: any[],
-        { sessionId = 'session_id', distinctId = 'distinct_id' } = {}
-    ): ParsedMessageData => ({
-        distinct_id: distinctId,
-        session_id: sessionId,
-        eventsByWindowId: {
-            [windowId]: events,
+        { sessionId = 'session_id', distinctId = 'distinct_id', teamId = 1, consoleLogIngestionEnabled = true } = {}
+    ): MessageWithTeam => ({
+        team: {
+            teamId,
+            consoleLogIngestionEnabled,
         },
-        eventsRange: {
-            start: DateTime.fromMillis(events[0]?.timestamp || 0),
-            end: DateTime.fromMillis(events[events.length - 1]?.timestamp || 0),
-        },
-        snapshot_source: null,
-        snapshot_library: null,
-        metadata: {
-            partition: 1,
-            topic: 'test',
-            offset: 0,
-            timestamp: 0,
-            rawSize: 0,
+        message: {
+            distinct_id: distinctId,
+            session_id: sessionId,
+            eventsByWindowId: {
+                [windowId]: events,
+            },
+            eventsRange: {
+                start: DateTime.fromMillis(events[0]?.timestamp || 0),
+                end: DateTime.fromMillis(events[events.length - 1]?.timestamp || 0),
+            },
+            snapshot_source: null,
+            snapshot_library: null,
+            metadata: {
+                partition: 1,
+                topic: 'test',
+                offset: 0,
+                timestamp: 0,
+                rawSize: 0,
+            },
         },
     })
 
@@ -294,23 +300,13 @@ describe('SessionConsoleLogRecorder', () => {
 
     describe('Error handling', () => {
         it('should throw error when recording after end', async () => {
-            const message = createMessage(
-                'window1',
-                [
-                    {
-                        type: RRWebEventType.Plugin,
-                        timestamp: 1000,
-                        data: {
-                            plugin: 'rrweb/console@1',
-                            payload: {
-                                level: ConsoleLogLevel.Log,
-                                content: ['Test message'],
-                            },
-                        },
-                    },
-                ],
-                { sessionId: 'session_error_handling_1', distinctId: 'user_7' }
-            )
+            const message = createMessage('window1', [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Test message'],
+                    timestamp: 1000,
+                }),
+            ])
 
             await recorder.recordMessage(message)
             recorder.end()
@@ -321,23 +317,13 @@ describe('SessionConsoleLogRecorder', () => {
         })
 
         it('should throw error when calling end multiple times', async () => {
-            const message = createMessage(
-                'window1',
-                [
-                    {
-                        type: RRWebEventType.Plugin,
-                        timestamp: 1000,
-                        data: {
-                            plugin: 'rrweb/console@1',
-                            payload: {
-                                level: ConsoleLogLevel.Log,
-                                content: ['Test message'],
-                            },
-                        },
-                    },
-                ],
-                { sessionId: 'session_error_handling_2', distinctId: 'user_8' }
-            )
+            const message = createMessage('window1', [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Test message'],
+                    timestamp: 1000,
+                }),
+            ])
 
             await recorder.recordMessage(message)
             recorder.end()
@@ -348,41 +334,21 @@ describe('SessionConsoleLogRecorder', () => {
 
     describe('Multiple windows', () => {
         it('should count console events from multiple windows', async () => {
-            const message1 = createMessage(
-                'window1',
-                [
-                    {
-                        type: RRWebEventType.Plugin,
-                        timestamp: 1000,
-                        data: {
-                            plugin: 'rrweb/console@1',
-                            payload: {
-                                level: ConsoleLogLevel.Log,
-                                content: ['Window 1 log'],
-                            },
-                        },
-                    },
-                ],
-                { sessionId: 'session_multi_window_1', distinctId: 'user_9' }
-            )
+            const message1 = createMessage('window1', [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Window 1 log'],
+                    timestamp: 1000,
+                }),
+            ])
 
-            const message2 = createMessage(
-                'window2',
-                [
-                    {
-                        type: RRWebEventType.Plugin,
-                        timestamp: 2000,
-                        data: {
-                            plugin: 'rrweb/console@1',
-                            payload: {
-                                level: ConsoleLogLevel.Error,
-                                content: ['Window 2 error'],
-                            },
-                        },
-                    },
-                ],
-                { sessionId: 'session_multi_window_1', distinctId: 'user_9' }
-            )
+            const message2 = createMessage('window2', [
+                createConsoleLogEvent({
+                    level: 'error',
+                    payload: ['Window 2 error'],
+                    timestamp: 2000,
+                }),
+            ])
 
             await recorder.recordMessage(message1)
             await recorder.recordMessage(message2)
@@ -553,7 +519,7 @@ describe('SessionConsoleLogRecorder', () => {
             )
 
             // Add events from window2 to the same message
-            message.eventsByWindowId['window2'] = [
+            message.message.eventsByWindowId['window2'] = [
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Duplicate message'],
@@ -670,6 +636,37 @@ describe('SessionConsoleLogRecorder', () => {
                     message: 'Third unique message',
                 }),
             ])
+        })
+
+        it('should not record logs when consoleLogIngestionEnabled is false', async () => {
+            const now = DateTime.now()
+            const message = createMessage(
+                'window1',
+                [
+                    {
+                        timestamp: now.toMillis(),
+                        type: RRWebEventType.Plugin,
+                        data: {
+                            plugin: 'rrweb/console@1',
+                            payload: {
+                                level: 'log',
+                                payload: ['test message'],
+                            },
+                        },
+                    },
+                ],
+                { consoleLogIngestionEnabled: false }
+            )
+
+            await recorder.recordMessage(message)
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).not.toHaveBeenCalled()
+
+            const result = recorder.end()
+            expect(result).toEqual({
+                consoleLogCount: 0,
+                consoleWarnCount: 0,
+                consoleErrorCount: 0,
+            })
         })
     })
 })
