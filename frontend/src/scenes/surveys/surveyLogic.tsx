@@ -263,7 +263,7 @@ export const surveyLogic = kea<surveyLogicType>([
         deleteBranchingLogic: true,
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
-        setSurveyTemplateValues: (template: any) => ({ template }),
+        setSurveyTemplateValues: (template: Partial<NewSurvey>) => ({ template }),
         setSelectedPageIndex: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         resetTargeting: true,
