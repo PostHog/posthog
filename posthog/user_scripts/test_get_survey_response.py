@@ -9,8 +9,12 @@ import importlib.util
 # Import the script as a module
 script_path = os.path.join(os.path.dirname(__file__), "get_survey_response.py")
 spec = importlib.util.spec_from_file_location("get_survey_response", script_path)
-get_survey_response = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(get_survey_response)
+if spec is not None:
+    get_survey_response = importlib.util.module_from_spec(spec)
+    if spec.loader is not None:
+        spec.loader.exec_module(get_survey_response)
+else:
+    raise ImportError(f"Could not import get_survey_response.py from {script_path}")
 
 
 class TestGetSurveyResponse(unittest.TestCase):
