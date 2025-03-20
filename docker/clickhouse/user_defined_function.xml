@@ -299,7 +299,7 @@
             <name>properties</name>
         </argument>
         <argument>
-            <type>UInt64</type>
+            <type>UInt8</type>
             <name>question_index</name>
         </argument>
         <argument>
