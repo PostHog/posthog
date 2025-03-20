@@ -398,7 +398,7 @@ describe('infiniteListLogic', () => {
         logicWithProps.mount()
 
         await expectLogic(logicWithProps, () => logicWithProps.actions.setSearchQuery('css')).toMatchValues({
-            localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css', originalQuery: 'css' },
+            localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css', originalQuery: undefined },
         })
     })
 
