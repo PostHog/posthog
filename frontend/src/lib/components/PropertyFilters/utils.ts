@@ -21,6 +21,7 @@ import {
     ElementPropertyFilter,
     EmptyPropertyFilter,
     EventDefinition,
+    EventMetadataPropertyFilter,
     EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
@@ -102,6 +103,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Meta]: TaxonomicFilterGroupType.Metadata,
         [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
         [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
+        [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
         [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
         [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
         [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
@@ -183,6 +185,9 @@ export function isValidPropertyFilter(
 export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is CohortPropertyFilter {
     return filter?.type === PropertyFilterType.Cohort
 }
+export function isEventMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is EventMetadataPropertyFilter {
+    return filter?.type === PropertyFilterType.EventMetadata
+}
 export function isPropertyGroupFilterLike(
     filter?: AnyFilterLike | null
 ): filter is PropertyGroupFilter | PropertyGroupFilterValue {
@@ -237,6 +242,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
     return (
         isEventPropertyFilter(filter) ||
         isPersonPropertyFilter(filter) ||
+        isEventMetadataPropertyFilter(filter) ||
         isElementPropertyFilter(filter) ||
         isSessionPropertyFilter(filter) ||
         isCohortPropertyFilter(filter) ||
@@ -252,6 +258,7 @@ export function isPropertyFilterWithOperator(
 ): filter is
     | EventPropertyFilter
     | PersonPropertyFilter
+    | EventMetadataPropertyFilter
     | ElementPropertyFilter
     | SessionPropertyFilter
     | RecordingPropertyFilter
@@ -264,6 +271,7 @@ export function isPropertyFilterWithOperator(
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
             isPersonPropertyFilter(filter) ||
+            isEventMetadataPropertyFilter(filter) ||
             isElementPropertyFilter(filter) ||
             isSessionPropertyFilter(filter) ||
             isRecordingPropertyFilter(filter) ||
@@ -291,6 +299,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
     [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
+    [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
@@ -352,6 +361,9 @@ export function taxonomicFilterTypeToPropertyFilterType(
 ): PropertyFilterType | undefined {
     if (filterType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         return PropertyFilterType.Cohort
+    }
+    if (filterType === TaxonomicFilterGroupType.EventMetadata) {
+        return PropertyFilterType.EventMetadata
     }
     if (
         filterType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ||

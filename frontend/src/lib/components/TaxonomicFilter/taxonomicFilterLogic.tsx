@@ -319,6 +319,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ...propertyTaxonomicGroupProps(),
                     },
                     {
+                        name: 'Event metadata',
+                        searchPlaceholder: 'event metadata',
+                        type: TaxonomicFilterGroupType.EventMetadata,
+                        options: [
+                            {
+                                name: 'Distinct ID',
+                                value: 'distinct_id',
+                            },
+                            {
+                                name: 'Timestamp',
+                                value: 'timestamp',
+                            },
+                        ],
+                        getName: (option: Record<string, string>) => option.name,
+                        getValue: (option: Record<string, string>) => option.value,
+                        getPopoverHeader: () => 'Event metadata',
+                    },
+                    {
                         name: 'Feature flags',
                         searchPlaceholder: 'feature flags',
                         type: TaxonomicFilterGroupType.EventFeatureFlags,

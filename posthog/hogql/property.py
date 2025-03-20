@@ -27,6 +27,7 @@ from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
 from posthog.schema import (
+    EventMetadataPropertyFilter,
     FilterLogicalOperator,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -283,6 +284,7 @@ def property_to_expr(
         | PersonPropertyFilter
         | ElementPropertyFilter
         | SessionPropertyFilter
+        | EventMetadataPropertyFilter
         | CohortPropertyFilter
         | RecordingPropertyFilter
         | LogEntryPropertyFilter
@@ -548,6 +550,48 @@ def property_to_expr(
                 else ast.CompareOperationOp.InCohort
             ),
             right=ast.Constant(value=cohort.pk),
+        )
+    elif property.type == "event_metadata":
+        if scope != "event":
+            raise NotImplementedError(f"The '{property.type}' property filter does not work in '{scope}' scope")
+        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+        value = property.value
+
+        if isinstance(value, list):
+            if len(value) == 0:
+                return ast.Constant(value=1)
+            elif len(value) == 1:
+                value = value[0]
+            else:
+                # Using an AND here instead of `in()` or `notIn()`, due to Clickhouses poor handling of `null` values
+                exprs = [
+                    property_to_expr(
+                        Property(
+                            type=property.type,
+                            key=property.key,
+                            operator=property.operator,
+                            value=v,
+                        ),
+                        team,
+                        scope,
+                    )
+                    for v in value
+                ]
+                if (
+                    operator == PropertyOperator.NOT_ICONTAINS
+                    or operator == PropertyOperator.NOT_REGEX
+                    or operator == PropertyOperator.IS_NOT
+                ):
+                    return ast.And(exprs=exprs)
+                return ast.Or(exprs=exprs)
+
+        return _expr_to_compare_op(
+            expr=ast.Field(chain=[property.key]),
+            value=value,
+            operator=operator,
+            team=team,
+            property=property,
+            is_json_field=False,
         )
 
     # TODO: Add support for these types: "recording", "behavioral"
