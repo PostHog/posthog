@@ -7,11 +7,9 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 export function AIConsentPopoverWrapper({
     children,
     onDismiss,
-    onAccept,
     ...popoverProps
 }: Pick<PopoverProps, 'placement' | 'fallbackPlacements' | 'middleware' | 'showArrow'> & {
     children: JSX.Element
-    onAccept?: () => void
     onDismiss?: () => void
 }): JSX.Element {
     const { acceptDataProcessing } = useActions(maxGlobalLogic)
@@ -19,7 +17,6 @@ export function AIConsentPopoverWrapper({
 
     const handleAcceptDataProcessing = (): void => {
         acceptDataProcessing()
-        onAccept?.()
     }
 
     const handleClickOutside = (): void => {

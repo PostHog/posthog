@@ -695,7 +695,7 @@ function ResponseSummariesButton({ questionIndex }: { questionIndex: number | un
                     {responseSummaryLoading ? 'Let me think...' : 'Summarize responses'}
                 </LemonButton>
             ) : (
-                <AIConsentPopoverWrapper showArrow onDismiss={handleDismissPopover} onAccept={summarizeQuestion}>
+                <AIConsentPopoverWrapper showArrow onDismiss={handleDismissPopover}>
                     <LemonButton
                         type="secondary"
                         data-attr="summarize-survey"
