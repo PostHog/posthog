@@ -63,7 +63,7 @@ export class TeamManager {
                 }
             }
         } catch (e) {
-            logger.error('Error comparing teams', { error: e })
+            logger.error('Error comparing teams', { error: e, teamId })
         }
 
         return team
