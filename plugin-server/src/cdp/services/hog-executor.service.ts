@@ -22,12 +22,8 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../types'
-import {
-    buildExportedFunctionInvoker,
-    checkHogFunctionFilters,
-    convertToHogFunctionFilterGlobal,
-    createInvocation,
-} from '../utils'
+import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
+import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -39,14 +35,6 @@ const hogExecutionDuration = new Histogram({
     help: 'Processing time and success status of internal functions',
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
-})
-
-export const hogFunctionFilterDuration = new Histogram({
-    name: 'cdp_hog_function_filter_duration_ms',
-    help: 'Processing time for filtering a function',
-    // We have a timeout so we don't need to worry about much more than that
-    buckets: [0, 10, 20, 50, 100, 200],
-    labelNames: ['type'],
 })
 
 const hogFunctionStateMemory = new Histogram({
@@ -170,26 +158,19 @@ export class HogExecutorService {
             filters: HogFunctionType['filters'],
             filterGlobals: HogFunctionFilterGlobals
         ) => {
-            if (filters?.bytecode) {
-                try {
-                    const filterResults = checkHogFunctionFilters(hogFunction, filters, filterGlobals, {
-                        telemetryMatcher: this.telemetryMatcher,
-                        eventUuid: triggerGlobals.event.uuid,
-                    })
+            const filterResults = checkHogFunctionFilters({
+                hogFunction,
+                filters,
+                filterGlobals,
+                eventUuid: triggerGlobals.event.uuid,
+                enabledTelemetry: this.telemetryMatcher(hogFunction.team_id),
+            })
 
-                    // Add any generated metrics and logs to our collections
-                    metrics.push(...filterResults.metrics)
-                    logs.push(...filterResults.logs)
+            // Add any generated metrics and logs to our collections
+            metrics.push(...filterResults.metrics)
+            logs.push(...filterResults.logs)
 
-                    // Record the duration for monitoring
-                    hogFunctionFilterDuration.observe({ type: hogFunction.type }, filterResults.duration)
-
-                    return filterResults.result
-                } catch (error) {
-                    // Already logged in the utility
-                    return false
-                }
-            }
+            return filterResults.match
         }
 
         const _buildInvocation = (

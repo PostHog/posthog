@@ -130,8 +130,6 @@ describe('HogTransformer', () => {
                     "$initial_geoip_subdivision_2_name": null,
                     "$initial_geoip_time_zone": "America/New_York",
                   },
-                  "$transformations_failed": [],
-                  "$transformations_skipped": [],
                   "$transformations_succeeded": [
                     "GeoIP (d77e792e-0f35-431b-a983-097534aa4767)",
                   ],
@@ -175,8 +173,6 @@ describe('HogTransformer', () => {
                   "properties": {
                     "$current_url": "https://example.com",
                     "$ip": "12.87.118.0",
-                    "$transformations_failed": [],
-                    "$transformations_skipped": [],
                     "$transformations_succeeded": [
                       "Modifier (d77e792e-0f35-431b-a983-097534aa4767)",
                     ],
@@ -532,7 +528,6 @@ describe('HogTransformer', () => {
                 success: true, // From successful transformation
                 $transformations_succeeded: [`Success Template (${successFunction.id})`],
                 $transformations_failed: [`Failing Template (${failFunction.id})`],
-                $transformations_skipped: [],
             })
         })
 
@@ -659,8 +654,8 @@ describe('HogTransformer', () => {
                 `${hogFunction.name} (${hogFunction.id})`,
             ])
             expect(result.event?.properties?.original).toBe(true)
-            expect(result.event?.properties?.$transformations_succeeded).toEqual([])
-            expect(result.event?.properties?.$transformations_failed).toEqual([])
+            expect(result.event?.properties?.$transformations_succeeded).toBeUndefined()
+            expect(result.event?.properties?.$transformations_failed).toBeUndefined()
         })
 
         it('should track both successful and skipped transformations in sequence', async () => {
@@ -732,7 +727,6 @@ describe('HogTransformer', () => {
                 $current_url: 'https://example.com',
                 $ip: '12.87.118.0',
                 $transformations_succeeded: [`Success Template (${successFunction.id})`],
-                $transformations_failed: [],
                 $transformations_skipped: [`Skipped Template (${skippedFunction.id})`],
             })
         })
@@ -790,8 +784,6 @@ describe('HogTransformer', () => {
                   "properties": {
                     "$current_url": "https://example.com",
                     "$ip": "12.87.118.0",
-                    "$transformations_failed": [],
-                    "$transformations_skipped": [],
                     "$transformations_succeeded": [
                       "Filter Out Plugin (c342e9ae-9f76-4379-a465-d33b4826bc05)",
                     ],
@@ -891,8 +883,6 @@ describe('HogTransformer', () => {
                       "$initial_geoip_subdivision_2_name": null,
                       "$initial_geoip_time_zone": "America/New_York",
                     },
-                    "$transformations_failed": [],
-                    "$transformations_skipped": [],
                     "$transformations_succeeded": [
                       "GeoIP (<REPLACED-UUID-0>)",
                       "Property Filter (<REPLACED-UUID-1>)",
@@ -951,8 +941,8 @@ describe('HogTransformer', () => {
 
             // Verify transformation was skipped
             expect(result.event?.properties?.should_not_be_set).toBeUndefined()
-            expect(result.event?.properties?.$transformations_succeeded).toEqual([])
-            expect(result.event?.properties?.$transformations_failed).toEqual([])
+            expect(result.event?.properties?.$transformations_succeeded).toBeUndefined()
+            expect(result.event?.properties?.$transformations_failed).toBeUndefined()
             expect(result.event?.properties?.$transformations_skipped).toEqual([
                 `${hogFunction.name} (${hogFunction.id})`,
             ])
@@ -1008,8 +998,8 @@ describe('HogTransformer', () => {
 
             // Verify transformation was skipped
             expect(nonMatchResult.event?.properties?.test_property).toBeUndefined()
-            expect(nonMatchResult.event?.properties?.$transformations_succeeded).toEqual([])
-            expect(nonMatchResult.event?.properties?.$transformations_failed).toEqual([])
+            expect(nonMatchResult.event?.properties?.$transformations_succeeded).toBeUndefined()
+            expect(nonMatchResult.event?.properties?.$transformations_failed).toBeUndefined()
             expect(nonMatchResult.event?.properties?.$transformations_skipped).toEqual([
                 `${hogFunction.name} (${hogFunction.id})`,
             ])
@@ -1215,8 +1205,8 @@ describe('HogTransformer', () => {
 
             // Verify transformation was skipped since no filters matched
             expect(result.event?.properties?.should_not_be_set).toBeUndefined()
-            expect(result.event?.properties?.$transformations_succeeded).toEqual([])
-            expect(result.event?.properties?.$transformations_failed).toEqual([])
+            expect(result.event?.properties?.$transformations_succeeded).toBeUndefined()
+            expect(result.event?.properties?.$transformations_failed).toBeUndefined()
             expect(result.event?.properties?.$transformations_skipped).toEqual([
                 `${hogFunction.name} (${hogFunction.id})`,
             ])

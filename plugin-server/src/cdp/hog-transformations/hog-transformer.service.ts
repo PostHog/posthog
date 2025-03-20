@@ -7,17 +7,17 @@ import {
     HogFunctionType,
     HogFunctionTypeType,
 } from '../../cdp/types'
-import { checkHogFunctionFilters, createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
+import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
-import { hogFunctionFilterDuration } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 import { HogFunctionManagerLazyService } from '../services/hog-function-manager-lazy.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { convertToHogFunctionFilterGlobal } from '../utils'
+import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
 import { cleanNullValues } from './transformation-functions'
 
 export const hogTransformationDroppedEvents = new Counter({
@@ -163,20 +163,14 @@ export class HogTransformerService {
                         // Check if function has filters - if not, always apply
                         if (hogFunction.filters?.bytecode) {
                             try {
-                                const filterResults = checkHogFunctionFilters(
+                                const filterResults = checkHogFunctionFilters({
                                     hogFunction,
-                                    hogFunction.filters,
                                     filterGlobals,
-                                    {
-                                        eventUuid: globals.event?.uuid,
-                                    }
-                                )
+                                    eventUuid: globals.event?.uuid,
+                                })
 
-                                // Track the duration for metrics
-                                hogFunctionFilterDuration.observe({ type: hogFunction.type }, filterResults.duration)
-
-                                // If filter didn't pass, skip this transformation
-                                if (!filterResults.result) {
+                                // If filter didn't pass and there was no error, skip this transformation
+                                if (!filterResults.match && !filterResults.error) {
                                     transformationsSkipped.push(transformationIdentifier)
                                     results.push({
                                         invocation: createInvocation(
@@ -272,17 +266,24 @@ export class HogTransformerService {
                     transformationsSucceeded.push(transformationIdentifier)
                 }
 
-                // Only add the properties if there were transformations
-                if (
-                    transformationsSucceeded.length > 0 ||
-                    transformationsFailed.length > 0 ||
-                    transformationsSkipped.length > 0
-                ) {
+                if (transformationsFailed.length > 0) {
+                    event.properties = {
+                        ...event.properties,
+                        $transformations_failed: transformationsFailed,
+                    }
+                }
+
+                if (transformationsSkipped.length > 0) {
+                    event.properties = {
+                        ...event.properties,
+                        $transformations_skipped: transformationsSkipped,
+                    }
+                }
+
+                if (transformationsSucceeded.length > 0) {
                     event.properties = {
                         ...event.properties,
                         $transformations_succeeded: transformationsSucceeded,
-                        $transformations_failed: transformationsFailed,
-                        $transformations_skipped: transformationsSkipped,
                     }
                 }
 
