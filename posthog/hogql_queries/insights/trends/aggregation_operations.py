@@ -158,11 +158,9 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 args=[
                     convert_currency_call(
                         ast.Field(chain=chain),
-                        (
-                            ast.Constant(value=self.series.math_property_revenue_currency.static.value)
-                            if self.series.math_property_revenue_currency.static is not None
-                            else ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
-                        ),
+                        ast.Constant(value=self.series.math_property_revenue_currency.static.value)
+                        if self.series.math_property_revenue_currency.static is not None
+                        else ast.Field(chain=["properties", self.series.math_property_revenue_currency.property]),
                         ast.Constant(value=self.team.revenue_config.baseCurrency.value),
                         ast.Call(name="_toDate", args=[ast.Field(chain=["timestamp"])]),
                     )
