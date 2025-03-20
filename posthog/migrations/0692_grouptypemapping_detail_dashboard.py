@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0690_alter_personid_persondistinctid"),
+        ("posthog", "0691_action_embedding_version"),
     ]
 
     operations = [
