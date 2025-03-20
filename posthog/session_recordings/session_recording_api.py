@@ -42,7 +42,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     PersonalApiKeyRateThrottle,
 )
-from posthog.schema import HogQLQueryModifiers, QueryTiming, RecordingsQuery
+from posthog.schema import HogQLQueryModifiers, PropertyFilterType, QueryTiming, RecordingsQuery
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -54,7 +54,7 @@ from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
 )
-from posthog.storage import object_storage
+from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
@@ -442,9 +442,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 "Must specify exactly one session_id",
             )
 
-        if not query.events and not query.actions:
+        has_event_properties = any(
+            getattr(p, "type", None) == PropertyFilterType.EVENT for p in (query.properties or [])
+        )
+
+        if not query.events and not query.actions and not has_event_properties:
             raise exceptions.ValidationError(
-                "Must specify at least one event or action filter",
+                "Must specify at least one event or action filter, or event properties filter",
             )
 
         distinct_id = str(cast(User, request.user).distinct_id)
@@ -699,6 +703,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     ),
                     key=lambda x: x[0],
                 )
+                # If we started recording halfway through the session, we should not serve v2 sources
+                # as we don't have the complete recording from the start
+                if blocks and blocks[0][0] != v2_metadata["start_time"]:
+                    blocks = []
                 for i, (start_timestamp, end_timestamp, _) in enumerate(blocks):
                     sources.append(
                         {
@@ -942,7 +950,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 raise exceptions.NotFound("Invalid byte range")
 
             expected_length = end_byte - start_byte + 1
-            compressed_block = object_storage.read_bytes(key, first_byte=start_byte, last_byte=end_byte)
+            compressed_block = session_recording_v2_object_storage.client().read_bytes(
+                key, first_byte=start_byte, last_byte=end_byte
+            )
 
             if not compressed_block:
                 raise exceptions.NotFound("Block content not found")
@@ -973,7 +983,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
             snapshot_lines = (
                 get_realtime_snapshots(
-                    team_id=self.team.pk,
+                    team_id=str(self.team.pk),
                     session_id=str(recording.session_id),
                 )
                 or []
@@ -1059,15 +1069,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
-
-        # Get events for the target recording
-        with timer("get_target_events"):
-            target_events = SessionReplayEvents().get_events_for_session(
-                session_id=str(recording.session_id), team=self.team
-            )
-
-        if not target_events:
-            return Response({"count": 0, "results": []})
 
         # Find recordings with similar event sequences using ClickHouse
         with timer("get_similar_recordings"):
@@ -1169,7 +1170,7 @@ def list_recordings_from_query(
 
     with timer("load_persons"):
         # Get the related persons for all the recordings
-        distinct_ids = sorted([x.distinct_id for x in recordings])
+        distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
         person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
             "person"
         )
@@ -1185,7 +1186,7 @@ def list_recordings_from_query(
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
             recording.viewers = other_viewers.get(recording.session_id, [])
-            person = distinct_id_to_person.get(recording.distinct_id)
+            person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
             if person:
                 recording.person = person
 

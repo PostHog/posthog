@@ -120,7 +120,9 @@ class SessionRecording(UUIDModel):
         if self._person:
             return self._person
 
-        return MissingPerson(team_id=self.team_id, distinct_id=self.distinct_id)
+        # kludge: satisfy mypy by making distinct_id always a string.
+        # if distinct_id is none we've got bigger problems
+        return MissingPerson(team_id=self.team_id, distinct_id=self.distinct_id or "")
 
     @person.setter
     def person(self, value: Person):
@@ -133,7 +135,7 @@ class SessionRecording(UUIDModel):
         try:
             self.person = Person.objects.get(
                 persondistinctid__distinct_id=self.distinct_id,
-                persondistinctid__team_id=self.team,
+                persondistinctid__team_id=self.team.pk,
                 team=self.team,
             )
         except Person.DoesNotExist:

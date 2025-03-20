@@ -59,10 +59,7 @@ export function Elements(): JSX.Element {
                 <Heatmap />
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
-                {elementsToDisplay.map(({ rect, element }, index) => {
-                    // being able to hover over elements might rely on their original z-index
-                    // so we copy it over to the toolbar element
-                    const elementZIndex = getComputedStyle(element).zIndex
+                {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {
                     return (
                         <AutocaptureElement
                             key={`inspect-${index}`}
@@ -70,7 +67,7 @@ export function Elements(): JSX.Element {
                             style={{
                                 pointerEvents: heatmapPointerEvents,
                                 cursor: 'pointer',
-                                zIndex: elementZIndex ? elementZIndex : hoverElement === element ? 2 : 1,
+                                zIndex: apparentZIndex ? apparentZIndex : hoverElement === element ? 2 : 1,
                                 opacity:
                                     (!hoverElement && !selectedElement) ||
                                     selectedElement === element ||

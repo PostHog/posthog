@@ -1074,7 +1074,8 @@ class _Printer(Visitor):
 
             params_part = f"({', '.join(params)})" if params is not None else ""
             args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(args)})"
-            return f"{func_meta.clickhouse_name}{params_part}{args_part}"
+
+            return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
 
         elif func_meta := find_hogql_function(node.name):
             validate_function_args(
@@ -1628,7 +1629,9 @@ class _Printer(Visitor):
             return str(name)
         return escape_hogql_identifier(name)
 
-    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime | date) -> str:
+    def _print_escaped_string(
+        self, name: float | int | str | list | tuple | datetime | date | UUID | UUIDT | None
+    ) -> str:
         if self.dialect == "clickhouse":
             return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())

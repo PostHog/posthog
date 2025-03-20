@@ -1064,7 +1064,7 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
         flush_persons_and_events()
         sync_execute("SYSTEM FLUSH LOGS")
         sync_execute("TRUNCATE TABLE system.query_log")
-        tag_queries(kind="request", id="1", access_method="personal_api_key")
+        tag_queries(kind="request", id="1", access_method="personal_api_key", qaas=True)
 
         execute_hogql_query(
             query="select * from events limit 400",
@@ -1089,6 +1089,8 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
         # Queries were read via the API
         assert report.query_api_rows_read == 200
         assert report.event_explorer_api_rows_read == 100
+        assert report.qaas_query_count == 2
+        assert report.qaas_bytes_read > 16000  # locally it's about 16753
 
 
 @freeze_time("2022-01-10T00:01:00Z")

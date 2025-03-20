@@ -1,12 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
-import {
-    HogFunctionInvocationGlobals,
-    HogFunctionInvocationResult,
-    HogFunctionType,
-    HogFunctionTypeType,
-} from '../../cdp/types'
+import { HogFunctionInvocationGlobals, HogFunctionInvocationResult, HogFunctionType } from '../../cdp/types'
 import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
@@ -63,6 +58,14 @@ export class HogTransformerService {
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
     }
 
+    public async start(): Promise<void> {
+        await this.hogFunctionManager.start()
+    }
+
+    public async stop(): Promise<void> {
+        await this.hogFunctionManager.stop()
+    }
+
     private async getTransformationFunctions() {
         const geoipLookup = await this.hub.geoipService.get()
         return {
@@ -92,21 +95,15 @@ export class HogTransformerService {
         }
     }
 
-    public async start(): Promise<void> {
-        const hogTypes: HogFunctionTypeType[] = ['transformation']
-        await this.hogFunctionManager.start(hogTypes)
-    }
-
-    public async stop(): Promise<void> {
-        await this.hogFunctionManager.stop()
-    }
-
     public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
             func: async () => {
                 hogTransformationAttempts.inc({ type: 'with_messages' })
-                const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
+                const teamHogFunctions = await this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, [
+                    'transformation',
+                ])
+
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
                 await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
 

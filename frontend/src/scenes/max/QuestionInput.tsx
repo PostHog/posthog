@@ -26,28 +26,30 @@ export function QuestionInput(): JSX.Element {
     }, [threadLoading])
 
     return (
-        <div
-            className={clsx(
-                'px-3',
-                !isFloating ? 'w-[min(44rem,100%)]' : 'sticky bottom-0 z-10 w-full max-w-[45rem] self-center'
-            )}
-        >
+        <>
             <div
                 className={clsx(
-                    'flex flex-col items-center',
-                    isFloating &&
-                        'p-1 mb-3 bottom-3 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                    'relative px-3',
+                    !isFloating
+                        ? 'relative w-[min(44rem,100%)]'
+                        : 'sticky bottom-0 z-10 w-full max-w-[45rem] self-center'
                 )}
             >
-                <div className="relative w-full">
+                <div
+                    className={clsx(
+                        'flex flex-col items-center',
+                        isFloating &&
+                            'p-1 mb-1 bottom-3 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                    )}
+                >
                     <LemonTextArea
                         ref={(el) => {
+                            textAreaRef.current = el
                             if (el) {
                                 // Different from plain autofocus in that we also move cursor to end of text
                                 el.focus()
                                 el.setSelectionRange(el.value.length, el.value.length)
                             }
-                            textAreaRef.current = el
                         }}
                         value={question}
                         onChange={(value) => setQuestion(value)}
@@ -62,7 +64,12 @@ export function QuestionInput(): JSX.Element {
                         maxRows={10}
                         className={clsx('p-3 pr-12', isFloating && 'border-primary')}
                     />
-                    <div className="absolute flex items-center bottom-[7px] right-2">
+                    <div
+                        className={clsx(
+                            'absolute flex items-center',
+                            isFloating ? 'right-3 bottom-[11px]' : 'right-5 bottom-[7px]'
+                        )}
+                    >
                         <LemonButton
                             type={(isFloating && !question) || threadLoading ? 'secondary' : 'primary'}
                             onClick={() => {
@@ -106,6 +113,6 @@ export function QuestionInput(): JSX.Element {
                     </div>
                 )}
             </div>
-        </div>
+        </>
     )
 }

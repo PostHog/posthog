@@ -19,6 +19,7 @@ import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 
 import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from './llmObservabilityLogic'
+import { LLMObservabilityReloadAction } from './LLMObservabilityReloadAction'
 import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
 import { LLMObservabilityUsers } from './LLMObservabilityUsers'
 
@@ -45,6 +46,7 @@ const Filters = (): JSX.Element => {
             />
             <div className="flex-1" />
             <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
+            <LLMObservabilityReloadAction />
         </div>
     )
 }
@@ -182,13 +184,15 @@ export function LLMObservabilityScene(): JSX.Element {
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID }}>
             <PageHeader
                 buttons={
-                    <LemonButton
-                        to="https://posthog.com/docs/ai-engineering/observability"
-                        type="secondary"
-                        targetBlank
-                    >
-                        Documentation
-                    </LemonButton>
+                    <div className="flex gap-2">
+                        <LemonButton
+                            to="https://posthog.com/docs/ai-engineering/observability"
+                            type="secondary"
+                            targetBlank
+                        >
+                            Documentation
+                        </LemonButton>
+                    </div>
                 }
             />
 

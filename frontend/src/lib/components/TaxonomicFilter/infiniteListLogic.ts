@@ -99,7 +99,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             createEmptyListStorage('', true),
             {
                 loadRemoteItems: async ({ offset, limit }, breakpoint) => {
-                    await breakpoint(1)
+                    if (!values.remoteItems.first) {
+                        await breakpoint(500)
+                    } else {
+                        // These connected values below might be read before they are available due to circular logic mounting.
+                        // Adding a slight delay (breakpoint) fixes this.
+                        await breakpoint(1)
+                    }
 
                     const {
                         isExpanded,
@@ -309,17 +315,22 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         items: [
             (s, p) => [s.remoteItems, s.localItems, p.showNumericalPropsOnly ?? (() => false)],
             (remoteItems, localItems, showNumericalPropsOnly) => {
-                const results = [...localItems.results, ...remoteItems.results].filter((n) => {
+                const results = [...localItems.results, ...remoteItems.results].filter((result) => {
                     if (!showNumericalPropsOnly) {
                         return true
                     }
 
-                    if ('is_numerical' in n) {
-                        return !!n.is_numerical
+                    // It's still loading, just display it while we figure it out
+                    if (!result) {
+                        return true
                     }
 
-                    if ('property_type' in n) {
-                        const property_type = n.property_type as string // Data warehouse props dont conform to PropertyType for some reason
+                    if ('is_numerical' in result) {
+                        return !!result.is_numerical
+                    }
+
+                    if ('property_type' in result) {
+                        const property_type = result.property_type as string // Data warehouse props dont conform to PropertyType for some reason
                         return property_type === 'Integer' || property_type === 'Float'
                     }
 

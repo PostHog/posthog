@@ -20,6 +20,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
+import { playlistLogic } from '../playlist/playlistLogic'
 import { DurationFilter } from './DurationFilter'
 
 function HideRecordingsMenu(): JSX.Element {
@@ -78,8 +79,8 @@ export const RecordingsUniversalFilters = ({
 
     const durationFilter = filters.duration[0]
 
-    const [isFiltersExpanded, setIsFiltersExpanded] = useState(false)
-
+    const { isFiltersExpanded } = useValues(playlistLogic)
+    const { setIsFiltersExpanded } = useActions(playlistLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
 

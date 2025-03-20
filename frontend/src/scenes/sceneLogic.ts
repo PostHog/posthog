@@ -248,10 +248,13 @@ export const sceneLogic = kea<sceneLogicType>([
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.onboarding('')) &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith('/settings') &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.organizationBilling())
+                        ![
+                            urls.onboarding(''),
+                            urls.products(),
+                            '/settings',
+                            urls.organizationBilling(),
+                            urls.wizard(),
+                        ].some((path) => removeProjectIdIfPresent(location.pathname).startsWith(path))
                     ) {
                         const allProductUrls = Object.values(productUrlMapping).flat()
                         if (

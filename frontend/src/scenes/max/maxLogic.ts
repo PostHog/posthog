@@ -11,6 +11,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { actionsModel } from '~/models/actionsModel'
 import {
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -40,7 +41,7 @@ export type ThreadMessage = RootAssistantMessage & {
 
 const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     type: AssistantMessageType.Failure,
-    content: 'Oops! It looks like I’m having trouble generating this insight. Could you please try again?',
+    content: 'Oops! It looks like I’m having trouble answering this. Could you please try again?',
     status: 'completed',
 }
 
@@ -56,6 +57,9 @@ export const maxLogic = kea<maxLogicType>([
             ['dataProcessingAccepted', 'toolMap', 'tools'],
             maxSettingsLogic,
             ['coreMemory'],
+            // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
+            actionsModel({ params: 'include_count=1' }),
+            ['actions'],
         ],
     }),
     actions({
@@ -73,6 +77,8 @@ export const maxLogic = kea<maxLogicType>([
         setConversation: (conversation: Conversation) => ({ conversation }),
         setTraceId: (traceId: string) => ({ traceId }),
         resetThread: true,
+        cleanThread: true,
+        startNewConversation: true,
     }),
     reducers({
         question: [
@@ -80,12 +86,14 @@ export const maxLogic = kea<maxLogicType>([
             {
                 setQuestion: (_, { question }) => question,
                 askMax: () => '',
+                cleanThread: () => '',
             },
         ],
         conversation: [
             (_, props) => (props.conversationId ? ({ id: props.conversationId } as Conversation) : null),
             {
                 setConversation: (_, { conversation }) => conversation,
+                cleanThread: () => null,
             },
         ],
         threadRaw: [
@@ -106,6 +114,7 @@ export const maxLogic = kea<maxLogicType>([
                     ...state.slice(index + 1),
                 ],
                 resetThread: (state) => state.filter((message) => !isReasoningMessage(message)),
+                cleanThread: () => [] as ThreadMessage[],
             },
         ],
         threadLoading: [
@@ -113,6 +122,7 @@ export const maxLogic = kea<maxLogicType>([
             {
                 askMax: () => true,
                 setThreadLoaded: (_, { testOnlyOverride }) => testOnlyOverride,
+                cleanThread: () => false,
             },
         ],
         visibleSuggestions: [
@@ -121,7 +131,7 @@ export const maxLogic = kea<maxLogicType>([
                 setVisibleSuggestions: (_, { suggestions }) => suggestions,
             },
         ],
-        traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId }],
+        traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId, cleanThread: () => null }],
     }),
     loaders({
         // TODO: Move question suggestions to `maxGlobalLogic`, which will make this logic `maxThreadLogic`
@@ -334,6 +344,14 @@ export const maxLogic = kea<maxLogicType>([
                     })
                 }
             })
+        },
+        startNewConversation: () => {
+            if (values.conversation) {
+                if (values.threadLoading) {
+                    actions.stopGeneration()
+                }
+                actions.cleanThread()
+            }
         },
     })),
     selectors({

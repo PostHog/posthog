@@ -75,6 +75,10 @@ class _SharedAssistantState(BaseModel):
     """
     Tracks the number of tool calls made by the root node to terminate the loop.
     """
+    rag_context: Optional[str] = Field(default=None)
+    """
+    The context for taxonomy agent.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -103,6 +107,7 @@ class PartialAssistantState(_SharedAssistantState):
             root_tool_insight_type="",
             root_tool_calls_count=0,
             root_conversation_start_id="",
+            rag_context="",
         )
 
 
@@ -131,3 +136,4 @@ class AssistantNodeName(StrEnum):
     MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"
     INKEEP_DOCS = "inkeep_docs"
     SESSION_RECORDINGS_FILTERS = "session_recordings_filters"
+    INSIGHT_RAG_CONTEXT = "insight_rag_context"

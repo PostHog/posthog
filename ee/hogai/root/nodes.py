@@ -33,9 +33,7 @@ from posthog.schema import (
     HumanMessage,
 )
 
-RouteName = Literal[
-    "trends", "funnel", "retention", "root", "end", "search_documentation", "session_recordings_filters"
-]
+RouteName = Literal["insights", "root", "end", "search_documentation", "session_recordings_filters"]
 
 
 # Lower casing matters here. Do not change it.
@@ -304,7 +302,7 @@ class RootNodeTools(AssistantNode):
             return "root"
         if state.root_tool_call_id:
             if state.root_tool_insight_type:
-                return cast(RouteName, state.root_tool_insight_type)
+                return "insights"
             # For all other tools, we route based on tool name
             return self._get_tool_call(state.messages, state.root_tool_call_id).name
         return "end"

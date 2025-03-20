@@ -6,8 +6,8 @@ import {
     Cohort,
     Element,
     Hub,
+    InternalPerson,
     ISOTimestamp,
-    Person,
     PostIngestionEvent,
     PropertyOperator,
     RawAction,
@@ -1279,8 +1279,8 @@ describe('ActionMatcher', () => {
     describe('doesPersonBelongToCohort()', () => {
         let team: Team
         let cohort: Cohort
-        let person: Person
-        let personId: number
+        let person: InternalPerson
+        let personId: InternalPerson['id']
         const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
 
         beforeEach(async () => {
@@ -1294,7 +1294,6 @@ describe('ActionMatcher', () => {
 
             person = await hub.db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, new UUIDT().toString(), [])
 
-            // @ts-expect-error TODO: Update underlying person type
             personId = person.id
         })
 
