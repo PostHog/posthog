@@ -54,7 +54,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
     },
     [BillingPlan.Paid]: {
         title: 'Good call!',
-        subtitle: "You're on the ridiculously cheap plan.",
+        subtitle: "You're on the Ridiculously Cheap™ plan.",
         backgroundColor: 'bg-warning-highlight',
         getDescription: (_billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
             <>
@@ -77,7 +77,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
     },
     [BillingPlan.Teams]: {
         title: 'Good call!',
-        subtitle: "You're on the team plan.",
+        subtitle: "You're on the Teams plan.",
         backgroundColor: 'bg-warning-highlight',
         getDescription: (_billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
             <>
@@ -96,7 +96,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
     },
     [BillingPlan.Enterprise]: {
         title: 'Good call!',
-        subtitle: "You're on the enterprise plan.",
+        subtitle: "You're on the Enterprise plan.",
         backgroundColor: 'bg-success-highlight',
         getDescription: () => <p>It doesn't get any better than this!</p>,
     },

@@ -39,6 +39,7 @@ export function Billing(): JSX.Element {
         showLicenseDirectInput,
         isActivateLicenseSubmitting,
         billingError,
+        billingPlan,
         showBillingSummary,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
@@ -165,7 +166,7 @@ export function Billing(): JSX.Element {
                     'flex-row': size !== 'small',
                 })}
             >
-                {!billing?.trial && !!platformAndSupportProduct && (
+                {!!billingPlan && !billing?.trial && !!platformAndSupportProduct && (
                     <div className="flex-1">
                         <BillingCTAHero product={platformAndSupportProduct} />
                     </div>
