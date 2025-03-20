@@ -111,6 +111,8 @@ class PropertyFilterDescriber(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     filter: PropertyFilterUnion
+    use_relative_pronoun: bool = False
+    """Whether to append `that` before the operator description."""
 
     @property
     def description(self):
@@ -182,10 +184,11 @@ class PropertyFilterDescriber(BaseModel):
             formatted_value = str(value)
         val = f"`{key}`"
         if operator is not None:
+            pronoun = "that " if self.use_relative_pronoun else ""
             if isinstance(value, list) and operator in ARRAY_PROPERTY_FILTER_VERBOSE_NAME:
-                val += f" {ARRAY_PROPERTY_FILTER_VERBOSE_NAME[operator]}"
+                val += f" {pronoun}{ARRAY_PROPERTY_FILTER_VERBOSE_NAME[operator]}"
             else:
-                val += f" {PROPERTY_FILTER_VERBOSE_NAME[operator]}"
+                val += f" {pronoun}{PROPERTY_FILTER_VERBOSE_NAME[operator]}"
         if formatted_value is not None:
             return f"{val} `{formatted_value}`"
         return val

@@ -274,3 +274,29 @@ class TestPropertySummarizer(BaseTest):
             CohortPropertyDescriber(self.team, prop).summarize()
             == f"people who did not complete a sequence of the action `Completed onboarding` with ID `{action.id}` in the last 1 year followed by the action `Completed onboarding` with ID `{action.id}` within 3 months of the initial event"
         )
+
+    def test_person_has_property(self):
+        prop = Property(
+            key="$browser",
+            negation=False,
+            operator="exact",
+            type="person",
+            value=["Chrome"],
+        )
+        assert (
+            CohortPropertyDescriber(self.team, prop).summarize()
+            == "people who have the person property `$browser` that matches exactly `Chrome`"
+        )
+
+    def test_person_has_not_property(self):
+        prop = Property(
+            key="$browser",
+            negation=True,
+            operator="exact",
+            type="person",
+            value=["Chrome"],
+        )
+        assert (
+            CohortPropertyDescriber(self.team, prop).summarize()
+            == "people who do not have the person property `$browser` that matches exactly `Chrome`"
+        )

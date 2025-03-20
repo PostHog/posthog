@@ -104,6 +104,38 @@ def _pluralize(noun: str, count: int) -> str:
     return f"{noun}s" if count != 1 else noun
 
 
+def _convert_property_to_property_filter(prop: Property) -> PropertyFilterUnion:
+    property_type_to_schema: dict[PropertyType, PropertyFilterUnion] = {
+        "event": EventPropertyFilter,
+        "person": PersonPropertyFilter,
+        "element": ElementPropertyFilter,
+        "session": SessionPropertyFilter,
+        "cohort": CohortPropertyFilter,
+        "recording": RecordingPropertyFilter,
+        "log_entry": LogEntryPropertyFilter,
+        "feature": FeaturePropertyFilter,
+        "data_warehouse": DataWarehousePropertyFilter,
+        "data_warehouse_person_property": DataWarehousePersonPropertyFilter,
+    }
+
+    match prop.type:
+        case "group":
+            schema: PropertyFilterUnion = GroupPropertyFilter(
+                key=prop.key,
+                operator=prop.operator,
+                value=prop.value,
+                group_type_index=prop.group_type_index,
+            )
+        case "hogql":
+            schema = HogQLPropertyFilter(key=prop.key)
+        case _:
+            keys = ["key", "label", "operator", "value"]
+            kwargs = {key: getattr(prop, key) for key in keys if hasattr(prop, key)}
+            schema = property_type_to_schema[prop.type].model_validate(kwargs)
+
+    return schema
+
+
 class CohortPropertyDescriber:
     _team: Team
     _property: Property
@@ -249,35 +281,13 @@ class CohortPropertyDescriber:
                 return f"Behavioral Cohort: {behavioral_type}"
 
     def _summarize_property_group(self) -> str:
-        property_type_to_schema: dict[PropertyType, PropertyFilterUnion] = {
-            "event": EventPropertyFilter,
-            "person": PersonPropertyFilter,
-            "element": ElementPropertyFilter,
-            "session": SessionPropertyFilter,
-            "cohort": CohortPropertyFilter,
-            "recording": RecordingPropertyFilter,
-            "log_entry": LogEntryPropertyFilter,
-            "feature": FeaturePropertyFilter,
-            "data_warehouse": DataWarehousePropertyFilter,
-            "data_warehouse_person_property": DataWarehousePersonPropertyFilter,
-        }
-
-        match self._property.type:
-            case "group":
-                schema: PropertyFilterUnion = GroupPropertyFilter(
-                    key=self._property.key,
-                    operator=self._property.operator,
-                    value=self._property.value,
-                    group_type_index=self._property.group_type_index,
-                )
-            case "hogql":
-                schema = HogQLPropertyFilter(key=self._property.key)
-            case _:
-                keys = ["key", "label", "operator", "value"]
-                kwargs = {key: getattr(self._property, key) for key in keys if hasattr(self._property, key)}
-                schema = property_type_to_schema[self._property.type].model_validate(kwargs)
-
-        return PropertyFilterDescriber(filter=schema).description
+        prop = self._property
+        schema = _convert_property_to_property_filter(prop)
+        cohort_name = self._cohort_name
+        verb = "do not have" if prop.negation else "have"
+        return (
+            f"{cohort_name} {verb} the {PropertyFilterDescriber(filter=schema, use_relative_pronoun=True).description}"
+        )
 
     def _summarize_static_cohort(self) -> str:
         return "people from the manually uploaded list"
@@ -299,7 +309,8 @@ class CohortPropertyDescriber:
 
         if prop.event_filters:
             conditions: list[str] = [
-                CohortPropertyDescriber(self._team, prop).summarize() for prop in prop.event_filters
+                PropertyFilterDescriber(filter=_convert_property_to_property_filter(prop)).description
+                for prop in prop.event_filters
             ]
             conditions_str = _format_conditions(conditions, " AND the ")
             return f"{self._cohort_name} {verb} {verbose_name} where the {conditions_str}{frequency} {time_period}"
