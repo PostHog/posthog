@@ -1,6 +1,6 @@
 import { TopicPartitionOffset } from 'node-rdkafka'
 
-import { status } from '../../../../utils/status'
+import { logger } from '../../../../utils/logger'
 import { PartitionOffset } from '../types'
 
 type CommitOffsetsCallback = (offsets: TopicPartitionOffset[]) => Promise<void>
@@ -31,7 +31,7 @@ export class KafkaOffsetManager {
         }
 
         if (topicPartitionOffsets.length > 0) {
-            status.info('🔁', 'offset_manager_committing_offsets', {
+            logger.info('🔁', 'offset_manager_committing_offsets', {
                 topic: this.topic,
                 offsets: topicPartitionOffsets.map(({ partition, offset }) => ({ partition, offset })),
             })

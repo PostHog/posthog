@@ -1,6 +1,6 @@
 import { MessageHeader } from 'node-rdkafka'
 
-import { status } from '../../../../utils/status'
+import { logger } from '../../../../utils/logger'
 import { eventDroppedCounter } from '../../metrics'
 import { ParsedMessageData } from '../kafka/types'
 import { TeamService } from './team-service'
@@ -35,7 +35,7 @@ export class TeamFilter {
                 })
                 .inc()
 
-            status.warn('⚠️', 'invalid_message', {
+            logger.warn('⚠️', 'invalid_message', {
                 reason,
                 partition: message.metadata.partition,
                 offset: message.metadata.offset,

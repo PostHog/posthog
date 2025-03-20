@@ -1,5 +1,7 @@
 import { KafkaProducerWrapper, TopicMessage } from '../../../../kafka/producer'
-import { ClickHouseTimestamp, LogLevel } from '../../../../types'
+import { ClickHouseTimestamp } from '../../../../types'
+import { parseJSON } from '../../../../utils/json-parse'
+import { ConsoleLogLevel } from '../rrweb-types'
 import { SessionBatchMetrics } from './metrics'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
@@ -33,7 +35,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: LogLevel.Info,
+                level: ConsoleLogLevel.Log,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -43,7 +45,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 2,
                 message: 'Test warning message',
-                level: LogLevel.Warn,
+                level: ConsoleLogLevel.Warn,
                 log_source: 'session_replay',
                 log_source_id: 'different456',
                 instance_id: null,
@@ -53,7 +55,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test error message',
-                level: LogLevel.Error,
+                level: ConsoleLogLevel.Error,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -68,13 +70,13 @@ describe('SessionConsoleLogStore', () => {
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
         expect(queuedMessage.topic).toBe('log_entries_v2')
         const queuedMessages = queuedMessage.messages
-        const parsedLogs = queuedMessages.map((msg) => JSON.parse(msg.value as string))
+        const parsedLogs = queuedMessages.map((msg) => parseJSON(msg.value as string))
 
         expect(parsedLogs).toMatchObject([
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: 'info',
+                level: 'log',
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -122,7 +124,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: LogLevel.Log,
+                level: ConsoleLogLevel.Log,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -139,7 +141,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message 1',
-                level: LogLevel.Log,
+                level: ConsoleLogLevel.Log,
                 log_source: 'session_replay',
                 log_source_id: 'session1',
                 instance_id: null,
@@ -149,7 +151,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message 2',
-                level: LogLevel.Log,
+                level: ConsoleLogLevel.Log,
                 log_source: 'session_replay',
                 log_source_id: 'session2',
                 instance_id: null,
@@ -161,7 +163,7 @@ describe('SessionConsoleLogStore', () => {
         await store.storeSessionConsoleLogs(logs)
 
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-        const parsedLogs = queuedMessage.messages.map((msg) => JSON.parse(msg.value as string))
+        const parsedLogs = queuedMessage.messages.map((msg) => parseJSON(msg.value as string))
 
         expect(parsedLogs[0].batch_id).toBe('batch1')
         expect(parsedLogs[1].batch_id).toBe('batch2')
@@ -174,7 +176,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: LogLevel.Log,
+                level: ConsoleLogLevel.Log,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -195,7 +197,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: LogLevel.Log,
+                level: ConsoleLogLevel.Log,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -229,7 +231,7 @@ describe('SessionConsoleLogStore', () => {
                 {
                     team_id: 1,
                     message: 'Test log message',
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Log,
                     log_source: 'session_replay',
                     log_source_id: 'session123',
                     instance_id: null,
@@ -239,7 +241,7 @@ describe('SessionConsoleLogStore', () => {
                 {
                     team_id: 2,
                     message: 'Another log message',
-                    level: LogLevel.Warn,
+                    level: ConsoleLogLevel.Warn,
                     log_source: 'session_replay',
                     log_source_id: 'session456',
                     instance_id: null,
@@ -263,7 +265,7 @@ describe('SessionConsoleLogStore', () => {
                 {
                     team_id: 1,
                     message: 'Test log message',
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Log,
                     log_source: 'session_replay',
                     log_source_id: 'session123',
                     instance_id: null,
@@ -284,7 +286,7 @@ describe('SessionConsoleLogStore', () => {
                 {
                     team_id: 1,
                     message: 'Test log message',
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Log,
                     log_source: 'session_replay',
                     log_source_id: 'session123',
                     instance_id: null,

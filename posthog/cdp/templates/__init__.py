@@ -56,6 +56,8 @@ from ._internal.template_broadcast import template_new_broadcast as _broadcast
 from ._internal.template_blank import blank_site_destination, blank_site_app
 from .snapchat_ads.template_snapchat_ads import template as snapchat_ads
 from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pixel
+from .tiktok_ads.template_tiktok_pixel import template_tiktok_pixel as tiktok_pixel
+
 from .reddit.template_reddit_pixel import template_reddit_pixel as reddit_pixel
 from .reddit.template_reddit_conversions_api import template_reddit_conversions_api as reddit_conversions_api
 
@@ -110,6 +112,7 @@ HOG_FUNCTION_TEMPLATES = [
     sendgrid,
     snapchat_ads,
     snapchat_pixel,
+    tiktok_pixel,
     zapier,
     zendesk,
     early_access_features,

@@ -189,6 +189,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description:
                 'A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs)',
         },
+        $ai_embedding: {
+            label: 'AI Embedding',
+            description: 'A call to an embedding model',
+        },
         $ai_metric: {
             label: 'AI Metric',
             description: 'An evaluation metric for a trace of generative AI models (LLMs)',
@@ -1045,6 +1049,28 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
                 'Keys and multivariate values of the feature flags that were active while this event was sent.',
             examples: ['{"flag": "value"}'],
         },
+        $feature_flag_reason: {
+            label: 'Feature Flag Evaluation Reason',
+            description: 'The reason the feature flag was matched or not matched.',
+            examples: ['Matched condition set 1'],
+        },
+        $feature_flag_request_id: {
+            label: 'Feature Flag Request ID',
+            description: (
+                <>
+                    The unique identifier for the request that retrieved this feature flag result.
+                    <br />
+                    <br />
+                    Note: Primarily used by PostHog support for debugging issues with feature flags.
+                </>
+            ),
+            examples: ['01234567-89ab-cdef-0123-456789abcdef'],
+        },
+        $feature_flag_version: {
+            label: 'Feature Flag Version',
+            description: 'The version of the feature flag that was called.',
+            examples: ['3'],
+        },
         $feature_flag_response: {
             label: 'Feature Flag Response',
             description: 'What the call to feature flag responded with.',
@@ -1470,6 +1496,21 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The number of tokens in the output from the LLM API',
             examples: [23],
         },
+        $ai_cache_read_input_tokens: {
+            label: 'AI Cache Read Input Tokens (LLM)',
+            description: 'The number of tokens read from the cache for the input prompt',
+            examples: [23],
+        },
+        $ai_cache_creation_input_tokens: {
+            label: 'AI Cache Creation Input Tokens (LLM)',
+            description: 'The number of tokens created in the cache for the input prompt (anthropic only)',
+            examples: [23],
+        },
+        $ai_reasoning_tokens: {
+            label: 'AI Reasoning Tokens (LLM)',
+            description: 'The number of tokens in the reasoning output from the LLM API',
+            examples: [23],
+        },
         $ai_input_cost_usd: {
             label: 'AI Input Cost USD (LLM)',
             description: 'The cost in USD of the input tokens sent to the LLM API',
@@ -1499,6 +1540,13 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Model Parameters (LLM)',
             description: 'The parameters used to configure the model in the LLM API, in JSON',
             examples: ['{"temperature": 0.5, "max_tokens": 50}'],
+        },
+        $ai_tools: {
+            label: 'AI Tools (LLM)',
+            description: 'The tools available to the LLM',
+            examples: [
+                '[{"type": "function", "function": {"name": "tool1", "arguments": {"arg1": "value1", "arg2": "value2"}}}]',
+            ],
         },
         $ai_stream: {
             label: 'AI Stream (LLM)',

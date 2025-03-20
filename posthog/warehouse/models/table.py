@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional, TypeAlias
+from typing import TYPE_CHECKING, Any, Optional, TypeAlias
 from uuid import UUID
 
 from django.db import models
@@ -190,6 +190,27 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         }
 
         return columns
+
+    def get_max_value_for_column(self, column: str) -> Any | None:
+        try:
+            placeholder_context = HogQLContext(team_id=self.team.pk)
+            s3_table_func = build_function_call(
+                url=self.url_pattern,
+                format=self.format,
+                access_key=self.credential.access_key,
+                access_secret=self.credential.access_secret,
+                context=placeholder_context,
+            )
+
+            result = sync_execute(
+                f"SELECT max(`{column}`) FROM {s3_table_func}",
+                args=placeholder_context.values,
+            )
+
+            return result[0][0]
+        except Exception as err:
+            capture_exception(err)
+            return None
 
     def get_count(self, safe_expose_ch_error=True) -> int:
         try:

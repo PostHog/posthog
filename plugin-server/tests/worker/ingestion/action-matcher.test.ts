@@ -21,7 +21,7 @@ import { ActionMatcher, castingCompare } from '../../../src/worker/ingestion/act
 import { commonUserId } from '../../helpers/plugins'
 import { getFirstTeam, insertRow, resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 
 /** Return a test event created on a common base using provided property overrides. */
 function createTestEvent(overrides: Partial<PostIngestionEvent> = {}): PostIngestionEvent {

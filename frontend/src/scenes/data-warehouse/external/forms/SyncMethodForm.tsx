@@ -35,24 +35,6 @@ interface SyncMethodFormProps {
         incrementalFieldType: string | null
     ) => void
     saveButtonIsLoading?: boolean
-    showRefreshMessageOnChange?: boolean
-}
-
-const hasInputChanged = (
-    newSchemaSyncType: ExternalDataSourceSyncSchema['sync_type'],
-    newSchemaIncrementalField: string | null,
-    originalSchemaSyncType: ExternalDataSourceSyncSchema['sync_type'],
-    originalSchemaIncrementalField: string | null
-): boolean => {
-    if (originalSchemaSyncType !== newSchemaSyncType) {
-        return true
-    }
-
-    if (newSchemaSyncType === 'incremental' && newSchemaIncrementalField !== originalSchemaIncrementalField) {
-        return true
-    }
-
-    return false
 }
 
 const getSaveDisabledReason = (
@@ -68,16 +50,7 @@ const getSaveDisabledReason = (
     }
 }
 
-export const SyncMethodForm = ({
-    schema,
-    onClose,
-    onSave,
-    saveButtonIsLoading,
-    showRefreshMessageOnChange,
-}: SyncMethodFormProps): JSX.Element => {
-    const [originalSchemaSyncType] = useState(schema.sync_type ?? null)
-    const [originalSchemaIncrementalField] = useState(schema.incremental_field ?? null)
-
+export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }: SyncMethodFormProps): JSX.Element => {
     const [radioValue, setRadioValue] = useState(schema.sync_type ?? undefined)
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(schema.incremental_field ?? null)
 
@@ -87,14 +60,6 @@ export const SyncMethodForm = ({
     }, [schema.table])
 
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
-
-    const inputChanged = hasInputChanged(
-        radioValue ?? null,
-        incrementalFieldValue,
-        originalSchemaSyncType,
-        originalSchemaIncrementalField
-    )
-    const showRefreshMessage = inputChanged && showRefreshMessageOnChange
 
     return (
         <>
@@ -160,11 +125,6 @@ export const SyncMethodForm = ({
                 ]}
                 onChange={(newValue) => setRadioValue(newValue)}
             />
-            {showRefreshMessage && (
-                <p className="text-danger">
-                    Note: Changing the sync type or incremental replication field will trigger a full table refresh
-                </p>
-            )}
             <div className="flex flex-row justify-end w-full">
                 <LemonButton className="mr-3" type="secondary" onClick={onClose}>
                     Close

@@ -11,10 +11,13 @@ from posthog.hogql_queries.insights.trends.breakdown import (
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.schema import (
+    AssistantFunnelsActionsNode,
+    AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
     Compare,
+    DateRange,
     FunnelStepReference,
     FunnelVizType,
     RetentionPeriod,
@@ -278,7 +281,7 @@ class RetentionResultsFormatter:
 
         date_from = _strip_datetime_seconds(results[0]["date"])
         date_to = _strip_datetime_seconds(results[-1]["date"])
-        return f"Date range: {date_from} to {date_to}\nGranularity: {period}\n{_format_matrix(matrix)}"
+        return f"Date range: {date_from} to {date_to}\nTime interval: {period}\n{_format_matrix(matrix)}"
 
     @property
     def _period(self) -> RetentionPeriod:
@@ -331,7 +334,8 @@ class FunnelResultsFormatter:
     ):
         self._query = query
         self._results = results
-        self._query_date_range = QueryDateRange(query.dateRange, team, query.interval, utc_now_datetime)
+        date_range = DateRange.model_validate(query.dateRange.model_dump()) if query.dateRange else None
+        self._query_date_range = QueryDateRange(date_range, team, query.interval, utc_now_datetime)
 
     def format(self) -> str:
         if self._viz_type == FunnelVizType.STEPS:
@@ -467,8 +471,10 @@ class FunnelResultsFormatter:
     def _format_filter_series_label(self) -> str:
         series_labels: list[str] = []
         for node in self._query.series:
-            if node.custom_name is not None:
+            if isinstance(node, AssistantFunnelsEventsNode) and node.custom_name is not None:
                 series_labels.append(f"{node.event} ({node.custom_name})")
+            elif isinstance(node, AssistantFunnelsActionsNode):
+                series_labels.append(f"{node.name} (action {node.id})")
             else:
                 series_labels.append(node.event)
         return " -> ".join(series_labels)

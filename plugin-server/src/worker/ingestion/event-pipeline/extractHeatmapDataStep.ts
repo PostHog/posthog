@@ -2,7 +2,7 @@ import { URL } from 'url'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
-import { status } from '../../../utils/status'
+import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { isDistinctIdIllegal } from '../person-state'
 import { captureIngestionWarning } from '../utils'
@@ -125,7 +125,7 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
     }
 
     if (!isValidNumber($viewport_height) || !isValidNumber($viewport_width)) {
-        status.warn('👀', '[extract-heatmap-data] dropping because invalid viewport dimensions', {
+        logger.warn('👀', '[extract-heatmap-data] dropping because invalid viewport dimensions', {
             parent: event.event,
             teamId: teamId,
             eventTimestamp: timestamp,

@@ -9,7 +9,7 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { setupMmdb } from '../../../src/worker/plugins/mmdb'
 import { resetTestDatabase } from '../../helpers/sql'
 
-// jest.mock('../../src/utils/status')
+// jest.mock('../../src/utils/logger')
 
 const mmdbBrotliContents = readFileSync(join(__dirname, '..', '..', 'assets', 'GeoLite2-City-Test.mmdb.br'))
 

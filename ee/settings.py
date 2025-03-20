@@ -82,8 +82,8 @@ INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 
 SQS_QUEUES = {
     "usage_reports": {
-        "url": os.getenv("SQS_USAGE_REPORT_QUEUE_URL", ""),
-        "region": os.getenv("SQS_REGION", "us-east-1"),
+        "url": get_from_env("SQS_USAGE_REPORT_QUEUE_URL", optional=True),
+        "region": get_from_env("SQS_REGION", "us-east-1", optional=True),
         "type": "usage_reports",
     }
 }

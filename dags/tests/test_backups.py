@@ -1,7 +1,8 @@
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
-from dags.backups import Backup, BackupConfig, get_latest_backup
+from dags.backups import Backup, BackupConfig, BackupStatus, get_latest_backup, get_most_recent_status
 
 
 @pytest.mark.parametrize("table", ["", "test"])
@@ -9,9 +10,9 @@ def test_get_latest_backup(table: str):
     mock_s3 = MagicMock()
     mock_s3.get_client().list_objects_v2.return_value = {
         "CommonPrefixes": [
-            {"Prefix": f"posthog/{f'{table}/' if table else ''}2024-01-01T07:54:04Z/"},
-            {"Prefix": f"posthog/{f'{table}/' if table else ''}2024-03-01T07:54:04Z/"},
-            {"Prefix": f"posthog/{f'{table}/' if table else ''}2024-02-01T07:54:04Z/"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/2024-01-01T07:54:04Z/"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/2024-03-01T07:54:04Z/"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/2024-02-01T07:54:04Z/"},
         ]
     }
 
@@ -46,12 +47,12 @@ def test_create_table_backup():
     )
 
     with patch("django.conf.settings.CLICKHOUSE_BACKUPS_BUCKET", "mock_bucket"):
-        backup.create(client, "noshard")
+        backup.create(client)
 
         client.execute.assert_called_once_with(
             """
         BACKUP TABLE test
-        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/test/2024-03-01T00:00:00Z/noshard')
+        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/test/noshard/2024-03-01T00:00:00Z')
         SETTINGS async = 1
         """,
             query_id="test-noshard",
@@ -67,12 +68,12 @@ def test_create_database_backup():
     )
 
     with patch("django.conf.settings.CLICKHOUSE_BACKUPS_BUCKET", "mock_bucket"):
-        backup.create(client, "noshard")
+        backup.create(client)
 
         client.execute.assert_called_once_with(
             """
         BACKUP DATABASE posthog
-        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/2024-03-01T00:00:00Z/noshard')
+        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/noshard/2024-03-01T00:00:00Z')
         SETTINGS async = 1
         """,
             query_id="test-noshard",
@@ -93,13 +94,13 @@ def test_create_incremental_backup():
     )
 
     with patch("django.conf.settings.CLICKHOUSE_BACKUPS_BUCKET", "mock_bucket"):
-        backup.create(client, "noshard")
+        backup.create(client)
 
         client.execute.assert_called_once_with(
             """
         BACKUP DATABASE posthog
-        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/2024-03-01T00:00:00Z/noshard')
-        SETTINGS async = 1, base_backup = S3('https://mock_bucket.s3.amazonaws.com/posthog/2024-02-01T00:00:00Z/noshard')
+        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/noshard/2024-03-01T00:00:00Z')
+        SETTINGS async = 1, base_backup = S3('https://mock_bucket.s3.amazonaws.com/posthog/noshard/2024-02-01T00:00:00Z')
         """,
             query_id="test-noshard",
         )
@@ -114,40 +115,29 @@ def test_is_done():
     )
 
     client.execute.side_effect = [
-        [[1]],  # 1 backup in progress
-        [[0]],  # 0 backups in progress
-        [[]],  # backup not found
+        [[1]],  # is done
+        [[0]],  # is not done
     ]
 
-    assert not backup.is_done(client)
     assert backup.is_done(client)
-
-    with pytest.raises(ValueError):
-        backup.is_done(client)
+    assert not backup.is_done(client)
 
 
-def test_throw_on_error():
-    client = MagicMock()
-    backup = Backup(
-        id="test",
-        database="posthog",
-        date="2024-03-01T00:00:00Z",
+def test_get_most_recent_status():
+    most_recent_status = get_most_recent_status(
+        [
+            BackupStatus(
+                status="BACKUP_CREATED",
+                hostname="node1",
+                event_time_microseconds=datetime(2025, 3, 18),
+            ),
+            BackupStatus(
+                status="BACKUP_FAILED",
+                hostname="node2",
+                event_time_microseconds=datetime(2025, 3, 17),
+            ),
+        ]
     )
 
-    client.execute.side_effect = [
-        [
-            ("node1", "BACKUP_CREATED", ""),
-            ("node2", "BACKUP_CREATED", ""),
-            ("node3", "BACKUP_CREATED", ""),
-        ],  # All backups created correctly, no error
-        [
-            ("node1", "BACKUP_CREATED", ""),
-            ("node2", "BACKUP_CREATED", ""),
-            ("node3", "BACKUP_FAILED", "an_error"),
-        ],  # One backup failed, should raise an error
-    ]
-
-    backup.throw_on_error(client)  # all good
-
-    with pytest.raises(ValueError):
-        backup.throw_on_error(client)  # one backup failed
+    assert most_recent_status.status == "BACKUP_CREATED"
+    assert most_recent_status.hostname == "node1"
