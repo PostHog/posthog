@@ -1,4 +1,4 @@
-import { IconServer } from '@posthog/icons'
+import { IconList, IconLogomark, IconServer } from '@posthog/icons'
 import { actions, BuiltLogic, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
@@ -188,6 +188,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.metadataSource,
                 s.excludedProperties,
                 s.propertyAllowList,
+                s.eventMetadataOptions,
             ],
             (
                 teamId,
@@ -198,7 +199,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 schemaColumns,
                 metadataSource,
                 excludedProperties,
-                propertyAllowList
+                propertyAllowList,
+                eventMetadataOptions
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -322,16 +324,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Event metadata',
                         searchPlaceholder: 'event metadata',
                         type: TaxonomicFilterGroupType.EventMetadata,
-                        options: [
-                            {
-                                name: 'Distinct ID',
-                                value: 'distinct_id',
-                            },
-                            {
-                                name: 'Timestamp',
-                                value: 'timestamp',
-                            },
-                        ],
+                        options: eventMetadataOptions,
                         getName: (option: Record<string, string>) => option.name,
                         getValue: (option: Record<string, string>) => option.value,
                         getPopoverHeader: () => 'Event metadata',
@@ -610,6 +603,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     getIcon: getPropertyDefinitionIcon,
                     groupTypeIndex: type.group_type_index,
                 })),
+        ],
+        eventMetadataOptions: [
+            (s) => [s.groupTypes],
+            (groupTypes) => {
+                const options = [
+                    { icon: <IconLogomark />, name: 'Distinct ID', value: 'distinct_id' },
+                    { icon: <IconLogomark />, name: 'Timestamp', value: 'timestamp' },
+                ]
+                for (const [groupTypeIndex, type] of groupTypes) {
+                    const column = `$group_${groupTypeIndex}`
+                    options.push({
+                        icon: <IconList />,
+                        name: `${type.group_type} (${column})`,
+                        value: column,
+                    })
+                }
+                return options
+            },
         ],
         infiniteListLogics: [
             (s) => [s.taxonomicGroupTypes, (_, props) => props],
