@@ -75,7 +75,7 @@ export const Metadata = (): JSX.Element => {
                 </div>
             </div>
             <OccurenceSparkline
-                className="h-26 w-full"
+                className="h-32 w-full"
                 values={values}
                 unit={unit}
                 interval={interval}
