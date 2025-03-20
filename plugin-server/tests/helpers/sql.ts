@@ -35,12 +35,21 @@ export interface ExtraDatabaseRows {
 
 // TEST
 export const POSTGRES_DELETE_TABLES_QUERY = `
-DO $$ DECLARE
-  r RECORD;
+DO $$ 
+DECLARE
+    r RECORD;
 BEGIN
-  FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
-    EXECUTE 'DELETE FROM ' || quote_ident(r.tablename);
-  END LOOP;
+    -- Disable foreign key constraints temporarily
+    SET CONSTRAINTS ALL DEFERRED;
+    
+    -- Delete from all tables in the current schema
+    FOR r IN (
+        SELECT tablename 
+        FROM pg_tables 
+        WHERE schemaname = current_schema()
+    ) LOOP
+        EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) || ' CASCADE';
+    END LOOP;
 END $$;
 `
 
