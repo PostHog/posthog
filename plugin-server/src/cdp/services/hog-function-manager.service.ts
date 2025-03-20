@@ -38,8 +38,8 @@ const sortHogFunctions = (functions: HogFunctionType[]): HogFunctionType[] => {
     return [...functions].sort((a, b) => {
         // If either execution_order is null/undefined, it should go last
         if (a.execution_order == null && b.execution_order == null) {
-            // Both are null/undefined, sort by creation date
-            return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            // Both are null/undefined, sort by creation date - ISO dates are lexicographically sortable
+            return a.created_at.localeCompare(b.created_at)
         }
 
         // Null/undefined values go last
@@ -56,7 +56,7 @@ const sortHogFunctions = (functions: HogFunctionType[]): HogFunctionType[] => {
         }
 
         // If execution orders are the same, sort by creation date
-        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        return a.created_at.localeCompare(b.created_at)
     })
 }
 
@@ -118,10 +118,10 @@ export class HogFunctionManagerService {
         teamIds: Team['id'][],
         types: HogFunctionTypeType[]
     ): Promise<Record<Team['id'], HogFunctionType[]>> {
-        const result: Record<Team['id'], HogFunctionType[]> = teamIds.reduce((acc, teamId) => {
+        const result = teamIds.reduce<Record<Team['id'], HogFunctionType[]>>((acc, teamId) => {
             acc[teamId] = []
             return acc
-        }, {} as Record<Team['id'], HogFunctionType[]>)
+        }, {})
 
         const teamHogFunctions = await this.lazyLoaderByTeam.getMany(teamIds.map((x) => x.toString()))
 
@@ -234,10 +234,10 @@ export class HogFunctionManagerService {
         this.sanitize(hogFunctions)
         await this.enrichWithIntegrations(hogFunctions)
 
-        return hogFunctions.reduce((acc, hogFunction) => {
+        return hogFunctions.reduce<Record<string, HogFunctionType | undefined>>((acc, hogFunction) => {
             acc[hogFunction.id] = hogFunction
             return acc
-        }, {} as Record<string, HogFunctionType | undefined>)
+        }, {})
     }
 
     public sanitize(items: HogFunctionType[]): void {
