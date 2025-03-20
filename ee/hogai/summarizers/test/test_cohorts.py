@@ -328,3 +328,10 @@ class TestPropertySummarizer(BaseTest):
             CohortPropertyDescriber(self.team, prop).summary
             == f"people who are not a part of the dynamic cohort `Visited homepage` with ID `{self.cohort.id}` having the following filters (people who have the event property `$title` that is one of the values in `Homepage`)"
         )
+
+    def test_precalculated_cohort(self):
+        prop = Property(key="id", type="precalculated-cohort", value=self.cohort.id)
+        assert (
+            CohortPropertyDescriber(self.team, prop).summary
+            == f"people who are a part of the dynamic cohort `Visited homepage` with ID `{self.cohort.id}` having the following filters (people who have the event property `$title` that is one of the values in `Homepage`)"
+        )

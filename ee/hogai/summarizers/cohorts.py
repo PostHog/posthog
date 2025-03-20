@@ -104,6 +104,7 @@ def _convert_property_to_property_filter(prop: Property) -> PropertyFilterUnion:
         "feature": FeaturePropertyFilter,
         "data_warehouse": DataWarehousePropertyFilter,
         "data_warehouse_person_property": DataWarehousePersonPropertyFilter,
+        "precalculated-cohort": CohortPropertyFilter,
     }
 
     match prop.type:
@@ -133,13 +134,12 @@ class CohortPropertyDescriber(Summarizer):
 
     def _generate_summary(self) -> str:
         match self._property.type:
-            case "static-cohort":
-                return self._summarize_static_cohort()
-            case "precalculated-cohort":
-                return self._summarize_precalculated_cohort()
             case "behavioral":
                 return self._summarize_behavioral()
+            case "static-cohort":
+                return self._summarize_static_cohort()
 
+        # Regular property filters or precalculated cohorts.
         return self._summarize_property_group()
 
     def _summarize_precalculated_cohort(self) -> str:
@@ -271,7 +271,7 @@ class CohortPropertyDescriber(Summarizer):
         prop = self._property
         schema = _convert_property_to_property_filter(prop)
         cohort_name = self._cohort_name
-        if prop.type == "cohort":
+        if prop.type in ("cohort", "precalculated-cohort"):
             verb = "are not a part of" if prop.negation else "are a part of"
         else:
             verb = "do not have" if prop.negation else "have"
