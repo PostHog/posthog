@@ -114,9 +114,14 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
 }
 
 function AccountOwner({ name, email }: { name: string; email: string }): JSX.Element {
+    const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
+
     return (
         <LemonButton
-            onClick={() => void copyToClipboard(email, 'email')}
+            onClick={() => {
+                void copyToClipboard(email, 'email')
+                reportAccountOwnerClicked({ name, email })
+            }}
             fullWidth
             sideIcon={<IconCopy />}
             tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
