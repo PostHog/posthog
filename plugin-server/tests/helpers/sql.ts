@@ -33,6 +33,7 @@ export interface ExtraDatabaseRows {
     pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
 }
 
+// TEST
 export const POSTGRES_DELETE_TABLES_QUERY = `
 DO $$ DECLARE
   r RECORD;
