@@ -22,7 +22,7 @@ class SourceHandler:
         """Get schema options for the source. Returns list of table options"""
         raise NotImplementedError
 
-    def _get_default_schema_options(self, source_type: str) -> list[dict]:
+    def _get_explicit_schema_options(self, source_type: str) -> list[dict]:
         schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source_type, None)
         incremental_schemas = PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING.get(source_type, ())
         incremental_fields = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source_type, {})

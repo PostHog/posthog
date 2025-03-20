@@ -19,4 +19,4 @@ class HubspotSourceHandler(SourceHandler):
             return False, f"Invalid credentials: Hubspot authentication failed - {str(e)}"
 
     def get_schema_options(self) -> list[dict]:
-        return self._get_default_schema_options(ExternalDataSource.Type.HUBSPOT)
+        return self._get_explicit_schema_options(ExternalDataSource.Type.HUBSPOT)

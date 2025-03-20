@@ -21,4 +21,4 @@ class VitallySourceHandler(SourceHandler):
         return True, None
 
     def get_schema_options(self) -> list[dict]:
-        return self._get_default_schema_options(ExternalDataSource.Type.VITALLY)
+        return self._get_explicit_schema_options(ExternalDataSource.Type.VITALLY)
