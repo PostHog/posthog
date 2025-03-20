@@ -174,6 +174,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
                             left=ast.Call(
                                 name="position",
                                 args=[
+                                    # This actually searches the entire stingified array rather than
+                                    # individual elements using the arrayExists function because the
+                                    # materialized column is a nullable string which causes typing issues
                                     ast.Call(name="lower", args=[ast.Field(chain=["properties", prop])]),
                                     ast.Call(name="lower", args=[ast.Constant(value=token)]),
                                 ],
