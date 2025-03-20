@@ -393,6 +393,9 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                 )
 
+            case _:
+                raise ValueError(f"Unsupported metric config: {self.metric.metric_config}")
+
     def _get_metrics_aggregated_per_entity_query(
         self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
     ) -> ast.SelectQuery:
