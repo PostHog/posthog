@@ -11,10 +11,12 @@ import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
+import { CdpRedis, createCdpRedisPool } from '../redis'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 import { HogFunctionManagerLazyService } from '../services/hog-function-manager-lazy.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
+import { HogWatcherService, HogWatcherState } from '../services/hog-watcher.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { convertToHogFunctionFilterGlobal } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
@@ -58,14 +60,18 @@ export class HogTransformerService {
     private pluginExecutor: LegacyPluginExecutorService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private hogFunctionManagerLazy: HogFunctionManagerLazyService
+    private hogWatcher: HogWatcherService
+    private redis: CdpRedis
 
     constructor(hub: Hub) {
         this.hub = hub
+        this.redis = createCdpRedisPool(hub)
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFunctionManagerLazy = new HogFunctionManagerLazyService(hub)
         this.hogExecutor = new HogExecutorService(hub)
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
+        this.hogWatcher = new HogWatcherService(hub, this.redis)
     }
 
     private async getTransformationFunctions() {
@@ -151,9 +157,29 @@ export class HogTransformerService {
                 const transformationsFailed: string[] = event.properties?.$transformations_failed || []
                 const transformationsSkipped: string[] = event.properties?.$transformations_skipped || []
 
+                // Get states for all functions to check if any are disabled
+                const states = await this.hogWatcher.getStates(teamHogFunctions.map((hf) => hf.id))
+
                 // For now, execute each transformation function in sequence
                 for (const hogFunction of teamHogFunctions) {
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
+
+                    // Check if the function is disabled via hogWatcher
+                    const functionState = states[hogFunction.id]
+                    if (functionState.state >= HogWatcherState.disabledForPeriod) {
+                        this.hogFunctionMonitoringService.produceAppMetric({
+                            team_id: event.team_id,
+                            app_source_id: hogFunction.id,
+                            metric_kind: 'failure',
+                            metric_name:
+                                functionState.state === HogWatcherState.disabledForPeriod
+                                    ? 'disabled_temporarily'
+                                    : 'disabled_permanently',
+                            count: 1,
+                        })
+                        transformationsSkipped.push(`${transformationIdentifier} (disabled)`)
+                        continue
+                    }
 
                     // Check if we should apply this transformation based on its filters
                     if (this.hub.FILTER_TRANSFORMATIONS_ENABLED) {
@@ -264,6 +290,11 @@ export class HogTransformerService {
                     }
 
                     transformationsSucceeded.push(transformationIdentifier)
+                }
+
+                // Observe the results to update rate limiting state
+                if (results.length > 0) {
+                    await this.hogWatcher.observeResults(results)
                 }
 
                 if (transformationsFailed.length > 0) {
