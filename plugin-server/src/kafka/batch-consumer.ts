@@ -1,8 +1,8 @@
 import { ConsumerGlobalConfig, GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
 import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
+import { logger } from '../utils/logger'
 import { retryIfRetriable } from '../utils/retries'
-import { status } from '../utils/status'
 import { createAdminClient, ensureTopicExists } from './admin'
 import {
     consumeMessages,
@@ -248,7 +248,7 @@ export const startBatchConsumer = async ({
         let messagesProcessed = 0
         let batchesProcessed = 0
         const statusLogInterval = setInterval(() => {
-            status.info('🔁', 'main_loop', {
+            logger.info('🔁', 'main_loop', {
                 groupId,
                 topic,
                 messagesPerSecond: messagesProcessed / (STATUS_LOG_INTERVAL_MS / 1000),
@@ -262,7 +262,7 @@ export const startBatchConsumer = async ({
 
         try {
             while (!isShuttingDown) {
-                status.debug('🔁', 'main_loop_consuming')
+                logger.debug('🔁', 'main_loop_consuming')
                 const messages = await retryIfRetriable(async () => {
                     return await consumeMessages(consumer, fetchBatchSize)
                 })
@@ -278,16 +278,16 @@ export const startBatchConsumer = async ({
                 }
 
                 if (!messages) {
-                    status.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
+                    logger.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
                     consumerBatchSize.labels({ topic, groupId }).observe(0)
                     continue
                 }
 
                 gaugeBatchUtilization.labels({ groupId }).set(messages.length / fetchBatchSize)
 
-                status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
+                logger.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
                 if (!messages.length && !callEachBatchWhenEmpty) {
-                    status.debug('🔁', 'main_loop_empty_batch', { cause: 'empty' })
+                    logger.debug('🔁', 'main_loop_empty_batch', { cause: 'empty' })
                     consumerBatchSize.labels({ topic, groupId }).observe(0)
                     continue
                 }
@@ -303,7 +303,7 @@ export const startBatchConsumer = async ({
 
                 // NOTE: we do not handle any retries. This should be handled by
                 // the implementation of `eachBatch`.
-                status.debug('⏳', `Starting to process batch of ${messages.length} events...`, batchSummary)
+                logger.debug('⏳', `Starting to process batch of ${messages.length} events...`, batchSummary)
                 await eachBatch(messages, {
                     heartbeat: () => {
                         lastHeartbeatTime = Date.now()
@@ -318,9 +318,9 @@ export const startBatchConsumer = async ({
 
                 const logSummary = `Processed ${messages.length} events in ${Math.round(processingTimeMs / 10) / 100}s`
                 if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
-                    status.warn('🕒', `Slow batch: ${logSummary}`, batchSummary)
+                    logger.warn('🕒', `Slow batch: ${logSummary}`, batchSummary)
                 } else {
-                    status.debug('⌛️', logSummary, batchSummary)
+                    logger.debug('⌛️', logSummary, batchSummary)
                 }
 
                 if (autoCommit && autoOffsetStore) {
@@ -328,10 +328,10 @@ export const startBatchConsumer = async ({
                 }
             }
         } catch (error) {
-            status.error('🔁', 'main_loop_error', { error })
+            logger.error('🔁', 'main_loop_error', { error })
             throw error
         } finally {
-            status.info('🔁', 'main_loop_stopping')
+            logger.info('🔁', 'main_loop_stopping')
             clearInterval(statusLogInterval)
 
             // Finally, disconnect from the broker. If stored offsets have changed via
@@ -352,7 +352,7 @@ export const startBatchConsumer = async ({
     }
 
     const stop = async () => {
-        status.info('🔁', 'Stopping kafka batch consumer')
+        logger.info('🔁', 'Stopping kafka batch consumer')
 
         // First we signal to the mainLoop that we should be stopping. The main
         // loop should complete one loop, flush the producer, and store its offsets.

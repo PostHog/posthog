@@ -32,7 +32,7 @@ from posthog.models.raw_sessions.sql import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
-from posthog.schema import BounceRatePageViewMode, CustomChannelRule
+from posthog.schema import BounceRatePageViewMode, CustomChannelRule, SessionsV2JoinMode
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -481,14 +481,24 @@ def join_events_table_to_sessions_table_v2(
     join_expr = ast.JoinExpr(table=select_from_sessions_table_v2(join_to_add.fields_accessed, node, context))
     join_expr.join_type = "LEFT JOIN"
     join_expr.alias = join_to_add.to_table
-    join_expr.constraint = ast.JoinConstraint(
-        expr=ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=session_id_to_session_id_v7_expr(ast.Field(chain=[join_to_add.from_table, "$session_id"])),
-            right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
-        ),
-        constraint_type="ON",
-    )
+    if context.modifiers.sessionsV2JoinMode == SessionsV2JoinMode.UUID:
+        join_expr.constraint = ast.JoinConstraint(
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, "$session_id_uuid"]),
+                right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
+            ),
+            constraint_type="ON",
+        )
+    else:
+        join_expr.constraint = ast.JoinConstraint(
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=session_id_to_session_id_v7_expr(ast.Field(chain=[join_to_add.from_table, "$session_id"])),
+                right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
+            ),
+            constraint_type="ON",
+        )
     return join_expr
 
 

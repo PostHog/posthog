@@ -1,4 +1,4 @@
-import { LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectOption, LemonSelectProps } from '@posthog/lemon-ui'
 import {
     CURRENCY_SYMBOL_TO_EMOJI_MAP,
     CURRENCY_SYMBOL_TO_NAME_MAP,
@@ -10,6 +10,7 @@ import { CurrencyCode } from '~/queries/schema/schema-general'
 type CurrencyDropdownProps = {
     value: CurrencyCode | null
     onChange: (currency: CurrencyCode | null) => void
+    size?: LemonSelectProps<any>['size']
     visible?: boolean // Useful for stories to display the dropdown content
 }
 
@@ -50,7 +51,7 @@ const optionFromCurrency = (currency: CurrencyCode): LemonSelectOption<CurrencyC
 const OPTIONS_FOR_IMPORTANT_CURRENCIES: LemonSelectOption<CurrencyCode>[] = IMPORTANT_CURRENCIES.map(optionFromCurrency)
 const OPTIONS_FOR_OTHER_CURRENCIES: LemonSelectOption<CurrencyCode>[] = OTHER_CURRENCIES.map(optionFromCurrency)
 
-export const CurrencyDropdown = ({ value, onChange, visible }: CurrencyDropdownProps): JSX.Element => {
+export const CurrencyDropdown = ({ value, onChange, visible, size }: CurrencyDropdownProps): JSX.Element => {
     return (
         <LemonSelect
             visible={visible}
@@ -60,6 +61,7 @@ export const CurrencyDropdown = ({ value, onChange, visible }: CurrencyDropdownP
                 { options: OPTIONS_FOR_IMPORTANT_CURRENCIES, title: 'Most Popular' },
                 { options: OPTIONS_FOR_OTHER_CURRENCIES, title: 'Other currencies' },
             ]}
+            size={size}
         />
     )
 }

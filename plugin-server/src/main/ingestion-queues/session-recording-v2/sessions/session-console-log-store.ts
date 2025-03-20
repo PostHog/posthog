@@ -1,12 +1,13 @@
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
-import { ClickHouseTimestamp, LogLevel } from '../../../../types'
-import { status } from '../../../../utils/status'
+import { ClickHouseTimestamp } from '../../../../types'
+import { logger } from '../../../../utils/logger'
+import { ConsoleLogLevel } from '../rrweb-types'
 import { SessionBatchMetrics } from './metrics'
 
 export type ConsoleLogEntry = {
     team_id: number
     message: string
-    level: LogLevel
+    level: ConsoleLogLevel
     log_source: 'session_replay'
     log_source_id: string
     instance_id: string | null
@@ -15,10 +16,12 @@ export type ConsoleLogEntry = {
 }
 
 export class SessionConsoleLogStore {
+    private consoleLogsCount = 0
+
     constructor(private readonly producer: KafkaProducerWrapper, private readonly topic: string) {
-        status.debug('🔍', 'session_console_log_store_created')
+        logger.debug('session_console_log_store_created')
         if (!this.topic) {
-            status.warn('⚠️', 'session_console_log_store_no_topic_configured')
+            logger.warn('session_console_log_store_no_topic_configured')
         }
     }
 
@@ -35,10 +38,14 @@ export class SessionConsoleLogStore {
             })),
         })
 
+        this.consoleLogsCount += logs.length
+        logger.debug(`stored ${logs.length} console logs for session ${logs[0].log_source_id}`)
         SessionBatchMetrics.incrementConsoleLogsStored(logs.length)
     }
 
     public async flush(): Promise<void> {
+        logger.info(`flushing ${this.consoleLogsCount} console logs`)
         await this.producer.flush()
+        this.consoleLogsCount = 0
     }
 }

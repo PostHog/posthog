@@ -78,3 +78,25 @@ def test_current_date(call_node):
     assert (date_range.date_from and year in date_range.date_from) or (
         date_range.date_to and year in date_range.date_to
     )
+
+
+@pytest.mark.parametrize(
+    "query,expected_interval",
+    [
+        ("the last five years", "month"),
+        ("the last 80 days", "week"),
+        ("the last four weeks", "week"),
+        ("the last 15 days", "day"),
+        ("the last 12 hours", "hour"),
+    ],
+)
+def test_trends_generator_applies_interval_from_plan(call_node, query, expected_interval):
+    plan = f"""Series:
+    - event: $pageview
+        - math operation: total count
+
+    Time period: {query}
+    Time interval: {expected_interval}
+    """
+    query = call_node(f"$pageview trends for {query}", plan)
+    assert query.interval == expected_interval

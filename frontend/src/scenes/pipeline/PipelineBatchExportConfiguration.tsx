@@ -70,6 +70,10 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
         return <SpinnerOverlay />
     }
 
+    if (!batchExportConfigTest && batchExportConfigTestLoading) {
+        return <SpinnerOverlay />
+    }
+
     const buttons = (
         <>
             <LemonButton
@@ -398,7 +402,7 @@ export function BatchExportConfigurationTests({
                 </div>
                 <LemonButton
                     onClick={() => runBatchExportConfigTestStep(0)}
-                    disabled={runningStep === null}
+                    disabledReason={runningStep !== null ? 'Test step is running' : null}
                     size="small"
                     type="primary"
                 >

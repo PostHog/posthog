@@ -45,20 +45,22 @@ export async function trackedFetch(url: RequestInfo, init?: RequestInit): Promis
             description: `${request.method} ${request.url}`,
         },
         async () => {
-            if (isProdEnv() && !process.env.NODE_ENV?.includes('functional-tests')) {
-                await raiseIfUserProvidedUrlUnsafe(request.url)
-                return await fetch(url, {
-                    ...init,
-                    agent: ({ protocol }: URL) =>
-                        protocol === 'http:'
-                            ? new http.Agent({ lookup: staticLookup })
-                            : new https.Agent({ lookup: staticLookup }),
-                })
-            }
-
             return runInstrumentedFunction({
                 statsKey: 'trackedFetch',
-                func: () => fetch(url, init),
+                func: async () => {
+                    if (isProdEnv() && !process.env.NODE_ENV?.includes('functional-tests')) {
+                        await raiseIfUserProvidedUrlUnsafe(request.url)
+                        return await fetch(url, {
+                            ...init,
+                            agent: ({ protocol }: URL) =>
+                                protocol === 'http:'
+                                    ? new http.Agent({ lookup: staticLookup })
+                                    : new https.Agent({ lookup: staticLookup }),
+                        })
+                    }
+
+                    return await fetch(url, init)
+                },
             })
         }
     )

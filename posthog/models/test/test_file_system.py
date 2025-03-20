@@ -4,7 +4,6 @@ from posthog.models.file_system import (
     FileSystem,
     save_unfiled_files,
     UnfiledFileSaver,
-    FileSystemType,
     escape_path,
     join_path,
     split_path,
@@ -46,11 +45,11 @@ class TestFileSystemModel(TestCase):
         # Verify DB state
         self.assertEqual(FileSystem.objects.count(), 5)
         types_in_db = set(FileSystem.objects.values_list("type", flat=True))
-        self.assertIn(FileSystemType.FEATURE_FLAG, types_in_db)
-        self.assertIn(FileSystemType.EXPERIMENT, types_in_db)
-        self.assertIn(FileSystemType.DASHBOARD, types_in_db)
-        self.assertIn(FileSystemType.INSIGHT, types_in_db)
-        self.assertIn(FileSystemType.NOTEBOOK, types_in_db)
+        self.assertIn("feature_flag", types_in_db)
+        self.assertIn("experiment", types_in_db)
+        self.assertIn("dashboard", types_in_db)
+        self.assertIn("insight", types_in_db)
+        self.assertIn("notebook", types_in_db)
 
     def test_save_unfiled_files_excludes_deleted_flags(self):
         """
@@ -87,7 +86,7 @@ class TestFileSystemModel(TestCase):
         Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
         created = save_unfiled_files(self.team, self.user)
         self.assertEqual(len(created), 2)  # 1 FeatureFlag, 1 Experiment
-        exp_item = FileSystem.objects.filter(type=FileSystemType.EXPERIMENT).first()
+        exp_item = FileSystem.objects.filter(type="experiment").first()
         assert exp_item.path is not None  # type: ignore
         self.assertEqual(exp_item.path, "Unfiled/Experiments/Experiment #1")  # type: ignore
 
@@ -117,7 +116,7 @@ class TestFileSystemModel(TestCase):
         FileSystem.objects.create(
             team=self.team,
             path="Unfiled/Feature Flags/Duplicate Name",
-            type=FileSystemType.FEATURE_FLAG,
+            type="feature_flag",
             ref="999",
             created_by=self.user,
         )
@@ -203,7 +202,7 @@ class TestFileSystemModel(TestCase):
         FileSystem.objects.create(
             team=self.team,
             path=existing_path,
-            type=FileSystemType.FEATURE_FLAG,
+            type="feature_flag",
             ref="some_ref",
             created_by=self.user,
         )
@@ -241,18 +240,18 @@ class TestFileSystemModel(TestCase):
         Dashboard.objects.create(team=self.team, name="A Dashboard", created_by=self.user)
 
         # Call with file_type=FEATURE_FLAG
-        created_flags = save_unfiled_files(self.team, self.user, file_type=FileSystemType.FEATURE_FLAG)
+        created_flags = save_unfiled_files(self.team, self.user, file_type="feature_flag")
         self.assertEqual(len(created_flags), 1)
-        self.assertEqual(created_flags[0].type, FileSystemType.FEATURE_FLAG)
+        self.assertEqual(created_flags[0].type, "feature_flag")
         self.assertEqual(created_flags[0].path, "Unfiled/Feature Flags/A Flag")
 
         # Ensure dashboard is still unfiled
         self.assertEqual(FileSystem.objects.count(), 1)
 
         # Now explicitly save dashboards
-        created_dashboards = save_unfiled_files(self.team, self.user, file_type=FileSystemType.DASHBOARD)
+        created_dashboards = save_unfiled_files(self.team, self.user, file_type="dashboard")
         self.assertEqual(len(created_dashboards), 1)
-        self.assertEqual(created_dashboards[0].type, FileSystemType.DASHBOARD)
+        self.assertEqual(created_dashboards[0].type, "dashboard")
         self.assertEqual(created_dashboards[0].path, "Unfiled/Dashboards/A Dashboard")
 
         # Confirm total in DB

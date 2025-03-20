@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { defaultConfig } from '../config/config'
 import { trackedFetch } from './fetch'
+import { parseJSON } from './json-parse'
 import { UUIDT } from './utils'
 
 const pluginFetchCounter = new Counter({
@@ -144,8 +145,8 @@ export class HttpCallRecorder {
         // For non-GET requests, compare request bodies if they exist
         if (call1.request.body || call2.request.body) {
             try {
-                const body1 = call1.request.body ? JSON.parse(call1.request.body) : null
-                const body2 = call2.request.body ? JSON.parse(call2.request.body) : null
+                const body1 = call1.request.body ? parseJSON(call1.request.body) : null
+                const body2 = call2.request.body ? parseJSON(call2.request.body) : null
                 const bodyDiffs = this.findObjectDifferences(body1, body2, '', index + 1)
                 differences.push(...bodyDiffs)
             } catch {

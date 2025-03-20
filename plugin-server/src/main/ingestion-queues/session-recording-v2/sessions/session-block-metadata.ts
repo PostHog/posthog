@@ -21,6 +21,8 @@ export interface SessionBlockMetadata {
     firstUrl: string | null
     /** All URLs visited in the session */
     urls: string[]
+    /** Number of events in the session */
+    eventCount: number
     /** Number of click events in the session */
     clickCount: number
     /** Number of keypress events in the session */

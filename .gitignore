@@ -99,3 +99,6 @@ playwright/test-results/
 
 .dagster_home/*
 !.dagster_home/.gitkeep
+
+# Dist release target dir
+target/*

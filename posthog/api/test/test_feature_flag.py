@@ -779,7 +779,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                     ]
                                 },
                             },
-                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
+                            {"action": "changed", "after": 2, "before": 1, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
@@ -897,9 +897,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
             original_version = response.json()["version"]
-            self.assertEqual(original_version, 0)
+            self.assertEqual(original_version, 1)
             feature_flag = FeatureFlag.objects.get(id=flag_id)
-            self.assertEqual(feature_flag.version, 0)
+            self.assertEqual(feature_flag.version, 1)
             self.assertEqual(feature_flag.last_modified_by, original_user)
 
             frozen_datetime.tick(delta=timedelta(minutes=10))
@@ -918,9 +918,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             updated_version = response.json()["version"]
-            self.assertEqual(updated_version, 1)
+            self.assertEqual(updated_version, 2)
             feature_flag = FeatureFlag.objects.get(id=flag_id)
-            self.assertEqual(feature_flag.version, 1)
+            self.assertEqual(feature_flag.version, 2)
             self.assertEqual(feature_flag.last_modified_by, different_user)
 
             self.client.force_login(original_user)
@@ -1080,7 +1080,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["version"], 1)
+            self.assertEqual(response.json()["version"], 2)
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -1089,9 +1089,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["version"], 2)
+            self.assertEqual(response.json()["version"], 3)
             feature_flag = FeatureFlag.objects.get(id=flag_id)
-            self.assertEqual(feature_flag.version, 2)
+            self.assertEqual(feature_flag.version, 3)
             self.assertEqual(feature_flag.name, "Yet another updated name")
 
     def test_get_conflicting_changes(self):
@@ -1347,8 +1347,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "type": "FeatureFlag",
                                 "action": "changed",
                                 "field": "version",
-                                "before": 0,
-                                "after": 1,
+                                "before": 1,
+                                "after": 2,
                             },
                         ],
                         "trigger": None,
@@ -1730,7 +1730,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             },
-                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
+                            {"action": "changed", "after": 2, "before": 1, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
@@ -1836,7 +1836,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             },
-                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
+                            {"action": "changed", "after": 2, "before": 1, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
@@ -2328,7 +2328,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "alpha-feature")
 
         dashboard = instance.usage_dashboard
-        tiles = sorted(dashboard.tiles.all(), key=lambda x: x.insight.name)
+        assert dashboard is not None
+        assert dashboard.tiles is not None
+        tiles = sorted(dashboard.tiles.all(), key=lambda x: str(x.insight.name if x.insight is not None else ""))
 
         self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
         self.assertEqual(
@@ -2339,6 +2341,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(dashboard.creation_mode, Dashboard.CreationMode.TEMPLATE)
         self.assertEqual(dashboard.filters, {"date_from": "-30d"})
         self.assertEqual(len(tiles), 2)
+        assert tiles[0].insight is not None
         self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
         self.assertEqual(
             tiles[0].insight.query,
@@ -2380,6 +2383,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             },
         )
+        assert tiles[1].insight is not None
         self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
         self.assertEqual(
             tiles[1].insight.query,
@@ -2442,7 +2446,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         instance.refresh_from_db()
 
         dashboard = instance.usage_dashboard
-        tiles = sorted(dashboard.tiles.all(), key=lambda x: x.insight.name)
+        assert dashboard is not None
+        assert dashboard.tiles is not None
+        tiles = sorted(dashboard.tiles.all(), key=lambda x: str(x.insight.name if x.insight is not None else ""))
 
         self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
         self.assertEqual(
@@ -2451,6 +2457,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(dashboard.filters, {"date_from": "-30d"})
         self.assertEqual(len(tiles), 4)
+        assert tiles[0].insight is not None
         self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
         self.assertEqual(
             tiles[0].insight.query,
@@ -2492,6 +2499,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             },
         )
+        assert tiles[1].insight is not None
         self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
         self.assertEqual(
             tiles[1].insight.query,
@@ -2542,6 +2550,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # enriched insights
+        assert tiles[2].insight is not None
         self.assertEqual(tiles[2].insight.name, "Feature Interaction Total Volume")
         self.assertEqual(
             tiles[2].insight.query,
@@ -2591,6 +2600,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             },
         )
+        assert tiles[3].insight is not None
         self.assertEqual(tiles[3].insight.name, "Feature Viewed Total Volume")
         self.assertEqual(
             tiles[3].insight.query,

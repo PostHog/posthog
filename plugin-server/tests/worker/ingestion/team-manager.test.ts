@@ -5,7 +5,7 @@ import { PostgresRouter, PostgresUse } from '../../../src/utils/db/postgres'
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 
 describe('TeamManager()', () => {
     let teamManager: TeamManager

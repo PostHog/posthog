@@ -373,10 +373,13 @@ class EventViewSet(
             result = execute_hogql_query(query, team=team)
             values = []
             for value in result.results:
-                try:
-                    values.append(json.loads(value[0]))
-                except json.JSONDecodeError:
+                if isinstance(value[0], float | int | bool):
                     values.append(value[0])
+                else:
+                    try:
+                        values.append(json.loads(value[0]))
+                    except json.JSONDecodeError:
+                        values.append(value[0])
 
         return response.Response([{"name": convert_property_value(value)} for value in flatten(values)])
 

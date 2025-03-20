@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
-import { status } from '../../../../utils/status'
+import { logger } from '../../../../utils/logger'
 import { ParsedMessageData } from '../kafka/types'
 import { hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
 import { activeMillisecondsFromSegmentationEvents, SegmentationEvent, toSegmentationEvent } from '../segmentation'
@@ -168,7 +168,7 @@ export class SnappySessionRecorder {
 
         const truncatedUrl = url.length > MAX_URL_LENGTH ? url.slice(0, MAX_URL_LENGTH) : url
         if (url.length > MAX_URL_LENGTH) {
-            status.warn(
+            logger.warn(
                 '🔗',
                 `Truncating URL from ${url.length} to ${MAX_URL_LENGTH} characters for session ${this.sessionId}`
             )
@@ -181,7 +181,7 @@ export class SnappySessionRecorder {
             this.urls.add(truncatedUrl)
         } else {
             this.droppedUrlsCount++
-            status.warn(
+            logger.warn(
                 '🔗',
                 `Dropping URL (count limit reached) for session ${this.sessionId}, dropped ${this.droppedUrlsCount} URLs`
             )
