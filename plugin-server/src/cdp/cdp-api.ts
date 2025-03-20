@@ -264,7 +264,10 @@ export class CdpApi {
                 compoundConfiguration.id = new UUIDT().toString()
                 const pluginEvent: PluginEvent = {
                     ...triggerGlobals.event,
-                    ip: triggerGlobals.event.properties.$ip,
+                    ip:
+                        typeof triggerGlobals.event.properties.$ip === 'string'
+                            ? triggerGlobals.event.properties.$ip
+                            : null,
                     site_url: triggerGlobals.project.url,
                     team_id: triggerGlobals.project.id,
                     now: '',
