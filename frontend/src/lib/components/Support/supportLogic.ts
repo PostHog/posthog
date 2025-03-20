@@ -107,11 +107,6 @@ export const TARGET_AREA_TO_NAME = [
         title: 'General',
         options: [
             {
-                value: 'apps',
-                'data-attr': `support-form-target-area-apps`,
-                label: 'Data pipelines',
-            },
-            {
                 value: 'login',
                 'data-attr': `support-form-target-area-login`,
                 label: 'Authentication (incl. login, sign-up, invites)',
@@ -142,6 +137,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Data management (incl. events, actions, properties)',
             },
             {
+                value: 'data_ingestion',
+                'data-attr': `support-form-target-area-data_ingestion`,
+                label: 'Data ingestion',
+            },
+            {
                 value: 'notebooks',
                 'data-attr': `support-form-target-area-notebooks`,
                 label: 'Notebooks',
@@ -164,12 +164,17 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'data_warehouse',
                 'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse',
+                label: 'Data warehouse (sources)',
             },
             {
                 value: 'batch_exports',
-                'data-attr': `support-form-target-area-batch-exports`,
-                label: 'Batch exports',
+                'data-attr': `support-form-target-area-batch_exports`,
+                label: 'Destinations (batch exports)',
+            },
+            {
+                value: 'cdp_destinations',
+                'data-attr': `support-form-target-area-cdp_destinations`,
+                label: 'Destinations (real-time)',
             },
             {
                 value: 'feature_flags',
