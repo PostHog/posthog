@@ -67,6 +67,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                 setQuery?.({ ...query, columns })
             }
         },
+        context: query.context || { type: 'team_columns' },
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
 
@@ -93,6 +94,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
     const { modalVisible, columns, saveAsDefault } = useValues(columnConfiguratorLogic)
     const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
         useActions(columnConfiguratorLogic)
+    const { context } = useValues(columnConfiguratorLogic)
 
     const onEditColumn = (column: string, index: number): void => {
         const newColumn = window.prompt('Edit column', column)
@@ -188,7 +190,11 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                 </div>
                 {isEventsQuery(query.source) && query.showPersistentColumnConfigurator ? (
                     <LemonCheckbox
-                        label="Save as default for all project members"
+                        label={
+                            context?.type === 'event_definition'
+                                ? 'Save as default columns for this event type'
+                                : 'Save as default for all project members'
+                        }
                         className="mt-2"
                         data-attr="events-table-save-columns-as-default-toggle"
                         bordered

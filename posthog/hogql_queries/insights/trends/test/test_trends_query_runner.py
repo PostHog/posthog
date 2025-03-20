@@ -66,6 +66,7 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     flush_persons_and_events,
 )
+from posthog.hogql.query import execute_hogql_query
 
 
 @dataclass
@@ -342,6 +343,31 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
+    def _create_trends_query(
+        self,
+        date_from: str,
+        date_to: Optional[str],
+        interval: IntervalType,
+        series: Optional[list[EventsNode | ActionsNode]],
+        trends_filters: Optional[TrendsFilter] = None,
+        breakdown: Optional[BreakdownFilter] = None,
+        compare_filters: Optional[CompareFilter] = None,
+        filter_test_accounts: Optional[bool] = None,
+        explicit_date: Optional[bool] = None,
+        properties: Optional[Any] = None,
+    ) -> TrendsQuery:
+        query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
+        return TrendsQuery(
+            dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
+            interval=interval,
+            series=query_series,
+            trendsFilter=trends_filters,
+            breakdownFilter=breakdown,
+            compareFilter=compare_filters,
+            filterTestAccounts=filter_test_accounts,
+            properties=properties,
+        )
+
     def _create_query_runner(
         self,
         date_from: str,
@@ -357,15 +383,16 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         explicit_date: Optional[bool] = None,
         properties: Optional[Any] = None,
     ) -> TrendsQueryRunner:
-        query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
-        query = TrendsQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
+        query = self._create_trends_query(
+            date_from=date_from,
+            date_to=date_to,
             interval=interval,
-            series=query_series,
-            trendsFilter=trends_filters,
-            breakdownFilter=breakdown,
-            compareFilter=compare_filters,
-            filterTestAccounts=filter_test_accounts,
+            series=series,
+            trends_filters=trends_filters,
+            breakdown=breakdown,
+            compare_filters=compare_filters,
+            filter_test_accounts=filter_test_accounts,
+            explicit_date=explicit_date,
             properties=properties,
         )
         return TrendsQueryRunner(team=self.team, query=query, modifiers=hogql_modifiers, limit_context=limit_context)
@@ -1608,6 +1635,49 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0]["data"] == [1, 1, 2, 3, 3, 3, 4, 4, 4, 4, 2, 2]
 
+    def test_trends_aggregation_wau_long_interval(self):
+        """Test weekly active users with a week interval.
+
+        When using WEEKLY_ACTIVE math with an interval of WEEK or greater,
+        we should treat it like a normal unique users calculation (DAU) rather than
+        the sliding window calculation used for daily intervals.
+        """
+        self._create_test_events()
+
+        # First run the regular trends query to verify it works
+        trends_query = self._create_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+        )
+
+        # Create a query runner and calculate the trends
+        query_runner = TrendsQueryRunner(team=self.team, query=trends_query)
+        response = query_runner.calculate()
+
+        assert response.results[0]["data"] == [2, 4, 1]
+
+        # Now run actors queries for each date range and verify the counts
+        options = query_runner.to_actors_query_options()
+        assert options.day is not None and len(options.day) == 3
+
+        # Expected actor IDs for each week - based on our test event data
+        expected_actors_by_week = [
+            ["p1", "p2"],  # Week 1: Jan 9-15
+            ["p1", "p2", "p3", "p4"],  # Week 2: Jan 16-22
+            ["p1"],  # Week 3: Jan 23-29
+        ]
+
+        for i, day in enumerate(options.day):
+            actors_query = query_runner.to_actors_query(time_frame=day.value, series_index=0)
+            result = execute_hogql_query(query=actors_query, team=self.team)
+
+            actual_actor_ids = [row[2][0] for row in result.results]
+            expected_actor_ids = expected_actors_by_week[i]
+
+            self.assertCountEqual(actual_actor_ids, expected_actor_ids)
+
     def test_trends_aggregation_mau(self):
         self._create_test_events()
 
@@ -1622,6 +1692,20 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 1
         assert response.results[0]["data"] == [1, 1, 2, 3, 3, 3, 4, 4, 4, 4, 4, 4]
+
+    def test_trends_aggregation_mau_long_interval(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2019-12-31",
+            "2020-02-01",
+            IntervalType.MONTH,
+            [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
+            None,
+            None,
+        )
+
+        assert response.results[0]["data"] == [0, 4, 0]
 
     def test_trends_aggregation_unique(self):
         self._create_test_events()

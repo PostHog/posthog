@@ -2854,7 +2854,7 @@ export interface Survey {
     targeting_flag_filters?: FeatureFlagFilters
     conditions: {
         url: string
-        selector: string
+        selector?: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyMatchType
         deviceTypes?: string[]
@@ -3341,6 +3341,7 @@ export interface EventDefinition {
     verified_by?: string
     is_action?: boolean
     hidden?: boolean
+    default_columns?: string[]
 }
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
@@ -3543,7 +3544,6 @@ export interface AppContext {
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
-    year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
     livestream_host?: string

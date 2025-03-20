@@ -2,8 +2,8 @@ import { DateTime } from 'luxon'
 
 import { TimestampFormat } from '../../../../types'
 import { castTimestampOrNow } from '../../../../utils/utils'
-import { ParsedMessageData } from '../kafka/types'
 import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
+import { MessageWithTeam } from '../teams/types'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
 const levelMapping: Record<string, ConsoleLogLevel> = {
@@ -97,14 +97,18 @@ export class SessionConsoleLogRecorder {
      * @param message - Message containing events for one or more windows
      * @throws If called after end()
      */
-    public async recordMessage(message: ParsedMessageData): Promise<void> {
+    public async recordMessage(message: MessageWithTeam): Promise<void> {
         if (this.ended) {
             throw new Error('Cannot record message after end() has been called')
         }
 
+        if (!message.team.consoleLogIngestionEnabled) {
+            return
+        }
+
         const logsToStore: ConsoleLogEntry[] = []
 
-        for (const events of Object.values(message.eventsByWindowId)) {
+        for (const events of Object.values(message.message.eventsByWindowId)) {
             for (const event of events) {
                 const eventData = event.data as
                     | { plugin?: unknown; payload?: { payload?: unknown; level?: unknown } }

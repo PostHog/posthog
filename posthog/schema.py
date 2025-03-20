@@ -687,6 +687,19 @@ class DataColorToken(StrEnum):
     PRESET_15 = "preset-15"
 
 
+class Type(StrEnum):
+    EVENT_DEFINITION = "event_definition"
+    TEAM_COLUMNS = "team_columns"
+
+
+class Context(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    eventDefinitionId: Optional[str] = None
+    type: Type
+
+
 class DataWarehouseEventsModifier(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -720,7 +733,7 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type(StrEnum):
+class Type1(StrEnum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
@@ -847,7 +860,7 @@ class ErrorTrackingIssueAggregations(BaseModel):
     volumeMonth: list[float]
 
 
-class Type1(StrEnum):
+class Type2(StrEnum):
     USER_GROUP = "user_group"
     USER = "user"
 
@@ -1560,6 +1573,16 @@ class RecordingPropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
+class RefreshType(StrEnum):
+    ASYNC_ = "async"
+    ASYNC_EXCEPT_ON_CACHE_MISS = "async_except_on_cache_miss"
+    BLOCKING = "blocking"
+    FORCE_ASYNC = "force_async"
+    FORCE_BLOCKING = "force_blocking"
+    FORCE_CACHE = "force_cache"
+    LAZY_ASYNC = "lazy_async"
+
+
 class ResultCustomizationBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1648,6 +1671,19 @@ class SamplingRate(BaseModel):
     )
     denominator: Optional[float] = None
     numerator: float
+
+
+class Type3(StrEnum):
+    EVENT_DEFINITION = "event_definition"
+    TEAM_COLUMNS = "team_columns"
+
+
+class Context1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    eventDefinitionId: Optional[str] = None
+    type: Type3
 
 
 class SessionAttributionGroupBy(StrEnum):
@@ -2510,7 +2546,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
-    type: Type
+    type: Type1
 
 
 class Day(RootModel[int]):
@@ -2533,7 +2569,7 @@ class ErrorTrackingIssueAssignee(BaseModel):
         extra="forbid",
     )
     id: Union[str, int]
-    type: Type1
+    type: Type2
 
 
 class ErrorTrackingRelationalIssue(BaseModel):
@@ -2987,6 +3023,9 @@ class SavedInsightNode(BaseModel):
     )
     allowSorting: Optional[bool] = Field(
         default=None, description="Can the user click on column headers to sort the table? (default: true)"
+    )
+    context: Optional[Context1] = Field(
+        default=None, description="Context for the table, used by components like ColumnConfigurator"
     )
     embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
     expandable: Optional[bool] = Field(
@@ -6759,6 +6798,9 @@ class RetentionResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdown_value: Optional[Union[str, float]] = Field(
+        default=None, description="Optional breakdown value for retention cohorts"
+    )
     date: AwareDatetime
     label: str
     values: list[RetentionValue]
@@ -8301,6 +8343,7 @@ class RetentionQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -8935,6 +8978,9 @@ class DataTableNode(BaseModel):
     columns: Optional[list[str]] = Field(
         default=None, description="Columns shown in the table, unless the `source` provides them."
     )
+    context: Optional[Context] = Field(
+        default=None, description="Context for the table, used by components like ColumnConfigurator"
+    )
     embedded: Optional[bool] = Field(default=None, description="Uses the embedded version of LemonTable")
     expandable: Optional[bool] = Field(
         default=None, description="Can expand row to show raw event data (default: true)"
@@ -9182,8 +9228,8 @@ class QueryRequest(BaseModel):
         ),
         discriminator="kind",
     )
-    refresh: Optional[Union[bool, str]] = Field(
-        default="blocking",
+    refresh: Optional[RefreshType] = Field(
+        default=RefreshType.BLOCKING,
         description=(
             "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
             " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
