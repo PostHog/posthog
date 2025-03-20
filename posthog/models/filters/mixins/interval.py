@@ -13,9 +13,7 @@ class IntervalMixin(DateMixin):  # Interval doesn't make sense without a date ra
 
     @cached_property
     def interval(self) -> IntervalType:
-        interval_candidate = self._data.get(INTERVAL)
-        if not interval_candidate:
-            return "day"
+        interval_candidate = self._data.get(INTERVAL, "day")  # Default to day if not set
         if not isinstance(interval_candidate, str):
             raise ValueError(f"Interval must be a string!")
         interval_candidate = interval_candidate.lower()

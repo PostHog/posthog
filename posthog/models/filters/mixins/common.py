@@ -248,7 +248,10 @@ class BreakdownMixin(BaseParamMixin):
 
     @cached_property
     def breakdown_type(self) -> Optional[BreakdownType]:
-        return self._data.get(BREAKDOWN_TYPE, None)
+        breakdown_type = self._data.get(BREAKDOWN_TYPE)
+        if not breakdown_type:
+            return None
+        return cast(BreakdownType, str(breakdown_type))
 
     @cached_property
     def breakdown_group_type_index(self) -> Optional[GroupTypeIndex]:

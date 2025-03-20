@@ -152,7 +152,7 @@ class UserTeamPermissions:
         self.team = team
 
     @cached_property
-    def effective_membership_level(self) -> Optional["OrganizationMembership.Level"]:
+    def effective_membership_level(self) -> Optional[OrganizationMembership.Level]:
         """Return an effective membership level.
         None returned if the user has no explicit membership and organization access is too low for implicit membership.
         """
@@ -165,7 +165,7 @@ class UserTeamPermissions:
         self,
         organization: Optional[Organization],
         organization_membership: Optional[OrganizationMembership],
-    ) -> Optional["OrganizationMembership.Level"]:
+    ) -> Optional[OrganizationMembership.Level]:
         if organization is None or organization_membership is None:
             return None
 

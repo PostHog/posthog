@@ -20,7 +20,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("stripe_account"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("stripe_account"),
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/accounts",
@@ -29,7 +29,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "created[gte]": {
                         "type": "incremental",
                         "cursor_path": "created",
-                        "initial_value": 0,  # type: ignore
+                        "initial_value": 0,
                     }
                     if is_incremental
                     else None,
@@ -55,7 +55,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("stripe_balancetransaction"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("stripe_balancetransaction"),
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/balance_transactions",
@@ -64,7 +64,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "created[gte]": {
                         "type": "incremental",
                         "cursor_path": "created",
-                        "initial_value": 0,  # type: ignore
+                        "initial_value": 0,
                     }
                     if is_incremental
                     else None,
@@ -90,7 +90,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("stripe_charge"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("stripe_charge"),
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/charges",
@@ -99,7 +99,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "created[gte]": {
                         "type": "incremental",
                         "cursor_path": "created",
-                        "initial_value": 0,  # type: ignore
+                        "initial_value": 0,
                     }
                     if is_incremental
                     else None,
@@ -124,7 +124,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("stripe_customer"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("stripe_customer"),
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/customers",
@@ -133,7 +133,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "created[gte]": {
                         "type": "incremental",
                         "cursor_path": "created",
-                        "initial_value": 0,  # type: ignore
+                        "initial_value": 0,
                     }
                     if is_incremental
                     else None,
@@ -157,7 +157,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("stripe_invoice"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("stripe_invoice"),
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/invoices",
@@ -167,7 +167,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "created[gte]": {
                         "type": "incremental",
                         "cursor_path": "created",
-                        "initial_value": 0,  # type: ignore
+                        "initial_value": 0,
                     }
                     if is_incremental
                     else None,
@@ -193,7 +193,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("stripe_price"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("stripe_price"),
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/prices",
@@ -203,7 +203,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "created[gte]": {
                         "type": "incremental",
                         "cursor_path": "created",
-                        "initial_value": 0,  # type: ignore
+                        "initial_value": 0,
                     }
                     if is_incremental
                     else None,
@@ -230,7 +230,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("stripe_product"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("stripe_product"),
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/products",
@@ -240,7 +240,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "created[gte]": {
                         "type": "incremental",
                         "cursor_path": "created",
-                        "initial_value": 0,  # type: ignore
+                        "initial_value": 0,
                     }
                     if is_incremental
                     else None,
@@ -265,7 +265,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("stripe_subscription"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("stripe_subscription"),
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/subscriptions",
@@ -275,7 +275,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "created[gte]": {
                         "type": "incremental",
                         "cursor_path": "created",
-                        "initial_value": 0,  # type: ignore
+                        "initial_value": 0,
                     }
                     if is_incremental
                     else None,

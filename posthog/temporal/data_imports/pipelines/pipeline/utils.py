@@ -88,7 +88,7 @@ def _get_column_hints(resource: DltResource) -> dict[str, TDataType | None] | No
     if columns is None:
         return None
 
-    return {key: value.get("data_type") for key, value in columns.items()}  # type: ignore
+    return {key: value.get("data_type") for key, value in columns.items()}
 
 
 def _handle_null_columns_with_definitions(table: pa.Table, source: SourceResponse) -> pa.Table:
@@ -288,7 +288,7 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
             table = table.set_column(
                 table.schema.get_field_index(column_name),
                 normalized_column_name,
-                table.column(column_name),  # type: ignore
+                table.column(column_name),
             )
 
     return table
@@ -463,7 +463,7 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
     return build_pyarrow_decimal_type(max_precision, max_scale)
 
 
-def _build_decimal_type_from_defaults(values: list[decimal.Decimal | None]) -> pa.Array:
+def _build_decimal_type_from_defaults(values: list[Optional[decimal.Decimal]]) -> pa.Array:
     for decimal_type in [
         pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
         pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE),
@@ -476,7 +476,7 @@ def _build_decimal_type_from_defaults(values: list[decimal.Decimal | None]) -> p
     raise ValueError("Cant build a decimal type from defaults")
 
 
-def _python_type_to_pyarrow_type(type_: type, value: Any):
+def _python_type_to_pyarrow_type(type_: type, value: Any) -> pa.DataType:
     python_to_pa = {
         int: pa.int64(),
         float: pa.float64(),

@@ -150,10 +150,10 @@ class Subscription(models.Model):
             return SubscriptionResourceInfo(
                 "Insight",
                 f"{self.insight.name or self.insight.derived_name}",
-                self.insight.url,
+                self.insight.url or "",
             )
         elif self.dashboard:
-            return SubscriptionResourceInfo("Dashboard", self.dashboard.name, self.dashboard.url)
+            return SubscriptionResourceInfo("Dashboard", self.dashboard.name, self.dashboard.url or "")
 
         return None
 
