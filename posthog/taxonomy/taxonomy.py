@@ -78,6 +78,13 @@ SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
     "_kx",
 }
 
+SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
+    "$current_url",  # Gets renamed to just $url
+    "$host",
+    "$pathname",
+    *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
+}
+
 # synced with frontend/src/lib/taxonomy.tsx
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
@@ -1657,6 +1664,18 @@ for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
                 else "Data from the first event in this session."
             ),
         }
+
+for key in SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS:
+    naming_key = key if key != "$current_url" else "$url"
+
+    CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"][f"$session_entry_{naming_key}"] = {
+        **CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"][key],
+        "label": f"Session entry {CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['label']}",
+        "description": (
+            f"{CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['description']}. Captured at the start of the session and remains constant for the duration of the session."
+        ),
+    }
+
 
 PROPERTY_NAME_ALIASES = {
     key: value["label"]
