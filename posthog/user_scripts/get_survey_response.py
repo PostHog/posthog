@@ -15,7 +15,7 @@ Usage in HogQL:
     SELECT
         get_survey_response(properties, 0, '') AS first_question_response,
         get_survey_response(properties, 1, '') AS second_question_response,
-        get_survey_response(properties, 0, 'specific_id') AS response_by_id
+        get_survey_response(properties, -1, 'specific_id') AS response_by_id
     FROM events
     WHERE event = 'survey sent'
 
