@@ -48,31 +48,27 @@ export function OccurenceSparkline({
         ]
     }, [values, unit, interval, colors])
 
-    const withXScale = useCallback(
-        (scale: ScaleOptions) => {
-            return {
-                ...scale,
-                type: 'timeseries',
-                ticks: {
-                    display: true,
-                    maxRotation: 0,
-                    maxTicksLimit: 5,
+    const withXScale = useCallback((scale: ScaleOptions) => {
+        return {
+            ...scale,
+            type: 'timeseries',
+            ticks: {
+                display: true,
+                maxRotation: 0,
+                maxTicksLimit: 5,
+                font: {
+                    size: 10,
+                    lineHeight: 1,
                 },
-                time: {
-                    unit: unit,
-                    displayFormats: {
-                        hour: 'HH:mm',
-                        minute: 'HH:mm',
-                        day: 'D MMM YYYY',
-                        week: 'D MMM YYYY',
-                        month: 'MMM YYYY',
-                        year: 'YYYY',
-                    },
+            },
+            time: {
+                unit: 'day',
+                displayFormats: {
+                    day: 'D MMM',
                 },
-            } as ScaleOptions
-        },
-        [unit]
-    )
+            },
+        } as ScaleOptions
+    }, [])
 
     return (
         <Sparkline

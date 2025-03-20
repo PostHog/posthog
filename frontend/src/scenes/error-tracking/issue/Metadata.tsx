@@ -35,9 +35,9 @@ export const Metadata = (): JSX.Element => {
     )
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-2 pb-5">
             {issue && issue.description ? <ClampedText text={issue.description} lines={2} /> : <LemonSkeleton />}
-            <div className="flex flex-1 justify-between">
+            <div className="flex flex-1 justify-between py-3">
                 <div className="flex items-end deprecated-space-x-6">
                     <div>
                         <div className="text-muted text-xs">First seen</div>
@@ -74,7 +74,13 @@ export const Metadata = (): JSX.Element => {
                     </div>
                 </div>
             </div>
-            <OccurenceSparkline className="h-26 w-full" values={values} unit={unit} interval={interval} />
+            <OccurenceSparkline
+                className="h-26 w-full"
+                values={values}
+                unit={unit}
+                interval={interval}
+                displayXAxis={true}
+            />
         </div>
     )
 }
