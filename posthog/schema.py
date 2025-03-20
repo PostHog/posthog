@@ -1560,6 +1560,16 @@ class RecordingPropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
+class RefreshType(StrEnum):
+    ASYNC_ = "async"
+    ASYNC_EXCEPT_ON_CACHE_MISS = "async_except_on_cache_miss"
+    BLOCKING = "blocking"
+    FORCE_ASYNC = "force_async"
+    FORCE_BLOCKING = "force_blocking"
+    FORCE_CACHE = "force_cache"
+    LAZY_ASYNC = "lazy_async"
+
+
 class ResultCustomizationBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9182,8 +9192,8 @@ class QueryRequest(BaseModel):
         ),
         discriminator="kind",
     )
-    refresh: Optional[Union[bool, str]] = Field(
-        default="blocking",
+    refresh: Optional[RefreshType] = Field(
+        default=RefreshType.BLOCKING,
         description=(
             "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
             " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
