@@ -11,6 +11,7 @@ import {
     ExperimentDataWarehouseMetricConfig,
     ExperimentEventExposureConfig,
     ExperimentEventMetricConfig,
+    ExperimentFunnelMetricConfig,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentMetricType,
@@ -431,108 +432,132 @@ export function filterToExposureConfig(
     return undefined
 }
 
-export function metricConfigToFilter(
-    metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
+export function metricToFilter(
+    metric: ExperimentMetric
 ): FilterType {
-    if (metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
-        return {
-            events: [
-                {
-                    id: metric_config.event,
-                    name: metric_config.event,
-                    kind: NodeKind.EventsNode,
-                    type: 'events',
-                    math: metric_config.math,
-                    math_property: metric_config.math_property,
-                    math_hogql: metric_config.math_hogql,
-                    properties: metric_config.properties,
-                } as EventsNode,
-            ],
-            actions: [],
-            data_warehouse: [],
-        }
-    } else if (metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
-        return {
-            events: [],
-            actions: [
-                {
-                    id: metric_config.action,
-                    name: metric_config.name,
-                    kind: NodeKind.EventsNode,
-                    type: 'actions',
-                    math: metric_config.math,
-                    math_property: metric_config.math_property,
-                    math_hogql: metric_config.math_hogql,
-                    properties: metric_config.properties,
-                } as EventsNode,
-            ],
-            data_warehouse: [],
-        }
-    } else if (metric_config.kind === NodeKind.ExperimentDataWarehouseMetricConfig) {
-        return {
-            events: [],
-            actions: [],
-            data_warehouse: [
-                {
-                    kind: NodeKind.EventsNode,
-                    type: 'data_warehouse',
-                    id: metric_config.table_name,
-                    name: metric_config.name,
-                    timestamp_field: metric_config.timestamp_field,
-                    events_join_key: metric_config.events_join_key,
-                    data_warehouse_join_key: metric_config.data_warehouse_join_key,
-                    math: metric_config.math,
-                    math_property: metric_config.math_property,
-                    math_hogql: metric_config.math_hogql,
-                } as EventsNode,
-            ],
-        }
-    }
 
-    return {}
+    switch (metric.metric_type) {
+        case ExperimentMetricType.FUNNEL:
+            return {
+                events: [],
+                actions: [],
+                data_warehouse: [],
+            }
+        case ExperimentMetricType.MEAN:
+            switch (metric.metric_config.kind) {
+                case NodeKind.ExperimentEventMetricConfig:
+                    return {
+                        events: [
+                            {
+                            id: metric.metric_config.event,
+                            name: metric.metric_config.event,
+                            kind: NodeKind.EventsNode,
+                            type: 'events',
+                            math: metric.metric_config.math,
+                            math_property: metric.metric_config.math_property,
+                            math_hogql: metric.metric_config.math_hogql,
+                            properties: metric.metric_config.properties,
+                            } as EventsNode,
+                        ],
+                        actions: [],
+                        data_warehouse: [],
+                    }
+                case NodeKind.ExperimentActionMetricConfig:
+                    return {
+                        events: [],
+                        actions: [
+                            {
+                            id: metric.metric_config.action,
+                            name: metric.metric_config.name,
+                            kind: NodeKind.EventsNode,
+                            type: 'actions',
+                            math: metric.metric_config.math,
+                            math_property: metric.metric_config.math_property,
+                            math_hogql: metric.metric_config.math_hogql,
+                            properties: metric.metric_config.properties,
+                            } as EventsNode,
+                        ],
+                        data_warehouse: [],
+                    }
+                case NodeKind.ExperimentDataWarehouseMetricConfig:
+                    return {
+                        events: [],
+                        actions: [],
+                        data_warehouse: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                type: 'data_warehouse',
+                                id: metric.metric_config.table_name,
+                                name: metric.metric_config.name,
+                                timestamp_field: metric.metric_config.timestamp_field,
+                                events_join_key: metric.metric_config.events_join_key,
+                                data_warehouse_join_key: metric.metric_config.data_warehouse_join_key,
+                                math: metric.metric_config.math,
+                                math_property: metric.metric_config.math_property,
+                                math_hogql: metric.metric_config.math_hogql,
+                            } as EventsNode,
+                        ],
+                    }
+                default:
+                    return {}
+            }
+        default:
+            return {}
+    }
 }
 
 export function filterToMetricConfig(
-    entity: Record<string, any> | undefined
-): ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig | undefined {
-    if (!entity) {
-        return undefined
-    }
+    metricType: ExperimentMetricType,
+    actions: Record<string, any>[] | undefined,
+    events: Record<string, any>[] | undefined,
+    data_warehouse: Record<string, any>[] | undefined
+): ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig | ExperimentFunnelMetricConfig | undefined {
 
-    if (entity.kind === NodeKind.EventsNode) {
-        if (entity.type === 'events') {
+
+    switch (metricType) {
+        case ExperimentMetricType.FUNNEL:
             return {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                event: entity.id as string,
-                name: entity.name,
-                math: entity.math || ExperimentMetricMathType.TotalCount,
-                math_property: entity.math_property,
-                math_hogql: entity.math_hogql,
-                properties: entity.properties,
+                kind: NodeKind.ExperimentFunnelMetricConfig,
+                funnel: [],
             }
-        } else if (entity.type === 'actions') {
-            return {
-                kind: NodeKind.ExperimentActionMetricConfig,
-                action: entity.id,
-                name: entity.name,
-                math: entity.math || ExperimentMetricMathType.TotalCount,
-                math_property: entity.math_property,
-                math_hogql: entity.math_hogql,
-                properties: entity.properties,
+        case ExperimentMetricType.MEAN:
+            if (events?.[0]) {
+                return {
+                    kind: NodeKind.ExperimentEventMetricConfig,
+                    event: events[0].id as string,
+                    name: events[0].name,
+                    math: events[0].math || ExperimentMetricMathType.TotalCount,
+                    math_property: events[0].math_property,
+                    math_hogql: events[0].math_hogql,
+                    properties: events[0].properties,
+                }
+            } else if (actions?.[0]) {
+                return {
+                    kind: NodeKind.ExperimentActionMetricConfig,
+                    action: actions[0].id,
+                    name: actions[0].name,
+                    math: actions[0].math || ExperimentMetricMathType.TotalCount,
+                    math_property: actions[0].math_property,
+                    math_hogql: actions[0].math_hogql,
+                    properties: actions[0].properties,
+                }
+            } else if (data_warehouse?.[0]) {
+                return {
+                    kind: NodeKind.ExperimentDataWarehouseMetricConfig,
+                    name: data_warehouse[0].name,
+                    table_name: data_warehouse[0].id,
+                    timestamp_field: data_warehouse[0].timestamp_field,
+                    events_join_key: data_warehouse[0].events_join_key,
+                    data_warehouse_join_key: data_warehouse[0].data_warehouse_join_key,
+                    math: data_warehouse[0].math || ExperimentMetricMathType.TotalCount,
+                    math_property: data_warehouse[0].math_property,
+                    math_hogql: data_warehouse[0].math_hogql,
+                }
+            } else {
+                return undefined
             }
-        } else if (entity.type === 'data_warehouse') {
-            return {
-                kind: NodeKind.ExperimentDataWarehouseMetricConfig,
-                name: entity.name,
-                table_name: entity.id,
-                timestamp_field: entity.timestamp_field,
-                events_join_key: entity.events_join_key,
-                data_warehouse_join_key: entity.data_warehouse_join_key,
-                math: entity.math || ExperimentMetricMathType.TotalCount,
-                math_property: entity.math_property,
-                math_hogql: entity.math_hogql,
-            }
-        }
+        default:
+            return undefined
     }
 }
 
