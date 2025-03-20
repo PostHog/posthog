@@ -455,10 +455,13 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         creditDiscount: [(s) => [s.computedDiscount], (computedDiscount) => computedDiscount || 0],
-        billingPlan: [(s) => [s.billing], (billing: BillingType): BillingPlan | null => billing.billing_plan],
+        billingPlan: [
+            (s) => [s.billing],
+            (billing: BillingType | null): BillingPlan | null => billing?.billing_plan || null,
+        ],
         startupProgramLabel: [
             (s) => [s.billing],
-            (billing: BillingType): StartupProgramLabel | null => billing.startup_program_label || null,
+            (billing: BillingType | null): StartupProgramLabel | null => billing?.startup_program_label || null,
         ],
     }),
     forms(({ actions, values }) => ({
