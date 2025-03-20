@@ -1,33 +1,86 @@
 import { render, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { dayjs } from 'lib/dayjs'
-import { getTimeElement, LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import {
+    getTimeElement,
+    LemonCalendarSelect,
+    LemonCalendarSelectProps,
+} from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { useState } from 'react'
 
 import { getByDataAttr } from '~/test/byDataAttr'
 
 import { GetLemonButtonTimePropsOpts } from './LemonCalendar'
 
-describe('LemonCalendarSelect', () => {
-    test('select various dates', async () => {
-        const onClose = jest.fn()
-        const onChange = jest.fn()
-
-        function TestSelect(): JSX.Element {
-            const [value, setValue] = useState(dayjs('2022-02-10'))
-            return (
-                <LemonCalendarSelect
-                    months={1}
-                    value={value}
-                    onClose={onClose}
-                    onChange={(value) => {
-                        setValue(value)
-                        onChange(value)
-                    }}
-                />
-            )
+const createClickHelpers = (
+    container: HTMLElement
+): {
+    clickOnDate: (day: string) => Promise<void>
+    clickOnTime: (props: GetLemonButtonTimePropsOpts) => Promise<void>
+} => ({
+    clickOnDate: async (day: string): Promise<void> => {
+        const element = container.querySelector('.LemonCalendar__month') as HTMLElement
+        if (element) {
+            userEvent.click(await within(element).findByText(day))
+            userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
         }
-        const { container } = render(<TestSelect />)
+    },
+    clickOnTime: async (props: GetLemonButtonTimePropsOpts): Promise<void> => {
+        const element = getTimeElement(container.querySelector('.LemonCalendar__time'), props)
+        if (element) {
+            userEvent.click(element)
+            userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
+        }
+    },
+})
+
+const renderLemonCalendarSelect = (
+    selectedDate: dayjs.Dayjs | null = null,
+    props: Partial<LemonCalendarSelectProps> = {}
+): {
+    container: HTMLElement
+    onClose: jest.Mock
+    onChange: jest.Mock
+    clickOnDate: (day: string) => Promise<void>
+    clickOnTime: (props: GetLemonButtonTimePropsOpts) => Promise<void>
+} => {
+    const onClose = jest.fn()
+    const onChange = jest.fn()
+
+    function TestSelect(): JSX.Element {
+        const [value, setValue] = useState<dayjs.Dayjs | null>(selectedDate)
+        return (
+            <LemonCalendarSelect
+                months={1}
+                value={value}
+                onClose={onClose}
+                onChange={(value) => {
+                    setValue(value)
+                    onChange(value)
+                }}
+                {...props}
+            />
+        )
+    }
+
+    const { container } = render(<TestSelect />)
+    return { container, onClose, onChange, ...createClickHelpers(container) }
+}
+
+describe('LemonCalendarSelect', () => {
+    beforeEach(() => {
+        window.HTMLElement.prototype.scrollIntoView = jest.fn()
+
+        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+        jest.useRealTimers()
+    })
+
+    test('select various dates', async () => {
+        const { container, onClose, onChange, clickOnDate } = renderLemonCalendarSelect(dayjs('2022-02-10'))
 
         // find just one month
         const calendar = getByDataAttr(container, 'lemon-calendar')
@@ -36,17 +89,12 @@ describe('LemonCalendarSelect', () => {
         // find February 2022
         expect(await within(calendar).findByText('February 2022')).toBeDefined()
 
-        async function clickOn(day: string): Promise<void> {
-            userEvent.click(await within(container).findByText(day))
-            userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
-        }
-
         // click on 15
-        await clickOn('15')
+        await clickOnDate('15')
         expect(onChange).toHaveBeenCalledWith(dayjs('2022-02-15'))
 
         // click on 27
-        await clickOn('27')
+        await clickOnDate('27')
         expect(onChange).toHaveBeenCalledWith(dayjs('2022-02-27'))
 
         userEvent.click(getByDataAttr(container, 'lemon-calendar-select-cancel'))
@@ -54,44 +102,9 @@ describe('LemonCalendarSelect', () => {
     })
 
     test('select various times', async () => {
-        const onClose = jest.fn()
-        const onChange = jest.fn()
-        window.HTMLElement.prototype.scrollIntoView = jest.fn()
-
-        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
-
-        function TestSelect(): JSX.Element {
-            const [value, setValue] = useState<dayjs.Dayjs | null>(null)
-            return (
-                <LemonCalendarSelect
-                    months={1}
-                    value={value}
-                    onClose={onClose}
-                    onChange={(value) => {
-                        setValue(value)
-                        onChange(value)
-                    }}
-                    granularity="minute"
-                />
-            )
-        }
-        const { container } = render(<TestSelect />)
-
-        async function clickOnDate(day: string): Promise<void> {
-            const element = container.querySelector('.LemonCalendar__month') as HTMLElement
-            if (element) {
-                userEvent.click(await within(element).findByText(day))
-                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
-            }
-        }
-
-        async function clickOnTime(props: GetLemonButtonTimePropsOpts): Promise<void> {
-            const element = getTimeElement(container.querySelector('.LemonCalendar__time'), props)
-            if (element) {
-                userEvent.click(element)
-                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
-            }
-        }
+        const { onChange, clickOnDate, clickOnTime } = renderLemonCalendarSelect(null, {
+            granularity: 'minute',
+        })
 
         // click on hour 8
         await clickOnDate('15')
@@ -115,45 +128,10 @@ describe('LemonCalendarSelect', () => {
     })
 
     test('only allow upcoming selection', async () => {
-        const onClose = jest.fn()
-        const onChange = jest.fn()
-        window.HTMLElement.prototype.scrollIntoView = jest.fn()
-
-        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
-
-        function TestSelect(): JSX.Element {
-            const [value, setValue] = useState<dayjs.Dayjs | null>(null)
-            return (
-                <LemonCalendarSelect
-                    months={1}
-                    value={value}
-                    onClose={onClose}
-                    onChange={(value) => {
-                        setValue(value)
-                        onChange(value)
-                    }}
-                    granularity="minute"
-                    selectionPeriod="upcoming"
-                />
-            )
-        }
-        const { container } = render(<TestSelect />)
-
-        async function clickOnDate(day: string): Promise<void> {
-            const element = container.querySelector('.LemonCalendar__month') as HTMLElement
-            if (element) {
-                userEvent.click(await within(element).findByText(day))
-                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
-            }
-        }
-
-        async function clickOnTime(props: GetLemonButtonTimePropsOpts): Promise<void> {
-            const element = getTimeElement(container.querySelector('.LemonCalendar__time'), props)
-            if (element) {
-                userEvent.click(element)
-                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
-            }
-        }
+        const { onChange, clickOnDate, clickOnTime } = renderLemonCalendarSelect(null, {
+            granularity: 'minute',
+            selectionPeriod: 'upcoming',
+        })
 
         // click on minute
         await clickOnTime({ unit: 'm', value: 42 })
@@ -182,46 +160,11 @@ describe('LemonCalendarSelect', () => {
     })
 
     test('allow only upcoming selection after a limit (one day in the future)', async () => {
-        const onClose = jest.fn()
-        const onChange = jest.fn()
-        window.HTMLElement.prototype.scrollIntoView = jest.fn()
-
-        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
-
-        function TestSelect(): JSX.Element {
-            const [value, setValue] = useState<dayjs.Dayjs | null>(null)
-            return (
-                <LemonCalendarSelect
-                    months={1}
-                    value={value}
-                    onClose={onClose}
-                    onChange={(value) => {
-                        setValue(value)
-                        onChange(value)
-                    }}
-                    granularity="minute"
-                    selectionPeriod="upcoming"
-                    selectionPeriodLimit={dayjs('2023-01-11')}
-                />
-            )
-        }
-        const { container } = render(<TestSelect />)
-
-        async function clickOnDate(day: string): Promise<void> {
-            const element = container.querySelector('.LemonCalendar__month') as HTMLElement
-            if (element) {
-                userEvent.click(await within(element).findByText(day))
-                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
-            }
-        }
-
-        async function clickOnTime(props: GetLemonButtonTimePropsOpts): Promise<void> {
-            const element = getTimeElement(container.querySelector('.LemonCalendar__time'), props)
-            if (element) {
-                userEvent.click(element)
-                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
-            }
-        }
+        const { onChange, clickOnDate, clickOnTime } = renderLemonCalendarSelect(null, {
+            granularity: 'minute',
+            selectionPeriod: 'upcoming',
+            selectionPeriodLimit: dayjs('2023-01-11'),
+        })
 
         // click on minute
         await clickOnTime({ unit: 'm', value: 42 })
@@ -255,45 +198,10 @@ describe('LemonCalendarSelect', () => {
     })
 
     test('only allow past selection', async () => {
-        const onClose = jest.fn()
-        const onChange = jest.fn()
-        window.HTMLElement.prototype.scrollIntoView = jest.fn()
-
-        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
-
-        function TestSelect(): JSX.Element {
-            const [value, setValue] = useState<dayjs.Dayjs | null>(null)
-            return (
-                <LemonCalendarSelect
-                    months={1}
-                    value={value}
-                    onClose={onClose}
-                    onChange={(value) => {
-                        setValue(value)
-                        onChange(value)
-                    }}
-                    granularity="minute"
-                    selectionPeriod="past"
-                />
-            )
-        }
-        const { container } = render(<TestSelect />)
-
-        async function clickOnDate(day: string): Promise<void> {
-            const element = container.querySelector('.LemonCalendar__month') as HTMLElement
-            if (element) {
-                userEvent.click(await within(element).findByText(day))
-                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
-            }
-        }
-
-        async function clickOnTime(props: GetLemonButtonTimePropsOpts): Promise<void> {
-            const element = getTimeElement(container.querySelector('.LemonCalendar__time'), props)
-            if (element) {
-                userEvent.click(element)
-                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
-            }
-        }
+        const { onChange, clickOnDate, clickOnTime } = renderLemonCalendarSelect(null, {
+            granularity: 'minute',
+            selectionPeriod: 'past',
+        })
 
         // click on minute
         await clickOnTime({ unit: 'm', value: 12 })
@@ -322,46 +230,11 @@ describe('LemonCalendarSelect', () => {
     })
 
     test('allow only past selection after a limit (one day in the past)', async () => {
-        const onClose = jest.fn()
-        const onChange = jest.fn()
-        window.HTMLElement.prototype.scrollIntoView = jest.fn()
-
-        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
-
-        function TestSelect(): JSX.Element {
-            const [value, setValue] = useState<dayjs.Dayjs | null>(null)
-            return (
-                <LemonCalendarSelect
-                    months={1}
-                    value={value}
-                    onClose={onClose}
-                    onChange={(value) => {
-                        setValue(value)
-                        onChange(value)
-                    }}
-                    granularity="minute"
-                    selectionPeriod="past"
-                    selectionPeriodLimit={dayjs('2023-01-09')}
-                />
-            )
-        }
-        const { container } = render(<TestSelect />)
-
-        async function clickOnDate(day: string): Promise<void> {
-            const element = container.querySelector('.LemonCalendar__month') as HTMLElement
-            if (element) {
-                userEvent.click(await within(element).findByText(day))
-                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
-            }
-        }
-
-        async function clickOnTime(props: GetLemonButtonTimePropsOpts): Promise<void> {
-            const element = getTimeElement(container.querySelector('.LemonCalendar__time'), props)
-            if (element) {
-                userEvent.click(element)
-                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
-            }
-        }
+        const { onChange, clickOnDate, clickOnTime } = renderLemonCalendarSelect(null, {
+            granularity: 'minute',
+            selectionPeriod: 'past',
+            selectionPeriodLimit: dayjs('2023-01-09'),
+        })
 
         // click on minute
         await clickOnTime({ unit: 'm', value: 12 })
