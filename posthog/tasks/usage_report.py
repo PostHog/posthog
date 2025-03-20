@@ -12,7 +12,7 @@ import requests
 import structlog
 import logging
 from cachetools import cached
-from celery import shared_task
+from celery import shared_task, current_task
 from dateutil import parser
 from django.conf import settings
 from django.db import connection
@@ -334,6 +334,9 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         headers = {}
         if token:
             headers["Authorization"] = f"Bearer {token}"
+
+        if current_task and current_task.request and current_task.request.id:
+            headers["X-Celery-Task-ID"] = current_task.request.id
 
         response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers, timeout=30)
         logger.info(f"[Send Usage Report To Billing] Usage response: {response.status_code}")
