@@ -20,9 +20,7 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
     run_id = failed_run.run_id
     job_owner = failed_run.tags.get("owner", "unknown")
     error = context.failure_event.message if context.failure_event.message else "Unknown error"
-    step_failures = {
-        event.step_key: event.event_specific_data.error.to_string() for event in context.get_step_failure_events()
-    }
+    tags = failed_run.tags
 
     # Only send notifications in prod environment
     if not settings.CLOUD_DEPLOYMENT:
@@ -45,20 +43,10 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"❌ *Dagster job `{job_name}` failed*\n\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>",
+                "text": f"❌ *Dagster job `{job_name}` failed*\n\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>\n*Tags*: {tags}",
             },
         },
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*Error*:\n```{error}```"}},
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*Step failures*:\n"
-                + "\n".join(
-                    [f"- `{step_key}`: {step_failure[:1000]}" for step_key, step_failure in step_failures.items()]
-                ),
-            },
-        },
         {
             "type": "context",
             "elements": [{"type": "mrkdwn", "text": f"Environment: {environment}"}],
