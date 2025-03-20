@@ -182,7 +182,7 @@
         "tailwind-merge": "^2.2.2",
         "tailwindcss": "4.0.7",
         "ts-pattern": "4.3",
-        "typescript": "~4.9.5",
+        "typescript": "^5.0.4",
         "use-debounce": "^9.0.3",
         "use-resize-observer": "^8.0.0",
         "zxcvbn": "^4.4.2"
@@ -253,7 +253,7 @@
         "jest-canvas-mock": "^2.4.0",
         "jest-environment-jsdom": "^29.3.1",
         "jest-image-snapshot": "^6.1.0",
-        "kea-typegen": "^3.3.5",
+        "kea-typegen": "^3.4.0",
         "less": "^3.12.2",
         "lint-staged": "~15.4.3",
         "mockdate": "^3.0.5",

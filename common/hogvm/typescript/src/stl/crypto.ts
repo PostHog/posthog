@@ -33,7 +33,7 @@ export function sha256HmacChainHex(data: string[], options?: ExecOptions): strin
     let hmac = crypto.createHmac('sha256', data[0])
     hmac.update(data[1])
     for (let i = 2; i < data.length; i++) {
-        hmac = crypto.createHmac('sha256', hmac.digest())
+        hmac = crypto.createHmac('sha256', new Uint8Array(hmac.digest()))
         hmac.update(data[i])
     }
     return hmac.digest('hex')

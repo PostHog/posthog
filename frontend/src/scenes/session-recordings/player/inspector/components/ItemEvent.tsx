@@ -9,7 +9,11 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from 'lib/taxonomy'
+import {
+    CORE_FILTER_DEFINITIONS_BY_GROUP,
+    KNOWN_PROMOTED_PROPERTY_PARENTS,
+    POSTHOG_EVENT_PROMOTED_PROPERTIES,
+} from 'lib/taxonomy'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
 import { AutocaptureImageTab, AutocapturePreviewImage, autocaptureToImage } from 'lib/utils/event-property-utls'
 import { useState } from 'react'
@@ -115,12 +119,12 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
     const insightUrl = insightUrlForEvent(item.data)
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
 
-    const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[item.data.event]
+    const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[item.data.event as KNOWN_PROMOTED_PROPERTY_PARENTS]
 
-    const properties = {}
-    const featureFlagProperties = {}
-    let setProperties = {}
-    let setOnceProperties = {}
+    const properties: Record<string, any> = {}
+    const featureFlagProperties: Record<string, any> = {}
+    let setProperties: Record<string, any> = {}
+    let setOnceProperties: Record<string, any> = {}
 
     for (const key of Object.keys(item.data.properties)) {
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
