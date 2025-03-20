@@ -10,6 +10,7 @@ import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
+import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
@@ -126,6 +127,7 @@ export function ExperimentView(): JSX.Element {
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
                                 <ExposureCriteriaModal />
+                                <RunningTimeCalculatorModal />
                             </>
                         ) : (
                             <>

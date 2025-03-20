@@ -14,6 +14,7 @@ from redis import Redis
 from structlog import get_logger
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency, get_api_personal_rate_limiter
+from posthog.clickhouse.query_tagging import tag_queries, clear_tag
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
@@ -74,6 +75,11 @@ def process_query_task(
     """
     with get_api_personal_rate_limiter().run(is_api=api_query_personal_key, team_id=team_id, task_id=query_id):
         from posthog.clickhouse.client import execute_process_query
+
+        if api_query_personal_key:
+            tag_queries(qaas=True)
+        else:
+            clear_tag("qaas")
 
         execute_process_query(
             team_id=team_id,
@@ -840,21 +846,15 @@ def send_org_usage_reports() -> None:
 
 
 @shared_task(ignore_result=True)
-def update_quota_limiting() -> None:
+def run_quota_limiting() -> None:
     try:
-        from ee.billing.quota_limiting import report_quota_limiting_event
         from ee.billing.quota_limiting import update_all_orgs_billing_quotas
 
-        report_quota_limiting_event("update_quota_limiting task started", {})
-
         update_all_orgs_billing_quotas()
-
-        report_quota_limiting_event("update_quota_limiting task finished", {})
     except ImportError:
-        report_quota_limiting_event("update_quota_limiting task failed", {"error": "ImportError"})
+        pass
     except Exception as e:
         capture_exception(e)
-        report_quota_limiting_event("update_quota_limiting task failed", {"error": str(e)})
 
 
 @shared_task(ignore_result=True)

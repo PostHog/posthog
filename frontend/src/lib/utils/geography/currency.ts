@@ -2,11 +2,11 @@ import { CurrencyCode } from '~/queries/schema/schema-general'
 
 // Long name for each currency
 export const CURRENCY_SYMBOL_TO_NAME_MAP: Record<CurrencyCode, string> = {
-    [CurrencyCode.AED]: 'United Arab Emirates Dirham',
+    [CurrencyCode.AED]: 'UAE Dirham',
     [CurrencyCode.AFN]: 'Afghan Afghani',
     [CurrencyCode.ALL]: 'Albanian Lek',
     [CurrencyCode.AMD]: 'Armenian Dram',
-    [CurrencyCode.ANG]: 'Netherlands Antillean Guilder',
+    [CurrencyCode.ANG]: 'Antillean Guilder',
     [CurrencyCode.AOA]: 'Angolan Kwanza',
     [CurrencyCode.ARS]: 'Argentine Peso',
     [CurrencyCode.AUD]: 'Australian Dollar',
@@ -46,7 +46,7 @@ export const CURRENCY_SYMBOL_TO_NAME_MAP: Record<CurrencyCode, string> = {
     [CurrencyCode.ETB]: 'Ethiopian Birr',
     [CurrencyCode.EUR]: 'Euro',
     [CurrencyCode.FJD]: 'Fijian Dollar',
-    [CurrencyCode.GBP]: 'British Pound Sterling',
+    [CurrencyCode.GBP]: 'British Pound',
     [CurrencyCode.GEL]: 'Georgian Lari',
     [CurrencyCode.GHS]: 'Ghanaian Cedi',
     [CurrencyCode.GIP]: 'Gibraltar Pound',
@@ -140,7 +140,7 @@ export const CURRENCY_SYMBOL_TO_NAME_MAP: Record<CurrencyCode, string> = {
     [CurrencyCode.TZS]: 'Tanzanian Shilling',
     [CurrencyCode.UAH]: 'Ukrainian Hryvnia',
     [CurrencyCode.UGX]: 'Ugandan Shilling',
-    [CurrencyCode.USD]: 'United States Dollar',
+    [CurrencyCode.USD]: 'American Dollar',
     [CurrencyCode.UYU]: 'Uruguayan Peso',
     [CurrencyCode.UZS]: 'Uzbekistan Som',
     [CurrencyCode.VES]: 'Venezuelan Bolívar Soberano',
@@ -179,7 +179,7 @@ export const CURRENCY_SYMBOL_TO_EMOJI_MAP: Record<CurrencyCode, string> = {
     [CurrencyCode.BOB]: '🇧🇴',
     [CurrencyCode.BRL]: '🇧🇷',
     [CurrencyCode.BSD]: '🇧🇸',
-    [CurrencyCode.BTC]: '₿',
+    [CurrencyCode.BTC]: ' ₿  ', // Non-breaking whitespace to align with other currencies in the UI
     [CurrencyCode.BTN]: '🇧🇹',
     [CurrencyCode.BWP]: '🇧🇼',
     [CurrencyCode.BYN]: '🇧🇾',

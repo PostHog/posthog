@@ -1,6 +1,6 @@
 from django.db import models
 from django.utils import timezone
-
+from django.db.models.indexes import Index
 from posthog.utils import generate_short_id
 
 
@@ -23,6 +23,12 @@ class SessionRecordingPlaylist(models.Model):
         blank=True,
         related_name="modified_playlists",
     )
+    # playlists are periodically counted,
+    # we want to avoid processing the same playlists over and over
+    # so we store the last time we counted a playlist on success
+    # (even though counts are in Redis)
+    # so we can sort by least frequently counted
+    last_counted_at = models.DateTimeField(null=True, blank=True)
 
     # DEPRECATED
     is_static = models.BooleanField(default=False)
@@ -32,6 +38,10 @@ class SessionRecordingPlaylist(models.Model):
 
     class Meta:
         unique_together = ("team", "short_id")
+        indexes = [
+            Index(fields=["deleted", "last_counted_at"], name="deleted_n_last_count_idx"),
+            Index(fields=["deleted", "-last_modified_at"], name="deleted_n_last_mod_desc_idx"),
+        ]
 
 
 class SessionRecordingPlaylistViewed(models.Model):

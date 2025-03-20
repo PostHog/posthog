@@ -918,7 +918,9 @@ STL: dict[str, STLFunction] = {
         fn=lambda args, team, stdout, timeout: not empty(args, team, stdout, timeout), minArgs=1, maxArgs=1
     ),
     "tuple": STLFunction(fn=lambda args, team, stdout, timeout: tuple(args), minArgs=0, maxArgs=None),
-    "lower": STLFunction(fn=lambda args, team, stdout, timeout: args[0].lower(), minArgs=1, maxArgs=1),
+    "lower": STLFunction(
+        fn=lambda args, team, stdout, timeout: args[0].lower() if args[0] is not None else None, minArgs=1, maxArgs=1
+    ),
     "upper": STLFunction(fn=lambda args, team, stdout, timeout: args[0].upper(), minArgs=1, maxArgs=1),
     "reverse": STLFunction(fn=lambda args, team, stdout, timeout: args[0][::-1], minArgs=1, maxArgs=1),
     "print": STLFunction(fn=print, minArgs=0, maxArgs=None),

@@ -9,7 +9,7 @@ import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipe
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { resetTestDatabase } from '../../../helpers/sql'
 
-jest.mock('../../../../src/utils/status')
+jest.mock('../../../../src/utils/logger')
 
 const pluginEvent: PluginEvent = {
     distinct_id: 'my_id',

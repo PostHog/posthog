@@ -12,6 +12,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    Table,
     ExpressionField,
     FieldTraverser,
     StringDatabaseField,
@@ -280,14 +281,22 @@ class TestResolver(BaseTest):
         node = self._select(
             "WITH my_table AS (SELECT 1 AS a) SELECT q1.a FROM my_table AS q1 INNER JOIN my_table AS q2 USING a"
         )
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        constraint = cast(ast.SelectQuery, node).select_from.next_join.constraint
+        node = resolve_types(node, self.context, dialect="clickhouse")
+        assert isinstance(node, ast.SelectQuery)
+        assert isinstance(node.select_from, ast.JoinExpr)
+        assert isinstance(node.select_from.next_join, ast.JoinExpr)
+        assert isinstance(node.select_from.next_join.constraint, ast.JoinConstraint)
+        constraint = node.select_from.next_join.constraint
         assert constraint.constraint_type == "USING"
         assert cast(ast.Field, cast(ast.Alias, constraint.expr).expr).chain == ["a"]
 
         node = self._select("SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event")
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        assert cast(ast.SelectQuery, node).select_from.next_join.constraint.constraint_type == "USING"
+        node = resolve_types(node, self.context, dialect="clickhouse")
+        assert isinstance(node, ast.SelectQuery)
+        assert isinstance(node.select_from, ast.JoinExpr)
+        assert isinstance(node.select_from.next_join, ast.JoinExpr)
+        assert isinstance(node.select_from.next_join.constraint, ast.JoinConstraint)
+        assert node.select_from.next_join.constraint.constraint_type == "USING"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -388,11 +397,13 @@ class TestResolver(BaseTest):
         lambda_type: ast.SelectQueryType = cast(ast.SelectQueryType, cast(ast.Call, node.select[1]).args[0].type)
         self.assertEqual(lambda_type.parent, node.type)
         self.assertEqual(list(lambda_type.aliases.keys()), ["x"])
+        assert isinstance(lambda_type.parent, ast.SelectQueryType)
         self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp"])
 
     def test_field_traverser_double_dot(self):
         # Create a condition where we want to ".." out of "events.poe." to get to a higher level prop
         self.database.events.fields["person"] = FieldTraverser(chain=["poe"])
+        assert isinstance(self.database.events.fields["poe"], Table)
         self.database.events.fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])
         self.database.events.fields["poe"].fields["created_at"] = FieldTraverser(
             chain=["..", "pdi", "person", "created_at"]
@@ -420,18 +431,23 @@ class TestResolver(BaseTest):
 
     def test_visit_hogqlx_tag(self):
         node = self._select("select event from <HogQLQuery query='select event from events' />")
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        table_node = cast(ast.SelectQuery, node).select_from.table
+        assert isinstance(node, ast.SelectQuery)
+        node = resolve_types(node, self.context, dialect="clickhouse")
+        assert isinstance(node.select_from, ast.JoinExpr)
+        table_node = node.select_from.table
+        assert table_node is not None
         expected = ast.SelectQuery(
             select=[ast.Alias(hidden=True, alias="event", expr=ast.Field(chain=["event"]))],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         )
-        assert clone_expr(table_node, clear_types=True) == expected
+        assert cast(ast.SelectQuery, clone_expr(table_node, clear_types=True)) == expected
 
     def test_visit_hogqlx_tag_alias(self):
         node = self._select("select event from <HogQLQuery query='select event from events' /> a")
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        assert cast(ast.SelectQuery, node).select_from.alias == "a"
+        assert isinstance(node, ast.SelectQuery)
+        node = resolve_types(node, self.context, dialect="clickhouse")
+        assert isinstance(node.select_from, ast.JoinExpr)
+        assert node.select_from.alias == "a"
 
     def test_visit_hogqlx_tag_source(self):
         query = """

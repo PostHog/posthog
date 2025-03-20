@@ -1,20 +1,34 @@
 import { kea } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
-import { urls } from 'scenes/urls'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
 
+import { billingLogic } from './billingLogic'
 import type { paymentEntryLogicType } from './paymentEntryLogicType'
 
 export const paymentEntryLogic = kea<paymentEntryLogicType>({
     path: ['scenes', 'billing', 'PaymentEntryLogic'],
 
+    connect: {
+        actions: [
+            userLogic,
+            ['loadUser'],
+            organizationLogic,
+            ['loadCurrentOrganization'],
+            billingLogic,
+            ['loadBilling'],
+        ],
+    },
+
     actions: {
         setClientSecret: (clientSecret) => ({ clientSecret }),
         setLoading: (loading) => ({ loading }),
         setError: (error) => ({ error }),
-        initiateAuthorization: (redirectPath: string | null) => ({ redirectPath }),
+        initiateAuthorization: true,
         pollAuthorizationStatus: (paymentIntentId?: string) => ({ paymentIntentId }),
         setAuthorizationStatus: (status: string | null) => ({ status }),
-        showPaymentEntryModal: true,
+        showPaymentEntryModal: (redirectPath?: string | null) => ({ redirectPath }),
         hidePaymentEntryModal: true,
         setRedirectPath: (redirectPath: string | null) => ({ redirectPath }),
     },
@@ -55,18 +69,18 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
             null as string | null,
             {
                 setRedirectPath: (_, { redirectPath }) => redirectPath,
+                showPaymentEntryModal: (state, { redirectPath }) => redirectPath ?? state,
             },
         ],
     },
 
     listeners: ({ actions, values }) => ({
-        initiateAuthorization: async ({ redirectPath }) => {
+        initiateAuthorization: async () => {
             actions.setLoading(true)
             actions.setError(null)
             try {
                 const response = await api.create('api/billing/activate/authorize')
                 actions.setClientSecret(response.clientSecret)
-                actions.setRedirectPath(redirectPath)
                 actions.setLoading(false)
             } catch (error) {
                 actions.setError('Failed to initialize payment')
@@ -93,7 +107,15 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         if (values.redirectPath) {
                             window.location.pathname = values.redirectPath
                         } else {
-                            window.location.pathname = urls.organizationBilling()
+                            // Push success to the url
+                            router.actions.push(router.values.location.pathname, {
+                                ...router.values.searchParams,
+                                success: true,
+                            })
+                            actions.loadBilling()
+                            actions.loadCurrentOrganization()
+                            actions.loadUser()
+                            actions.hidePaymentEntryModal()
                         }
                         return
                     } else if (status === 'failed') {

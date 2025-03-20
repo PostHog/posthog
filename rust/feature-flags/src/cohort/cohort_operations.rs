@@ -13,16 +13,36 @@ impl Cohort {
     #[instrument(skip_all)]
     pub async fn list_from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
-        team_id: i32,
+        project_id: i64,
     ) -> Result<Vec<Cohort>, FlagError> {
         let mut conn = client.get_connection().await.map_err(|e| {
             tracing::error!("Failed to get database connection: {}", e);
             FlagError::DatabaseUnavailable
         })?;
 
-        let query = "SELECT id, name, description, team_id, deleted, filters, query, version, pending_version, count, is_calculating, is_static, errors_calculating, groups, created_by_id FROM posthog_cohort WHERE team_id = $1";
+        let query = r#"
+            SELECT c.id,
+                  c.name,
+                  c.description,
+                  c.team_id,
+                  c.deleted,
+                  c.filters,
+                  c.query,
+                  c.version,
+                  c.pending_version,
+                  c.count,
+                  c.is_calculating,
+                  c.is_static,
+                  c.errors_calculating,
+                  c.groups,
+                  c.created_by_id
+              FROM posthog_cohort AS c
+              JOIN posthog_team AS t ON (c.team_id = t.id)
+            WHERE t.project_id = $1
+            AND c.deleted = false
+        "#;
         let cohorts = sqlx::query_as::<_, Cohort>(query)
-            .bind(team_id)
+            .bind(project_id)
             .fetch_all(&mut *conn)
             .await
             .map_err(|e| {
@@ -200,12 +220,12 @@ mod tests {
         .await
         .expect("Failed to insert cohort2");
 
-        let cohorts = Cohort::list_from_pg(reader, team.id)
+        let cohorts = Cohort::list_from_pg(reader, team.project_id)
             .await
             .expect("Failed to list cohorts");
 
         assert_eq!(cohorts.len(), 2);
-        let names: HashSet<String> = cohorts.into_iter().map(|c| c.name).collect();
+        let names: HashSet<String> = cohorts.into_iter().filter_map(|c| c.name).collect();
         assert!(names.contains("Cohort 1"));
         assert!(names.contains("Cohort 2"));
     }
@@ -214,7 +234,7 @@ mod tests {
     fn test_cohort_parse_filters() {
         let cohort = Cohort {
             id: 1,
-            name: "Test Cohort".to_string(),
+            name: Some("Test Cohort".to_string()),
             description: None,
             team_id: 1,
             deleted: false,
@@ -305,7 +325,7 @@ mod tests {
             .await
             .expect("Failed to insert main_cohort");
 
-        let cohorts = Cohort::list_from_pg(reader.clone(), team.id)
+        let cohorts = Cohort::list_from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch cohorts");
 

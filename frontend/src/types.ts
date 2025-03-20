@@ -39,6 +39,7 @@ import type {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
+    FileSystemImport,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
@@ -107,6 +108,7 @@ export enum AvailableFeature {
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
+    ENVIRONMENTS = 'environments',
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
@@ -132,7 +134,6 @@ export enum AvailableFeature {
     TARGETING_BY_GROUP = 'targeting_by_group',
     LOCAL_EVALUATION_AND_BOOTSTRAPPING = 'local_evaluation_and_bootstrapping',
     FLAG_USAGE_STATS = 'flag_usage_stats',
-    MULTIPLE_ENVIRONMENTS = 'multiple_environments',
     USER_OPT_IN = 'user_opt_in',
     INSTANT_ROLLBACKS = 'instant_rollbacks',
     EXPERIMENTATION = 'experimentation',
@@ -526,6 +527,7 @@ export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-lo
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
+    blockSelector?: string
 }
 
 export enum ActivationTaskStatus {
@@ -737,6 +739,7 @@ export enum ReplayTabs {
     Templates = 'templates',
     Home = 'home',
     Playlists = 'playlists',
+    Settings = 'settings',
 }
 
 export enum ExperimentsTabs {
@@ -910,6 +913,8 @@ export type AnyPersonScopeFilter =
     | HogQLPropertyFilter
     | EmptyPropertyFilter
 
+export type AnyGroupScopeFilter = GroupPropertyFilter | HogQLPropertyFilter
+
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
 export type SessionRecordingId = SessionRecordingType['id']
@@ -973,6 +978,7 @@ export const SnapshotSourceType = {
     blob: 'blob',
     realtime: 'realtime',
     file: 'file',
+    blob_v2: 'blob_v2',
 } as const
 
 export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
@@ -987,6 +993,10 @@ export interface SessionRecordingSnapshotSource {
 export type SessionRecordingSnapshotParams =
     | {
           source: 'blob'
+          blob_key?: string
+      }
+    | {
+          source: 'blob_v2'
           blob_key?: string
       }
     | {
@@ -1448,6 +1458,7 @@ export interface PlaylistSavedFiltersCount {
     watched_count: number
     has_more?: boolean
     increased?: boolean
+    last_refreshed_at?: string
 }
 
 export interface PlaylistRecordingsCounts {
@@ -2825,6 +2836,11 @@ export enum SurveySchedule {
     Always = 'always',
 }
 
+export enum SurveyPartialResponses {
+    Yes = 'true',
+    No = 'false',
+}
+
 export interface Survey {
     /** UUID */
     id: string
@@ -2838,7 +2854,7 @@ export interface Survey {
     targeting_flag_filters?: FeatureFlagFilters
     conditions: {
         url: string
-        selector: string
+        selector?: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyMatchType
         deviceTypes?: string[]
@@ -2875,6 +2891,7 @@ export interface Survey {
     response_sampling_interval?: number | null
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
+    enable_partial_responses?: boolean | null
 }
 
 export enum SurveyMatchType {
@@ -4073,6 +4090,7 @@ export enum ActivityScope {
     ACTION = 'Action',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
+    GROUP = 'Group',
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
@@ -4451,6 +4469,23 @@ export type BatchExportConfiguration = {
     model: string
     filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
+}
+
+export type BatchExportConfigurationTestStepStatus = 'Passed' | 'Failed'
+
+export type BatchExportConfigurationTestStepResult = {
+    status: BatchExportConfigurationTestStepStatus
+    message: string
+}
+
+export type BatchExportConfigurationTestStep = {
+    name: string
+    description: string
+    result: BatchExportConfigurationTestStepResult | null
+}
+
+export type BatchExportConfigurationTest = {
+    steps: BatchExportConfigurationTestStep[]
 }
 
 export type RawBatchExportRun = {
@@ -5063,10 +5098,17 @@ export interface CoreMemory {
     text: string
 }
 
+export interface FileSystemType {
+    icon?: JSX.Element
+    href?: (ref: string) => string
+}
+
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>
     routes?: Record<string, [string /** Scene */, string /** Scene Key (unique for layout tabs) */]>
     redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
     urls?: Record<string, string | ((...args: any[]) => string)>
+    fileSystemTypes?: Record<string, FileSystemType>
+    treeItems?: FileSystemImport[]
 }

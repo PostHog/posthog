@@ -109,7 +109,9 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                 ): Record<string, SessionRecordingPropertiesType['properties']> => {
                     const newState = { ...state }
                     recordingProperties.forEach((properties) => {
-                        newState[properties.id] = properties.properties
+                        if (properties.properties) {
+                            newState[properties.id] = properties.properties
+                        }
                     })
 
                     return newState

@@ -1,9 +1,8 @@
+use crate::client::database::CustomDatabaseError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use common_redis::CustomRedisError;
 use thiserror::Error;
-
-use crate::client::database::CustomDatabaseError;
-use crate::client::redis::CustomRedisError;
 
 #[derive(Error, Debug)]
 pub enum ClientFacingError {
@@ -41,6 +40,8 @@ pub enum FlagError {
     RowNotFound,
     #[error("failed to parse redis cache data")]
     RedisDataParsingError,
+    #[error("failed to deserialize filters")]
+    DeserializeFiltersError,
     #[error("failed to update redis cache")]
     CacheUpdateError,
     #[error("redis unavailable")]
@@ -110,6 +111,13 @@ impl IntoResponse for FlagError {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Failed to update internal cache. This is likely a temporary issue. Please try again later.".to_string(),
+                )
+            }
+            FlagError::DeserializeFiltersError => {
+                tracing::error!("Failed to deserialize filters");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to deserialize property filters. This is likely a temporary issue. Please try again later.".to_string(),
                 )
             }
             FlagError::RedisUnavailable => {
@@ -182,7 +190,7 @@ impl From<CustomRedisError> for FlagError {
                 tracing::error!("failed to fetch data from redis: {}", e);
                 FlagError::RedisDataParsingError
             }
-            CustomRedisError::Timeout(_) => FlagError::TimeoutError,
+            CustomRedisError::Timeout => FlagError::TimeoutError,
             CustomRedisError::Other(e) => {
                 tracing::error!("Unknown redis error: {}", e);
                 FlagError::RedisUnavailable

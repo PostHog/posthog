@@ -4,7 +4,7 @@ import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_LOG_ENTRIES }
 import { runInstrumentedFunction } from '../../main/utils'
 import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
 import {
     HogFunctionAppMetric,
@@ -43,7 +43,7 @@ export class HogFunctionMonitoringService {
                 }))
             )
             .catch((reason) => {
-                status.error('⚠️', `failed to produce message: ${reason}`)
+                logger.error('⚠️', `failed to produce message: ${reason}`)
             })
     }
 
@@ -109,6 +109,10 @@ export class HogFunctionMonitoringService {
                                 instance_id: result.invocation.id,
                             }))
                         )
+
+                        if (result.metrics) {
+                            this.produceAppMetrics(result.metrics)
+                        }
 
                         // Clear the logs so we don't pass them on to the next invocation
                         result.logs = []

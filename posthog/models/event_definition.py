@@ -36,7 +36,6 @@ class EventDefinition(UUIDModel):
                 opclasses=["gin_trgm_ops"],
             ),  # To speed up DB-based fuzzy searching
         ]
-        unique_together = ("team", "name")
         constraints = [
             UniqueConstraintByExpression(
                 concurrently=True,

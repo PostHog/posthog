@@ -130,24 +130,22 @@ mod test {
 
         let client = Arc::new(client);
 
-        let smp = SourcemapProvider::new(&config);
+        let chunk_id_smp = ChunkIdFetcher::new(
+            SourcemapProvider::new(&config),
+            client.clone(),
+            pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
         let saving_smp = Saving::new(
-            smp,
+            chunk_id_smp,
             pool.clone(),
             client.clone(),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
 
-        let chunk_id_smp = SourcemapProvider::new(&config);
-        let chunk_id_smp = ChunkIdFetcher::new(
-            chunk_id_smp,
-            client,
-            pool,
-            config.object_storage_bucket.clone(),
-        );
-
-        let catalog = Catalog::new(saving_smp, chunk_id_smp);
+        let catalog = Catalog::new(saving_smp);
 
         (config, catalog, server)
     }

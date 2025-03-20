@@ -5,7 +5,6 @@ from typing import Optional
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.schema import FileSystemType
 from posthog.models.utils import uuid7
 
 
@@ -52,7 +51,7 @@ class UnfiledFileSaver:
                 already_saved=Exists(
                     FileSystem.objects.filter(
                         team=self.team,
-                        type=FileSystemType.FEATURE_FLAG,
+                        type="feature_flag",
                         ref=OuterRef("id_str"),
                     )
                 )
@@ -69,7 +68,7 @@ class UnfiledFileSaver:
                     team=self.team,
                     path=path,
                     depth=len(split_path(path)),
-                    type=FileSystemType.FEATURE_FLAG,
+                    type="feature_flag",
                     ref=str(flag.id),  # store the ID as a string
                     href=f"/feature_flags/{flag.id}",
                     meta={
@@ -94,7 +93,7 @@ class UnfiledFileSaver:
                 already_saved=Exists(
                     FileSystem.objects.filter(
                         team=self.team,
-                        type=FileSystemType.EXPERIMENT,
+                        type="experiment",
                         ref=OuterRef("id_str"),
                     )
                 )
@@ -111,7 +110,7 @@ class UnfiledFileSaver:
                     team=self.team,
                     path=path,
                     depth=len(split_path(path)),
-                    type=FileSystemType.EXPERIMENT,
+                    type="experiment",
                     ref=str(experiment.id),
                     href=f"/experiments/{experiment.id}",
                     meta={
@@ -137,7 +136,7 @@ class UnfiledFileSaver:
                 already_saved=Exists(
                     FileSystem.objects.filter(
                         team=self.team,
-                        type=FileSystemType.INSIGHT,
+                        type="insight",
                         ref=OuterRef("short_id"),
                     )
                 )
@@ -154,7 +153,7 @@ class UnfiledFileSaver:
                     team=self.team,
                     path=path,
                     depth=len(split_path(path)),
-                    type=FileSystemType.INSIGHT,
+                    type="insight",
                     ref=str(insight.short_id),  # short_id is a string
                     href=f"/insights/{insight.short_id}",
                     meta={
@@ -180,7 +179,7 @@ class UnfiledFileSaver:
                 already_saved=Exists(
                     FileSystem.objects.filter(
                         team=self.team,
-                        type=FileSystemType.DASHBOARD,
+                        type="dashboard",
                         ref=OuterRef("id_str"),
                     )
                 )
@@ -197,7 +196,7 @@ class UnfiledFileSaver:
                     team=self.team,
                     path=path,
                     depth=len(split_path(path)),
-                    type=FileSystemType.DASHBOARD,
+                    type="dashboard",
                     ref=str(dashboard.id),
                     href=f"/dashboard/{dashboard.id}",
                     meta={
@@ -222,7 +221,7 @@ class UnfiledFileSaver:
                 already_saved=Exists(
                     FileSystem.objects.filter(
                         team=self.team,
-                        type=FileSystemType.NOTEBOOK,
+                        type="notebook",
                         ref=OuterRef("id_str"),
                     )
                 )
@@ -240,7 +239,7 @@ class UnfiledFileSaver:
                     team=self.team,
                     path=path,
                     depth=len(split_path(path)),
-                    type=FileSystemType.NOTEBOOK,
+                    type="notebook",
                     ref=str(notebook.id),
                     href=f"/notebooks/{notebook.id}",
                     meta={
@@ -294,7 +293,7 @@ class UnfiledFileSaver:
         return created
 
 
-def save_unfiled_files(team: Team, user: User, file_type: Optional[FileSystemType] = None) -> list[FileSystem]:
+def save_unfiled_files(team: Team, user: User, file_type: Optional[str] = None) -> list[FileSystem]:
     """
     Public helper to save any "unfiled" items of a particular type (FeatureFlag, Dashboard, etc.)
     or, if file_type is None, for all supported types.
@@ -303,15 +302,15 @@ def save_unfiled_files(team: Team, user: User, file_type: Optional[FileSystemTyp
 
     if file_type is None:
         return saver.save_all_unfiled()
-    elif file_type == FileSystemType.FEATURE_FLAG:
+    elif file_type == "feature_flag":
         return saver.save_unfiled_feature_flags()
-    elif file_type == FileSystemType.EXPERIMENT:
+    elif file_type == "experiment":
         return saver.save_unfiled_experiments()
-    elif file_type == FileSystemType.INSIGHT:
+    elif file_type == "insight":
         return saver.save_unfiled_insights()
-    elif file_type == FileSystemType.DASHBOARD:
+    elif file_type == "dashboard":
         return saver.save_unfiled_dashboards()
-    elif file_type == FileSystemType.NOTEBOOK:
+    elif file_type == "notebook":
         return saver.save_unfiled_notebooks()
 
     # If it's an unknown/unsupported file type, return empty

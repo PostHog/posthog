@@ -142,10 +142,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     @action(methods=["POST"], detail=False)
     def bulk(self, request, **kwargs):
         action = request.data.get("action")
+        status = request.data.get("status")
         issues = self.queryset.filter(id__in=request.data.get("ids", []))
 
         with transaction.atomic():
-            if action == "resolve":
+            if action == "set_status":
+                new_status = get_status_from_string(status)
+                if new_status is None:
+                    raise ValidationError("Invalid status")
                 for issue in issues:
                     log_activity(
                         organization_id=self.organization.id,
@@ -163,13 +167,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                                     action="changed",
                                     field="status",
                                     before=issue.status,
-                                    after=ErrorTrackingIssue.Status.RESOLVED,
+                                    after=new_status,
                                 )
                             ],
                         ),
                     )
 
-                issues.update(status=ErrorTrackingIssue.Status.RESOLVED)
+                issues.update(status=new_status)
             elif action == "assign":
                 assignee = request.data.get("assignee", None)
 
@@ -205,6 +209,17 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+
+def get_status_from_string(status: str) -> ErrorTrackingIssue.Status | None:
+    match status:
+        case "active":
+            return ErrorTrackingIssue.Status.ACTIVE
+        case "resolved":
+            return ErrorTrackingIssue.Status.RESOLVED
+        case "suppressed":
+            return ErrorTrackingIssue.Status.SUPPRESSED
+    return None
 
 
 def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_id, was_impersonated):
@@ -324,12 +339,20 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         data = request.data["file"].read()
         (storage_ptr, content_hash) = upload_content(bytearray(data))
 
-        ErrorTrackingSymbolSet.objects.create(
-            team=self.team,
-            storage_ptr=storage_ptr,
-            content_hash=content_hash,
-            ref=chunk_id,
-        )
+        with transaction.atomic():
+            # Use update_or_create for proper upsert behavior
+            symbol_set, created = ErrorTrackingSymbolSet.objects.update_or_create(
+                team=self.team,
+                ref=chunk_id,
+                defaults={
+                    "storage_ptr": storage_ptr,
+                    "content_hash": content_hash,
+                    "failure_reason": None,
+                },
+            )
+
+            # Delete any existing frames associated with this symbol set
+            ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 

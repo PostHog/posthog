@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
     DEFAULT_RECORDING_FILTERS,
     count_recordings_that_match_playlist_filters,
+    enqueue_recordings_that_match_playlist_filters,
 )
 from posthog.redis import get_client
 from posthog.schema import (
@@ -18,6 +19,8 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.test.base import APIBaseTest
+from django.utils import timezone
+from unittest.mock import call
 
 
 class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
@@ -226,3 +229,109 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
         count_recordings_that_match_playlist_filters(playlist.id)
         mock_capture_exception.assert_not_called()
         mock_list_recordings_from_query.assert_not_called()
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.count_recordings_that_match_playlist_filters"
+    )
+    def test_sorts_nulls_first_and_then_least_recently_counted(
+        self, mock_count_task: MagicMock, _mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
+    ):
+        playlist1 = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test1",
+            filters={"date_from": "-21d"},
+            last_counted_at=timezone.now() - timedelta(days=2),
+        )
+
+        playlist2 = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test2",
+            filters={"date_from": "-21d"},
+            last_counted_at=timezone.now() - timedelta(days=1),
+        )
+
+        # too recently counted won't be counted
+        SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test3",
+            filters={"date_from": "-21d"},
+            last_counted_at=timezone.now() - timedelta(hours=1),
+        )
+
+        playlist4 = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="test4", filters={"date_from": "-21d"}, last_counted_at=None
+        )
+
+        enqueue_recordings_that_match_playlist_filters()
+        mock_capture_exception.assert_not_called()
+
+        assert mock_count_task.delay.call_count == 3
+
+        assert mock_count_task.delay.call_args_list == [
+            call(playlist4.id),
+            call(playlist1.id),
+            call(playlist2.id),
+        ]
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    def test_template_rageclick_filter_should_process(
+        self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
+    ) -> None:
+        """
+        This is a regression test, we saw this failing in prod
+        """
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test",
+            filters={
+                "order": "start_time",
+                "date_to": None,
+                "duration": [{"key": "active_seconds", "type": "recording", "value": 5, "operator": "gt"}],
+                "date_from": "-3d",
+                "filter_group": {
+                    "type": "AND",
+                    "values": [{"type": "AND", "values": [{"id": "$rageclick", "type": "events", "order": 0}]}],
+                },
+                "filter_test_accounts": False,
+            },
+        )
+
+        mock_list_recordings_from_query.return_value = ([], False, None)
+        count_recordings_that_match_playlist_filters(playlist.id)
+        mock_capture_exception.assert_not_called()
+
+        assert mock_list_recordings_from_query.call_args[0] == (
+            RecordingsQuery(
+                actions=[],
+                console_log_filters=[],
+                date_from="-3d",
+                date_to=None,
+                events=[
+                    {
+                        "id": "$rageclick",
+                        "type": "events",
+                        "order": 0,
+                    }
+                ],
+                filter_test_accounts=False,
+                having_predicates=[
+                    RecordingPropertyFilter(
+                        key="active_seconds", label=None, operator=PropertyOperator.GT, type="recording", value=5.0
+                    )
+                ],
+                kind="RecordingsQuery",
+                limit=None,
+                modifiers=None,
+                offset=None,
+                operand=FilterLogicalOperator.AND_,
+                order=RecordingOrder.START_TIME,
+                person_uuid=None,
+                properties=[],
+                response=None,
+                session_ids=None,
+                user_modified_filters=None,
+            ),
+        )
