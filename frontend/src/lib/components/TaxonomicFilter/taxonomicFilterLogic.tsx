@@ -325,7 +325,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'event metadata',
                         type: TaxonomicFilterGroupType.EventMetadata,
                         options: eventMetadataOptions,
-                        getIcon: (option: Record<string, string>) => option.icon,
+                        getIcon: (option: Record<string, JSX.Element>) => option.icon,
                         getName: (option: Record<string, string>) => option.name,
                         getValue: (option: Record<string, string>) => option.value,
                         getPopoverHeader: () => 'Event metadata',
