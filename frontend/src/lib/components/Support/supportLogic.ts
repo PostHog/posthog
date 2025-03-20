@@ -257,6 +257,7 @@ export type SupportTicketTargetArea =
     | 'error_tracking'
     | 'cdp_destinations'
     | 'data_ingestion'
+    | 'batch_exports'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -308,6 +309,10 @@ export const SUPPORT_TICKET_TEMPLATES = {
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
     const pathParts = pathname.split('/')
+
+    if (pathname.includes('pipeline/destinations/') && !pathname.includes('/hog-')) {
+        return 'batch_exports'
+    }
 
     for (const part of pathParts) {
         if (URL_PATH_TO_TARGET_AREA[part]) {
