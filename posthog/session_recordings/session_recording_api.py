@@ -1130,15 +1130,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
-        # Get events for the target recording
-        with timer("get_target_events"):
-            target_events = SessionReplayEvents().get_events_for_session(
-                session_id=str(recording.session_id), team=self.team
-            )
-
-        if not target_events:
-            return Response({"count": 0, "results": []})
-
         # Find recordings with similar event sequences using ClickHouse
         with timer("get_similar_recordings"):
             similar_recordings = SessionReplayEvents().get_similar_recordings(
