@@ -59,7 +59,7 @@ export const ProductIntroduction = ({
 
     const actionable = action || actionElementOverride
     return (
-        <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded mt-2 mb-4">
+        <div className="border-2 border-dashed border-primary w-full p-8 justify-center rounded mt-2 mb-4">
             {!isEmpty && (
                 <div className="flex justify-end -mb-6 -mt-2 -mr-2">
                     <div>

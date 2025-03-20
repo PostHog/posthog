@@ -51,7 +51,7 @@ export function Customization({
                         <></>
                     </PayGateMini>
                 )}
-                <LemonField.Pure className="mt-2" label="Background color">
+                <LemonField.Pure label="Background color">
                     <LemonInput
                         value={appearance?.backgroundColor}
                         onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
@@ -280,7 +280,7 @@ export function Customization({
                                     onAppearanceChange({ ...appearance, surveyPopupDelaySeconds })
                                 }}
                             />
-                            Delay survey popup after page load by at least{' '}
+                            Delay survey popup by at least{' '}
                             <LemonInput
                                 type="number"
                                 data-attr="survey-popup-delay-input"
@@ -300,7 +300,7 @@ export function Customization({
                                 }}
                                 className="w-12 ignore-error-border"
                             />{' '}
-                            seconds.
+                            seconds once the display conditions are met.
                         </div>
                     </LemonField.Pure>
                 </div>

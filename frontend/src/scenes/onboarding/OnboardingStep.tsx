@@ -4,10 +4,8 @@ import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import React from 'react'
-import { urls } from 'scenes/urls'
 
 import { breadcrumbExcludeSteps, onboardingLogic, OnboardingStepKey, stepKeyToTitle } from './onboardingLogic'
-import { onboardingTemplateConfigLogic } from './productAnalyticsSteps/onboardingTemplateConfigLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -24,6 +22,7 @@ export const OnboardingStep = ({
     hideHeader,
     breadcrumbHighlightName,
     fullWidth = false,
+    actions,
 }: {
     stepKey: OnboardingStepKey
     title: string
@@ -39,11 +38,11 @@ export const OnboardingStep = ({
     hideHeader?: boolean
     breadcrumbHighlightName?: OnboardingStepKey
     fullWidth?: boolean
+    actions?: JSX.Element
 }): JSX.Element => {
     const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const { dashboardCreatedDuringOnboarding } = useValues(onboardingTemplateConfigLogic)
 
     if (!stepKey) {
         throw new Error('stepKey is required in any OnboardingStep')
@@ -82,9 +81,12 @@ export const OnboardingStep = ({
                             )
                         })}
                     </div>
-                    <h1 className={`font-bold m-0 mt-3 px-2 ${fullWidth && 'text-center'}`}>
-                        {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
-                    </h1>
+                    <div className="flex flex-row justify-between items-center gap-2 mt-3">
+                        <h1 className={`font-bold m-0 px-2 ${fullWidth && 'text-center'}`}>
+                            {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
+                        </h1>
+                        {actions && <div className="flex flex-row gap-2">{actions}</div>}
+                    </div>
                 </div>
             </div>
             <div
@@ -112,14 +114,7 @@ export const OnboardingStep = ({
                             type="secondary"
                             onClick={() => {
                                 onSkip && onSkip()
-                                !hasNextStep
-                                    ? completeOnboarding(
-                                          undefined,
-                                          dashboardCreatedDuringOnboarding
-                                              ? urls.dashboard(dashboardCreatedDuringOnboarding.id)
-                                              : undefined
-                                      )
-                                    : goToNextStep()
+                                !hasNextStep ? completeOnboarding() : goToNextStep()
                             }}
                             data-attr="onboarding-skip-button"
                         >
@@ -135,14 +130,7 @@ export const OnboardingStep = ({
                             data-attr="onboarding-continue"
                             onClick={() => {
                                 onContinue?.()
-                                !hasNextStep
-                                    ? completeOnboarding(
-                                          undefined,
-                                          dashboardCreatedDuringOnboarding
-                                              ? urls.dashboard(dashboardCreatedDuringOnboarding.id)
-                                              : undefined
-                                      )
-                                    : goToNextStep()
+                                !hasNextStep ? completeOnboarding() : goToNextStep()
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                             disabledReason={continueDisabledReason}

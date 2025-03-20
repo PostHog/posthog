@@ -444,7 +444,7 @@ def process_social_domain_jit_provisioning_signup(
     domain = email.split("@")[-1]
     try:
         logger.info(f"process_social_domain_jit_provisioning_signup", domain=domain)
-        domain_instance = OrganizationDomain.objects.get(domain=domain)
+        domain_instance = OrganizationDomain.objects.get(domain__iexact=domain)
     except OrganizationDomain.DoesNotExist:
         logger.info(
             f"process_social_domain_jit_provisioning_signup_domain_does_not_exist",

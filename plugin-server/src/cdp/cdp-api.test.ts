@@ -3,12 +3,12 @@ import '../../tests/helpers/mocks/producer.mock'
 import express from 'express'
 import supertest from 'supertest'
 
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../tests/cdp/examples'
-import { createHogFunction, insertHogFunction as _insertHogFunction } from '../../tests/cdp/fixtures'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
+import { createHogFunction, insertHogFunction as _insertHogFunction } from './_tests/fixtures'
 import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
@@ -492,7 +492,7 @@ describe('CDP API', () => {
                   "site_url": "http://localhost:8000/project/2",
                   "team_id": 2,
                   "timestamp": "2021-09-28T14:00:00Z",
-                  "url": "https://example.com/events/<REPLACED-UUID-1>/2021-09-28T14:00:00Z",
+                  "url": "https://example.com/events/<REPLACED-UUID-0>/2021-09-28T14:00:00Z",
                   "uuid": "<REPLACED-UUID-0>",
                 }
             `)

@@ -12,6 +12,7 @@ import {
 
 export const SURVEY_EVENT_NAME = 'survey sent'
 export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
+export const SURVEY_PAGE_SIZE = 100
 
 export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.Open]: 'Freeform text',
@@ -153,6 +154,7 @@ export interface NewSurvey
         | 'response_sampling_interval'
         | 'response_sampling_limit'
         | 'schedule'
+        | 'enable_partial_responses'
     > {
     id: 'new'
     linked_flag_id: number | null
@@ -196,9 +198,14 @@ export enum SurveyTemplateType {
     CES = 'Customer effort score (CES)',
     CCR = 'Customer churn rate (CCR)',
     PMF = 'Product-market fit (PMF)',
+    ErrorTracking = 'Capture exceptions',
 }
 
-export const defaultSurveyTemplates = [
+type SurveyTemplate = Partial<Survey> & {
+    templateType: SurveyTemplateType
+}
+
+export const defaultSurveyTemplates: SurveyTemplate[] = [
     {
         type: SurveyType.Popover,
         templateType: SurveyTemplateType.OpenFeedback,
@@ -222,6 +229,7 @@ export const defaultSurveyTemplates = [
                 description: 'We are looking for feedback on our product and would love to hear from you!',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 buttonText: 'Schedule',
+                link: null,
             },
         ],
         appearance: {
@@ -311,6 +319,29 @@ export const defaultSurveyTemplates = [
         description: 'Find out if it was something you said.',
     },
 ]
+
+export const errorTrackingSurvey: SurveyTemplate = {
+    type: SurveyType.Popover,
+    templateType: SurveyTemplateType.ErrorTracking,
+    questions: [
+        {
+            type: SurveyQuestionType.Open,
+            question: 'Looks like something went wrong',
+            description: "We've captured the basics, but please tell us more to help us fix it!",
+            descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+        },
+    ],
+    conditions: {
+        url: '',
+        seenSurveyWaitPeriodInDays: 14,
+        actions: null,
+        events: { repeatedActivation: true, values: [{ name: '$exception' }] },
+    },
+    appearance: {
+        surveyPopupDelaySeconds: 2,
+    },
+    description: 'Ask users for context when they hit an exception.',
+}
 
 export const WEB_SAFE_FONTS = [
     { value: 'system-ui', label: 'system-ui (default)' },

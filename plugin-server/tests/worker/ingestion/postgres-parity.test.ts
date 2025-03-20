@@ -1,30 +1,33 @@
 import { DateTime } from 'luxon'
 
-import { startPluginsServer } from '../../../src/main/pluginsServer'
+import { PluginServer } from '../../../src/server'
 import {
     Database,
     Hub,
     LogLevel,
+    PluginServerMode,
     PluginsServerConfig,
     PropertyUpdateOperation,
     TimestampFormat,
 } from '../../../src/types'
 import { PostgresUse } from '../../../src/utils/db/postgres'
+import { parseJSON } from '../../../src/utils/json-parse'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
-jest.setTimeout(60000) // 60 sec timeout
+jest.mock('../../../src/utils/logger')
+jest.setTimeout(30000)
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    LOG_LEVEL: LogLevel.Log,
+    LOG_LEVEL: LogLevel.Info,
 }
 
 describe('postgres parity', () => {
+    jest.retryTimes(5) // Flakey due to reliance on kafka/clickhouse
     let hub: Hub
-    let stopServer: () => Promise<void>
+    let server: PluginServer
     let teamId = 10 // Incremented every test. Avoids late ingestion causing issues
 
     beforeAll(async () => {
@@ -33,6 +36,7 @@ describe('postgres parity', () => {
     })
 
     beforeEach(async () => {
+        jest.spyOn(process, 'exit').mockImplementation()
         console.log('[TEST] Resetting tests databases')
         await resetTestDatabase(`
             async function processEvent (event) {
@@ -43,9 +47,11 @@ describe('postgres parity', () => {
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
         console.log('[TEST] Starting plugins server')
-        const startResponse = await startPluginsServer(extraServerConfig, { ingestionV2: true })
-        hub = startResponse.hub!
-        stopServer = startResponse.stop
+        server = new PluginServer({
+            PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
+        })
+        await server.start()
+        hub = server.hub!
         teamId++
         console.log('[TEST] Setting up seed data')
         await createUserTeamAndOrganization(
@@ -61,7 +67,7 @@ describe('postgres parity', () => {
 
     afterEach(async () => {
         console.log('[TEST] Stopping server')
-        await stopServer()
+        await server.stop()
     })
 
     test('createPerson', async () => {
@@ -84,7 +90,7 @@ describe('postgres parity', () => {
 
         const clickHousePersons = (await hub.db.fetchPersons(Database.ClickHouse)).map((row) => ({
             ...row,
-            properties: JSON.parse(row.properties), // avoids depending on key sort order
+            properties: parseJSON(row.properties), // avoids depending on key sort order
         }))
         expect(clickHousePersons).toEqual([
             {
@@ -104,7 +110,7 @@ describe('postgres parity', () => {
         const postgresPersons = await hub.db.fetchPersons(Database.Postgres)
         expect(postgresPersons).toEqual([
             {
-                id: expect.any(Number),
+                id: expect.any(String),
                 created_at: expect.any(DateTime),
                 properties: {
                     userProp: 'propValue',

@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use axum::async_trait;
 use base64::Engine;
-use common_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
+use posthog_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
 use reqwest::Url;
 use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
 use tracing::{info, warn};
@@ -86,7 +86,8 @@ impl From<Url> for SourceMappingUrl {
 impl Fetcher for SourcemapProvider {
     type Ref = Url;
     type Fetched = Vec<u8>;
-    async fn fetch(&self, _: i32, r: Url) -> Result<Vec<u8>, Error> {
+    type Err = Error;
+    async fn fetch(&self, _: i32, r: Url) -> Result<Vec<u8>, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_FETCH, &[]);
         let (smu, minified_source) = find_sourcemap_url(&self.client, r).await?;
 
@@ -118,7 +119,8 @@ impl Fetcher for SourcemapProvider {
 impl Parser for SourcemapProvider {
     type Source = Vec<u8>;
     type Set = OwnedSourceMapCache;
-    async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Error> {
+    type Err = Error;
+    async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
         let sam: SourceAndMap = read_symbol_data(data).map_err(JsResolveErr::JSDataError)?;
         let smc = OwnedSourceMapCache::from_source_and_map(sam)

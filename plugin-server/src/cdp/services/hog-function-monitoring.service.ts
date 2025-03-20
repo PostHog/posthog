@@ -1,8 +1,10 @@
+import { Counter } from 'prom-client'
+
 import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
 import {
     HogFunctionAppMetric,
@@ -12,6 +14,12 @@ import {
 } from '../types'
 import { fixLogDeduplication } from '../utils'
 import { convertToCaptureEvent } from '../utils'
+
+export const counterHogFunctionMetric = new Counter({
+    name: 'cdp_hog_function_metric',
+    help: 'A function invocation was evaluated with an outcome',
+    labelNames: ['metric_kind', 'metric_name'],
+})
 
 export class HogFunctionMonitoringService {
     messagesToProduce: HogFunctionMessageToProduce[] = []
@@ -35,7 +43,7 @@ export class HogFunctionMonitoringService {
                 }))
             )
             .catch((reason) => {
-                status.error('⚠️', `failed to produce message: ${reason}`)
+                logger.error('⚠️', `failed to produce message: ${reason}`)
             })
     }
 
@@ -45,6 +53,8 @@ export class HogFunctionMonitoringService {
             ...metric,
             timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
         }
+
+        counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(appMetric.count)
 
         this.messagesToProduce.push({
             topic: KAFKA_APP_METRICS_2,
@@ -99,6 +109,10 @@ export class HogFunctionMonitoringService {
                                 instance_id: result.invocation.id,
                             }))
                         )
+
+                        if (result.metrics) {
+                            this.produceAppMetrics(result.metrics)
+                        }
 
                         // Clear the logs so we don't pass them on to the next invocation
                         result.logs = []

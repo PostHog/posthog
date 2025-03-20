@@ -35,6 +35,12 @@ DROP_KAFKA_SESSION_REPLAY_EVENTS_V2_TEST_SQL_TEMPLATE = """
     DROP TABLE IF EXISTS kafka_session_replay_events_v2_test {on_cluster_clause}
 """
 
+# Remove the low cardinality constraint from the snapshot_source column
+REMOVE_SNAPSHOT_SOURCE_LOW_CARDINALITY_SQL_TEMPLATE = """
+    ALTER TABLE {table_name} {on_cluster_clause}
+        MODIFY COLUMN `snapshot_source` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
+"""
+
 
 def ADD_MISSING_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(on_cluster=True):
     return ALTER_SESSION_REPLAY_V2_TEST_ADD_MISSING_COLUMNS.format(
@@ -65,5 +71,12 @@ def DROP_SESSION_REPLAY_EVENTS_V2_TEST_MV_TABLE_SQL(on_cluster=True):
 
 def DROP_KAFKA_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(on_cluster=True):
     return DROP_KAFKA_SESSION_REPLAY_EVENTS_V2_TEST_SQL_TEMPLATE.format(
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )
+
+
+def REMOVE_SNAPSHOT_SOURCE_LOW_CARDINALITY_SQL(on_cluster=True):
+    return REMOVE_SNAPSHOT_SOURCE_LOW_CARDINALITY_SQL_TEMPLATE.format(
+        table_name=SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )

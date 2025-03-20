@@ -38,7 +38,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             {
                 loadEarlyAccessFeatures: async () => {
                     return await new Promise((resolve) =>
-                        posthog.getEarlyAccessFeatures((features) => resolve(features), true)
+                        posthog.getEarlyAccessFeatures((features) => resolve(features), true, ['concept', 'beta'])
                     )
                 },
             },
@@ -104,7 +104,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                             flagKey: feature.flagKey,
                             enabled: !!featureFlags[feature.flagKey],
                         }
-                    }),
+                    }) || [],
         ],
     }),
 ])

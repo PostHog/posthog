@@ -27,7 +27,7 @@ function AssigneeRenderer({ assignee }: { assignee: ErrorTrackingIssueAssignee }
 
     useEffect(() => {
         ensureAssigneeTypesLoaded()
-    }, [])
+    }, [ensureAssigneeTypesLoaded])
 
     return (
         <AssigneeDisplay assignee={assignee}>
@@ -126,7 +126,6 @@ export function errorTrackingActivityDescriber(logItem: ActivityLogItem, asNotif
 
     if (logItem.activity == 'updated' || logItem.activity == 'assigned') {
         let changes: Description[] = []
-        let changeSuffix: Description | undefined = undefined
 
         for (const change of logItem.detail.changes || []) {
             const field = change.field as keyof ErrorTrackingIssue
@@ -141,24 +140,16 @@ export function errorTrackingActivityDescriber(logItem: ActivityLogItem, asNotif
                 continue // unexpected log from backend is indescribable
             }
 
-            const { description, suffix } = processedChange
+            const { description } = processedChange
             if (description) {
                 changes = changes.concat(description)
-            }
-
-            if (suffix) {
-                changeSuffix = suffix
             }
         }
 
         if (changes.length) {
             return {
                 description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
-                        suffix={changeSuffix}
-                    />
+                    <SentenceList listParts={changes} prefix={<strong>{userNameForLogItem(logItem)}</strong>} />
                 ),
             }
         }

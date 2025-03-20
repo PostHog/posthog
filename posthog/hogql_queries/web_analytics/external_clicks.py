@@ -65,7 +65,7 @@ FROM (
         {inside_periods},
         {all_properties},
     )
-    GROUP BY events.`$session_id`, url
+    GROUP BY {events_session_id}, url
 )
 GROUP BY "context.columns.url"
 """,
@@ -76,6 +76,7 @@ GROUP BY "context.columns.url"
                     "current_period": self._current_period_expression(),
                     "previous_period": self._previous_period_expression(),
                     "inside_periods": self._periods_expression(),
+                    "events_session_id": self.events_session_property,
                 },
             )
         assert isinstance(query, ast.SelectQuery)
@@ -87,12 +88,11 @@ GROUP BY "context.columns.url"
         return query
 
     def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
-        column = None
+        column = "context.columns.clicks"
         direction: Literal["ASC", "DESC"] = "DESC"
         if self.query.orderBy:
             field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
             direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
-            column = None
 
             if field == WebAnalyticsOrderByFields.VISITORS:
                 column = "context.columns.visitors"
@@ -102,15 +102,9 @@ GROUP BY "context.columns.url"
         return [
             expr
             for expr in [
-                ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
-                if column is not None and column in columns
-                else None,
-                ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order=direction)
-                if column == "context.columns.visitors"
-                else None,
-                ast.OrderExpr(expr=ast.Field(chain=["context.columns.clicks"]), order=direction)
-                if column == "context.columns.clicks"
-                else None,
+                # Primary sorting column. We always have a default sort
+                ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction) if column in columns else None,
+                # Always add URL as final sort
                 ast.OrderExpr(expr=ast.Field(chain=["context.columns.url"]), order="ASC"),
             ]
             if expr is not None

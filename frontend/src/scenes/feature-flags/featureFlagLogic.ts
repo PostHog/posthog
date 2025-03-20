@@ -241,6 +241,12 @@ export const getRecordingFilterForFlagVariant = (
     }
 }
 
+// This helper function removes the created_at, id, and created_by fields from a flag
+function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
+    const { created_at, id, created_by, last_modified_by, ...cleanedFlag } = flag
+    return cleanedFlag
+}
+
 export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
@@ -341,6 +347,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     reducers({
+        originalFeatureFlag: [
+            null as FeatureFlagType | null,
+            {
+                loadFeatureFlagSuccess: (_, { featureFlag }) => {
+                    // Transform the original flag when it's first loaded
+                    // Apply the same transformations we'd use when sending it back
+                    return featureFlag
+                        ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag)) as FeatureFlagType)
+                        : null
+                },
+            },
+        ],
         featureFlag: [
             { ...NEW_FLAG } as FeatureFlagType,
             {
@@ -574,6 +592,40 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
+                const sourceId = router.values.searchParams.sourceId
+                if (props.id === 'new' && sourceId) {
+                    // Used when "duplicating a feature flag". This populates the form with the source flag's data.
+                    const sourceFlag = await api.featureFlags.get(sourceId)
+                    // But first, remove fields that we don't want to duplicate
+                    const {
+                        id,
+                        created_at,
+                        key,
+                        deleted,
+                        active,
+                        created_by,
+                        is_simple_flag,
+                        experiment_set,
+                        features,
+                        surveys,
+                        performed_rollback,
+                        can_edit,
+                        user_access_level,
+                        status,
+                        last_modified_by,
+                        ...flagToKeep
+                    } = sourceFlag
+
+                    // Remove sourceId from URL
+                    router.actions.replace(router.values.location.pathname)
+
+                    return {
+                        ...NEW_FLAG,
+                        ...flagToKeep,
+                        key: '',
+                    } as FeatureFlagType
+                }
+
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
@@ -594,8 +646,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 // Destructure all fields we want to exclude or handle specially
-                const { created_at, id, ...flag } = updatedFlag
-
+                const flag = cleanFlag(updatedFlag)
                 const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
 
                 try {
@@ -631,7 +682,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
-                            preparedFlag
+                            {
+                                ...preparedFlag,
+                                original_flag: values.originalFeatureFlag,
+                            }
                         )
                     }
 
@@ -644,7 +698,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             saveSidebarExperimentFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
-                const { created_at, id, ...flag } = updatedFlag
+                const flag = cleanFlag(updatedFlag)
 
                 const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
 
@@ -662,7 +716,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     } else {
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
-                            preparedFlag
+                            {
+                                ...preparedFlag,
+                                original_flag: values.originalFeatureFlag,
+                            }
                         )
                     }
 
@@ -1205,6 +1262,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     afterMount(({ props, actions }) => {
+        if (props.id === 'new' && router.values.searchParams.sourceId) {
+            actions.loadFeatureFlag()
+            return
+        }
+
         const foundFlag = featureFlagsLogic
             .findMounted()
             ?.values.featureFlags.results.find((flag) => flag.id === props.id)

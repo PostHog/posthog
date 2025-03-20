@@ -12,16 +12,16 @@ from posthog import redis
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
 
-CONCURRENT_QUERY_PER_TEAM = Gauge(
+RUNNING_CLICKHOUSE_QUERIES = Gauge(
     "posthog_clickhouse_query_concurrent_per_team",
-    "Number of concurrent queries per team",
+    "Number of concurrent queries",
     ["team_id", "access_method"],
 )
 
 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_clickhouse_query_concurrency_limit_exceeded",
     "Number of times a ClickHouse query exceeded the concurrency limit",
-    ["task_name", "limit", "limit_name", "result"],
+    ["task_name", "team_id", "limit", "limit_name", "result"],
 )
 
 CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER = Counter(
@@ -84,14 +84,14 @@ class RateLimit:
         else:
             access_method = "other"
 
-        team_gauge = CONCURRENT_QUERY_PER_TEAM.labels(
-            team_id=str(kwargs.get("team_id", "unknown")), access_method=access_method
+        query_gauge = RUNNING_CLICKHOUSE_QUERIES.labels(
+            team_id=str(kwargs.get("team_id", "")), access_method=access_method
         )
-        team_gauge.inc()
+        query_gauge.inc()
         try:
             yield
         finally:
-            team_gauge.dec()
+            query_gauge.dec()
             if applicable:
                 self.release(running_task_key, task_id)
 
@@ -117,7 +117,11 @@ class RateLimit:
             result = "allow" if bypass else "block"
 
             CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
-                task_name=task_name, limit=self.max_concurrent_tasks, limit_name=self.limit_name, result=result
+                task_name=task_name,
+                team_id=str(kwargs.get("team_id", "")),
+                limit=self.max_concurrent_tasks,
+                limit_name=self.limit_name,
+                result=result,
             ).inc()
 
             if not self.bypass_all and not bypass:
@@ -149,13 +153,13 @@ def get_api_personal_rate_limiter():
     global __API_CONCURRENT_QUERY_PER_TEAM
     if __API_CONCURRENT_QUERY_PER_TEAM is None:
         __API_CONCURRENT_QUERY_PER_TEAM = RateLimit(
-            max_concurrent_tasks=25,
+            max_concurrent_tasks=3,
             applicable=lambda *args, **kwargs: not TEST and kwargs.get("team_id") and kwargs.get("is_api"),
             limit_name="api_per_team",
             get_task_name=lambda *args, **kwargs: f"api:query:per-team:{kwargs.get('team_id')}",
             get_task_id=lambda *args, **kwargs: current_task.request.id
             if current_task
-            else kwargs.get("task_id", generate_short_id()),
+            else (kwargs.get("task_id") or generate_short_id()),
             ttl=600,
             bypass_all=True,
         )

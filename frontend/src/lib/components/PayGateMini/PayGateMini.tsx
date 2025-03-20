@@ -154,7 +154,7 @@ function PayGateContent({
         <div
             className={clsx(
                 className,
-                background && 'bg-primary border border-border',
+                background && 'bg-primary border border-primary',
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
@@ -200,7 +200,7 @@ const renderUsageLimitMessage = (
                     </Tooltip>
                     .
                 </p>
-                <p className="p-4 border rounded border-border bg-primary">
+                <p className="p-4 border rounded border-primary bg-primary">
                     <b>Your current plan limit:</b>{' '}
                     <span>
                         {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}

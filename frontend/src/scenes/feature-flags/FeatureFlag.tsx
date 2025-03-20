@@ -28,6 +28,7 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
 import { PostHogFeature } from 'posthog-js/react'
 import { useEffect, useState } from 'react'
@@ -40,6 +41,7 @@ import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { concatWithPunctuation } from 'scenes/insights/utils'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -57,6 +59,7 @@ import {
     FeatureFlagGroupType,
     FeatureFlagType,
     NotebookNodeType,
+    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     QueryBasedInsightModel,
@@ -546,6 +549,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                         </>
                                                     )}
 
+                                                    <LemonButton
+                                                        to={urls.featureFlagDuplicate(featureFlag.id)}
+                                                        fullWidth
+                                                    >
+                                                        <span>Duplicate feature flag</span>
+                                                    </LemonButton>
+                                                    <LemonDivider />
                                                     <AccessControlledLemonButton
                                                         userAccessLevel={featureFlag.user_access_level}
                                                         minAccessLevel="editor"
@@ -757,6 +767,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         setRemoteConfigEnabled,
         resetEncryptedPayload,
     } = useActions(featureFlagLogic)
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
 
@@ -962,6 +973,12 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                                 )
                                                             )
                                                         )
+                                                        addProductIntentForCrossSell({
+                                                            from: ProductKey.FEATURE_FLAGS,
+                                                            to: ProductKey.SESSION_REPLAY,
+                                                            intent_context:
+                                                                ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                                        })
                                                     }}
                                                 >
                                                     View recordings
@@ -1135,6 +1152,11 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     onClick={() => {
                                         reportViewRecordingsClicked()
                                         router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
+                                        addProductIntentForCrossSell({
+                                            from: ProductKey.FEATURE_FLAGS,
+                                            to: ProductKey.SESSION_REPLAY,
+                                            intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                        })
                                     }}
                                     icon={<IconRewindPlay />}
                                     type="secondary"

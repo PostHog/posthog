@@ -17,12 +17,12 @@ import {
 import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService, PluginsServerConfig } from '../types'
 import { normalizeEvent } from '../utils/event'
+import { parseJSON } from '../utils/json-parse'
+import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
-import { status } from '../utils/status'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'
-
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
@@ -58,6 +58,7 @@ export class IngestionConsumer {
     protected topic: string
     protected dlqTopic: string
     protected overflowTopic?: string
+    protected testingTopic?: string
 
     batchConsumer?: BatchConsumer
     isStopping = false
@@ -66,7 +67,6 @@ export class IngestionConsumer {
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
-
     private overflowRateLimiter: MemoryRateLimiter
     private ingestionWarningLimiter: MemoryRateLimiter
     private tokensToDrop: string[] = []
@@ -81,6 +81,7 @@ export class IngestionConsumer {
                 | 'INGESTION_CONSUMER_CONSUME_TOPIC'
                 | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
                 | 'INGESTION_CONSUMER_DLQ_TOPIC'
+                | 'INGESTION_CONSUMER_TESTING_TOPIC'
             >
         > = {}
     ) {
@@ -91,6 +92,7 @@ export class IngestionConsumer {
         this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? hub.INGESTION_CONSUMER_DLQ_TOPIC
         this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',').filter((x) => !!x)
         this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
+        this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
         this.name = `ingestion-consumer-${this.topic}`
         this.overflowRateLimiter = new MemoryRateLimiter(
@@ -112,6 +114,9 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
+        // NOTE: This needs to be started before the kafka consumer starts as other things rely on it
+        await this.hogTransformer.start()
+
         await Promise.all([
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
@@ -127,24 +132,23 @@ export class IngestionConsumer {
                 groupId: this.groupId,
                 handleBatch: async (messages) => this.handleKafkaBatch(messages),
             }),
-            this.hogTransformer.start(),
         ])
     }
 
     public async stop(): Promise<void> {
-        status.info('🔁', `${this.name} - stopping`)
+        logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
 
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
-        status.info('🔁', `${this.name} - stopping batch consumer`)
+        logger.info('🔁', `${this.name} - stopping batch consumer`)
         await this.batchConsumer?.stop()
-        status.info('🔁', `${this.name} - stopping kafka producer`)
+        logger.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
-        status.info('🔁', `${this.name} - stopping kafka overflow producer`)
+        logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
         await this.kafkaOverflowProducer?.disconnect()
-        status.info('🔁', `${this.name} - stopping hog transformer`)
+        logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
-        status.info('👍', `${this.name} - stopped!`)
+        logger.info('👍', `${this.name} - stopped!`)
     }
 
     public isHealthy() {
@@ -174,9 +178,9 @@ export class IngestionConsumer {
             )
         })
 
-        status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
+        logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
-        status.debug('🔁', `Processed batch`)
+        logger.debug('🔁', `Processed batch`)
 
         for (const message of messages) {
             if (message.timestamp) {
@@ -201,19 +205,26 @@ export class IngestionConsumer {
             }
 
             try {
-                status.debug('🔁', `Processing event`, {
+                logger.debug('🔁', `Processing event`, {
                     event,
                 })
+
+                if (this.testingTopic) {
+                    void this.scheduleWork(this.emitToTestingTopic([message]))
+                    continue
+                }
+
                 const eventKey = `${event.token}:${event.distinct_id}`
                 // Check the rate limiter and emit to overflow if necessary
                 const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
+
                 if (this.overflowEnabled() && !isBelowRateLimit) {
-                    status.debug('🔁', `Sending to overflow`, {
+                    logger.debug('🔁', `Sending to overflow`, {
                         event,
                     })
                     ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
                     if (this.ingestionWarningLimiter.consume(eventKey, 1)) {
-                        status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
+                        logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
                     }
 
                     void this.scheduleWork(this.emitToOverflow([message]))
@@ -222,7 +233,7 @@ export class IngestionConsumer {
 
                 const result = await this.runInstrumented('runEventPipeline', () => this.runEventPipeline(event))
 
-                status.debug('🔁', `Processed event`, {
+                logger.debug('🔁', `Processed event`, {
                     event,
                 })
 
@@ -270,8 +281,8 @@ export class IngestionConsumer {
             }
 
             // Parse the message payload into the event object
-            const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-            const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
+            const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
+            const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
             const event: PipelineEvent = normalizeEvent({
                 ...combinedEvent,
             })
@@ -316,7 +327,7 @@ export class IngestionConsumer {
             topicCreationTimeoutMs: this.hub.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             topicMetadataRefreshInterval: this.hub.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
             eachBatch: async (messages, { heartbeat }) => {
-                status.info('🔁', `${this.name} - handling batch`, {
+                logger.info('🔁', `${this.name} - handling batch`, {
                     size: messages.length,
                 })
 
@@ -339,18 +350,18 @@ export class IngestionConsumer {
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('disconnected', async (err) => {
-            if (!this.isStopping) {
+            if (this.isStopping) {
                 return
             }
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
-            status.info('🔁', `${this.name} batch consumer disconnected, cleaning up`, { err })
+            logger.info('🔁', `${this.name} batch consumer disconnected, cleaning up`, { err })
             await this.stop()
         })
     }
 
     private async handleProcessingError(error: any, message: Message, event: PipelineEvent) {
-        status.error('🔥', `Error processing message`, {
+        logger.error('🔥', `Error processing message`, {
             stack: error.stack,
             error: error,
         })
@@ -382,7 +393,7 @@ export class IngestionConsumer {
                 // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
                 // offset and move on.
                 if (error?.isRetriable === false) {
-                    status.error('🔥', `Error pushing to DLQ`, {
+                    logger.error('🔥', `Error pushing to DLQ`, {
                         stack: error.stack,
                         error: error,
                     })
@@ -398,7 +409,7 @@ export class IngestionConsumer {
     }
 
     private logDroppedEvent(token?: string, distinctId?: string) {
-        status.debug('🔁', `Dropped event`, {
+        logger.debug('🔁', `Dropped event`, {
             token,
             distinctId,
         })
@@ -418,7 +429,11 @@ export class IngestionConsumer {
     }
 
     private overflowEnabled() {
-        return !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC && this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
+        return (
+            !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
+            this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic &&
+            !this.testingTopic
+        )
     }
 
     private async emitToOverflow(kafkaMessages: Message[]) {
@@ -444,6 +459,24 @@ export class IngestionConsumer {
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
                     key: useRandomPartitioning ? null : message.key ?? null,
+                    headers: message.headers,
+                })
+            )
+        )
+    }
+
+    private async emitToTestingTopic(kafkaMessages: Message[]) {
+        const testingTopic = this.testingTopic
+        if (!testingTopic) {
+            throw new Error('No testing topic configured')
+        }
+
+        await Promise.all(
+            kafkaMessages.map((message) =>
+                this.kafkaOverflowProducer!.produce({
+                    topic: this.testingTopic!,
+                    value: message.value,
+                    key: message.key ?? null,
                     headers: message.headers,
                 })
             )

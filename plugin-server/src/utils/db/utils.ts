@@ -14,7 +14,7 @@ import {
     RawPerson,
     TimestampFormat,
 } from '../../types'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
 import { captureException } from '../posthog'
 
@@ -48,7 +48,7 @@ export function timeoutGuard(
 ): NodeJS.Timeout {
     return setTimeout(() => {
         const ctx = typeof context === 'function' ? context() : context
-        status.warn('⌛', message, ctx)
+        logger.warn('⌛', message, ctx)
         if (sendToSentry) {
             captureException(message, ctx ? { extra: ctx } : undefined)
         }
@@ -103,6 +103,11 @@ export const eventToPersonProperties = new Set([
     '$os_version',
     '$referring_domain',
     '$referrer',
+    '$screen_height',
+    '$screen_width',
+    '$viewport_height',
+    '$viewport_width',
+    '$raw_user_agent',
 
     ...campaignParams,
 ])

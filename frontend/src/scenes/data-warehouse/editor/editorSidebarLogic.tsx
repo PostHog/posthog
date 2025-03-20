@@ -1,9 +1,9 @@
+import { IconDatabase, IconDocument, IconLogomark } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import { IconCalculate, IconClipboardEdit } from 'lib/lemon-ui/icons'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -88,6 +88,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         relevantDataWarehouseTables.length > 0
                             ? relevantDataWarehouseTables.map(([table, matches]) => ({
                                   key: table.id,
+                                  icon: <IconDatabase />,
                                   name: table.name,
                                   url: '',
                                   searchMatch: matches
@@ -122,6 +123,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         key: table.id,
                         name: table.name,
                         url: '',
+                        icon: <IconLogomark />,
                         searchMatch: matches
                             ? {
                                   matchingFields: matches.map((match) => match.key),
@@ -152,11 +154,11 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         url: '',
                         icon: savedQuery.last_run_at ? (
                             <Tooltip title="Materialized view">
-                                <IconCalculate />
+                                <IconDatabase />
                             </Tooltip>
                         ) : (
                             <Tooltip title="View">
-                                <IconClipboardEdit />
+                                <IconDocument />
                             </Tooltip>
                         ),
                         searchMatch: matches

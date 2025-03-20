@@ -218,3 +218,12 @@ def export_query_logs(
 @dagster.job(resource_defs={"cluster": ClickhouseClusterResource()})
 def export_query_logs_to_s3():
     export_query_logs()
+
+
+# Schedule to run query logs export at 1 AM daily
+query_logs_export_schedule = dagster.ScheduleDefinition(
+    job=export_query_logs_to_s3,
+    cron_schedule="0 1 * * *",  # At 01:00 (1 AM) every day
+    execution_timezone="UTC",
+    name="query_logs_export_schedule",
+)

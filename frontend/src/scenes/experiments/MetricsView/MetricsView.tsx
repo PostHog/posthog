@@ -228,7 +228,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                             return (
                                 <div
                                     key={metricIndex}
-                                    className={`w-full border border-border bg-light ${
+                                    className={`w-full border border-primary bg-light ${
                                         metrics.length === 1
                                             ? 'rounded'
                                             : isFirstMetric

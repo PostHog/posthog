@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 
 from freezegun import freeze_time
 
@@ -8,6 +8,8 @@ from posthog.schema import (
     DateRange,
     SessionTableVersion,
     HogQLQueryModifiers,
+    WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields,
     WebExternalClicksTableQuery,
 )
 from posthog.test.base import (
@@ -63,6 +65,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
         filter_test_accounts: Optional[bool] = False,
         strip_query_params: Optional[bool] = False,
+        order_by: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
         query = WebExternalClicksTableQuery(
@@ -71,6 +74,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit=limit,
             filterTestAccounts=filter_test_accounts,
             stripQueryParams=strip_query_params,
+            orderBy=order_by,
         )
         runner = WebExternalClicksTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
         return runner.calculate()
@@ -267,4 +271,76 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ["https://other.com/", (1, 0), (1, 0)],
             ],
             results,
+        )
+
+    def test_custom_order_by(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-02"))
+        s3 = str(uuid7("2023-12-02"))
+
+        # Create events with different click counts and visitor counts:
+        # - example.com: 4 clicks from 3 visitors
+        # - beta.com: 5 clicks from 2 visitors
+        # - alpha.com: 1 click from 1 visitor
+        self._create_events(
+            [
+                (
+                    "user1",
+                    [
+                        ("2023-12-02", s1, "https://example.com/"),
+                        ("2023-12-02", s1, "https://example.com/"),
+                        ("2023-12-02", s1, "https://beta.com/"),
+                    ],
+                ),
+                (
+                    "user2",
+                    [
+                        ("2023-12-02", s2, "https://example.com/"),
+                        ("2023-12-02", s2, "https://beta.com/"),
+                        ("2023-12-02", s2, "https://beta.com/"),
+                        ("2023-12-02", s2, "https://beta.com/"),
+                        ("2023-12-02", s2, "https://beta.com/"),
+                    ],
+                ),
+                (
+                    "user3",
+                    [
+                        ("2023-12-02", s3, "https://example.com/"),
+                        ("2023-12-02", s3, "https://alpha.com/"),
+                    ],
+                ),
+            ]
+        )
+
+        default_results = self._run_external_clicks_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            filter_test_accounts=False,
+        ).results
+
+        self.assertEqual(
+            default_results,
+            [
+                ["https://beta.com/", (2, 0), (5, 0)],
+                ["https://example.com/", (3, 0), (4, 0)],
+                ["https://alpha.com/", (1, 0), (1, 0)],
+            ],
+            "Default sorting should be by clicks DESC, then URL ASC",
+        )
+
+        visitors_desc_results = self._run_external_clicks_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            filter_test_accounts=False,
+            order_by=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
+        ).results
+
+        self.assertEqual(
+            visitors_desc_results,
+            [
+                ["https://example.com/", (3, 0), (4, 0)],
+                ["https://beta.com/", (2, 0), (5, 0)],
+                ["https://alpha.com/", (1, 0), (1, 0)],
+            ],
+            "Sorting by visitors DESC should show URLs with more visitors first, then alphabetically",
         )

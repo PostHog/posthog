@@ -1,11 +1,12 @@
 import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { parseJSON } from '../../../src/utils/json-parse'
 import { UUIDT } from '../../../src/utils/utils'
 import { AppMetricIdentifier, AppMetrics } from '../../../src/worker/ingestion/app-metrics'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 
 const metric: AppMetricIdentifier = {
     teamId: 2,
@@ -216,7 +217,7 @@ describe('AppMetrics()', () => {
                 },
                 timestamp,
             ])
-            expect(JSON.parse(call[0].errorDetails!)).toEqual({
+            expect(parseJSON(call[0].errorDetails!)).toEqual({
                 error: {
                     name: 'Error',
                     message: 'foobar',
@@ -239,7 +240,7 @@ describe('AppMetrics()', () => {
                 },
                 timestamp,
             ])
-            expect(JSON.parse(call[0].errorDetails!)).toEqual({
+            expect(parseJSON(call[0].errorDetails!)).toEqual({
                 error: {
                     name: 'StringError',
                 },
@@ -352,7 +353,7 @@ describe('AppMetrics()', () => {
                 })
             )
             expect(rows[0].error_uuid).not.toEqual('00000000-0000-0000-0000-000000000000')
-            expect(JSON.parse(rows[0].error_details)).toEqual({
+            expect(parseJSON(rows[0].error_details)).toEqual({
                 error: {
                     name: 'Error',
                     message: 'foobar',

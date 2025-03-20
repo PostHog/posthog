@@ -87,6 +87,7 @@ export function PersonsModal({
         isModalOpen,
         missingActorsCount,
         propertiesTimelineFilterFromUrl,
+        insightEventsQueryUrl,
         exploreUrl,
         actorsQuery,
     } = useValues(logic)
@@ -285,18 +286,34 @@ export function PersonsModal({
                                 </LemonButton>
                             )}
                         </div>
-                        {exploreUrl && (
-                            <LemonButton
-                                type="primary"
-                                to={exploreUrl}
-                                data-attr="person-modal-new-insight"
-                                onClick={() => {
-                                    closeModal()
-                                }}
-                            >
-                                Explore
-                            </LemonButton>
-                        )}
+                        <div className="flex gap-2">
+                            {insightEventsQueryUrl && (
+                                <LemonButton
+                                    type="primary"
+                                    to={insightEventsQueryUrl}
+                                    data-attr="person-modal-view-events"
+                                    onClick={() => {
+                                        closeModal()
+                                    }}
+                                    targetBlank
+                                >
+                                    View events
+                                </LemonButton>
+                            )}
+
+                            {exploreUrl && (
+                                <LemonButton
+                                    type="primary"
+                                    to={exploreUrl}
+                                    data-attr="person-modal-new-insight"
+                                    onClick={() => {
+                                        closeModal()
+                                    }}
+                                >
+                                    Explore
+                                </LemonButton>
+                            )}
+                        </div>
                     </div>
                 </LemonModal.Footer>
             </LemonModal>

@@ -445,13 +445,118 @@ test_cases: list[TestCaseData] = [
 ]
 """,
     ),
+    TestCaseData(
+        query="session query not using indices",
+        reads=1,
+        reads_use=[ReadIndexUsage(table="posthog.sharded_raw_sessions", use=QueryIndexUsage.PARTIAL)],
+        use=QueryIndexUsage.PARTIAL,
+        plan="""
+[
+   {
+      "Plan" : {
+         "Description" : "(Projection + (Before ORDER BY + (WHERE + (Projection + Before ORDER BY))))",
+         "Node Type" : "Expression",
+         "Plans" : [
+            {
+               "Description" : "preliminary LIMIT (without OFFSET)",
+               "Node Type" : "Limit",
+               "Plans" : [
+                  {
+                     "Description" : "((WHERE + (Projection + Before ORDER BY)))[split]",
+                     "Node Type" : "Filter",
+                     "Plans" : [
+                        {
+                           "Description" : "HAVING",
+                           "Node Type" : "Filter",
+                           "Plans" : [
+                              {
+                                 "Node Type" : "MergingAggregated",
+                                 "Plans" : [
+                                    {
+                                       "Node Type" : "Union",
+                                       "Plans" : [
+                                          {
+                                             "Node Type" : "Aggregating",
+                                             "Plans" : [
+                                                {
+                                                   "Description" : "Before GROUP BY",
+                                                   "Node Type" : "Expression",
+                                                   "Plans" : [
+                                                      {
+                                                         "Node Type" : "Expression",
+                                                         "Plans" : [
+                                                            {
+                                                               "Description" : "posthog.sharded_raw_sessions",
+                                                               "Indexes" : [
+                                                                  {
+                                                                     "Condition" : "true",
+                                                                     "Initial Granules" : 4238362,
+                                                                     "Initial Parts" : 1516,
+                                                                     "Selected Granules" : 4238362,
+                                                                     "Selected Parts" : 1516,
+                                                                     "Type" : "MinMax"
+                                                                  },
+                                                                  {
+                                                                     "Condition" : "true",
+                                                                     "Initial Granules" : 4238362,
+                                                                     "Initial Parts" : 1516,
+                                                                     "Selected Granules" : 4238362,
+                                                                     "Selected Parts" : 1516,
+                                                                     "Type" : "Partition"
+                                                                  },
+                                                                  {
+                                                                     "Condition" : "(team_id in [2, 2])",
+                                                                     "Initial Granules" : 4238362,
+                                                                     "Initial Parts" : 1516,
+                                                                     "Keys" : [
+                                                                        "team_id"
+                                                                     ],
+                                                                     "Selected Granules" : 7616,
+                                                                     "Selected Parts" : 150,
+                                                                     "Type" : "PrimaryKey"
+                                                                  }
+                                                               ],
+                                                               "Node Type" : "ReadFromMergeTree"
+                                                            }
+                                                         ]
+                                                      }
+                                                   ]
+                                                }
+                                             ]
+                                          },
+                                          {
+                                             "Description" : "Read from remote replica",
+                                             "Node Type" : "ReadFromRemote"
+                                          }
+                                       ]
+                                    }
+                                 ]
+                              }
+                           ]
+                        }
+                     ]
+                  }
+               ]
+            }
+         ]
+      }
+   }
+]
+""",
+    ),
 ]
 
 
 @pytest.mark.parametrize("case", test_cases, ids=[x.query for x in test_cases])
-def test_full_queries(case):
+def test_full_queries(case, snapshot):
     explain = json.loads(case.plan)
     reads = find_all_reads(explain[0])
     assert case.reads == len(reads)
-    assert case.reads_use == [guestimate_index_use(r) for r in reads]
+    reads_use = [guestimate_index_use(r) for r in reads]
+    assert case.reads_use == reads_use
     assert case.use == extract_index_usage_from_plan(case.plan)
+
+    assert case.plan == snapshot
+    assert snapshot == len(reads)
+    assert snapshot == reads_use
+    assert snapshot == extract_index_usage_from_plan(case.plan)

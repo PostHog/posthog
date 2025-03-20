@@ -10,7 +10,7 @@ import { upsertGroup } from '../../../src/worker/ingestion/properties-updater'
 import { createPromise } from '../../helpers/promises'
 import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 
 describe('properties-updater', () => {
     let hub: Hub

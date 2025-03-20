@@ -92,6 +92,8 @@ describe('PersonState.update()', () => {
         )
     }
 
+    const sortPersons = (persons: InternalPerson[]) => persons.sort((a, b) => Number(a.id) - Number(b.id))
+
     async function fetchPostgresPersonsH() {
         return await fetchPostgresPersons(hub.db, teamId)
     }
@@ -361,7 +363,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { $creator_event_uuid: event_uuid, null_byte: '\uFFFD' },
                     created_at: timestamp,
@@ -374,7 +376,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -396,7 +398,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { $creator_event_uuid: originalEventUuid, c: 420 },
                     created_at: timestamp,
@@ -406,7 +408,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -457,7 +459,7 @@ describe('PersonState.update()', () => {
             // if creation fails we should return the person that another thread already created
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: {},
                     created_at: timestamp,
@@ -467,7 +469,7 @@ describe('PersonState.update()', () => {
             )
             expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -499,7 +501,7 @@ describe('PersonState.update()', () => {
             // if creation fails we should return the person that another thread already created
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { b: 4, c: 4, e: 4 },
                     created_at: timestamp,
@@ -509,7 +511,7 @@ describe('PersonState.update()', () => {
             )
             expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -532,7 +534,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { a: 1, b: 3, c: 4 },
                     created_at: timestamp,
@@ -545,7 +547,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -582,7 +584,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     // `null_byte` validates that `sanitizeJsonbValue` is working as expected
                     properties: { b: 4, c: 4, e: 4, toString: 1, null_byte: '\uFFFD' },
@@ -595,7 +597,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
         })
@@ -620,7 +622,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: originalPersonProperties,
                     created_at: timestamp,
@@ -632,7 +634,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
         })
@@ -654,7 +656,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { $current_url: 4 }, // Here we keep 4 for passing forward to PoE
                     created_at: timestamp,
@@ -666,10 +668,10 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual([
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { $current_url: 123 }, // We didn 't update this as it's auto added and it's not a person event
                     created_at: timestamp,
@@ -696,7 +698,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { $current_url: 4 }, // Here we keep 4 for passing forward to PoE
                     created_at: timestamp,
@@ -708,7 +710,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person) // We updated PG as it's a person event
         })
@@ -730,7 +732,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { $initial_current_url: 4 }, // Here we keep 4 for passing forward to PoE
                     created_at: timestamp,
@@ -742,7 +744,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person) // We updated PG as it was undefined before
         })
@@ -772,7 +774,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { $initial_current_url: 4 }, // Here we keep 4 for passing forward to PoE
                     created_at: timestamp,
@@ -784,7 +786,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person) // We updated PG as it's an initial property
         })
@@ -819,7 +821,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { b: 4, c: 4, e: 4 },
                     created_at: timestamp,
@@ -831,7 +833,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
         })
@@ -854,7 +856,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { b: 3, c: 4 },
                     created_at: timestamp,
@@ -867,7 +869,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
         })
@@ -888,7 +890,7 @@ describe('PersonState.update()', () => {
             await kafkaAcks
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: {},
                     created_at: timestamp,
@@ -901,7 +903,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -917,7 +919,7 @@ describe('PersonState.update()', () => {
             const mergeDeletedPerson: InternalPerson = {
                 created_at: timestamp,
                 version: 0,
-                id: 0,
+                id: '0',
                 team_id: teamId,
                 properties: { a: 5, b: 7 },
                 is_user_id: 0,
@@ -946,7 +948,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { a: 7, c: 8, d: 9 },
                     created_at: timestamp,
@@ -959,7 +961,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(2)
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
         })
@@ -996,7 +998,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { foo: 'bar' },
                     created_at: timestamp,
@@ -1036,7 +1038,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: {},
                     created_at: timestamp,
@@ -1071,7 +1073,7 @@ describe('PersonState.update()', () => {
             const persons = await fetchPostgresPersonsH()
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: {},
                     created_at: timestamp,
@@ -1110,7 +1112,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: oldUserUuid,
                     properties: {},
                     created_at: timestamp,
@@ -1149,7 +1151,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: expect.any(String),
                     properties: {},
                     created_at: timestamp,
@@ -1159,7 +1161,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
             expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
@@ -1216,7 +1218,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: expect.any(String),
                     properties: {},
                     created_at: timestamp,
@@ -1226,7 +1228,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
             expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
@@ -1285,7 +1287,7 @@ describe('PersonState.update()', () => {
             expect(personS.updateIsIdentified).toBeTruthy()
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: {},
                     created_at: timestamp2,
@@ -1295,11 +1297,11 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = (await fetchPostgresPersonsH()).sort((a, b) => a.id - b.id)
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(2)
             expect(persons[0]).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: oldUserUuid,
                     properties: {},
                     created_at: timestamp,
@@ -1336,7 +1338,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: {},
                     created_at: timestamp2,
@@ -1346,11 +1348,11 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = (await fetchPostgresPersonsH()).sort((a, b) => a.id - b.id)
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(2)
             expect(persons[0]).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: oldUserUuid,
                     properties: {},
                     created_at: timestamp,
@@ -1389,7 +1391,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: expect.any(String),
                     properties: { a: 1, b: 3, c: 4, d: 6, e: 7, f: 9 },
                     created_at: timestamp,
@@ -1399,7 +1401,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
             expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
@@ -1471,7 +1473,7 @@ describe('PersonState.update()', () => {
             // if creation fails we should return the person that another thread already created
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: oldUserUuid,
                     properties: {},
                     created_at: timestamp,
@@ -1481,7 +1483,7 @@ describe('PersonState.update()', () => {
             )
             // expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -1569,7 +1571,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: expect.any(String),
                     properties: {},
                     created_at: timestamp,
@@ -1579,7 +1581,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
             expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
@@ -1941,7 +1943,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: firstUserUuid,
                     properties: {},
                     created_at: timestamp,
@@ -1990,7 +1992,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: firstUserUuid,
                     properties: {},
                     created_at: timestamp,
@@ -2002,7 +2004,7 @@ describe('PersonState.update()', () => {
             expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
             expect(hub.db.kafkaProducer.queueMessages).toHaveBeenCalledTimes(1)
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
@@ -2081,11 +2083,11 @@ describe('PersonState.update()', () => {
             jest.spyOn(hub.db.postgres, 'transaction').mockRestore()
             expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
-                        id: expect.any(Number),
+                        id: expect.any(String),
                         uuid: firstUserUuid,
                         properties: {},
                         created_at: timestamp,
@@ -2093,7 +2095,7 @@ describe('PersonState.update()', () => {
                         is_identified: false,
                     }),
                     expect.objectContaining({
-                        id: expect.any(Number),
+                        id: expect.any(String),
                         uuid: secondUserUuid,
                         properties: {},
                         created_at: timestamp,
@@ -2129,11 +2131,11 @@ describe('PersonState.update()', () => {
             jest.spyOn(state, 'mergePeople').mockRestore()
             expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
-                        id: expect.any(Number),
+                        id: expect.any(String),
                         uuid: firstUserUuid,
                         properties: {},
                         created_at: timestamp,
@@ -2141,7 +2143,7 @@ describe('PersonState.update()', () => {
                         is_identified: false,
                     }),
                     expect.objectContaining({
-                        id: expect.any(Number),
+                        id: expect.any(String),
                         uuid: secondUserUuid,
                         properties: {},
                         created_at: timestamp,
@@ -2182,11 +2184,11 @@ describe('PersonState.update()', () => {
             jest.spyOn(state, 'mergePeople').mockRestore()
             expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
             // verify Postgres persons
-            const persons = await fetchPostgresPersonsH()
+            const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
-                        id: expect.any(Number),
+                        id: expect.any(String),
                         uuid: firstUserUuid,
                         properties: {},
                         created_at: timestamp,
@@ -2194,7 +2196,7 @@ describe('PersonState.update()', () => {
                         is_identified: false,
                     }),
                     expect.objectContaining({
-                        id: expect.any(Number),
+                        id: expect.any(String),
                         uuid: secondUserUuid,
                         properties: {},
                         created_at: timestamp,

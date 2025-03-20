@@ -15,6 +15,7 @@ import {
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
+import posthog from 'posthog-js'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
@@ -26,7 +27,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { groupsModel } from '~/models/groupsModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
@@ -100,8 +100,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['currentProjectId'],
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
-            groupPropertiesModel,
-            ['allGroupProperties'],
             dataWarehouseSceneLogic, // This logic needs to be connected to stop the popover from erroring out
             ['dataWarehouseTables'],
             dataWarehouseJoinsLogic,
@@ -345,7 +343,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                        excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventFeatureFlags],
+                        excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.EventFeatureFlags],
                         ...propertyTaxonomicGroupProps(),
                     },
                     {
@@ -717,7 +715,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             }
         },
 
-        setSearchQuery: () => {
+        setSearchQuery: async ({ searchQuery }, breakpoint) => {
             const { activeTaxonomicGroup, infiniteListCounts } = values
 
             // Taxonomic group with a local data source, zero results after searching.
@@ -728,6 +726,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 infiniteListCounts[activeTaxonomicGroup.type] === 0
             ) {
                 actions.tabRight()
+            }
+
+            await breakpoint(500)
+            if (searchQuery) {
+                posthog.capture('taxonomic_filter_search_query', {
+                    searchQuery,
+                    groupType: activeTaxonomicGroup?.type,
+                })
             }
         },
 

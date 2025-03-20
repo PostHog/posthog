@@ -277,3 +277,7 @@ async def test_sessions_record_batch_model(ateam, data_interval_start, data_inte
         in printed_query
     )
     assert f"less(_inserted_at, toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" in printed_query
+
+    # check that we have a date range set on the inner query using the session ID
+    assert "lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight" in printed_query
+    assert "greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight" in printed_query

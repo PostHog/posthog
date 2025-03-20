@@ -22,13 +22,13 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _update_job_row_count,
     _update_last_synced_at_sync,
     append_partition_key_to_table,
+    normalize_table_column_names,
     should_partition_table,
     table_from_py_list,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table_sync
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
-from posthog.warehouse.types import IncrementalFieldType
 
 
 class PipelineNonDLT:
@@ -63,6 +63,7 @@ class PipelineNonDLT:
                 primary_keys=_get_primary_keys(resource),
                 name=resource_name,
                 column_hints=_get_column_hints(resource),
+                partition_count=None,
             )
         else:
             self._resource = source
@@ -100,10 +101,12 @@ class PipelineNonDLT:
             if self._reset_pipeline:
                 self._logger.debug("Deleting existing table due to reset_pipeline being set")
                 self._delta_table_helper.reset_table()
-
-                self._schema.sync_type_config.pop("reset_pipeline", None)
-                self._schema.sync_type_config.pop("incremental_field_last_value", None)
-                self._schema.save()
+                self._schema.update_sync_type_config_for_reset_pipeline()
+            elif self._schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
+                # Avoid schema mismatches from existing data about to be overwritten
+                self._logger.debug("Deleting existing table due to sync being full refresh")
+                self._delta_table_helper.reset_table()
+                self._schema.update_sync_type_config_for_reset_pipeline()
 
             for item in self._resource.items:
                 py_table = None
@@ -175,22 +178,34 @@ class PipelineNonDLT:
         delta_table = self._delta_table_helper.get_delta_table()
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
+        pa_table = normalize_table_column_names(pa_table)
 
-        if should_partition_table(delta_table, self._schema):
-            incremental_field = self._schema.sync_type_config.get("incremental_field")
-            incremental_field_type_str = self._schema.sync_type_config.get("incremental_field_type")
-            if incremental_field and incremental_field_type_str:
-                incremental_field_type = IncrementalFieldType(incremental_field_type_str)
-
+        if should_partition_table(delta_table, self._schema, self._resource):
+            partition_count = self._schema.partition_count or self._resource.partition_count
+            partition_size = self._schema.partition_size or self._resource.partition_size
+            partition_keys = self._schema.partitioning_keys or self._resource.primary_keys
+            if partition_count and partition_keys and partition_size:
                 # This needs to happen before _evolve_pyarrow_schema
-                pa_table = append_partition_key_to_table(
+                pa_table, partition_mode, updated_partition_keys = append_partition_key_to_table(
                     table=pa_table,
-                    incremental_field=str(incremental_field),
-                    incremental_field_type=incremental_field_type,
+                    partition_count=partition_count,
+                    partition_size=partition_size,
+                    partition_keys=partition_keys,
+                    partition_mode=self._schema.partition_mode,
                     logger=self._logger,
                 )
+
+                if not self._schema.partitioning_enabled:
+                    self._logger.debug(
+                        f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}"
+                    )
+                    self._schema.set_partitioning_enabled(
+                        updated_partition_keys, partition_count, partition_size, partition_mode
+                    )
             else:
-                self._logger.debug("incremental_field or incremental_field_type missing: skipping partition key")
+                self._logger.debug(
+                    "Skipping partitioning due to missing partition_count or partition_keys or partition_size"
+                )
 
         pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)

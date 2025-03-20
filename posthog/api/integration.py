@@ -96,6 +96,14 @@ class IntegrationViewSet(
         slack = SlackIntegration(instance)
         authed_user = instance.config["authed_user"]["id"]
 
+        channel_id = request.query_params.get("channel_id")
+        if channel_id:
+            channel = slack.get_channel_by_id(channel_id)
+            if channel:
+                return Response({"channels": [channel]})
+            else:
+                return Response({"channels": []})
+
         channels = [
             {
                 "id": channel["id"],

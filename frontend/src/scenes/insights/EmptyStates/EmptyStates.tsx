@@ -184,6 +184,8 @@ export function StatelessInsightLoadingState({
     queryId,
     pollResponse,
     suggestion,
+    setProgress,
+    progress,
     delayLoadingAnimation = false,
     loadingTimeSeconds = 0,
     renderEmptyStateAsSkeleton = false,
@@ -194,6 +196,8 @@ export function StatelessInsightLoadingState({
     delayLoadingAnimation?: boolean
     loadingTimeSeconds?: number
     renderEmptyStateAsSkeleton?: boolean
+    setProgress?: (loadId: string, progress: number) => void
+    progress?: number
 }): JSX.Element {
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
@@ -299,7 +303,7 @@ export function StatelessInsightLoadingState({
                         renderEmptyStateAsSkeleton ? 'items-start' : 'items-center'
                     )}
                 >
-                    <LoadingBar />
+                    <LoadingBar loadId={queryId} progress={progress} setProgress={setProgress} />
                     {suggestions}
                     <LoadingDetails
                         pollResponse={pollResponse}
@@ -315,7 +319,7 @@ export function StatelessInsightLoadingState({
 }
 
 const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
-    <code className="border border-1 border-border-bold rounded-xs text-xs px-1 py-0.5">{props.children}</code>
+    <code className="border border-1 border-primary rounded-xs text-xs px-1 py-0.5">{props.children}</code>
 )
 
 const SLOW_LOADING_TIME = 15
