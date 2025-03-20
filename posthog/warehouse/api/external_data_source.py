@@ -1,6 +1,5 @@
-import re
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 import structlog
 import temporalio
@@ -12,7 +11,9 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
-from sshtunnel import BaseSSHTunnelForwarderError
+from posthog.temporal.data_imports.pipelines.bigquery import (
+    get_schemas as get_bigquery_schemas,
+)
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -20,30 +21,26 @@ from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql.database.database import create_hogql_database
 from posthog.models.user import User
-from posthog.temporal.data_imports.pipelines.bigquery import (
-    filter_incremental_fields as filter_bigquery_incremental_fields,
-    get_schemas as get_bigquery_schemas,
-    validate_credentials as validate_bigquery_credentials,
+from posthog.temporal.data_imports.pipelines.bigquery.handlers import BigQuerySourceHandler
+from posthog.temporal.data_imports.pipelines.stripe.handlers import StripeSourceHandler
+from posthog.temporal.data_imports.pipelines.chargebee.handlers import ChargebeeSourceHandler
+from posthog.temporal.data_imports.pipelines.vitally.handlers import VitallySourceHandler
+from posthog.temporal.data_imports.pipelines.zendesk.handlers import ZendeskSourceHandler
+from posthog.temporal.data_imports.pipelines.sql_database.handlers import (
+    PostgresSourceHandler,
+    MySQLSourceHandler,
+    MSSQLSourceHandler,
 )
-from posthog.temporal.data_imports.pipelines.chargebee import (
-    validate_credentials as validate_chargebee_credentials,
-)
+from posthog.temporal.data_imports.pipelines.snowflake.handlers import SnowflakeSourceHandler
+from posthog.temporal.data_imports.pipelines.hubspot.handlers import HubspotSourceHandler
+from posthog.temporal.data_imports.pipelines.salesforce.handlers import SalesforceSourceHandler
+from posthog.temporal.data_imports.pipelines.source.handlers import SourceHandler
+
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
     get_hubspot_access_token_from_code,
 )
 from posthog.temporal.data_imports.pipelines.schemas import (
-    PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
-    PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
-)
-from posthog.temporal.data_imports.pipelines.stripe import (
-    validate_credentials as validate_stripe_credentials,
-)
-from posthog.temporal.data_imports.pipelines.vitally import (
-    validate_credentials as validate_vitally_credentials,
-)
-from posthog.temporal.data_imports.pipelines.zendesk import (
-    validate_credentials as validate_zendesk_credentials,
 )
 from posthog.utils import get_instance_region, str_to_bool
 from posthog.warehouse.api.external_data_schema import (
@@ -64,11 +61,6 @@ from posthog.warehouse.models import (
     ExternalDataSource,
 )
 from posthog.warehouse.models.external_data_schema import (
-    filter_mssql_incremental_fields,
-    filter_mysql_incremental_fields,
-    filter_postgres_incremental_fields,
-    filter_snowflake_incremental_fields,
-    get_postgres_row_count,
     get_snowflake_schemas,
     get_sql_schemas_for_source_type,
 )
@@ -915,6 +907,44 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.save()
         return Response(status=status.HTTP_200_OK)
 
+    def get_source_handler(self, source_type: str, request_data: dict) -> Optional[SourceHandler]:
+        handlers = {
+            ExternalDataSource.Type.STRIPE: StripeSourceHandler,
+            ExternalDataSource.Type.BIGQUERY: BigQuerySourceHandler,
+            ExternalDataSource.Type.ZENDESK: ZendeskSourceHandler,
+            ExternalDataSource.Type.VITALLY: VitallySourceHandler,
+            ExternalDataSource.Type.CHARGEBEE: ChargebeeSourceHandler,
+            ExternalDataSource.Type.SNOWFLAKE: SnowflakeSourceHandler,
+            ExternalDataSource.Type.HUBSPOT: HubspotSourceHandler,
+            ExternalDataSource.Type.SALESFORCE: SalesforceSourceHandler,
+        }
+
+        if source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
+            sql_handlers = {
+                ExternalDataSource.Type.POSTGRES: PostgresSourceHandler,
+                ExternalDataSource.Type.MYSQL: MySQLSourceHandler,
+                ExternalDataSource.Type.MSSQL: MSSQLSourceHandler,
+            }
+            handler_class = sql_handlers.get(source_type)
+            return handler_class(
+                request_data,
+                self.team_id,
+                validate_db_host=self._validate_database_host,
+                expose_error=self._expose_postgres_error
+                if source_type == ExternalDataSource.Type.POSTGRES
+                else self._expose_mssql_error,
+            )
+
+        handler_class = handlers.get(source_type)
+        if not handler_class:
+            return None
+
+        return handler_class(request_data, self.team_id)
+
     @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
         source_type = request.data.get("source_type", None)
@@ -925,403 +955,38 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Missing required parameter: source_type"},
             )
 
-        # Validate sourced credentials
-        if source_type == ExternalDataSource.Type.STRIPE:
-            key = request.data.get("stripe_secret_key", "")
-            if not validate_stripe_credentials(api_key=key):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Invalid credentials: Stripe secret is incorrect"},
-                )
-        elif source_type == ExternalDataSource.Type.ZENDESK:
-            subdomain = request.data.get("subdomain", "")
-            api_key = request.data.get("api_key", "")
-            email_address = request.data.get("email_address", "")
-
-            subdomain_regex = re.compile("^[a-zA-Z-]+$")
-            if not subdomain_regex.match(subdomain):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Invalid credentials: Zendesk subdomain is incorrect"},
-                )
-
-            if not validate_zendesk_credentials(subdomain=subdomain, api_key=api_key, email_address=email_address):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Invalid credentials: Zendesk credentials are incorrect"},
-                )
-        elif source_type == ExternalDataSource.Type.VITALLY:
-            secret_token = request.data.get("secret_token", "")
-            region = request.data.get("region", "")
-            subdomain = request.data.get("subdomain", "")
-
-            subdomain_regex = re.compile("^[a-zA-Z-]+$")
-            if region == "US" and not subdomain_regex.match(subdomain):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Invalid credentials: Vitally subdomain is incorrect"},
-                )
-
-            if not validate_vitally_credentials(subdomain=subdomain, secret_token=secret_token, region=region):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Invalid credentials: Vitally credentials are incorrect"},
-                )
-        elif source_type == ExternalDataSource.Type.BIGQUERY:
-            dataset_id = request.data.get("dataset_id", "")
-            key_file = request.data.get("key_file", {})
-            if not validate_bigquery_credentials(dataset_id=dataset_id, key_file=key_file):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Invalid credentials: BigQuery credentials are incorrect"},
-                )
-
-            project_id = key_file.get("project_id")
-            private_key = key_file.get("private_key")
-            private_key_id = key_file.get("private_key_id")
-            client_email = key_file.get("client_email")
-            token_uri = key_file.get("token_uri")
-
-            bq_schemas = get_bigquery_schemas(
-                dataset_id=dataset_id,
-                project_id=project_id,
-                private_key=private_key,
-                private_key_id=private_key_id,
-                client_email=client_email,
-                token_uri=token_uri,
-            )
-
-            filtered_results = [
-                (table_name, filter_bigquery_incremental_fields(columns)) for table_name, columns in bq_schemas.items()
-            ]
-
-            result_mapped_to_options = [
-                {
-                    "table": table_name,
-                    "should_sync": False,
-                    "incremental_fields": [
-                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
-                        for column_name, column_type in columns
-                    ],
-                    "incremental_available": True,
-                    "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
-                    "sync_type": None,
-                }
-                for table_name, columns in filtered_results
-            ]
-
-            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
-        elif source_type == ExternalDataSource.Type.CHARGEBEE:
-            api_key = request.data.get("api_key", "")
-            site_name = request.data.get("site_name", "")
-
-            # Chargebee uses the term 'site' but it is effectively the subdomain
-            subdomain_regex = re.compile("^[a-zA-Z-]+$")
-            if not subdomain_regex.match(site_name):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Invalid credentials: Chargebee site name is incorrect"},
-                )
-
-            if not validate_chargebee_credentials(api_key=api_key, site_name=site_name):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Invalid credentials: Chargebee credentials are incorrect"},
-                )
-
-        # Get schemas and validate SQL credentials
-        if source_type in [
-            ExternalDataSource.Type.POSTGRES,
-            ExternalDataSource.Type.MYSQL,
-            ExternalDataSource.Type.MSSQL,
-        ]:
-            # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
-            from pymssql import OperationalError as MSSQLOperationalError
-
-            host = request.data.get("host", None)
-            port = request.data.get("port", None)
-            database = request.data.get("database", None)
-
-            user = request.data.get("user", None)
-            password = request.data.get("password", None)
-            schema = request.data.get("schema", None)
-
-            ssh_tunnel_obj = request.data.get("ssh-tunnel", {})
-            using_ssh_tunnel = ssh_tunnel_obj.get("enabled", False)
-            ssh_tunnel_host = ssh_tunnel_obj.get("host", None)
-            ssh_tunnel_port = ssh_tunnel_obj.get("port", None)
-            ssh_tunnel_auth_type_obj = ssh_tunnel_obj.get("auth_type", {})
-            ssh_tunnel_auth_type = ssh_tunnel_auth_type_obj.get("selection", None)
-            ssh_tunnel_auth_type_username = ssh_tunnel_auth_type_obj.get("username", None)
-            ssh_tunnel_auth_type_password = ssh_tunnel_auth_type_obj.get("password", None)
-            ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
-            ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
-
-            using_ssl_str = request.data.get("use_ssl", "1")
-            using_ssl = str_to_bool(using_ssl_str)
-
-            ssh_tunnel = SSHTunnel(
-                enabled=using_ssh_tunnel,
-                host=ssh_tunnel_host,
-                port=ssh_tunnel_port,
-                auth_type=ssh_tunnel_auth_type,
-                username=ssh_tunnel_auth_type_username,
-                password=ssh_tunnel_auth_type_password,
-                passphrase=ssh_tunnel_auth_type_passphrase,
-                private_key=ssh_tunnel_auth_type_private_key,
-            )
-
-            if not host or not port or not database or not user or not password or not schema:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Missing required parameters: host, port, database, user, password, schema"},
-                )
-
-            if using_ssh_tunnel:
-                auth_valid, auth_error_message = ssh_tunnel.is_auth_valid()
-                if not auth_valid:
-                    return Response(
-                        status=status.HTTP_400_BAD_REQUEST,
-                        data={
-                            "message": (
-                                auth_error_message
-                                if len(auth_error_message) > 0
-                                else "Invalid SSH tunnel auth settings"
-                            )
-                        },
-                    )
-
-                port_valid, port_error_message = ssh_tunnel.has_valid_port()
-                if not port_valid:
-                    return Response(
-                        status=status.HTTP_400_BAD_REQUEST,
-                        data={
-                            "message": (
-                                port_error_message
-                                if len(port_error_message) > 0
-                                else "Invalid SSH tunnel auth settings"
-                            )
-                        },
-                    )
-
-            # Validate internal postgres
-            if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Cannot use internal database"},
-                )
-
-            try:
-                result = get_sql_schemas_for_source_type(
-                    source_type,
-                    host,
-                    port,
-                    database,
-                    user,
-                    password,
-                    schema,
-                    ssh_tunnel,
-                    using_ssl,
-                )
-                if len(result.keys()) == 0:
-                    return Response(
-                        status=status.HTTP_400_BAD_REQUEST,
-                        data={"message": "Schema doesn't exist"},
-                    )
-            except OperationalError as e:
-                exposed_error = self._expose_postgres_error(e)
-
-                if exposed_error is None:
-                    capture_exception(e)
-
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": exposed_error or get_generic_sql_error(source_type)},
-                )
-            except MSSQLOperationalError as e:
-                error_msg = " ".join(str(n) for n in e.args)
-                exposed_error = self._expose_mssql_error(error_msg)
-
-                if exposed_error is None:
-                    capture_exception(e)
-
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": exposed_error or get_generic_sql_error(source_type)},
-                )
-            except BaseSSHTunnelForwarderError as e:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": e.value or get_generic_sql_error(source_type)},
-                )
-            except Exception as e:
-                capture_exception(e)
-                logger.exception("Could not fetch schemas", exc_info=e)
-
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": get_generic_sql_error(source_type)},
-                )
-
-            rows = {}
-            if source_type == ExternalDataSource.Type.POSTGRES:
-                filtered_results = [
-                    (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
-                ]
-                try:
-                    rows = get_postgres_row_count(host, port, database, user, password, schema, ssh_tunnel)
-                except:
-                    pass
-
-            elif source_type == ExternalDataSource.Type.MYSQL:
-                filtered_results = [
-                    (table_name, filter_mysql_incremental_fields(columns)) for table_name, columns in result.items()
-                ]
-            elif source_type == ExternalDataSource.Type.MSSQL:
-                filtered_results = [
-                    (table_name, filter_mssql_incremental_fields(columns)) for table_name, columns in result.items()
-                ]
-
-            result_mapped_to_options = [
-                {
-                    "table": table_name,
-                    "should_sync": False,
-                    "rows": rows.get(table_name, None),
-                    "incremental_fields": [
-                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
-                        for column_name, column_type in columns
-                    ],
-                    "incremental_available": True,
-                    "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
-                    "sync_type": None,
-                }
-                for table_name, columns in filtered_results
-            ]
-            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
-        elif source_type == ExternalDataSource.Type.SNOWFLAKE:
-            account_id = request.data.get("account_id")
-            database = request.data.get("database")
-            warehouse = request.data.get("warehouse")
-            role = request.data.get("role")
-            schema = request.data.get("schema")
-
-            auth_type_obj = request.data.get("auth_type", {})
-            auth_type = auth_type_obj.get("selection", None)
-            auth_type_username = auth_type_obj.get("username", None)
-            auth_type_password = auth_type_obj.get("password", None)
-            auth_type_passphrase = auth_type_obj.get("passphrase", None)
-            auth_type_private_key = auth_type_obj.get("private_key", None)
-
-            if not account_id or not warehouse or not database or not schema:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Missing required parameters: account id, warehouse, database, schema"},
-                )
-
-            if auth_type == "password" and (not auth_type_username or not auth_type_password):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Missing required parameters: username, password"},
-                )
-
-            if auth_type == "keypair" and (
-                not auth_type_passphrase or not auth_type_private_key or not auth_type_username
-            ):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Missing required parameters: passphrase, private key"},
-                )
-
-            try:
-                result = get_snowflake_schemas(
-                    account_id=account_id,
-                    database=database,
-                    warehouse=warehouse,
-                    user=auth_type_username,
-                    password=auth_type_password,
-                    schema=schema,
-                    role=role,
-                    passphrase=auth_type_passphrase,
-                    private_key=auth_type_private_key,
-                    auth_type=auth_type,
-                )
-                if len(result.keys()) == 0:
-                    return Response(
-                        status=status.HTTP_400_BAD_REQUEST,
-                        data={"message": "Snowflake schema doesn't exist"},
-                    )
-            except (ProgrammingError, DatabaseError, ForbiddenError) as e:
-                exposed_error = self._expose_snowflake_error(e)
-
-                if exposed_error is None:
-                    capture_exception(e)
-
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": exposed_error or GenericSnowflakeError},
-                )
-            except Exception as e:
-                capture_exception(e)
-                logger.exception("Could not fetch Snowflake schemas", exc_info=e)
-
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": GenericSnowflakeError},
-                )
-
-            filtered_results = [
-                (table_name, filter_snowflake_incremental_fields(columns)) for table_name, columns in result.items()
-            ]
-
-            result_mapped_to_options = [
-                {
-                    "table": table_name,
-                    "should_sync": False,
-                    "incremental_fields": [
-                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
-                        for column_name, column_type in columns
-                    ],
-                    "incremental_available": True,
-                    "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
-                    "sync_type": None,
-                }
-                for table_name, columns in filtered_results
-            ]
-            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
-
-        # Return the possible endpoints for all other source types
-        schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source_type, None)
-        incremental_schemas = PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING.get(source_type, ())
-        incremental_fields = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source_type, {})
-
-        if schemas is None:
+        handler = self.get_source_handler(source_type, request.data)
+        if not handler:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Invalid parameter: source_type"},
+                data={"message": f"Unsupported source type: {source_type}"},
             )
 
-        options = [
-            {
-                "table": row,
-                "should_sync": False,
-                "incremental_fields": [
-                    {
-                        "label": field["label"],
-                        "type": field["type"],
-                        "field": field["field"],
-                        "field_type": field["field_type"],
-                    }
-                    for field in incremental_fields.get(row, [])
-                ],
-                "incremental_available": row in incremental_schemas,
-                "incremental_field": (
-                    incremental_fields.get(row, [])[0]["field"] if row in incremental_schemas else None
-                ),
-                "sync_type": None,
-            }
-            for row in schemas
-        ]
-        return Response(status=status.HTTP_200_OK, data=options)
+        try:
+            # Validate credentials
+            is_valid, error_message = handler.validate_credentials()
+            if not is_valid:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": error_message},
+                )
+
+            # Get schema options
+            options = handler.get_schema_options()
+            return Response(status=status.HTTP_200_OK, data=options)
+
+        except ValidationError as e:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": str(e)},
+            )
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Error handling database schema for source type {source_type}", exc_info=e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Error handling source type {source_type}"},
+            )
 
     @action(methods=["POST"], detail=False)
     def source_prefix(self, request: Request, *arg: Any, **kwargs: Any):

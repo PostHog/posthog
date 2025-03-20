@@ -17,6 +17,7 @@ from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+from posthog.warehouse.api.external_data_source import ExternalDataSourceViewSet
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -635,9 +636,60 @@ class TestExternalDataSource(APIBaseTest):
 
         postgres_connection.close()
 
+    def test_database_schema_error_handling(self):
+        with patch.object(ExternalDataSourceViewSet, "_validate_database_host") as validate_database_host_mock:
+            validate_database_host_mock.return_value = False
+
+            postgres_connection = psycopg.connect(
+                host=settings.PG_HOST,
+                port=settings.PG_PORT,
+                dbname=settings.PG_DATABASE,
+                user=settings.PG_USER,
+                password=settings.PG_PASSWORD,
+            )
+
+            with postgres_connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS posthog_test (
+                        id SERIAL PRIMARY KEY,
+                        name VARCHAR(50)
+                    );
+                    """
+                )
+
+                postgres_connection.commit()
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Postgres",
+                    "host": settings.PG_HOST,
+                    "port": int(settings.PG_PORT),
+                    "database": settings.PG_DATABASE,
+                    "user": settings.PG_USER,
+                    "password": settings.PG_PASSWORD,
+                    "schema": "public",
+                },
+            )
+            results = response.json()
+
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(results["message"], "Cannot use internal database")
+
+        with postgres_connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DROP TABLE posthog_test;
+                """
+            )
+            postgres_connection.commit()
+
+        postgres_connection.close()
+
     def test_database_schema_stripe_credentials(self):
         with patch(
-            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+            "posthog.temporal.data_imports.pipelines.stripe.handlers.validate_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.return_value = True
 
@@ -654,7 +706,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_stripe_credentials_sad_path(self):
         with patch(
-            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+            "posthog.temporal.data_imports.pipelines.stripe.handlers.validate_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.return_value = False
 
@@ -671,7 +723,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_zendesk_credentials(self):
         with patch(
-            "posthog.warehouse.api.external_data_source.validate_zendesk_credentials"
+            "posthog.temporal.data_imports.pipelines.zendesk.handlers.validate_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.return_value = True
 
@@ -689,7 +741,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_zendesk_credentials_sad_path(self):
         with patch(
-            "posthog.warehouse.api.external_data_source.validate_zendesk_credentials"
+            "posthog.temporal.data_imports.pipelines.zendesk.handlers.validate_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.return_value = False
 
@@ -707,13 +759,15 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_non_postgres_source(self):
         with patch(
-            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+            "posthog.temporal.data_imports.pipelines.stripe.handlers.validate_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.return_value = True
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
+                    "client_secret": "blah",
+                    "account_id": "blah",
                 },
             )
             results = response.json()
@@ -725,11 +779,11 @@ class TestExternalDataSource(APIBaseTest):
                 assert table in table_names
 
     @patch(
-        "posthog.warehouse.api.external_data_source.get_sql_schemas_for_source_type",
+        "posthog.temporal.data_imports.pipelines.sql_database.handlers.get_sql_schemas_for_source_type",
         return_value={"table_1": [("id", "integer")]},
     )
     @patch(
-        "posthog.warehouse.api.external_data_source.get_postgres_row_count",
+        "posthog.temporal.data_imports.pipelines.sql_database.handlers.get_postgres_row_count",
         return_value={"table_1": 42},
     )
     def test_internal_postgres(self, patch_get_sql_schemas_for_source_type, patch_get_postgres_row_count):
