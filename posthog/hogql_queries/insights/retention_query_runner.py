@@ -663,6 +663,7 @@ class RetentionQueryRunner(QueryRunner):
                 },
                 timings=self.timings,
             )
+            assert isinstance(retention_query, ast.SelectQuery)
 
             # Add interval columns
             for i in range(self.query_date_range.lookahead):
