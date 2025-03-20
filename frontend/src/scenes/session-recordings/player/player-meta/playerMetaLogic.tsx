@@ -295,7 +295,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     }
                 })
 
-                const recordingProperties = sessionPlayerMetaData?.id
+                const recordingProperties: Record<string, any> = sessionPlayerMetaData?.id
                     ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
                     : {}
                 const personProperties = allowListedPersonProperties(sessionPlayerMetaData)

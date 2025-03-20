@@ -69,7 +69,7 @@
     "pnpm": {
         "overrides": {
             "playwright": "1.45.0",
-            "typescript": "^5.8.2"
+            "typescript": "^5.0.4"
         },
         "patchedDependencies": {
             "node-rdkafka@2.17.0": "patches/node-rdkafka@2.17.0.patch",

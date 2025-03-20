@@ -6,7 +6,7 @@ settings:
 
 overrides:
   playwright: 1.45.0
-  typescript: ^5.8.2
+  typescript: ^5.0.4
 
 patchedDependencies:
   dayjs@1.11.11:
@@ -149,7 +149,7 @@ importers:
         specifier: ^4.0.0
         version: 4.0.0(typescript@5.8.2)
       typescript:
-        specifier: ^5.8.2
+        specifier: ^5.0.4
         version: 5.8.2
 
   common/eslint_rules: {}
@@ -209,7 +209,7 @@ importers:
         specifier: ^1.21.3
         version: 1.21.4
       typescript:
-        specifier: ^5.8.2
+        specifier: ^5.0.4
         version: 5.8.2
 
   common/plugin_transpiler:
@@ -227,7 +227,7 @@ importers:
         specifier: ^18.11.9
         version: 18.18.4
       typescript:
-        specifier: ^5.8.2
+        specifier: ^5.0.4
         version: 5.8.2
 
   common/storybook:
@@ -429,7 +429,7 @@ importers:
         specifier: '*'
         version: 2.0.0(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)))
       typescript:
-        specifier: ^5.8.2
+        specifier: ^5.0.4
         version: 5.8.2
       webpack:
         specifier: '*'
@@ -511,7 +511,7 @@ importers:
         specifier: '*'
         version: 15.11.0(typescript@5.8.2)
       typescript:
-        specifier: ^5.8.2
+        specifier: ^5.0.4
         version: 5.8.2
     devDependencies:
       ts-json-schema-generator:
@@ -935,7 +935,7 @@ importers:
         specifier: '4.3'
         version: 4.3.0
       typescript:
-        specifier: ^5.8.2
+        specifier: ^5.0.4
         version: 5.8.2
       use-debounce:
         specifier: ^9.0.3
@@ -1381,7 +1381,7 @@ importers:
         specifier: ^6.1.57
         version: 6.1.57
       typescript:
-        specifier: ^5.8.2
+        specifier: ^5.0.4
         version: 5.8.2
       undici-types:
         specifier: ^7.3.0
@@ -1727,7 +1727,7 @@ importers:
         specifier: '*'
         version: 15.11.0(typescript@5.8.2)
       typescript:
-        specifier: ^5.8.2
+        specifier: ^5.0.4
         version: 5.8.2
 
   products/messaging:
@@ -1898,7 +1898,7 @@ importers:
         specifier: ^18.11.9
         version: 18.18.4
       typescript:
-        specifier: ^5.8.2
+        specifier: ^5.0.4
         version: 5.8.2
       undici-types:
         specifier: ^7.3.0
@@ -4709,13 +4709,13 @@ packages:
     resolution: {integrity: sha512-5FRqoj2/ZH3zVc4HO/OnMA1B22kgGIRb3CfsircP3/KHj5t38IDU+s2tctrccs0EjFGyjwIEwyaeuWgqf6fq4g==}
     engines: {node: '>= 16.0.0', parcel: ^2.13.3}
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
 
   '@parcel/ts-utils@2.13.3':
     resolution: {integrity: sha512-ZHPJd7yh5b8iYgyHCZ31nqXHKLGKYnxqhLlEe/zPg8EV3NAVbbiuj2905w2ED5mt5BC+AR1cOEyMuxMRMtUuSQ==}
     engines: {node: '>= 16.0.0'}
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
 
   '@parcel/types-internal@2.13.3':
     resolution: {integrity: sha512-Lhx0n+9RCp+Ipktf/I+CLm3zE9Iq9NtDd8b2Vr5lVWyoT8AbzBKIHIpTbhLS4kjZ80L3I6o93OYjqAaIjsqoZw==}
@@ -6084,7 +6084,7 @@ packages:
   '@storybook/react-docgen-typescript-plugin@1.0.6--canary.9.0c3f3b7.0':
     resolution: {integrity: sha512-KUqXC3oa9JuQ0kZJLBhVdS4lOneKTOopnNBK4tUAgoxWQ3u/IjzdueZjFr7gyBrXMoU6duutk3RQR9u8ZpYJ4Q==}
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
       webpack: '>= 4'
 
   '@storybook/react-dom-shim@7.6.4':
@@ -6100,7 +6100,7 @@ packages:
       '@babel/core': ^7.22.0
       react: ^16.8.0 || ^17.0.0 || ^18.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0
-      typescript: ^5.8.2
+      typescript: ^5.0.4
     peerDependenciesMeta:
       '@babel/core':
         optional: true
@@ -6113,7 +6113,7 @@ packages:
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0
-      typescript: ^5.8.2
+      typescript: ^5.0.4
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -6181,7 +6181,7 @@ packages:
     resolution: {integrity: sha512-iXy2sjP0phPEpK2yivjRC3PAgoLaT4sjSk0LDWCTdcTBJmR4waEog0E6eJbvoOkLkOtWw37SB8vCkl/bbh4+8A==}
     peerDependencies:
       '@swc/core': '>= 1.4.13'
-      typescript: ^5.8.2
+      typescript: ^5.0.4
 
   '@swc-node/sourcemap-support@0.5.1':
     resolution: {integrity: sha512-JxIvIo/Hrpv0JCHSyRpetAdQ6lB27oFYhv0PKCNf1g2gUXOjpeR1exrXccRxLMuAV5WAmGFBwRnNOJqN38+qtg==}
@@ -8515,7 +8515,7 @@ packages:
     resolution: {integrity: sha512-r2CkPUf5jiFWYBwpsn8bZlJeVsJhNPLlqDFEP5XVsqslyXLwz/fp71t+AaY37UQndJbGDVnXCg2WVety6KKxNw==}
     engines: {node: '>=18.20.0'}
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
 
   component-emitter@1.3.1:
     resolution: {integrity: sha512-T0+barUSQRTUQASh8bx02dl+DhF54GtIDY13Y3m9oWTklKbb3Wv974meRpeZ3lp1JpLVECWWNHC4vaG2XHXouQ==}
@@ -8621,7 +8621,7 @@ packages:
     resolution: {integrity: sha512-kcZ6+W5QzcJ3P1Mt+83OUv/oHFqZHIx8DuxG6eZ5RGMERoLqp4BuGjhHLYGK+Kf5XVkQvqBSmAy/nGWN3qDgEA==}
     engines: {node: '>=14'}
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -8630,7 +8630,7 @@ packages:
     resolution: {integrity: sha512-itvL5h8RETACmOTFc4UfIyB2RfEHi71Ax6E/PivVxq9NseKbOWpeyHEOIbmAw1rs8Ak0VursQNww7lf7YtUwzg==}
     engines: {node: '>=14'}
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -10112,7 +10112,7 @@ packages:
     resolution: {integrity: sha512-mX3qW3idpueT2klaQXBzrIM/pHw+T0B/V9KHEvNrqijTq9NFnMZU6oreVxDYcf33P8a5cW+67PjodNHthGnNVg==}
     engines: {node: '>=12.13.0', yarn: '>=1.0.0'}
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
       webpack: ^5.11.0
 
   form-data-encoder@1.7.2:
@@ -11735,7 +11735,7 @@ packages:
     resolution: {integrity: sha512-bMa6IW5UwykoQ9ar07X0HseCSrEpbKYZUIciZjUswxN/Egr5LasXmLARBxVol8RByAweDPu/nIMzqYjWQ5HPAA==}
     hasBin: true
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
 
   kea-waitfor@0.2.1:
     resolution: {integrity: sha512-oXZ42wZl46+KShuPORgAHKFQr1ewrNJ1ZVBUFLDyn4J3XTndQqCvN0GaFrSCIR0qeBzGHtNu/WwPgVGsmDH8DA==}
@@ -12495,7 +12495,7 @@ packages:
     engines: {node: '>=14'}
     hasBin: true
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -14065,7 +14065,7 @@ packages:
   react-docgen-typescript@2.2.2:
     resolution: {integrity: sha512-tvg2ZtOpOi6QDwsb3GZhOjDkkX0h8Z2gipvTg6OVMUyoYoURhEiRNePT8NZItTVCDh39JJHnLdfCOkzoLbFnTg==}
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
 
   react-docgen@7.0.1:
     resolution: {integrity: sha512-rCz0HBIT0LWbIM+///LfRrJoTKftIzzwsYDf0ns5KwaEjejMHQRtphcns+IXFHDNY9pnz6G8l/JbbI6pD4EAIA==}
@@ -15605,19 +15605,19 @@ packages:
     resolution: {integrity: sha512-Cbu4nIqnEdd+THNEsBdkolnOXhg0I8XteoHaEKgvsxpsbWda4IsUut2c187HxywQCvveojow0Dgw/amxtSKVkQ==}
     engines: {node: '>=16.13.0'}
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
 
   ts-api-utils@1.3.0:
     resolution: {integrity: sha512-UQMIo7pb8WRomKR1/+MFVLTroIvDVtMX3K6OUir8ynLyzB8Jeriont2bTAtmNPa1ekAgN7YPDyf6V+ygrdU+eQ==}
     engines: {node: '>=16'}
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
 
   ts-clone-node@4.0.0:
     resolution: {integrity: sha512-dTnuw4SyCQyr6fJ/K/YG/3VjfETFqUkFH31kfEDc2DrmWwFYMR/xJIGNpbgktqpwKXdzBZftcnyapiAv65GKkw==}
     engines: {node: '>=18.20.0'}
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
 
   ts-dedent@2.2.0:
     resolution: {integrity: sha512-q5W7tVM71e2xjHZTlgfTDoPF/SmqKG5hddq9SzR49CH2hayqRKJtQ4mtRlSxKaJlR/+9rEM+mnBHf7I2/BQcpQ==}
@@ -15638,7 +15638,7 @@ packages:
       '@swc/core': '>=1.2.50'
       '@swc/wasm': '>=1.2.50'
       '@types/node': '*'
-      typescript: ^5.8.2
+      typescript: ^5.0.4
     peerDependenciesMeta:
       '@swc/core':
         optional: true
@@ -15664,7 +15664,7 @@ packages:
     resolution: {integrity: sha512-mHKK3iUXL+3UF6xL5k0PEhKRUBKPBCv/+RkEOpjRWxxx27KKRBmmA60A9pgOUvMi8GKhRMPEmjBRPzs2W7O1OA==}
     engines: {node: '>= 6'}
     peerDependencies:
-      typescript: ^5.8.2
+      typescript: ^5.0.4
 
   tty-browserify@0.0.1:
     resolution: {integrity: sha512-C3TaO7K81YvjCgQH9Q1S3R3P3BtN3RIM8n+OvX4il1K1zgE8ZhI0op7kClgkxtutIE8hQrcrHBXvIheqKUUCxw==}

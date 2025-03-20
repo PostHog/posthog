@@ -56,14 +56,14 @@ export const appsCodeLogic = kea<appsCodeLogicType>([
         fetchPluginSource: async () => {
             try {
                 const response = await api.get(`api/organizations/@current/plugins/${props.pluginId}/source`)
-                const formattedCode = {}
+                const formattedCode: Record<string, string> = {}
                 for (const [file, source] of Object.entries(response || {})) {
                     if (source && file.match(/\.(ts|tsx|js|jsx|json)$/)) {
                         try {
                             const prettySource = await formatSource(file, source as string)
                             formattedCode[file] = prettySource
                         } catch (e: any) {
-                            formattedCode[file] = source
+                            formattedCode[file] = String(source)
                         }
                     }
                 }
@@ -78,8 +78,8 @@ export const appsCodeLogic = kea<appsCodeLogicType>([
         pluginSource: {
             defaults: {} as Record<string, string>,
             preSubmit: async () => {
-                const changes = {}
-                const errors = {}
+                const changes: Record<string, string> = {}
+                const errors: Record<string, string> = {}
                 for (const [file, source] of Object.entries(values.pluginSource)) {
                     if (source && file.match(/\.(ts|tsx|js|jsx|json)$/)) {
                         try {
