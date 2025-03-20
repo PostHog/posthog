@@ -11,7 +11,7 @@ import { ErrorTrackingIssueAggregations, ErrorTrackingSparklineConfig } from '~/
 import { errorTrackingLogic } from '../errorTrackingLogic'
 import { sparklineLabels } from '../utils'
 
-export function OccurenceSparkline({
+export function OccurrenceSparkline({
     values,
     unit,
     interval,
@@ -83,6 +83,7 @@ export function OccurenceSparkline({
 
 function useSparklineColors(): { color: string; hoverColor: string } {
     const { isDarkModeOn } = useValues(themeLogic)
+
     return useMemo(() => {
         return {
             color: isDarkModeOn ? 'primitive-neutral-200' : 'primitive-neutral-800',
@@ -93,6 +94,7 @@ function useSparklineColors(): { color: string; hoverColor: string } {
 
 export function useSparklineData(aggregations?: ErrorTrackingIssueAggregations): [number[], TimeUnit, number] {
     const { sparklineSelectedPeriod, customSparklineConfig } = useValues(errorTrackingLogic)
+
     const [values, unit, interval]: [number[], TimeUnit, number] = useMemo(() => {
         if (!aggregations) {
             return [[], 'hour', 0]
@@ -109,6 +111,7 @@ export function useSparklineData(aggregations?: ErrorTrackingIssueAggregations):
         }
         return [[], 'hour', 0]
     }, [aggregations, customSparklineConfig, sparklineSelectedPeriod])
+
     return [values, unit, interval]
 }
 
@@ -116,7 +119,7 @@ function wrapDataWithColor(data: any[] | null, colors: { color: string; hoverCol
     return [
         {
             values: data || [],
-            name: 'Occurences',
+            name: 'Occurrences',
             ...colors,
         },
     ]

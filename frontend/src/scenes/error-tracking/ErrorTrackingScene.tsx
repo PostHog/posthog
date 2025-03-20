@@ -37,7 +37,7 @@ import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { StatusIndicator } from './issue/Indicator'
-import { OccurenceSparkline, useSparklineData } from './issue/OccurenceSparkline'
+import { OccurrenceSparkline, useSparklineData } from './issue/OccurrenceSparkline'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -96,7 +96,7 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
     const [values, unit, interval]: [number[], TimeUnit, number] = useSparklineData(record.aggregations)
     return values ? (
         <div className="flex justify-end">
-            <OccurenceSparkline className="h-8" unit={unit} interval={interval} displayXAxis={false} values={values} />
+            <OccurrenceSparkline className="h-8" unit={unit} interval={interval} displayXAxis={false} values={values} />
         </div>
     ) : null
 }

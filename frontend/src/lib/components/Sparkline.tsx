@@ -29,9 +29,9 @@ interface SparklineProps {
     /** A skeleton is shown during loading. */
     loading?: boolean
     /** Update the X-axis scale. */
-    withXScale?: (x: ScaleOptions) => ScaleOptions
+    withXScale?: (x: ScaleOptions<'linear'>) => ScaleOptions<'linear'>
     /** Update the Y-axis scale. */
-    withYScale?: (y: ScaleOptions) => ScaleOptions
+    withYScale?: (y: ScaleOptions<'linear'>) => ScaleOptions<'linear'>
     /** Render a label for the tooltip. */
     renderLabel?: (label: string) => string
     className?: string
@@ -63,7 +63,7 @@ export function Sparkline({
         if (data === undefined || data.length === 0) {
             return
         }
-        const defaultXScale: ScaleOptions = {
+        const defaultXScale: ScaleOptions<'linear'> = {
             // X axis not needed in line charts without indicators
             display: type === 'bar' || maximumIndicator,
             bounds: 'data',
@@ -77,7 +77,7 @@ export function Sparkline({
             },
             alignToPixels: true,
         }
-        const defaultYScale: ScaleOptions = {
+        const defaultYScale: ScaleOptions<'linear'> = {
             // We use the Y axis for the maximum indicator
             display: maximumIndicator,
             bounds: 'data',
@@ -114,8 +114,8 @@ export function Sparkline({
 
         let chart: Chart
         if (canvasRef.current) {
-            const xScale: any = withXScale ? withXScale(defaultXScale) : defaultXScale
-            const yScale: any = withYScale ? withYScale(defaultYScale) : defaultYScale
+            const xScale = withXScale ? withXScale(defaultXScale) : defaultXScale
+            const yScale = withYScale ? withYScale(defaultYScale) : defaultYScale
             chart = new Chart(canvasRef.current.getContext('2d') as ChartItem, {
                 type,
                 data: {

@@ -22,11 +22,11 @@ BarChart.args = {
 }
 
 const dataRange = Array.from({ length: 50 }, (_, i) => i)
-export const TimeserieChart: Story = Template.bind({})
-TimeserieChart.args = {
+export const TimeseriesChart: Story = Template.bind({})
+TimeseriesChart.args = {
     data: [
         {
-            name: 'occurence',
+            name: 'occurrence',
             values: dataRange.map(() => Math.floor(Math.random() * 100)),
             color: 'primitive-neutral-800',
             hoverColor: 'primary-3000',
