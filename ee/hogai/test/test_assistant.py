@@ -43,9 +43,6 @@ from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_ev
 
 from ..assistant import Assistant
 from ..graph import AssistantGraph, AssistantNodeName
-from ..sql.nodes import (
-    SQLSchemaGeneratorOutput,
-)
 
 
 class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -719,7 +716,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             )
         )
         query = AssistantHogQLQuery(query="SELECT 1")
-        generator_mock.return_value = RunnableLambda(lambda _: SQLSchemaGeneratorOutput(query=query.query).model_dump())
+        generator_mock.return_value = RunnableLambda(lambda _: query.model_dump())
 
         # First run
         actual_output = self._run_assistant_graph(is_new_conversation=True)
