@@ -270,9 +270,9 @@ mod tests {
 
         // Flag with payload
         flags.insert(
-            "flag1".to_string(),
+            "flag_with_payload".to_string(),
             FlagDetails {
-                key: "flag1".to_string(),
+                key: "flag_with_payload".to_string(),
                 enabled: true,
                 variant: "".to_string(),
                 reason: FlagEvaluationReason {
@@ -312,9 +312,9 @@ mod tests {
 
         // Flag with null payload, which should not be filtered out; since Some(Value::Null) is not None
         flags.insert(
-            "flag3".to_string(),
+            "flag_with_null_payload".to_string(),
             FlagDetails {
-                key: "flag3".to_string(),
+                key: "flag_with_null_payload".to_string(),
                 enabled: true,
                 variant: "".to_string(),
                 reason: FlagEvaluationReason {
@@ -336,14 +336,26 @@ mod tests {
 
         // Check that only flag1 with actual payload is included
         assert_eq!(legacy_response.feature_flag_payloads.len(), 2);
-        assert!(legacy_response.feature_flag_payloads.contains_key("flag1"));
+        assert!(legacy_response
+            .feature_flag_payloads
+            .contains_key("flag_with_payload"));
         assert!(!legacy_response.feature_flag_payloads.contains_key("flag2"));
-        assert!(legacy_response.feature_flag_payloads.contains_key("flag3"));
+        assert!(legacy_response
+            .feature_flag_payloads
+            .contains_key("flag_with_null_payload"));
 
         // Verify the payload value
         assert_eq!(
-            legacy_response.feature_flag_payloads.get("flag1"),
+            legacy_response
+                .feature_flag_payloads
+                .get("flag_with_payload"),
             Some(&json!({"key": "value"}))
+        );
+        assert_eq!(
+            legacy_response
+                .feature_flag_payloads
+                .get("flag_with_null_payload"),
+            Some(&json!(null))
         );
     }
 }
