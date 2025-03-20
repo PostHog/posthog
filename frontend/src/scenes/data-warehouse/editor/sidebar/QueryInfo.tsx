@@ -1,8 +1,11 @@
-import { LemonButton, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTable } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
+import { useValues } from 'kea'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import TabScroller from 'scenes/data-warehouse/editor/OutputPaneTabs/TabScroller'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { DataWarehouseSyncInterval, OrNever } from '~/types'
@@ -10,7 +13,7 @@ import { DataWarehouseSyncInterval, OrNever } from '~/types'
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
 
-interface InfoTabProps {
+interface QueryInfoProps {
     codeEditorKey: string
 }
 
@@ -53,7 +56,7 @@ const OPTIONS = [
     },
 ]
 
-export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
+export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
     const { editingView } = useValues(multitabEditorLogic)
     const { runDataWarehouseSavedQuery } = useActions(multitabEditorLogic)
@@ -65,7 +68,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
 
     return (
-        <TabScroller>
+        <div>
             <div className="flex flex-col flex-1 p-4 gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
@@ -231,6 +234,6 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                     dataSource={sourceTableItems}
                 />
             </div>
-        </TabScroller>
+        </div>
     )
 }
