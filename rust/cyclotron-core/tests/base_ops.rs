@@ -225,7 +225,7 @@ async fn test_queue(db: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 pub async fn test_bulk_insert(db: PgPool) {
     let worker = Worker::from_pool(db.clone(), Default::default());
-    let manager = QueueManager::from_pool(db.clone(), true, true);
+    let manager = QueueManager::from_pool(db.clone(), false, true);
 
     let job_template = create_new_job();
 

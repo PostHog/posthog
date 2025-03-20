@@ -206,7 +206,7 @@ COPY cyclotron_jobs (
     janitor_touch_count, transition_count, last_transition, queue_name,
     state, scheduled, priority, vm_state, metadata, parameters, blob
 )
-FROM STDIN WITH BINARY NULL AS '{}'
+FROM STDIN WITH NULL AS '{}'
 "#,
         CSV_NULL
     );
