@@ -107,6 +107,7 @@ export const billingLogic = kea<billingLogicType>([
         showPurchaseCreditsModal: (isOpen: boolean) => ({ isOpen }),
         toggleCreditCTAHeroDismissed: (isDismissed: boolean) => ({ isDismissed }),
         setComputedDiscount: (discount: number) => ({ discount }),
+        scrollToProduct: (productType: string) => ({ productType }),
     }),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
@@ -736,6 +737,13 @@ export const billingLogic = kea<billingLogicType>([
             if (isOpen) {
                 actions.reportCreditsModalShown()
             }
+        },
+        scrollToProduct: ({ productType }) => {
+            const element = document.querySelector(`[data-attr="billing-product-addon-${productType}"]`)
+            element?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+            })
         },
     })),
     afterMount(({ actions }) => {

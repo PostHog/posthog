@@ -1,4 +1,5 @@
 import { LemonButton } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -33,7 +34,7 @@ const STARTUP_PROGRAM_BADGES: Record<StartupProgramLabel, string> = {
 interface CopyVariation {
     title: string | null
     subtitle: string | null
-    getDescription: (billingPlan: BillingPlan) => JSX.Element
+    getDescription: (billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => JSX.Element
     backgroundColor: string
 }
 
@@ -55,10 +56,22 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         title: 'Good call!',
         subtitle: "You're on the ridiculously cheap plan.",
         backgroundColor: 'bg-warning-highlight',
-        getDescription: () => (
+        getDescription: (_billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
-                <p>If you're growing like crazy, you might want to check out the Teams or Enterprise plan.</p>
+                <p>
+                    If you're growing like crazy, you might want to check out the{' '}
+                    {scrollToProduct ? (
+                        <>
+                            <Link onClick={() => scrollToProduct('teams')}>Teams</Link>
+                            {' or '}
+                            <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link>
+                        </>
+                    ) : (
+                        'Teams or Enterprise'
+                    )}{' '}
+                    plan.
+                </p>
             </>
         ),
     },
@@ -66,10 +79,18 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         title: 'Good call!',
         subtitle: "You're on the team plan.",
         backgroundColor: 'bg-warning-highlight',
-        getDescription: () => (
+        getDescription: (_billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
-                <p>If you're growing like crazy, you might want to check out the Enterprise plan.</p>
+                <p>
+                    If you're growing like crazy, you might want to check out the{' '}
+                    {scrollToProduct ? (
+                        <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link>
+                    ) : (
+                        'Enterprise'
+                    )}{' '}
+                    plan.
+                </p>
             </>
         ),
     },
@@ -83,12 +104,29 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         title: 'Good for you!',
         subtitle: "You're on the startup plan.",
         backgroundColor: 'bg-warning-highlight',
-        getDescription: (billingPlan: BillingPlan) => (
+        getDescription: (billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
                 <p>
                     If you're growing like crazy, you might want to check out the{' '}
-                    {billingPlan !== BillingPlan.Teams ? 'Teams or ' : ''}Enterprise plan.
+                    {billingPlan !== BillingPlan.Teams ? (
+                        <>
+                            {scrollToProduct ? (
+                                <>
+                                    <Link onClick={() => scrollToProduct('teams')}>Teams</Link>
+                                    {' or '}
+                                </>
+                            ) : (
+                                'Teams or '
+                            )}
+                        </>
+                    ) : null}
+                    {scrollToProduct ? (
+                        <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link>
+                    ) : (
+                        'Enterprise'
+                    )}{' '}
+                    plan.
                 </p>
             </>
         ),
@@ -97,12 +135,29 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         title: 'Lucky you!',
         subtitle: "You're on the special YC plan.",
         backgroundColor: 'bg-warning-highlight',
-        getDescription: (billingPlan: BillingPlan) => (
+        getDescription: (billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
             <>
                 <p>PostHog comes with all product features on every plan.</p>
                 <p>
                     If you're growing like crazy, you might want to check out the{' '}
-                    {billingPlan !== BillingPlan.Teams ? 'Teams or ' : ''}Enterprise plan.
+                    {billingPlan !== BillingPlan.Teams ? (
+                        <>
+                            {scrollToProduct ? (
+                                <>
+                                    <Link onClick={() => scrollToProduct('teams')}>Teams</Link>
+                                    {' or '}
+                                </>
+                            ) : (
+                                'Teams or '
+                            )}
+                        </>
+                    ) : null}
+                    {scrollToProduct ? (
+                        <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link>
+                    ) : (
+                        'Enterprise'
+                    )}{' '}
+                    plan.
                 </p>
             </>
         ),
@@ -113,6 +168,7 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
     const { featureFlags } = useValues(featureFlagLogic)
     const { showPaymentEntryModal } = useActions(paymentEntryLogic)
     const { redirectPath, billingPlan, startupProgramLabel } = useValues(billingLogic)
+    const { scrollToProduct } = useActions(billingLogic)
     const { isPlanComparisonModalOpen, billingProductLoading } = useValues(billingProductLogic({ product }))
     const { toggleIsPlanComparisonModalOpen, setBillingProductLoading } = useActions(billingProductLogic({ product }))
 
@@ -133,7 +189,7 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                 />
                 {copyVariation.title && <h1 className="mb-0">{copyVariation.title}</h1>}
                 {copyVariation.subtitle && <h1 className="text-danger">{copyVariation.subtitle}</h1>}
-                <div className="mt-2">{copyVariation.getDescription(billingPlan)}</div>
+                <div className="mt-2">{copyVariation.getDescription(billingPlan, scrollToProduct)}</div>
                 {showUpgradeOptions && (
                     <div className="flex items-center gap-2">
                         {featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
