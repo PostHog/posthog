@@ -55,11 +55,11 @@ impl LegacyFlagsResponse {
             feature_flag_payloads: response
                 .flags
                 .iter()
-                .map(|(key, flag)| {
-                    (
-                        key.clone(),
-                        flag.metadata.payload.clone().unwrap_or(Value::Null),
-                    )
+                .filter_map(|(key, flag)| {
+                    flag.metadata
+                        .payload
+                        .clone()
+                        .map(|payload| (key.clone(), payload))
                 })
                 .collect(),
             quota_limited: response.quota_limited,
@@ -190,6 +190,7 @@ mod tests {
     use crate::flags::flag_match_reason::FeatureFlagMatchReason;
     use crate::flags::flag_matching::FeatureFlagMatch;
     use rstest::rstest;
+    use serde_json::json;
 
     #[rstest]
     #[case::condition_match(
@@ -259,6 +260,90 @@ mod tests {
         assert_eq!(
             FlagDetails::get_reason_description(&flag_match),
             expected_description
+        );
+    }
+
+    #[test]
+    fn test_flags_response_only_includes_non_null_payloads() {
+        // Create a response with multiple flags, some with payloads and some without
+        let mut flags = HashMap::new();
+
+        // Flag with payload
+        flags.insert(
+            "flag1".to_string(),
+            FlagDetails {
+                key: "flag1".to_string(),
+                enabled: true,
+                variant: "".to_string(),
+                reason: FlagEvaluationReason {
+                    code: "condition_match".to_string(),
+                    condition_index: Some(0),
+                    description: None,
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 1,
+                    version: 1,
+                    description: None,
+                    payload: Some(json!({"key": "value"})),
+                },
+            },
+        );
+
+        // Flag without payload
+        flags.insert(
+            "flag2".to_string(),
+            FlagDetails {
+                key: "flag2".to_string(),
+                enabled: true,
+                variant: "".to_string(),
+                reason: FlagEvaluationReason {
+                    code: "condition_match".to_string(),
+                    condition_index: Some(0),
+                    description: None,
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 2,
+                    version: 1,
+                    description: None,
+                    payload: None,
+                },
+            },
+        );
+
+        // Flag with null payload, which should not be filtered out; since Some(Value::Null) is not None
+        flags.insert(
+            "flag3".to_string(),
+            FlagDetails {
+                key: "flag3".to_string(),
+                enabled: true,
+                variant: "".to_string(),
+                reason: FlagEvaluationReason {
+                    code: "condition_match".to_string(),
+                    condition_index: Some(0),
+                    description: None,
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 3,
+                    version: 1,
+                    description: None,
+                    payload: Some(Value::Null),
+                },
+            },
+        );
+
+        let response = FlagsResponse::new(false, flags, None);
+        let legacy_response = LegacyFlagsResponse::from_response(response);
+
+        // Check that only flag1 with actual payload is included
+        assert_eq!(legacy_response.feature_flag_payloads.len(), 2);
+        assert!(legacy_response.feature_flag_payloads.contains_key("flag1"));
+        assert!(!legacy_response.feature_flag_payloads.contains_key("flag2"));
+        assert!(legacy_response.feature_flag_payloads.contains_key("flag3"));
+
+        // Verify the payload value
+        assert_eq!(
+            legacy_response.feature_flag_payloads.get("flag1"),
+            Some(&json!({"key": "value"}))
         );
     }
 }
