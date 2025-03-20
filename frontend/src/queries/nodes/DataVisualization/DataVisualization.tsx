@@ -26,6 +26,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
@@ -105,6 +106,8 @@ export function DataTableVisualization({
     const { insightProps: insightLogicProps } = useValues(insightLogic)
     const { exportContext } = useValues(insightDataLogic(insightLogicProps))
 
+    const { loadData } = useActions(dataVisualizationLogic(dataVisualizationLogicProps))
+
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
@@ -115,6 +118,15 @@ export function DataTableVisualization({
                             key: dataVisualizationLogicProps.key,
                             readOnly: readOnly ?? false,
                             dashboardId: insightProps.dashboardId,
+                            sourceQuery: query,
+                            setQuery: setQuery,
+                            onUpdate: (query: DataVisualizationNode) => {
+                                loadData(
+                                    shouldQueryBeAsync(query.source) ? 'force_async' : 'force_blocking',
+                                    undefined,
+                                    query.source
+                                )
+                            },
                         }}
                     >
                         <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>

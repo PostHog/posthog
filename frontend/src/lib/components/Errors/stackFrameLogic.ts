@@ -21,6 +21,7 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
         loadFromRawIds: (rawIds: ErrorTrackingStackFrame['raw_id'][]) => ({ rawIds }),
         loadForSymbolSet: (symbolSetId: ErrorTrackingSymbolSet['id']) => ({ symbolSetId }),
         setShowAllFrames: (showAllFrames: boolean) => ({ showAllFrames }),
+        reverseFrameOrder: (reverseOrder: boolean) => ({ reverseOrder }),
     }),
 
     reducers(() => ({
@@ -29,6 +30,13 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
             { persist: true },
             {
                 setShowAllFrames: (_, { showAllFrames }) => showAllFrames,
+            },
+        ],
+        frameOrderReversed: [
+            false,
+            { persist: true },
+            {
+                reverseFrameOrder: (_, { reverseOrder }) => reverseOrder,
             },
         ],
     })),

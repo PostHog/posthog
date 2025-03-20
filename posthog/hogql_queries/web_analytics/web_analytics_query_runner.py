@@ -1,13 +1,12 @@
 import typing
 from abc import ABC
-from datetime import timedelta
+from datetime import timedelta, datetime
 from math import ceil
 from typing import Optional, Union
 import posthoganalytics
 
 from django.conf import settings
 from django.core.cache import cache
-from django.utils.timezone import datetime
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.hogql import ast
@@ -301,7 +300,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         )
 
     def session_having(self, include_previous_period: Optional[bool] = None):
-        properties = [
+        properties: list[Union[ast.Expr, EventPropertyFilter]] = [
             parse_expr(
                 "min_timestamp >= {date_from}",
                 placeholders={

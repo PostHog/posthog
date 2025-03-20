@@ -1,4 +1,5 @@
 import { IconGear } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
@@ -184,8 +185,8 @@ export interface QueryTile extends BaseTile {
 
 export interface TabsTileTab {
     id: string
-    title: string
-    linkText: string
+    title: string | JSX.Element
+    linkText: string | JSX.Element
     query: QuerySchema
     showIntervalSelect?: boolean
     control?: JSX.Element
@@ -222,7 +223,7 @@ export type WebAnalyticsTile = QueryTile | TabsTile | ReplayTile | ErrorTracking
 export interface WebAnalyticsModalQuery {
     tileId: TileId
     tabId?: string
-    title?: string
+    title?: string | JSX.Element
     query: QuerySchema
     insightProps: InsightLogicProps
     showIntervalSelect?: boolean
@@ -973,6 +974,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               kind: NodeKind.EventsNode,
                               custom_name: e.eventName,
                               math_property: e.revenueProperty,
+                              math_property_revenue_currency: e.revenueCurrencyProperty,
                           }))
                         : []
 
@@ -991,8 +993,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const createGraphsTrendsTab = (
                     id: GraphsTab,
-                    title: string,
-                    linkText: string,
+                    title: string | JSX.Element,
+                    linkText: string | JSX.Element,
                     series: AnyEntityNode[],
                     trendsFilter?: Partial<TrendsFilter>,
                     trendsQueryProperties?: Partial<TrendsQuery>
@@ -1230,7 +1232,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 !conversionGoal && revenueEventsSeries?.length
                                     ? createGraphsTrendsTab(
                                           GraphsTab.REVENUE_EVENTS,
-                                          'Revenue',
+                                          <span>
+                                              Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
+                                          </span>,
                                           'Revenue',
                                           revenueEventsSeries,
                                           {
@@ -1275,8 +1279,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 conversionGoal && conversionRevenueSeries.length
                                     ? createGraphsTrendsTab(
                                           GraphsTab.CONVERSION_REVENUE,
-                                          'Conversion revenue',
-                                          'Conversion revenue',
+                                          <span>
+                                              Conversion Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
+                                          </span>,
+                                          'Conversion Revenue',
                                           conversionRevenueSeries
                                       )
                                     : null,

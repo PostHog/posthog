@@ -1,5 +1,5 @@
 import { IconGear, IconTrending } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -92,6 +92,8 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
     const { baseCurrency } = useValues(revenueEventsSettingsLogic)
 
     const label = labelFromKey(item.key)
+    const isBeta = item.key === 'revenue' || item.key === 'conversion revenue'
+
     const trend = isNotNil(item.changeFromPreviousPct)
         ? item.changeFromPreviousPct === 0
             ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
@@ -127,8 +129,11 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
         <Tooltip title={tooltip}>
             <div className={OVERVIEW_ITEM_CELL_CLASSES}>
                 <div className="flex flex-row w-full">
-                    <div className="flex-1" />
-                    <div className="font-bold uppercase text-xs py-1">{label}</div>
+                    <div className="flex flex-row items-start justify-start flex-1">
+                        {/* NOTE: If ever removing the beta tag, make sure we keep an empty div with flex-1 to keep the layout consistent */}
+                        {isBeta && <LemonTag type="warning">BETA</LemonTag>}
+                    </div>
+                    <div className="font-bold uppercase text-xs py-1">{label}&nbsp;&nbsp;</div>
                     <div className="flex flex-1 flex-row justify-end items-start">
                         {docsUrl && <LemonButton to={docsUrl} icon={<IconGear />} size="xsmall" />}
                     </div>
