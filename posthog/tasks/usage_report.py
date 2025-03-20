@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any, Literal, Optional, TypedDict, Union
 
 import requests
-import structlog
+import logging
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
@@ -50,7 +50,7 @@ from posthog.warehouse.models import ExternalDataJob
 from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
 
 
-logger = structlog.get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class Period(TypedDict):
@@ -1320,16 +1320,23 @@ def send_all_org_usage_reports(
 
     pha_client = get_ph_client(sync_mode=True)
 
+    logger.info("Querying usage report data")
+    query_time_start = datetime.now()
+
     org_reports = _get_all_org_reports(period_start, period_end)
+
+    query_time_duration = (datetime.now() - query_time_start).total_seconds()
+    logger.info(f"Found {len(org_reports)} org reports. It took {query_time_duration} seconds.")
+
     total_orgs = len(org_reports)
     total_orgs_sent = 0
 
-    time_now = datetime.now()
-    logger.info("Sending usage reports to PostHog and Billing...")  # noqa T201
+    logger.info("Sending usage reports to billing")
+    queue_time_start = datetime.now()
 
     pha_client.capture(
         "internal_billing_events",
-        "organization usage report starting",
+        "usage reports starting",
         {
             "total_orgs": total_orgs,
             "region": get_instance_region(),
@@ -1345,7 +1352,7 @@ def send_all_org_usage_reports(
             full_report_dict = _get_full_org_usage_report_as_dict(full_report)
 
             if dry_run:
-                logger.info(f"Dry run, skipping sending for organization {organization_id}")  # noqa T201
+                logger.info(f"Dry run, skipping sending for organization {organization_id}")
                 continue
 
             # First capture the events to PostHog
@@ -1360,7 +1367,7 @@ def send_all_org_usage_reports(
                         at_date=at_date_str,
                     )
                 except Exception as capture_err:
-                    print(f"Failed to capture report for organization {organization_id}: {capture_err}")  # noqa T201
+                    logger.exception(f"Failed to capture report for organization {organization_id}: {capture_err}")
 
             # Then send the reports to billing through SQS (only if the producer is available)
             if has_non_zero_usage(full_report) and producer:
@@ -1368,20 +1375,24 @@ def send_all_org_usage_reports(
                     _queue_report(producer, organization_id, full_report_dict)
                     total_orgs_sent += 1
                 except Exception as err:
-                    print(f"Failed to queue report for organization {organization_id}: {err}")  # noqa T201
+                    logger.exception(f"Failed to queue report for organization {organization_id}: {err}")
 
         except Exception as loop_err:
-            print(f"Failed to process organization {organization_id}: {loop_err}")  # noqa T201
+            logger.exception(f"Failed to process organization {organization_id}: {loop_err}")
 
-    time_since = datetime.now() - time_now
+    queue_time_duration = (datetime.now() - queue_time_start).total_seconds()
     pha_client.capture(
         "internal_billing_events",
-        "organization usage report complete",
+        "usage reports complete",
         {
             "total_orgs": total_orgs,
             "total_orgs_sent": total_orgs_sent,
-            "total_time": time_since.total_seconds(),
+            "query_time": query_time_duration,
+            "queue_time": queue_time_duration,
+            "total_time": query_time_duration + queue_time_duration,
             "region": get_instance_region(),
         },
         groups={"instance": settings.SITE_URL},
     )
+
+    logger.info(f"Usage reports complete. Total orgs: {total_orgs}, total orgs sent: {total_orgs_sent}.")
