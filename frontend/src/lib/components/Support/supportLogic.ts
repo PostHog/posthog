@@ -255,6 +255,8 @@ export type SupportTicketTargetArea =
     | 'surveys'
     | 'web_analytics'
     | 'error_tracking'
+    | 'cdp_destinations'
+    | 'data_ingestion'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -288,6 +290,12 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     warehouse: 'data_warehouse',
     surveys: 'surveys',
     web: 'web_analytics',
+    destination: 'cdp_destinations',
+    destinations: 'cdp_destinations',
+    transformation: 'cdp_destinations',
+    transformations: 'cdp_destinations',
+    source: 'data_warehouse',
+    sources: 'data_warehouse',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
@@ -299,8 +307,15 @@ export const SUPPORT_TICKET_TEMPLATES = {
 }
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
-    const first_part = pathname.split('/')[1]
-    return URL_PATH_TO_TARGET_AREA[first_part] ?? null
+    const pathParts = pathname.split('/')
+
+    for (const part of pathParts) {
+        if (URL_PATH_TO_TARGET_AREA[part]) {
+            return URL_PATH_TO_TARGET_AREA[part]
+        }
+    }
+
+    return null
 }
 
 export type SupportFormLogicProps = {
