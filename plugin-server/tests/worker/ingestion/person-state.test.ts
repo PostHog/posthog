@@ -534,7 +534,7 @@ describe('PersonState.update()', () => {
 
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(BigInt),
+                    id: expect.any(String),
                     uuid: newUserUuid,
                     properties: { a: 1, b: 3, c: 4 },
                     created_at: timestamp,
