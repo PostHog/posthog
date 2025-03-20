@@ -199,7 +199,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BATCH_SIZE: 300,
-        FILTER_TRANSFORMATIONS_ENABLED: true,
+        FILTER_TRANSFORMATIONS_ENABLED: true, // Whether to enable filtering of transformations
+        TRANSFORM_EVENT_HOG_WATCHER_ENABLED: true, // Whether to enable the HogWatcher functionality for transformEvent
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,

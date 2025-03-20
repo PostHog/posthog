@@ -1,5 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import {
     HogFunctionInvocationGlobals,
@@ -42,6 +42,12 @@ export const hogTransformationCompleted = new Counter({
     name: 'hog_transformation_completed_total',
     help: 'Number of successfully completed transformations',
     labelNames: ['type'],
+})
+
+export const transformEventHogWatcherLatency = new Histogram({
+    name: 'transform_event_hog_watcher_latency_milliseconds',
+    help: 'Time spent in HogWatcher operations in milliseconds for transformEvent',
+    labelNames: ['operation'],
 })
 
 export interface TransformationResultPure {
@@ -157,28 +163,36 @@ export class HogTransformerService {
                 const transformationsFailed: string[] = event.properties?.$transformations_failed || []
                 const transformationsSkipped: string[] = event.properties?.$transformations_skipped || []
 
-                // Get states for all functions to check if any are disabled
-                const states = await this.hogWatcher.getStates(teamHogFunctions.map((hf) => hf.id))
+                // Get states for all functions to check if any are disabled - only if feature flag is enabled
+                let states: Record<string, { state: HogWatcherState }> = {}
+                const timer = transformEventHogWatcherLatency.startTimer()
+                if (this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
+                    states = await this.hogWatcher.getStates(teamHogFunctions.map((hf) => hf.id))
+                }
+                const durationSeconds = timer()
+                transformEventHogWatcherLatency.observe({ operation: 'getStates' }, durationSeconds * 1000) // Convert seconds to milliseconds
 
                 // For now, execute each transformation function in sequence
                 for (const hogFunction of teamHogFunctions) {
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
 
-                    // Check if the function is disabled via hogWatcher
-                    const functionState = states[hogFunction.id]
-                    if (functionState.state >= HogWatcherState.disabledForPeriod) {
-                        this.hogFunctionMonitoringService.produceAppMetric({
-                            team_id: event.team_id,
-                            app_source_id: hogFunction.id,
-                            metric_kind: 'failure',
-                            metric_name:
-                                functionState.state === HogWatcherState.disabledForPeriod
-                                    ? 'disabled_temporarily'
-                                    : 'disabled_permanently',
-                            count: 1,
-                        })
-                        transformationsSkipped.push(`${transformationIdentifier} (disabled)`)
-                        continue
+                    // Check if the function is disabled via hogWatcher - skip if feature flag is disabled
+                    if (this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
+                        const functionState = states[hogFunction.id]
+                        if (functionState?.state >= HogWatcherState.disabledForPeriod) {
+                            this.hogFunctionMonitoringService.produceAppMetric({
+                                team_id: event.team_id,
+                                app_source_id: hogFunction.id,
+                                metric_kind: 'failure',
+                                metric_name:
+                                    functionState.state === HogWatcherState.disabledForPeriod
+                                        ? 'disabled_temporarily'
+                                        : 'disabled_permanently',
+                                count: 1,
+                            })
+                            transformationsSkipped.push(`${transformationIdentifier} (disabled)`)
+                            continue
+                        }
                     }
 
                     // Check if we should apply this transformation based on its filters
@@ -292,9 +306,12 @@ export class HogTransformerService {
                     transformationsSucceeded.push(transformationIdentifier)
                 }
 
-                // Observe the results to update rate limiting state
-                if (results.length > 0) {
+                // Observe the results to update rate limiting state - only if feature flag is enabled
+                if (results.length > 0 && this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
+                    const timer = transformEventHogWatcherLatency.startTimer()
                     await this.hogWatcher.observeResults(results)
+                    const durationSeconds = timer()
+                    transformEventHogWatcherLatency.observe({ operation: 'observeResults' }, durationSeconds * 1000) // Convert seconds to milliseconds
                 }
 
                 if (transformationsFailed.length > 0) {

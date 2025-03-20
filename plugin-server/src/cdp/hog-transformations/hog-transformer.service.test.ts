@@ -1263,7 +1263,12 @@ describe('HogTransformer', () => {
     })
 
     // Add the new test suite for HogWatcher integration
-    describe('hogWatcher integration', () => {
+    describe('transformEvent HogWatcher integration', () => {
+        beforeEach(() => {
+            hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED = true
+            hub.FILTER_TRANSFORMATIONS_ENABLED = true
+        })
+
         it('should skip disabled functions', async () => {
             const produceAppMetricSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'produceAppMetric')
 
