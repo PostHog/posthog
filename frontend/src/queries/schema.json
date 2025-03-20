@@ -14552,39 +14552,16 @@
             "type": "object"
         },
         "RefreshType": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "const": "async",
-                    "type": "string"
-                },
-                {
-                    "const": "async_except_on_cache_miss",
-                    "type": "string"
-                },
-                {
-                    "const": "blocking",
-                    "type": "string"
-                },
-                {
-                    "const": "force_async",
-                    "type": "string"
-                },
-                {
-                    "const": "force_blocking",
-                    "type": "string"
-                },
-                {
-                    "const": "force_cache",
-                    "type": "string"
-                },
-                {
-                    "const": "lazy_async",
-                    "type": "string"
-                }
-            ]
+            "enum": [
+                "async",
+                "async_except_on_cache_miss",
+                "blocking",
+                "force_async",
+                "force_blocking",
+                "force_cache",
+                "lazy_async"
+            ],
+            "type": "string"
         },
         "ResultCustomization": {
             "anyOf": [

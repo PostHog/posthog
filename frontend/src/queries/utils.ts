@@ -254,6 +254,15 @@ export function isAsyncResponse(response: NonNullable<QuerySchema['response']>):
     return 'query_status' in response && response.query_status
 }
 
+export function shouldQueryBeAsync(query: Node): boolean {
+    return (
+        isInsightQueryNode(query) ||
+        isHogQLQuery(query) ||
+        (isDataTableNode(query) && isInsightQueryNode(query.source)) ||
+        (isDataVisualizationNode(query) && isInsightQueryNode(query.source))
+    )
+}
+
 export function isInsightQueryWithSeries(
     node?: Node
 ): node is TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery {
