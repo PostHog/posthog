@@ -118,9 +118,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         />
                     </div>
 
-                    <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto pt-1">
+                    <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
                         <ScrollableShadows innerClassName="overflow-y-auto px-2 " direction="vertical">
-                            <div className="pb-1">
+                            <div className="flex flex-col gap-px pb-1">
                                 <LemonButton
                                     className={cn(
                                         'hover:bg-fill-highlight-50',
@@ -190,65 +190,67 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 <div className="flex justify-between items-center pt-1 pl-2 pr-0 pb-2">
                                     <span className="text-xs font-bold text-tertiary">Products</span>
                                 </div>
-                                {navbarItems.map((section, index) => (
-                                    <ul key={index}>
-                                        {section.map((item) => {
-                                            if (item.identifier === 'Activity') {
-                                                return null
-                                            }
-                                            return item.featureFlag && !featureFlags[item.featureFlag] ? null : (
-                                                <LemonButton
-                                                    key={item.identifier}
-                                                    className={cn(
-                                                        'hover:bg-fill-highlight-50',
-                                                        (activeScene === item.identifier ||
-                                                            sceneBreadcrumbKeys.includes(item.identifier)) &&
-                                                            'bg-fill-highlight-100'
-                                                    )}
-                                                    icon={<IconWrapper>{item.icon}</IconWrapper>}
-                                                    sideIcon={
-                                                        item.tag ? (
-                                                            <LemonTag
-                                                                type={
-                                                                    item.tag === 'alpha'
-                                                                        ? 'completion'
-                                                                        : item.tag === 'beta'
-                                                                        ? 'warning'
-                                                                        : 'success'
-                                                                }
-                                                                size="small"
-                                                                className="ml-2"
-                                                            >
-                                                                {item.tag.toUpperCase()}
-                                                            </LemonTag>
-                                                        ) : undefined
-                                                    }
-                                                    fullWidth
-                                                    size="small"
-                                                    // This makes it a link if it has a to
-                                                    to={'to' in item ? item.to : undefined}
-                                                    // we handle routing in the handleStaticNavbarItemClick function
-                                                    onClick={() => {
-                                                        handleStaticNavbarItemClick(item, false)
-                                                    }}
-                                                    // If enter, focus the main content
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter') {
-                                                            handleStaticNavbarItemClick(item, true)
+                                <div className="flex flex-col gap-px">
+                                    {navbarItems.map((section, index) => (
+                                        <ul key={index} className="flex flex-col gap-px">
+                                            {section.map((item) => {
+                                                if (item.identifier === 'Activity') {
+                                                    return null
+                                                }
+                                                return item.featureFlag && !featureFlags[item.featureFlag] ? null : (
+                                                    <LemonButton
+                                                        key={item.identifier}
+                                                        className={cn(
+                                                            'hover:bg-fill-highlight-50',
+                                                            (activeScene === item.identifier ||
+                                                                sceneBreadcrumbKeys.includes(item.identifier)) &&
+                                                                'bg-fill-highlight-100'
+                                                        )}
+                                                        icon={<IconWrapper>{item.icon}</IconWrapper>}
+                                                        sideIcon={
+                                                            item.tag ? (
+                                                                <LemonTag
+                                                                    type={
+                                                                        item.tag === 'alpha'
+                                                                            ? 'completion'
+                                                                            : item.tag === 'beta'
+                                                                            ? 'warning'
+                                                                            : 'success'
+                                                                    }
+                                                                    size="small"
+                                                                    className="ml-2"
+                                                                >
+                                                                    {item.tag.toUpperCase()}
+                                                                </LemonTag>
+                                                            ) : undefined
                                                         }
-                                                    }}
-                                                    active={
-                                                        (activePanelIdentifier === item.identifier ||
-                                                            sceneBreadcrumbKeys.includes(item.identifier)) &&
-                                                        activeScene === item.identifier
-                                                    }
-                                                >
-                                                    {item.label}
-                                                </LemonButton>
-                                            )
-                                        })}
-                                    </ul>
-                                ))}
+                                                        fullWidth
+                                                        size="small"
+                                                        // This makes it a link if it has a to
+                                                        to={'to' in item ? item.to : undefined}
+                                                        // we handle routing in the handleStaticNavbarItemClick function
+                                                        onClick={() => {
+                                                            handleStaticNavbarItemClick(item, false)
+                                                        }}
+                                                        // If enter, focus the main content
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                handleStaticNavbarItemClick(item, true)
+                                                            }
+                                                        }}
+                                                        active={
+                                                            (activePanelIdentifier === item.identifier ||
+                                                                sceneBreadcrumbKeys.includes(item.identifier)) &&
+                                                            activeScene === item.identifier
+                                                        }
+                                                    >
+                                                        {item.label}
+                                                    </LemonButton>
+                                                )
+                                            })}
+                                        </ul>
+                                    ))}
+                                </div>
                             </div>
                         </ScrollableShadows>
 

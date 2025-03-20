@@ -25,6 +25,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
@@ -119,7 +120,11 @@ export function DataTableVisualization({
                             sourceQuery: query,
                             setQuery: setQuery,
                             onUpdate: (query: DataVisualizationNode) => {
-                                loadData(true, undefined, query.source)
+                                loadData(
+                                    shouldQueryBeAsync(query.source) ? 'force_async' : 'force_blocking',
+                                    undefined,
+                                    query.source
+                                )
                             },
                         }}
                     >

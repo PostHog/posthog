@@ -166,8 +166,8 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         {record.name || 'Unknown Type'}
                     </div>
                 </Link>
-                <div className="line-clamp-1 text-gray-600">{record.description}</div>
-                <div className="flex gap-1 items-center text-gray-500">
+                <div className="line-clamp-1 text-secondary">{record.description}</div>
+                <div className="flex gap-1 items-center text-secondary">
                     <StatusIndicator size="xsmall" status={record.status} />
                     <span>|</span>
                     <TZLabel time={record.first_seen} className="border-dotted border-b text-xs" delayMs={750} />

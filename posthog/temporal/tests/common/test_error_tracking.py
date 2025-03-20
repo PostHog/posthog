@@ -79,6 +79,7 @@ async def failing_activity_with_properties_to_log(inputs: OptionallyFailingInput
         raise ValueError("Activity failed!")
 
 
+@pytest.mark.skip("Skipping test because we've disabled PostHog error tracking for now")
 @pytest.mark.parametrize("fail", [True, False])
 @pytest.mark.parametrize("capture_additional_properties", [True, False])
 @pytest.mark.asyncio

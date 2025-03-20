@@ -154,7 +154,7 @@ const loadMetrics = async ({
                         experiment_id: experimentId,
                     }
                 }
-                const response = await performQuery(queryWithExperimentId, undefined, refresh)
+                const response = await performQuery(queryWithExperimentId, undefined, refresh ? 'force_async' : 'async')
 
                 results[index] = {
                     ...response,
@@ -1405,7 +1405,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         kind: NodeKind.ExperimentExposureQuery,
                         experiment_id: props.experimentId,
                     }
-                    return await performQuery(query, undefined, refresh)
+                    return await performQuery(query, undefined, refresh ? 'force_async' : 'async')
                 },
             },
         ],
