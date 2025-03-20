@@ -6,10 +6,11 @@ import { ClampedText } from 'lib/lemon-ui/ClampedText'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 
-import { SparklinePanel } from './Sparkline'
+import { OccurenceSparkline, useSparklineData } from './OccurenceSparkline'
 
 export const Metadata = (): JSX.Element => {
     const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const [values, unit, interval] = useSparklineData(issue?.aggregations)
 
     const hasSessionCount = issue && issue.aggregations && issue.aggregations.sessions !== 0
 
@@ -73,7 +74,7 @@ export const Metadata = (): JSX.Element => {
                     </div>
                 </div>
             </div>
-            <SparklinePanel />
+            <OccurenceSparkline className="h-26 w-full" values={values} unit={unit} interval={interval} />
         </div>
     )
 }
