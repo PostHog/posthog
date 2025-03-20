@@ -34,7 +34,7 @@ from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
 from posthog.api.email_verification import EmailVerifier
-from posthog.api.organization import OrganizationSerializer
+from posthog.api.organization import OrganizationSerializer, OrganizationMembership
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import (
     ClassicBehaviorBooleanFieldSerializer,
@@ -419,6 +419,18 @@ class UserViewSet(
             **super().get_serializer_context(),
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
+
+    def delete(self, request, *args, **kwargs):
+        user = self.get_object()
+
+        memberships = OrganizationMembership.objects.filter(user=user)
+
+        if memberships.count() > 0:
+            return Response(status=409, data={"detail": "Cannot delete user with organization memberships."})
+
+        user.delete()
+
+        return Response(status=204)
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):

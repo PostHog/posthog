@@ -69,7 +69,7 @@ export function NavbarBottom(): JSX.Element {
                     icon={<IconGear />}
                     identifier={Scene.Settings}
                     title="Settings"
-                    to={urls.settings('project')}
+                    to={urls.settings(user?.organization?.id ? 'project' : 'user-danger-zone')}
                 />
 
                 {!systemStatusHealthy ? (

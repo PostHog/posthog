@@ -7,7 +7,6 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -52,13 +51,15 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
     )
     const disallowedReason = getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
 
+    if (disallowedReason && !allowDeletion) {
+        return null
+    }
+
     return (
         <More
             overlay={
                 <>
-                    {disallowedReason ? (
-                        <div>{disallowedReason}</div>
-                    ) : (
+                    {!disallowedReason &&
                         allowedLevels.map((listLevel) => (
                             <LemonButton
                                 fullWidth
@@ -97,11 +98,9 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                     <>Downgrade to {membershipLevelToName.get(listLevel)}</>
                                 )}
                             </LemonButton>
-                        ))
-                    )}
-                    {allowDeletion ? (
+                        ))}
+                    {allowDeletion && (
                         <>
-                            <LemonDivider />
                             <LemonButton
                                 status="danger"
                                 data-attr="delete-org-membership"
@@ -130,7 +129,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                 {member.user.uuid !== user.uuid ? 'Remove from organization' : 'Leave organization'}
                             </LemonButton>
                         </>
-                    ) : null}
+                    )}
                 </>
             }
         />
