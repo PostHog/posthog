@@ -169,25 +169,16 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 ]
                 for prop in props_to_search:
                     or_exprs.append(
-                        ast.Call(
-                            name="arrayExists",
-                            args=[
-                                ast.Lambda(
-                                    args=["x"],
-                                    expr=ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Gt,
-                                        left=ast.Call(
-                                            name="position",
-                                            args=[
-                                                ast.Call(name="lower", args=[ast.Field(chain=["x"])]),
-                                                ast.Call(name="lower", args=[ast.Constant(value=token)]),
-                                            ],
-                                        ),
-                                        right=ast.Constant(value=0),
-                                    ),
-                                ),
-                                ast.Field(chain=["properties", prop]),
-                            ],
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Call(
+                                name="position",
+                                args=[
+                                    ast.Call(name="lower", args=[ast.Field(chain=["properties", prop])]),
+                                    ast.Call(name="lower", args=[ast.Constant(value=token)]),
+                                ],
+                            ),
+                            right=ast.Constant(value=0),
                         )
                     )
 
