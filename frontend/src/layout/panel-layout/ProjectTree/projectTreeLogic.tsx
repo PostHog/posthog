@@ -1,5 +1,4 @@
 import { IconBook } from '@posthog/icons'
-import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -17,7 +16,13 @@ import { panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
-import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
+import {
+    convertFileSystemEntryToFlatTreeDataItem,
+    convertFileSystemEntryToTreeDataItem,
+    findInProjectTree,
+    joinPath,
+    splitPath,
+} from './utils'
 const PAGINATION_LIMIT = 100
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
@@ -31,6 +36,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             panelLayoutLogic,
             ['searchTerm', 'isLayoutPanelPinned'],
         ],
+        actions: [panelLayoutLogic, ['setSearchTerm']],
     }),
     actions({
         loadUnfiledItems: true,
@@ -66,6 +72,24 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 loadUnfiledItems: async () => {
                     const response = await api.fileSystem.unfiled()
                     return [...values.allUnfiledItems, ...response.results]
+                },
+            },
+        ],
+        searchResults: [
+            { searchTerm: '', results: [], hasMore: false } as {
+                searchTerm: string
+                results: FileSystemEntry[]
+                hasMore: boolean
+            },
+            {
+                setSearchTerm: async ({ searchTerm }, breakpoint) => {
+                    await breakpoint(100)
+                    const response = await api.fileSystem.list({ search: searchTerm, limit: PAGINATION_LIMIT + 1 })
+                    return {
+                        searchTerm,
+                        results: response.results.slice(0, PAGINATION_LIMIT),
+                        hasMore: response.results.length > PAGINATION_LIMIT,
+                    }
                 },
             },
         ],
@@ -335,63 +359,22 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ],
         ],
         searchedTreeItems: [
-            (s) => [s.projectTree, s.projectRow, s.searchTerm],
-            (projectTree: TreeDataItem[], projectRow: TreeDataItem[], searchTerm: string): TreeDataItem[] => {
-                if (!searchTerm) {
-                    return [...projectRow, ...projectTree]
-                }
-
-                const allItems = [...projectRow, ...projectTree]
-
-                // TODO: remove from client side @marius :)
-                const fuse = new Fuse(allItems, {
-                    keys: ['name'],
-                    threshold: 0.3,
-                    ignoreLocation: true,
-                })
-
-                const searchResults = fuse.search(searchTerm).map((result) => result.item)
-
-                // Helper function to check if any child matches the search
-                const hasMatchingChild = (item: TreeDataItem): boolean => {
-                    if (!item.children) {
-                        return false
-                    }
-                    return item.children.some(
-                        (child) => searchResults.some((result) => result.id === child.id) || hasMatchingChild(child)
-                    )
-                }
-
-                // Include parent folders of matching items
-                const resultWithParents = searchResults.reduce((acc: TreeDataItem[], item) => {
-                    if (!acc.some((i) => i.id === item.id)) {
-                        acc.push(item)
-                    }
-
-                    // If it's a matching folder, include its children
-                    if (item.children) {
-                        item.children.forEach((child) => {
-                            if (
-                                !acc.some((i) => i.id === child.id) &&
-                                (searchResults.some((r) => r.id === child.id) || hasMatchingChild(child))
-                            ) {
-                                acc.push(child)
-                            }
-                        })
-                    }
-                    return acc
-                }, [])
-
-                return resultWithParents
+            (s) => [s.searchResults],
+            (searchResults): TreeDataItem[] => {
+                return convertFileSystemEntryToFlatTreeDataItem(
+                    searchResults.results,
+                    'search',
+                    searchResults.searchTerm
+                )
             },
         ],
         treeData: [
-            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.projectRow],
-            (searchTerm, searchedTreeItems, projectTree, projectRow): TreeDataItem[] => {
+            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree],
+            (searchTerm, searchedTreeItems, projectTree): TreeDataItem[] => {
                 if (searchTerm) {
                     return searchedTreeItems
                 }
-                return [...projectRow, ...projectTree] as TreeDataItem[]
+                return projectTree
             },
         ],
     }),
@@ -404,12 +387,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.loadFolderStart(folder)
             try {
                 const previousFiles = values.folders[folder] || []
-                const response = await api.fileSystem.list(
-                    folder,
-                    splitPath(folder).length + 1,
-                    PAGINATION_LIMIT + 1,
-                    previousFiles.length
-                )
+                const response = await api.fileSystem.list({
+                    parent: folder,
+                    depth: splitPath(folder).length + 1,
+                    limit: PAGINATION_LIMIT + 1,
+                    offset: previousFiles.length,
+                })
 
                 let files = response.results
                 let hasMore = false

@@ -24,6 +24,8 @@ export type TreeDataItem = {
     id: string
     /** The name of the item. */
     name: string
+    /** What to show as the name. */
+    displayName?: React.ReactElement
     /** Passthrough metadata */
     record?: Record<string, any>
     /** The side action to render for the item. */
@@ -174,7 +176,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             <ul className={cn('list-none m-0 p-0', className)} role="group">
                 {data.map((item) => {
                     // Clean up display name by replacing escaped characters
-                    const displayName = item.name.replace(/\\\//g, '/').replace(/\\/g, '')
+                    const displayName = item.displayName ?? item.name //.replace(/\\\//g, '/').replace(/\\/g, '')
 
                     if (item.type === 'separator') {
                         return (
@@ -261,6 +263,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             'flex items-center justify-between gap-2': item.sideIcon,
                                                         })}
                                                     >
+                                                        {/* {item.hint ? <div className='flex flex-col gap-1'>{displayName}<div className='text-xxs font-normal'>{item.hint}</div></div> : displayName} */}
                                                         {displayName}
                                                         {item.sideIcon}
                                                     </span>
