@@ -107,14 +107,18 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
     },
 }
 
-export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { showPaymentEntryModal } = useActions(paymentEntryLogic)
     const { redirectPath, billingPlan, startupProgramLabel } = useValues(billingLogic)
     const { isPlanComparisonModalOpen, billingProductLoading } = useValues(billingProductLogic({ product }))
     const { toggleIsPlanComparisonModalOpen, setBillingProductLoading } = useActions(billingProductLogic({ product }))
 
-    const showUpgradeOptions = billingPlan !== BillingPlan.Enterprise
+    if (!billingPlan) {
+        return null
+    }
+
+    const showUpgradeOptions = billingPlan === BillingPlan.Free
     const copyVariation = startupProgramLabel ? BADGE_CONFIG[startupProgramLabel] : BADGE_CONFIG[billingPlan]
 
     return (

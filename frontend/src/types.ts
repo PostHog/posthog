@@ -1816,7 +1816,7 @@ export interface BillingType {
         target: 'paid' | 'teams' | 'enterprise'
         expires_at: string
     }
-    billing_plan: BillingPlan
+    billing_plan: BillingPlan | null
     startup_program_label?: StartupProgramLabel | null
 }
 
