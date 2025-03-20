@@ -65,6 +65,7 @@ describe('SessionConsoleLogStore', () => {
         ]
 
         await store.storeSessionConsoleLogs(logs)
+        await store.flush()
 
         expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
@@ -113,6 +114,7 @@ describe('SessionConsoleLogStore', () => {
 
     it('should handle empty logs array', async () => {
         await store.storeSessionConsoleLogs([])
+        await store.flush()
         expect(mockProducer.queueMessages).not.toHaveBeenCalled()
     })
 
@@ -133,7 +135,8 @@ describe('SessionConsoleLogStore', () => {
             },
         ]
 
-        await expect(store.storeSessionConsoleLogs(logs)).rejects.toThrow(error)
+        await store.storeSessionConsoleLogs(logs)
+        await expect(store.flush()).rejects.toThrow(error)
     })
 
     it('should preserve batch IDs when storing logs', async () => {
@@ -161,6 +164,7 @@ describe('SessionConsoleLogStore', () => {
         ]
 
         await store.storeSessionConsoleLogs(logs)
+        await store.flush()
 
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
         const parsedLogs = queuedMessage.messages.map((msg) => parseJSON(msg.value as string))
@@ -186,6 +190,7 @@ describe('SessionConsoleLogStore', () => {
         ]
 
         await store.storeSessionConsoleLogs(logs)
+        await store.flush()
         expect(mockProducer.queueMessages).not.toHaveBeenCalled()
     })
 
@@ -207,6 +212,7 @@ describe('SessionConsoleLogStore', () => {
         ]
 
         await store.storeSessionConsoleLogs(logs)
+        await store.flush()
 
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
         expect(queuedMessage.topic).toBe(customTopic)
@@ -251,11 +257,13 @@ describe('SessionConsoleLogStore', () => {
             ]
 
             await store.storeSessionConsoleLogs(logs)
+            await store.flush()
             expect(SessionBatchMetrics.incrementConsoleLogsStored).toHaveBeenCalledWith(2)
         })
 
         it('should not increment metric for empty logs array', async () => {
             await store.storeSessionConsoleLogs([])
+            await store.flush()
             expect(SessionBatchMetrics.incrementConsoleLogsStored).not.toHaveBeenCalled()
         })
 
@@ -275,28 +283,141 @@ describe('SessionConsoleLogStore', () => {
             ]
 
             await store.storeSessionConsoleLogs(logs)
+            await store.flush()
             expect(SessionBatchMetrics.incrementConsoleLogsStored).not.toHaveBeenCalled()
         })
+    })
 
-        it('should not increment metric if producer fails', async () => {
-            const error = new Error('Kafka producer error')
-            mockProducer.queueMessages.mockRejectedValueOnce(error)
+    describe('promise limit and sync behavior', () => {
+        let mockProducer: jest.Mocked<KafkaProducerWrapper>
+        let store: SessionConsoleLogStore
+        let resolveProducerPromises: (() => void)[]
 
-            const logs: ConsoleLogEntry[] = [
-                {
-                    team_id: 1,
-                    message: 'Test log message',
-                    level: ConsoleLogLevel.Log,
-                    log_source: 'session_replay',
-                    log_source_id: 'session123',
-                    instance_id: null,
-                    timestamp: makeTimestamp('2025-01-01 10:00:00.000'),
-                    batch_id: 'batch123',
-                },
-            ]
+        beforeEach(() => {
+            resolveProducerPromises = []
+            mockProducer = {
+                queueMessages: jest.fn().mockImplementation(() => {
+                    return new Promise<void>((resolve) => {
+                        // Store the resolve function so we can control when this promise resolves
+                        resolveProducerPromises.push(resolve)
+                    })
+                }),
+                flush: jest.fn().mockResolvedValue(undefined),
+            } as unknown as jest.Mocked<KafkaProducerWrapper>
 
-            await expect(store.storeSessionConsoleLogs(logs)).rejects.toThrow(error)
-            expect(SessionBatchMetrics.incrementConsoleLogsStored).not.toHaveBeenCalled()
+            // Set promise limit to 1 to make testing easier
+            store = new SessionConsoleLogStore(mockProducer, 'log_entries_v2', { promiseLimit: 1 })
+        })
+
+        const createTestLog = (id: string): ConsoleLogEntry => ({
+            team_id: 1,
+            message: `Test message ${id}`,
+            level: ConsoleLogLevel.Log,
+            log_source: 'session_replay',
+            log_source_id: `session${id}`,
+            instance_id: null,
+            timestamp: makeTimestamp('2025-01-01 10:00:00.000'),
+            batch_id: `batch${id}`,
+        })
+
+        it('should not await producer promise when storing logs initially', async () => {
+            const log = createTestLog('1')
+
+            // This should return immediately without waiting for the producer
+            const storePromise = store.storeSessionConsoleLogs([log])
+
+            // Verify that storeSessionConsoleLogs resolves before the producer promise
+            let storeResolved = false
+            void storePromise.then(() => {
+                storeResolved = true
+            })
+
+            await new Promise((resolve) => setTimeout(resolve, 10))
+            expect(storeResolved).toBe(true)
+            expect(resolveProducerPromises.length).toBe(1)
+            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+
+            // Now when we flush, it should wait for all producer promises
+            const flushPromise = store.flush()
+            let flushResolved = false
+            void flushPromise.then(() => {
+                flushResolved = true
+            })
+
+            await new Promise((resolve) => setTimeout(resolve, 10))
+            expect(flushResolved).toBe(false)
+
+            // Resolve the producer promise
+            resolveProducerPromises[0]()
+
+            // Now flush should complete
+            await flushPromise
+            expect(mockProducer.flush).toHaveBeenCalledTimes(1)
+        })
+
+        it('should handle sync correctly with multiple messages', async () => {
+            const log1 = createTestLog('1')
+            const log2 = createTestLog('2')
+            const log3 = createTestLog('3')
+
+            // First store call should return immediately
+            const store1Promise = store.storeSessionConsoleLogs([log1])
+            let store1Resolved = false
+            void store1Promise.then(() => {
+                store1Resolved = true
+            })
+
+            // Second store call should trigger a sync because limit is 1
+            const store2Promise = store.storeSessionConsoleLogs([log2])
+            let store2Resolved = false
+            void store2Promise.then(() => {
+                store2Resolved = true
+            })
+
+            // Third store call should queue up behind the sync
+            const store3Promise = store.storeSessionConsoleLogs([log3])
+            let store3Resolved = false
+            void store3Promise.then(() => {
+                store3Resolved = true
+            })
+
+            // First store should have resolved immediately
+            await new Promise((resolve) => setTimeout(resolve, 10))
+            expect(store1Resolved).toBe(true)
+            expect(store2Resolved).toBe(false)
+            expect(store3Resolved).toBe(false)
+            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(resolveProducerPromises.length).toBe(1)
+
+            // Resolve first producer promise
+            resolveProducerPromises[0]()
+
+            // Wait a bit for promises to resolve
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
+            // Second store should now be resolved and third should be queued
+            expect(store2Resolved).toBe(true)
+            expect(store3Resolved).toBe(false)
+            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(2)
+            expect(resolveProducerPromises.length).toBe(2)
+
+            // Resolve second producer promise
+            resolveProducerPromises[1]()
+
+            // Wait a bit for promises to resolve
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
+            // All stores should be resolved now
+            expect(store3Resolved).toBe(true)
+            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(3)
+            expect(resolveProducerPromises.length).toBe(3)
+
+            // Resolve final producer promise
+            resolveProducerPromises[2]()
+
+            // Flush should work as expected
+            await store.flush()
+            expect(mockProducer.flush).toHaveBeenCalledTimes(1)
         })
     })
 })

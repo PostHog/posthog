@@ -17,8 +17,16 @@ export type ConsoleLogEntry = {
 
 export class SessionConsoleLogStore {
     private consoleLogsCount = 0
+    private pendingPromises: Promise<void>[] = []
+    private syncPromise: Promise<void> | null = null
+    private readonly promiseLimit: number
 
-    constructor(private readonly producer: KafkaProducerWrapper, private readonly topic: string) {
+    constructor(
+        private readonly producer: KafkaProducerWrapper,
+        private readonly topic: string,
+        options: { promiseLimit?: number } = {}
+    ) {
+        this.promiseLimit = options.promiseLimit ?? 100
         logger.debug('session_console_log_store_created')
         if (!this.topic) {
             logger.warn('session_console_log_store_no_topic_configured')
@@ -27,25 +35,55 @@ export class SessionConsoleLogStore {
 
     public async storeSessionConsoleLogs(logs: ConsoleLogEntry[]): Promise<void> {
         if (logs.length === 0 || !this.topic) {
-            return
+            return Promise.resolve()
         }
 
-        await this.producer.queueMessages({
-            topic: this.topic,
-            messages: logs.map((log) => ({
-                value: JSON.stringify(log),
-                key: log.log_source_id, // Using session_id as the key for partitioning
-            })),
-        })
+        if (this.pendingPromises.length >= this.promiseLimit) {
+            this.syncPromise = this.sync()
+        }
+
+        if (this.syncPromise) {
+            await this.syncPromise
+            return this.storeSessionConsoleLogs(logs)
+        }
+
+        this.pendingPromises.push(
+            this.producer.queueMessages({
+                topic: this.topic,
+                messages: logs.map((log) => ({
+                    value: JSON.stringify(log),
+                    key: log.log_source_id,
+                })),
+            })
+        )
 
         this.consoleLogsCount += logs.length
         logger.debug(`stored ${logs.length} console logs for session ${logs[0].log_source_id}`)
         SessionBatchMetrics.incrementConsoleLogsStored(logs.length)
+        return Promise.resolve()
     }
 
     public async flush(): Promise<void> {
+        if (this.syncPromise) {
+            await this.syncPromise
+            return this.flush()
+        } else {
+            await this.sync()
+        }
+
         logger.info(`flushing ${this.consoleLogsCount} console logs`)
         await this.producer.flush()
         this.consoleLogsCount = 0
+    }
+
+    private async sync(): Promise<void> {
+        if (this.syncPromise) {
+            return this.syncPromise
+        }
+
+        logger.debug(`syncing ${this.pendingPromises.length} console log promises`)
+        await Promise.all(this.pendingPromises)
+        this.pendingPromises = []
+        this.syncPromise = null
     }
 }
