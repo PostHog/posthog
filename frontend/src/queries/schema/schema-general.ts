@@ -1982,7 +1982,7 @@ export interface ExperimentFunnelStepConfig {
     event: string
     name?: string
     order: number
-    properties: AnyPropertyFilter[]
+    properties?: AnyPropertyFilter[]
 }
 
 export interface ExperimentFunnelMetricConfig {

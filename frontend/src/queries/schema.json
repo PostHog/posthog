@@ -8089,7 +8089,7 @@
                     "type": "array"
                 }
             },
-            "required": ["kind", "event", "order", "properties"],
+            "required": ["kind", "event", "order"],
             "type": "object"
         },
         "ExperimentFunnelsQuery": {
