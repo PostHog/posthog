@@ -57,22 +57,19 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         subtitle: "You're on the Ridiculously Cheap™ plan.",
         backgroundColor: 'bg-warning-highlight',
         getDescription: (_billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
-            <>
-                <p>PostHog comes with all product features on every plan.</p>
-                <p>
-                    If you're growing like crazy, you might want to check out the{' '}
-                    {scrollToProduct ? (
-                        <>
-                            <Link onClick={() => scrollToProduct('teams')}>Teams</Link>
-                            {' or '}
-                            <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link>
-                        </>
-                    ) : (
-                        'Teams or Enterprise'
-                    )}{' '}
-                    plan.
-                </p>
-            </>
+            <p>
+                If you're growing like crazy, you might want to check out the{' '}
+                {scrollToProduct ? (
+                    <>
+                        <Link onClick={() => scrollToProduct('teams')}>Teams</Link>
+                        {' or '}
+                        <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link>
+                    </>
+                ) : (
+                    'Teams or Enterprise'
+                )}{' '}
+                plan.
+            </p>
         ),
     },
     [BillingPlan.Teams]: {
@@ -80,18 +77,11 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         subtitle: "You're on the Teams plan.",
         backgroundColor: 'bg-warning-highlight',
         getDescription: (_billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
-            <>
-                <p>PostHog comes with all product features on every plan.</p>
-                <p>
-                    If you're growing like crazy, you might want to check out the{' '}
-                    {scrollToProduct ? (
-                        <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link>
-                    ) : (
-                        'Enterprise'
-                    )}{' '}
-                    plan.
-                </p>
-            </>
+            <p>
+                If you're growing like crazy, you might want to check out the{' '}
+                {scrollToProduct ? <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link> : 'Enterprise'}{' '}
+                plan.
+            </p>
         ),
     },
     [BillingPlan.Enterprise]: {
@@ -105,30 +95,23 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         subtitle: "You're on the startup plan.",
         backgroundColor: 'bg-warning-highlight',
         getDescription: (billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
-            <>
-                <p>PostHog comes with all product features on every plan.</p>
-                <p>
-                    If you're growing like crazy, you might want to check out the{' '}
-                    {billingPlan !== BillingPlan.Teams ? (
-                        <>
-                            {scrollToProduct ? (
-                                <>
-                                    <Link onClick={() => scrollToProduct('teams')}>Teams</Link>
-                                    {' or '}
-                                </>
-                            ) : (
-                                'Teams or '
-                            )}
-                        </>
-                    ) : null}
-                    {scrollToProduct ? (
-                        <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link>
-                    ) : (
-                        'Enterprise'
-                    )}{' '}
-                    plan.
-                </p>
-            </>
+            <p>
+                If you're growing like crazy, you might want to check out the{' '}
+                {billingPlan !== BillingPlan.Teams ? (
+                    <>
+                        {scrollToProduct ? (
+                            <>
+                                <Link onClick={() => scrollToProduct('teams')}>Teams</Link>
+                                {' or '}
+                            </>
+                        ) : (
+                            'Teams or '
+                        )}
+                    </>
+                ) : null}
+                {scrollToProduct ? <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link> : 'Enterprise'}{' '}
+                plan.
+            </p>
         ),
     },
     [StartupProgramLabel.YC]: {
@@ -136,30 +119,23 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         subtitle: "You're on the special YC plan.",
         backgroundColor: 'bg-warning-highlight',
         getDescription: (billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
-            <>
-                <p>PostHog comes with all product features on every plan.</p>
-                <p>
-                    If you're growing like crazy, you might want to check out the{' '}
-                    {billingPlan !== BillingPlan.Teams ? (
-                        <>
-                            {scrollToProduct ? (
-                                <>
-                                    <Link onClick={() => scrollToProduct('teams')}>Teams</Link>
-                                    {' or '}
-                                </>
-                            ) : (
-                                'Teams or '
-                            )}
-                        </>
-                    ) : null}
-                    {scrollToProduct ? (
-                        <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link>
-                    ) : (
-                        'Enterprise'
-                    )}{' '}
-                    plan.
-                </p>
-            </>
+            <p>
+                If you're growing like crazy, you might want to check out the{' '}
+                {billingPlan !== BillingPlan.Teams ? (
+                    <>
+                        {scrollToProduct ? (
+                            <>
+                                <Link onClick={() => scrollToProduct('teams')}>Teams</Link>
+                                {' or '}
+                            </>
+                        ) : (
+                            'Teams or '
+                        )}
+                    </>
+                ) : null}
+                {scrollToProduct ? <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link> : 'Enterprise'}{' '}
+                plan.
+            </p>
         ),
     },
 }
