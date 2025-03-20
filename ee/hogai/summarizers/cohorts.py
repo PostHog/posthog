@@ -99,6 +99,10 @@ def _format_relative_time_delta(team: Team, date_string: str) -> str:
     return f"on {dt.strftime('%Y-%m-%d')}"
 
 
+def _pluralize(noun: str, count: int) -> str:
+    return f"{noun}s" if count != 1 else noun
+
+
 class CohortPropertyDescriber:
     _team: Team
     _property: Property
@@ -191,7 +195,7 @@ class CohortPropertyDescriber:
         if prop.explicit_datetime:
             time_period = _format_relative_time_delta(self._team, prop.explicit_datetime)
         elif prop.time_value is not None and prop.time_interval:
-            time_period = f"in the last {prop.time_value} {prop.time_interval}{'s' if prop.time_value != 1 else ''}"
+            time_period = f"in the last {prop.time_value} {_pluralize(prop.time_interval, prop.time_value)}"
         return time_period
 
     @cached_property
@@ -199,14 +203,15 @@ class CohortPropertyDescriber:
         prop = self._property
         operator_desc = ""
         if prop.operator and prop.operator_value is not None:
+            operator_desc = _pluralize("time", prop.operator_value)
             if prop.operator == "gte":
-                operator_desc = f"at least {prop.operator_value} times"
+                operator_desc = f"at least {prop.operator_value} {operator_desc}"
             elif prop.operator == "lte":
-                operator_desc = f"at most {prop.operator_value} times"
-            elif prop.operator == "eq":
-                operator_desc = f"exactly {prop.operator_value} times"
+                operator_desc = f"at most {prop.operator_value} {operator_desc}"
+            elif prop.operator == "exact":
+                operator_desc = f"exactly {prop.operator_value} {operator_desc}"
             else:
-                operator_desc = f"{prop.operator} {prop.operator_value} times"
+                operator_desc = f"{prop.operator} {prop.operator_value} {operator_desc}"
         return operator_desc
 
     def _summarize_behavioral(self) -> str:
