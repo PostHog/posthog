@@ -15,7 +15,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree(): JSX.Element {
-    const { treeData, loadingPaths, lastViewedId, viableItems } = useValues(projectTreeLogic)
+    const { treeData, loadingPaths, lastViewedId, viableItems, pendingActions } = useValues(projectTreeLogic)
 
     const {
         createFolder,
@@ -26,6 +26,8 @@ export function ProjectTree(): JSX.Element {
         setLastViewedId,
         setExpandedFolders,
         loadFolder,
+        applyPendingActions,
+        cancelPendingActions,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -47,30 +49,60 @@ export function ProjectTree(): JSX.Element {
             searchPlaceholder="Search your project"
             panelActions={
                 <>
-                    <LemonButton
-                        size="small"
-                        type="tertiary"
-                        tooltip="Sort by name"
-                        onClick={() => alert('Sort by name')}
-                        className="hover:bg-fill-highlight-100 shrink-0"
-                        icon={
-                            <IconWrapper>
-                                <IconSort />
-                            </IconWrapper>
-                        }
-                    />
-                    <LemonButton
-                        size="small"
-                        type="tertiary"
-                        tooltip="Create new root folder"
-                        onClick={() => createFolder('')}
-                        className="hover:bg-fill-highlight-100 shrink-0"
-                        icon={
-                            <IconWrapper>
-                                <IconPlusSmall />
-                            </IconWrapper>
-                        }
-                    />
+                    {pendingActions.length > 0 ? (
+                        <div className="flex gap-1">
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={cancelPendingActions}
+                                tooltip={`Cancel ${pendingActions.length} ${
+                                    pendingActions.length === 1 ? 'change' : 'changes'
+                                }`}
+                                tooltipPlacement="bottom"
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                size="xsmall"
+                                type="primary"
+                                status="danger"
+                                onClick={applyPendingActions}
+                                tooltip={`Save ${pendingActions.length} ${
+                                    pendingActions.length === 1 ? 'change' : 'changes'
+                                }`}
+                                tooltipPlacement="bottom"
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    ) : (
+                        <>
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                tooltip="Sort by name"
+                                onClick={() => alert('Sort by name')}
+                                className="hover:bg-fill-highlight-100 shrink-0"
+                                icon={
+                                    <IconWrapper>
+                                        <IconSort />
+                                    </IconWrapper>
+                                }
+                            />
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                tooltip="Create new root folder"
+                                onClick={() => createFolder('')}
+                                className="hover:bg-fill-highlight-100 shrink-0"
+                                icon={
+                                    <IconWrapper>
+                                        <IconPlusSmall />
+                                    </IconWrapper>
+                                }
+                            />
+                        </>
+                    )}
                 </>
             }
         >

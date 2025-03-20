@@ -2,6 +2,10 @@ use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use std::io::{Read, Write};
 
 use crate::{error::QueueError, types::Bytes};
+use common_metrics::inc;
+
+const DECOMPRESS_METRICS_KEY: &str = "decompress_vm_state";
+const COMPRESS_METRICS_KEY: &str = "compress_vm_state";
 
 // this doesn't return an error as we expect errors during the transition
 // to compressed vm_state. Returns input buffer and assumes not compressed on fail
@@ -11,11 +15,32 @@ pub fn decompress_vm_state(maybe_compressed: Option<Bytes>) -> Option<Bytes> {
             let mut decoder = GzDecoder::new(&in_buffer[..]);
             let mut out_buffer = Vec::new();
             match decoder.read_to_end(&mut out_buffer) {
-                Ok(_) => Some(out_buffer),
-                _ => maybe_compressed,
+                Ok(_) => {
+                    inc(
+                        DECOMPRESS_METRICS_KEY,
+                        &[("result".to_string(), "success".to_string())],
+                        1,
+                    );
+                    Some(out_buffer)
+                }
+                _ => {
+                    inc(
+                        DECOMPRESS_METRICS_KEY,
+                        &[("result".to_string(), "fail_or_no_op".to_string())],
+                        1,
+                    );
+                    maybe_compressed
+                }
             }
         }
-        _ => maybe_compressed,
+        _ => {
+            inc(
+                DECOMPRESS_METRICS_KEY,
+                &[("result".to_string(), "empty_buffer".to_string())],
+                1,
+            );
+            maybe_compressed
+        }
     }
 }
 
@@ -23,17 +48,41 @@ pub fn decompress_vm_state(maybe_compressed: Option<Bytes>) -> Option<Bytes> {
 pub fn compress_vm_state(uncompressed: Option<Bytes>) -> Result<Option<Bytes>, QueueError> {
     if let Some(in_buffer) = &uncompressed {
         if in_buffer.is_empty() {
+            inc(
+                COMPRESS_METRICS_KEY,
+                &[("result".to_string(), "empty_buffer".to_string())],
+                1,
+            );
             return Ok(uncompressed);
         }
 
         let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
         if let Err(e) = encoder.write_all(&in_buffer[..]) {
+            inc(
+                COMPRESS_METRICS_KEY,
+                &[("result".to_string(), "failed_write".to_string())],
+                1,
+            );
             return Err(QueueError::CompressionError(e.to_string()));
         }
 
         match encoder.finish() {
-            Ok(out) => return Ok(Some(out)),
-            Err(e) => return Err(QueueError::CompressionError(e.to_string())),
+            Ok(out) => {
+                inc(
+                    COMPRESS_METRICS_KEY,
+                    &[("result".to_string(), "success".to_string())],
+                    1,
+                );
+                return Ok(Some(out));
+            }
+            Err(e) => {
+                inc(
+                    COMPRESS_METRICS_KEY,
+                    &[("result".to_string(), "failed_finish".to_string())],
+                    1,
+                );
+                return Err(QueueError::CompressionError(e.to_string()));
+            }
         }
     }
 

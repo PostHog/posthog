@@ -121,8 +121,8 @@ class TaskNotDoneError(Exception):
 class RecordBatchTaskError(Exception):
     """Raised when an error occurs during consumption of record batches."""
 
-    def __init__(self):
-        super().__init__("The record batch consumer encountered an error during execution")
+    def __init__(self, error_details: str):
+        super().__init__(f"Record batch consumer encountered an error: {error_details}")
 
 
 async def raise_on_task_failure(task: asyncio.Task) -> None:
@@ -140,7 +140,7 @@ async def raise_on_task_failure(task: asyncio.Task) -> None:
     exc = task.exception()
     logger = get_internal_logger()
     await logger.aexception("%s task failed", task.get_name(), exc_info=exc)
-    raise RecordBatchTaskError() from exc
+    raise RecordBatchTaskError(repr(exc)) from exc
 
 
 async def wait_for_schema_or_producer(queue: RecordBatchQueue, producer_task: asyncio.Task) -> pa.Schema | None:
@@ -910,6 +910,7 @@ class Producer:
             min_records_batch_per_batch: If slicing a record batch, each slice should contain at least
                 this number of records.
         """
+
         clickhouse_url = None
         # 5 min batch exports should query a single node, which is known to have zero replication lag
         if is_5_min_batch_export(full_range=full_range):

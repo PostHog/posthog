@@ -223,6 +223,7 @@ export const productUrls = {
     replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
     replaySingle: (id: string): string => `/replay/${id}`,
     replayFilePlayback: (): string => '/replay/file-playback',
+    replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
@@ -271,6 +272,7 @@ export const treeItems = [
     { path: 'Explore/People and groups/People', icon: <IconPerson />, href: () => urls.persons() },
     { path: 'Explore/Recordings/Playlists', href: () => urls.replay(ReplayTabs.Playlists), icon: <IconRewindPlay /> },
     { path: 'Explore/Recordings/Recordings', href: () => urls.replay(ReplayTabs.Home), icon: <IconRewindPlay /> },
+    { path: 'Explore/Recordings/Settings', href: () => urls.replay(ReplayTabs.Settings), icon: <IconRewindPlay /> },
     {
         path: 'Explore/Recordings/What to watch',
         href: () => urls.replay(ReplayTabs.Templates),
