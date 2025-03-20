@@ -520,7 +520,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             dataNodeLogic({
                 key: values.currentDataLogicKey,
                 query: newSource,
-            }).actions.loadData(!switchTab)
+            }).actions.loadData(!switchTab ? 'force_async' : 'async')
         },
         saveAsView: async () => {
             LemonDialog.openForm({

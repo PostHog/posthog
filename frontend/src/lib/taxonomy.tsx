@@ -1049,6 +1049,28 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
                 'Keys and multivariate values of the feature flags that were active while this event was sent.',
             examples: ['{"flag": "value"}'],
         },
+        $feature_flag_reason: {
+            label: 'Feature Flag Evaluation Reason',
+            description: 'The reason the feature flag was matched or not matched.',
+            examples: ['Matched condition set 1'],
+        },
+        $feature_flag_request_id: {
+            label: 'Feature Flag Request ID',
+            description: (
+                <>
+                    The unique identifier for the request that retrieved this feature flag result.
+                    <br />
+                    <br />
+                    Note: Primarily used by PostHog support for debugging issues with feature flags.
+                </>
+            ),
+            examples: ['01234567-89ab-cdef-0123-456789abcdef'],
+        },
+        $feature_flag_version: {
+            label: 'Feature Flag Version',
+            description: 'The version of the feature flag that was called.',
+            examples: ['3'],
+        },
         $feature_flag_response: {
             label: 'Feature Flag Response',
             description: 'What the call to feature flag responded with.',

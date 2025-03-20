@@ -693,6 +693,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         methods=["POST"],
         detail=True,
         url_path="authenticate_wizard",
+        required_scopes=["team:read"],
         throttle_classes=[SetupWizardAuthenticationRateThrottle],
     )
     def authenticate_wizard(self, request, **kwargs):

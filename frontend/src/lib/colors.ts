@@ -9,7 +9,7 @@ import { LemonTagType } from './lemon-ui/LemonTag'
  */
 
 /** CSS variable names for the default posthog theme data colors. */
-const dataColorVars = [
+export const dataColorVars = [
     'data-color-1',
     'data-color-2',
     'data-color-3',
