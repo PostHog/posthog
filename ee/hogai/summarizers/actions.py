@@ -1,7 +1,8 @@
 from collections import defaultdict
 
 from ee.hogai.summarizers.utils import Summarizer
-from posthog.models.action.action import Action, ActionStepJSON, ActionStepMatching
+from posthog.models import Action, Team
+from posthog.models.action.action import ActionStepJSON, ActionStepMatching
 
 from .property_filters import (
     PropertyFilterCollectionDescriber,
@@ -21,7 +22,8 @@ class ActionSummarizer(Summarizer):
     _taxonomy: set[PropertyFilterTaxonomyEntry]
     _step_descriptions: list[str]
 
-    def __init__(self, action: Action):
+    def __init__(self, team: Team, action: Action):
+        super().__init__(team)
         self._action = action
         self._taxonomy = set()
         self._step_descriptions = []
@@ -79,9 +81,9 @@ class ActionSummarizer(Summarizer):
             description.append(url_desc)
 
         if step.properties:
-            property_desc, used_properties = PropertyFilterCollectionDescriber(filters=step.properties).describe()
-            description.append(property_desc)
-            taxonomy.update(used_properties)
+            prop_summarizer = PropertyFilterCollectionDescriber(self._team, step.properties)
+            description.append(prop_summarizer.summary)
+            taxonomy.update(prop_summarizer.taxonomy)
 
         conditions = " AND ".join(description)
         return f"Match group {index + 1}: {conditions}", taxonomy

@@ -233,7 +233,7 @@ class PropertyFilterCollectionDescriber(Summarizer):
     _filters: list[PropertyFilterUnion]
     _property_summarizers: list[PropertyFilterDescriber]
 
-    def __init__(self, team: Team, filters: list[PropertyFilterUnion]):
+    def __init__(self, team: Team, filters: list[dict]):
         super().__init__(team)
         self._filters = PropertyFilterCollectionValidator(filters=filters).filters
         self._property_summarizers = [PropertyFilterDescriber(self._team, filter) for filter in self._filters]

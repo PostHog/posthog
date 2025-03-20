@@ -36,7 +36,7 @@ async def abatch_summarize_actions(
     prompts: list[PromptValue] = []
     for action in actions:
         try:
-            action_summarizer = ActionSummarizer(action)
+            action_summarizer = ActionSummarizer(action.team, action)
         except Exception as e:
             posthoganalytics.capture_exception(e, properties={"action_id": action.id, "tag": "max_ai"})
             logger.exception("Error summarizing actions", error=e, action_id=action.id)

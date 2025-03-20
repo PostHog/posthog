@@ -14,7 +14,7 @@ class TestActionSummarizer(BaseTest):
         action = Action.objects.create(
             name="Test Action", description="Test Description", steps_json=json.loads(json_steps), team=self.team
         )
-        summarizer = ActionSummarizer(action)
+        summarizer = ActionSummarizer(self.team, action)
         expected_summary = """
             Name: Test Action
             Description: Test Description
@@ -39,7 +39,7 @@ class TestActionSummarizer(BaseTest):
         action = Action.objects.create(
             name="Test Action", description="Test Description", steps_json=steps, team=self.team
         )
-        summarizer = ActionSummarizer(action)
+        summarizer = ActionSummarizer(self.team, action)
         expected_summary = r"""
             Name: Test Action
             Description: Test Description
