@@ -40,8 +40,8 @@ DECLARE
     r RECORD;
 BEGIN
     -- Delete from tables in order of dependencies
-    TRUNCATE TABLE posthog_persondistinctid CASCADE;
-    TRUNCATE TABLE posthog_person CASCADE;
+    DELETE FROM posthog_persondistinctid;
+    DELETE FROM posthog_person;
     
     -- Then handle remaining tables
     FOR r IN (
@@ -50,7 +50,7 @@ BEGIN
         WHERE schemaname = current_schema()
         AND tablename NOT IN ('posthog_persondistinctid', 'posthog_person')
     ) LOOP
-        EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) || ' CASCADE';
+        EXECUTE 'DELETE FROM ' || quote_ident(r.tablename);
     END LOOP;
 END $$;
 `
