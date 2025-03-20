@@ -216,7 +216,7 @@ export enum LicensePlan {
 export enum BillingPlan {
     Free = 'free',
     Paid = 'paid',
-    Teams = 'team',
+    Teams = 'teams',
     Enterprise = 'enterprise',
 }
 
