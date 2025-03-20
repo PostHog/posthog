@@ -33,20 +33,22 @@ export interface ExtraDatabaseRows {
     pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
 }
 
-// TEST
+// Reset the tables with some truncated first if we have issues regarding foreign keys
 export const POSTGRES_DELETE_TABLES_QUERY = `
 DO $$ 
 DECLARE
     r RECORD;
 BEGIN
-    -- Disable foreign key constraints temporarily
-    SET CONSTRAINTS ALL DEFERRED;
+    -- Delete from tables in order of dependencies
+    TRUNCATE TABLE posthog_persondistinctid CASCADE;
+    TRUNCATE TABLE posthog_person CASCADE;
     
-    -- Delete from all tables in the current schema
+    -- Then handle remaining tables
     FOR r IN (
         SELECT tablename 
         FROM pg_tables 
         WHERE schemaname = current_schema()
+        AND tablename NOT IN ('posthog_persondistinctid', 'posthog_person')
     ) LOOP
         EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) || ' CASCADE';
     END LOOP;
@@ -61,7 +63,10 @@ export async function resetTestDatabase(
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
     const db = new PostgresRouter(config)
-    await db.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, 'delete-tables')
+    await db.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, 'delete-tables').catch((e) => {
+        console.error('Error deleting tables', e)
+        throw e
+    })
 
     const mocks = makePluginObjects(code)
     const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
