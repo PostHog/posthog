@@ -100,9 +100,7 @@ def process_input_line(line):
             question_id = extracted_id
 
     # Get the response using either ID-based or index-based lookup
-    result = get_response_from_properties(properties, question_id, question_index)
-
-    return result
+    return get_response_from_properties(properties, question_id, question_index)
 
 
 def main():
