@@ -5561,7 +5561,7 @@ class ExperimentFunnelStepConfig(BaseModel):
     event: str
     kind: Literal["ExperimentFunnelStepConfig"] = "ExperimentFunnelStepConfig"
     name: Optional[str] = None
-    order: float
+    order: int
     properties: Optional[
         list[
             Union[

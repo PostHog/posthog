@@ -1981,7 +1981,7 @@ export interface ExperimentFunnelStepConfig {
     kind: NodeKind.ExperimentFunnelStepConfig
     event: string
     name?: string
-    order: number
+    order: integer
     properties?: AnyPropertyFilter[]
 }
 

@@ -8080,7 +8080,7 @@
                     "type": "string"
                 },
                 "order": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "properties": {
                     "items": {
