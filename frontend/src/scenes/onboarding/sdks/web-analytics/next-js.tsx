@@ -4,7 +4,7 @@ import { WebAnalyticsAllJSFinalSteps } from './FinalSteps'
 export function NextJSInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallNextJSInstructions />
+            <SDKInstallNextJSInstructions hideWizard />
             <WebAnalyticsAllJSFinalSteps />
         </>
     )

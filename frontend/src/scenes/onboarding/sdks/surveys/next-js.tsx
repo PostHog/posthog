@@ -3,7 +3,7 @@ import { SDKInstallNextJSInstructions } from '../sdk-install-instructions/next-j
 export function NextJSInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallNextJSInstructions />
+            <SDKInstallNextJSInstructions hideWizard />
         </>
     )
 }
