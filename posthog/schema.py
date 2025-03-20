@@ -7517,6 +7517,8 @@ class ExperimentFunnelMetricConfig(BaseModel):
     funnel: list[ExperimentFunnelStepConfig]
     kind: Literal["ExperimentFunnelMetricConfig"] = "ExperimentFunnelMetricConfig"
     math: Optional[ExperimentMetricMathType] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
 
 
 class ExperimentMetric(BaseModel):

@@ -1969,7 +1969,11 @@ export interface ExperimentMetric {
     name?: string
     metric_type: ExperimentMetricType
     inverse?: boolean
-    metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig | ExperimentFunnelMetricConfig
+    metric_config:
+        | ExperimentEventMetricConfig
+        | ExperimentActionMetricConfig
+        | ExperimentDataWarehouseMetricConfig
+        | ExperimentFunnelMetricConfig
     time_window_hours?: number
 }
 
@@ -1986,6 +1990,8 @@ export interface ExperimentFunnelMetricConfig {
     funnel: ExperimentFunnelStepConfig[]
     // NOTE: Just to make the type system happy
     math?: ExperimentMetricMathType
+    math_hogql?: string
+    math_property?: string
 }
 
 export interface ExperimentEventMetricConfig {

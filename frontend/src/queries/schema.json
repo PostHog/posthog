@@ -8055,6 +8055,12 @@
                 },
                 "math": {
                     "$ref": "#/definitions/ExperimentMetricMathType"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
                 }
             },
             "required": ["kind", "funnel"],
