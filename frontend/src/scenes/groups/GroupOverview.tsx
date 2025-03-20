@@ -13,6 +13,10 @@ export function GroupOverview(): JSX.Element {
 
     const [creatingDetailDashboard, setCreatingDetailDashboard] = useState(false)
 
+    if (!groupData) {
+        return <></>
+    }
+
     if (groupTypeDetailDashboard) {
         return <Dashboard id={groupTypeDetailDashboard.toString()} placement={DashboardPlacement.Group} />
     }
@@ -31,7 +35,7 @@ export function GroupOverview(): JSX.Element {
                             type="primary"
                             onClick={() => {
                                 setCreatingDetailDashboard(true)
-                                createDetailDashboard(groupData?.group_type_index)
+                                createDetailDashboard(groupData.group_type_index)
                             }}
                             disabled={creatingDetailDashboard}
                         >
