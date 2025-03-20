@@ -42,6 +42,7 @@ export interface TaxonomicFilterProps {
     hideBehavioralCohorts?: boolean
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
+    useVerticalLayout?: boolean
 }
 
 export interface DataWarehousePopoverField {
