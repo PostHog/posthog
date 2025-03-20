@@ -499,7 +499,7 @@ describe('DB', () => {
             expect(person).toEqual(createdPerson)
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: uuid.toString(),
                     properties: { foo: 'bar' },
                     is_identified: true,

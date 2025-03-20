@@ -40,8 +40,9 @@ DECLARE
     r RECORD;
 BEGIN
     -- Delete from tables in order of dependencies
-    DELETE FROM posthog_persondistinctid;
-    DELETE FROM posthog_person;
+    DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
+    DELETE FROM posthog_persondistinctid CASCADE;
+    DELETE FROM posthog_person CASCADE;
     
     -- Then handle remaining tables
     FOR r IN (
@@ -50,7 +51,7 @@ BEGIN
         WHERE schemaname = current_schema()
         AND tablename NOT IN ('posthog_persondistinctid', 'posthog_person')
     ) LOOP
-        EXECUTE 'DELETE FROM ' || quote_ident(r.tablename);
+        EXECUTE 'DELETE FROM ' || quote_ident(r.tablename) || ' CASCADE';
     END LOOP;
 END $$;
 `
