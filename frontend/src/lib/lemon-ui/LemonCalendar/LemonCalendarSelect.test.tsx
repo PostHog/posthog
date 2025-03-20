@@ -247,4 +247,67 @@ describe('LemonCalendarSelect', () => {
         // updates the hour to 2pm (earlier than 5pm)
         expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-10T14:22:00.000Z'))
     })
+
+    test('allow only past selection after a limit (one day in the past)', async () => {
+        const onClose = jest.fn()
+        const onChange = jest.fn()
+        window.HTMLElement.prototype.scrollIntoView = jest.fn()
+
+        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
+
+        function TestSelect(): JSX.Element {
+            const [value, setValue] = useState<dayjs.Dayjs | null>(null)
+            return (
+                <LemonCalendarSelect
+                    months={1}
+                    value={value}
+                    onClose={onClose}
+                    onChange={(value) => {
+                        setValue(value)
+                        onChange(value)
+                    }}
+                    granularity="minute"
+                    selectionPeriod="past"
+                    selectionPeriodLimit={dayjs('2023-01-09')}
+                />
+            )
+        }
+        const { container } = render(<TestSelect />)
+
+        async function clickOnDate(day: string): Promise<void> {
+            const element = container.querySelector('.LemonCalendar__month') as HTMLElement
+            if (element) {
+                userEvent.click(await within(element).findByText(day))
+                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
+            }
+        }
+
+        async function clickOnTime(props: GetLemonButtonTimePropsOpts): Promise<void> {
+            const element = getTimeElement(container.querySelector('.LemonCalendar__time'), props)
+            if (element) {
+                userEvent.click(element)
+                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
+            }
+        }
+
+        // click on minute
+        await clickOnTime({ unit: 'm', value: 12 })
+        // time is disabled until a date is clicked
+        expect(onChange).not.toHaveBeenCalled()
+
+        // click on future date
+        await clickOnDate('11')
+        // cannot select a date in the future
+        expect(onChange).not.toHaveBeenCalled()
+
+        // click on a date in the past
+        await clickOnDate('8')
+        // chooses the date in the past and sets the time to the current hour and minute
+        expect(onChange).not.toHaveBeenCalled()
+
+        // click on past date within the limit
+        await clickOnDate('9')
+        // chooses the current date and sets the time to the current hour and minute
+        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-09T17:22:00.000Z'))
+    })
 })
