@@ -907,18 +907,21 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "group_type": "organization",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
                 },
                 {
                     "group_type_index": 1,
                     "group_type": "playlist",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
                 },
                 {
                     "group_type_index": 2,
                     "group_type": "another",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
                 },
             ],
         )
