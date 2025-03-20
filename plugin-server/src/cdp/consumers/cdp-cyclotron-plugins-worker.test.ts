@@ -33,7 +33,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
             type: 'destination',
         })
         // Trigger the reload that django would do
-        processor['hogFunctionManager']['onHogFunctionsReloaded'](team.id, [item.id])
+        await processor.hogFunctionManager.reloadAllHogFunctions()
         return item
     }
 

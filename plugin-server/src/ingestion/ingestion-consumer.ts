@@ -114,8 +114,10 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
+        // NOTE: This needs to be started before the kafka consumer starts as other things rely on it
+        await this.hogTransformer.start()
+
         await Promise.all([
-            this.hogTransformer.start(),
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()

@@ -39,6 +39,7 @@ impl Cohort {
               FROM posthog_cohort AS c
               JOIN posthog_team AS t ON (c.team_id = t.id)
             WHERE t.project_id = $1
+            AND c.deleted = false
         "#;
         let cohorts = sqlx::query_as::<_, Cohort>(query)
             .bind(project_id)
