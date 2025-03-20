@@ -21,6 +21,7 @@ use petgraph::graph::DiGraph;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, FromRow, Row};
+use std::collections::hash_map::Entry;
 use std::fmt::Write;
 use std::sync::Arc;
 use std::{
@@ -1022,11 +1023,10 @@ impl FeatureFlagMatcher {
                 .get_cohort_id()
                 .ok_or(FlagError::CohortFiltersParsingError)?;
 
-            // Only evaluate if we haven't already got a result from static evaluation
-            if !cohort_matches.contains_key(&cohort_id) {
+            if let Entry::Vacant(e) = cohort_matches.entry(cohort_id) {
                 let match_result =
                     evaluate_dynamic_cohorts(cohort_id, target_properties, &cohorts)?;
-                cohort_matches.insert(cohort_id, match_result);
+                e.insert(match_result);
             }
         }
 
