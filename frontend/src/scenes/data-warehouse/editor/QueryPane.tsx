@@ -12,6 +12,7 @@ interface QueryPaneProps {
     promptError: string | null
     codeEditorProps: Partial<CodeEditorProps>
     sourceQuery: HogQLQuery
+    originalValue?: string
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
@@ -34,6 +35,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                 language="hogQL"
                                 value={props.queryInput}
                                 sourceQuery={props.sourceQuery}
+                                originalValue={props.originalValue}
                                 height={height}
                                 width={width}
                                 {...props.codeEditorProps}

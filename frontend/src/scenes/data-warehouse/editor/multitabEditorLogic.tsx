@@ -2,7 +2,7 @@ import { Monaco } from '@monaco-editor/react'
 import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -118,6 +118,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         setMetadataLoading: (loading: boolean) => ({ loading }),
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
         updateQueryTabState: true,
+        setPrompt: (prompt: string) => ({ prompt }),
+        draftFromPrompt: true,
+        draftFromPromptComplete: true,
+        setPromptError: (error: string | null) => ({ error }),
+        setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -238,8 +243,36 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         editorKey: [props.key],
+        prompt: ['', { setPrompt: (_, { prompt }) => prompt }],
+        promptError: [
+            null as string | null,
+            { setPromptError: (_, { error }) => error, draftFromPrompt: () => null, saveQuery: () => null },
+        ],
+        promptLoading: [false, { draftFromPrompt: () => true, draftFromPromptComplete: () => false }],
+        suggestedQueryInput: [
+            '',
+            {
+                setSuggestedQueryInput: (_, { suggestedQueryInput }) => suggestedQueryInput,
+            },
+        ],
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
+        draftFromPrompt: async () => {
+            try {
+                const result = await api.get(
+                    combineUrl(`api/projects/@current/query/draft_sql/`, {
+                        prompt: values.prompt,
+                        current_query: values.queryInput,
+                    }).url
+                )
+                const { sql } = result
+                actions.setSuggestedQueryInput(sql)
+            } catch (e) {
+                actions.setPromptError((e as { code: string; detail: string }).detail)
+            } finally {
+                actions.draftFromPromptComplete()
+            }
+        },
         editView: ({ query, view }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
             if (maybeExistingTab) {
@@ -546,8 +579,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         !name
                             ? 'You must enter a name'
                             : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-                            ? 'Name must be valid'
-                            : undefined,
+                                ? 'Name must be valid'
+                                : undefined,
                 },
                 onSubmit: async ({ viewName }) => {
                     await asyncActions.saveAsViewSubmit(viewName)

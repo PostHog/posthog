@@ -23,7 +23,7 @@ interface QueryWindowProps {
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
-    const { allTabs, activeModelUri, queryInput, editingView, sourceQuery, isValidView } =
+    const { allTabs, activeModelUri, queryInput, editingView, sourceQuery, isValidView, suggestedQueryInput } =
         useValues(multitabEditorLogic)
     const {
         renameTab,
@@ -108,6 +108,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 )}
             </div>
             <QueryPane
+                originalValue={suggestedQueryInput != queryInput ? suggestedQueryInput : undefined}
                 queryInput={queryInput}
                 sourceQuery={sourceQuery.source}
                 promptError={null}
