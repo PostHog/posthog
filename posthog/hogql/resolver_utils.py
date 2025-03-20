@@ -8,7 +8,9 @@ from posthog.hogql.errors import ResolutionError, SyntaxError
 from posthog.hogql.visitor import clone_expr
 
 
-def lookup_field_by_name(scope: ast.SelectQueryType, name: str, context: HogQLContext) -> Optional[ast.Type]:
+def lookup_field_by_name(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType, name: str, context: HogQLContext
+) -> Optional[ast.Type]:
     """Looks for a field in the scope's list of aliases and children for each joined table."""
     if name in scope.aliases:
         return scope.aliases[name]

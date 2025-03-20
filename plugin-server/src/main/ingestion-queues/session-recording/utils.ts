@@ -6,8 +6,8 @@ import { Counter } from 'prom-client'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
+import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
-import { status } from '../../../utils/status'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
@@ -74,7 +74,7 @@ export const queryWatermarkOffsets = (
         kafkaConsumer.queryWatermarkOffsets(topic, partition, timeout, (err, offsets) => {
             if (err) {
                 captureException(err)
-                status.error('🔥', 'Failed to query kafka watermark offsets', err)
+                logger.error('🔥', 'Failed to query kafka watermark offsets', err)
                 return reject(err)
             }
 
@@ -94,7 +94,7 @@ export const getPartitionsForTopic = (
         kafkaConsumer.getMetadata({ topic }, (err, meta) => {
             if (err) {
                 captureException(err)
-                status.error('🔥', 'Failed to get partition metadata', err)
+                logger.error('🔥', 'Failed to get partition metadata', err)
                 return reject(err)
             }
 
@@ -165,7 +165,7 @@ function parseVersion(libVersion: string | undefined): LibVersion | undefined {
               }
             : undefined
     } catch (e) {
-        status.warn('⚠️', 'could_not_read_minor_lib_version', { libVersion })
+        logger.warn('⚠️', 'could_not_read_minor_lib_version', { libVersion })
         return undefined
     }
 }
@@ -183,7 +183,7 @@ export const parseKafkaMessage = async (
             })
             .inc()
 
-        status.warn('⚠️', 'invalid_message', {
+        logger.warn('⚠️', 'invalid_message', {
             reason,
             partition: message.partition,
             offset: message.offset,

@@ -1,5 +1,6 @@
 import datetime as dt
 import json
+import typing as t
 
 import pytest
 from asgiref.sync import async_to_sync
@@ -27,7 +28,7 @@ pytestmark = [
 
 
 def test_can_put_config(client: HttpClient, temporal):
-    destination_data = {
+    destination_data: dict[str, t.Any] = {
         "type": "S3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
@@ -59,7 +60,7 @@ def test_can_put_config(client: HttpClient, temporal):
         )
 
         # If we try to update without all fields, it should fail with a 400 error
-        new_batch_export_data = {
+        new_batch_export_data: dict[str, t.Any] = {
             "name": "my-production-s3-bucket-destination",
             "interval": "hour",
         }
@@ -72,14 +73,14 @@ def test_can_put_config(client: HttpClient, temporal):
         new_destination_data = {**destination_data}
         new_destination_data["config"]["bucket_name"] = "my-new-production-s3-bucket"
         new_destination_data["config"]["aws_secret_access_key"] = "new-secret"
-        new_batch_export_data = {
+        new_batch_export_data_2: dict[str, t.Any] = {
             "name": "my-production-s3-bucket-destination",
             "destination": new_destination_data,
             "interval": "day",
             "start_at": "2022-07-19 00:00:00",
         }
 
-        response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+        response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data_2)
         assert response.status_code == status.HTTP_200_OK
 
         # get the batch export and validate e.g. that interval has been updated to day
@@ -157,9 +158,9 @@ def test_can_patch_config(client: HttpClient, interval, timezone, temporal):
 
         # get the batch export and validate e.g. that bucket_name and interval
         # has been preserved.
-        batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
-        assert batch_export["interval"] == interval
-        assert batch_export["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
+        batch_export_data = get_batch_export_ok(client, team.pk, batch_export["id"])
+        assert batch_export_data["interval"] == interval
+        assert batch_export_data["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
 
         # validate the underlying temporal schedule has been updated
         codec = EncryptionCodec(settings=settings)
@@ -228,13 +229,13 @@ def test_can_patch_config_with_invalid_old_values(client: HttpClient, interval, 
 
         # get the batch export and validate e.g. that bucket_name and interval
         # has been preserved.
-        batch_export = get_batch_export_ok(client, team.pk, batch_export.id)
-        assert batch_export["interval"] == interval
-        assert batch_export["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
+        batch_export_data = get_batch_export_ok(client, team.pk, batch_export.id)
+        assert batch_export_data["interval"] == interval
+        assert batch_export_data["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
 
         # validate the underlying temporal schedule has been updated
         codec = EncryptionCodec(settings=settings)
-        new_schedule = describe_schedule(temporal, batch_export["id"])
+        new_schedule = describe_schedule(temporal, batch_export_data["id"])
         decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
         args = json.loads(decoded_payload[0].data)
         assert args["bucket_name"] == "my-new-production-s3-bucket"
@@ -281,10 +282,10 @@ def test_can_patch_hogql_query(client: HttpClient, temporal):
         response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
         assert response.status_code == status.HTTP_200_OK, response.json()
 
-        batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
-        assert batch_export["interval"] == "hour"
-        assert batch_export["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
-        assert batch_export["schema"] == {
+        response_data: dict[str, t.Any] = get_batch_export_ok(client, team.pk, batch_export["id"])
+        assert response_data["interval"] == "hour"
+        assert response_data["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
+        assert response_data["schema"] == {
             "fields": [
                 {
                     "alias": "uuid",

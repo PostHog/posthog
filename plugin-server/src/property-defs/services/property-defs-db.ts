@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { EventDefinitionType, EventPropertyType, Hub, PropertyDefinitionType } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 
 export class PropertyDefsDB {
     constructor(private hub: Hub) {}
@@ -19,7 +19,7 @@ export class PropertyDefsDB {
                 'upsertEventProperty'
             )
             .catch((e) => {
-                status.error('🔁', `Error writing event property`, { eventProperty, error: e.message })
+                logger.error('🔁', `Error writing event property`, { eventProperty, error: e.message })
                 throw e
             })
     }
@@ -41,7 +41,7 @@ export class PropertyDefsDB {
                 'upsertEventPropertiesBatch'
             )
             .catch((e) => {
-                status.error('🔁', `Error writing event properties batch`, { eventProperties, error: e.message })
+                logger.error('🔁', `Error writing event properties batch`, { eventProperties, error: e.message })
                 throw e
             })
     }
@@ -68,7 +68,7 @@ export class PropertyDefsDB {
                 'upsertPropertyDefinition'
             )
             .catch((e) => {
-                status.error('🔁', `Error writing property definitions batch`, {
+                logger.error('🔁', `Error writing property definitions batch`, {
                     propertyDefinition,
                     error: e.message,
                 })
@@ -99,7 +99,7 @@ export class PropertyDefsDB {
                 'upsertPropertyDefinitionsBatch'
             )
             .catch((e) => {
-                status.error('🔁', `Error writing property definitions batch`, {
+                logger.error('🔁', `Error writing property definitions batch`, {
                     propertyDefinitions,
                     error: e.message,
                 })
@@ -127,7 +127,7 @@ export class PropertyDefsDB {
                 'upsertEventDefinition'
             )
             .catch((e) => {
-                status.error('🔁', `Error writing event definition`, { eventDefinition, error: e.message })
+                logger.error('🔁', `Error writing event definition`, { eventDefinition, error: e.message })
                 throw e
             })
     }
@@ -153,7 +153,7 @@ export class PropertyDefsDB {
                 'upsertEventDefinitionsBatch'
             )
             .catch((e) => {
-                status.error('🔁', `Error writing event definitions batch`, { eventDefinitions, error: e.message })
+                logger.error('🔁', `Error writing event definitions batch`, { eventDefinitions, error: e.message })
                 throw e
             })
     }

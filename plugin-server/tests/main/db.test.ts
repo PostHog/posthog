@@ -12,7 +12,7 @@ import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 
 describe('DB', () => {
     let hub: Hub

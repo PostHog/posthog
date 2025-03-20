@@ -54,7 +54,7 @@ from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
 )
-from posthog.storage import object_storage
+from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.session_recordings.ai_data.ai_filter_schema import AiFilterSchema
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
@@ -638,8 +638,15 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if personal_api_key:
             SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(api_key=personal_api_key, source=source).inc()
 
+        is_v2_enabled = posthoganalytics.feature_enabled(
+            "recordings-blobby-v2-replay",
+            str(self.team.pk),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+        )
+
         if not source:
-            return self._gather_session_recording_sources(recording)
+            return self._gather_session_recording_sources(recording, is_v2_enabled)
         elif source == "realtime":
             return self._send_realtime_snapshots_to_client(recording, request, event_properties)
         elif source == "blob":
@@ -649,7 +656,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             if blob_key:
                 return self._stream_blob_v2_to_client(recording, request, event_properties)
             else:
-                return self._gather_session_recording_sources(recording)
+                return self._gather_session_recording_sources(recording, is_v2_enabled)
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2]")
 
@@ -675,7 +682,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 team=team,
             )
 
-    def _gather_session_recording_sources(self, recording: SessionRecording) -> Response:
+    def _gather_session_recording_sources(self, recording: SessionRecording, is_v2_enabled: bool = False) -> Response:
         might_have_realtime = True
         newest_timestamp = None
         response_data = {}
@@ -683,25 +690,30 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         blob_keys: list[str] | None = None
         blob_prefix = ""
 
-        v2_metadata = SessionReplayEventsV2Test().get_metadata(str(recording.session_id), self.team)
-        if v2_metadata:
-            blocks = sorted(
-                zip(
-                    v2_metadata["block_first_timestamps"],
-                    v2_metadata["block_last_timestamps"],
-                    v2_metadata["block_urls"],
-                ),
-                key=lambda x: x[0],
-            )
-            for i, (start_timestamp, end_timestamp, _) in enumerate(blocks):
-                sources.append(
-                    {
-                        "source": "blob_v2",
-                        "start_timestamp": start_timestamp,
-                        "end_timestamp": end_timestamp,
-                        "blob_key": str(i),
-                    }
+        if is_v2_enabled:
+            v2_metadata = SessionReplayEventsV2Test().get_metadata(str(recording.session_id), self.team)
+            if v2_metadata:
+                blocks = sorted(
+                    zip(
+                        v2_metadata["block_first_timestamps"],
+                        v2_metadata["block_last_timestamps"],
+                        v2_metadata["block_urls"],
+                    ),
+                    key=lambda x: x[0],
                 )
+                # If we started recording halfway through the session, we should not serve v2 sources
+                # as we don't have the complete recording from the start
+                if blocks and blocks[0][0] != v2_metadata["start_time"]:
+                    blocks = []
+                for i, (start_timestamp, end_timestamp, _) in enumerate(blocks):
+                    sources.append(
+                        {
+                            "source": "blob_v2",
+                            "start_timestamp": start_timestamp,
+                            "end_timestamp": end_timestamp,
+                            "blob_key": str(i),
+                        }
+                    )
         if recording.object_storage_path:
             blob_prefix = recording.object_storage_path
             blob_keys = object_storage.list_objects(cast(str, blob_prefix))
@@ -936,7 +948,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 raise exceptions.NotFound("Invalid byte range")
 
             expected_length = end_byte - start_byte + 1
-            compressed_block = object_storage.read_bytes(key, first_byte=start_byte, last_byte=end_byte)
+            compressed_block = session_recording_v2_object_storage.client().read_bytes(
+                key, first_byte=start_byte, last_byte=end_byte
+            )
 
             if not compressed_block:
                 raise exceptions.NotFound("Block content not found")
@@ -967,7 +981,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
             snapshot_lines = (
                 get_realtime_snapshots(
-                    team_id=self.team.pk,
+                    team_id=str(self.team.pk),
                     session_id=str(recording.session_id),
                 )
                 or []
@@ -1221,7 +1235,7 @@ def list_recordings_from_query(
 
     with timer("load_persons"):
         # Get the related persons for all the recordings
-        distinct_ids = sorted([x.distinct_id for x in recordings])
+        distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
         person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
             "person"
         )
@@ -1237,7 +1251,7 @@ def list_recordings_from_query(
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
             recording.viewers = other_viewers.get(recording.session_id, [])
-            person = distinct_id_to_person.get(recording.distinct_id)
+            person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
             if person:
                 recording.person = person
 

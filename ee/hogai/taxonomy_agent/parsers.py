@@ -55,7 +55,10 @@ def parse_react_agent_output(message: LangchainAIMessage) -> AgentAction:
     if not is_complete:
         # JSON does not contain an action.
         raise ReActParserMalformedJsonException(text)
-    return AgentAction(response["action"], response.get("action_input", {}), text)
+    parsed_action_input = response["action_input"]
+    if not isinstance(response["action_input"], dict):
+        parsed_action_input = str(response["action_input"])
+    return AgentAction(response["action"], parsed_action_input, text)
 
 
 class PydanticOutputParserException(ValueError):

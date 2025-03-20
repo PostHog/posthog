@@ -56,6 +56,14 @@ exports[`processAiEvent() smoke test every model processes claude-2:beta 1`] = `
 }
 `;
 
+exports[`processAiEvent() smoke test every model processes claude-3.5 1`] = `
+{
+  "$ai_input_cost_usd": 0.0003,
+  "$ai_output_cost_usd": 0.00075,
+  "$ai_total_cost_usd": 0.00105,
+}
+`;
+
 exports[`processAiEvent() smoke test every model processes claude-3.5-haiku 1`] = `
 {
   "$ai_input_cost_usd": 0.00008,
@@ -120,6 +128,14 @@ exports[`processAiEvent() smoke test every model processes claude-3.5-sonnet-202
 }
 `;
 
+exports[`processAiEvent() smoke test every model processes claude-3.7 1`] = `
+{
+  "$ai_input_cost_usd": 0.0003,
+  "$ai_output_cost_usd": 0.00075,
+  "$ai_total_cost_usd": 0.00105,
+}
+`;
+
 exports[`processAiEvent() smoke test every model processes claude-3.7-sonnet 1`] = `
 {
   "$ai_input_cost_usd": 0.0003,
@@ -153,14 +169,6 @@ exports[`processAiEvent() smoke test every model processes claude-3-5-haiku 1`] 
 `;
 
 exports[`processAiEvent() smoke test every model processes claude-3-5-sonnet 1`] = `
-{
-  "$ai_input_cost_usd": 0.0003,
-  "$ai_output_cost_usd": 0.00075,
-  "$ai_total_cost_usd": 0.00105,
-}
-`;
-
-exports[`processAiEvent() smoke test every model processes claude-3-7 1`] = `
 {
   "$ai_input_cost_usd": 0.0003,
   "$ai_output_cost_usd": 0.00075,

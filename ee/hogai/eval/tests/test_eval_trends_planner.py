@@ -188,6 +188,26 @@ def test_needle_in_a_haystack(metric, call_node):
     assert_test(test_case, [metric])
 
 
+def test_trends_for_unique_sessions(metric, call_node):
+    query = "how many $pageviews with unique sessions did we have?"
+    plan = call_node(query)
+
+    test_case = LLMTestCase(
+        input=query,
+        expected_output="""
+        Events:
+        - $pageview
+            - math operation: unique sessions
+
+        Time period: last month
+        Time interval: day
+        """,
+        actual_output=plan,
+        comments=plan,
+    )
+    assert_test(test_case, [metric])
+
+
 @pytest.mark.parametrize(
     "time_period, time_interval",
     [
