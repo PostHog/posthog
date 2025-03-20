@@ -460,7 +460,7 @@ export class DB {
     private toPerson(row: RawPerson): InternalPerson {
         return {
             ...row,
-            id: BigInt(row.id),
+            id: row.id,
             created_at: DateTime.fromISO(row.created_at).toUTC(),
             version: Number(row.version || 0),
         }

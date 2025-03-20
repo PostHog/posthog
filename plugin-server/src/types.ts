@@ -821,7 +821,7 @@ export type PropertiesLastOperation = Record<string, PropertyUpdateOperation>
 
 /** Properties shared by RawPerson and Person. */
 export interface BasePerson {
-    id: bigint
+    id: string // NOTE: bigint comes back from the DB as a string
     team_id: number
     properties: Properties
     is_user_id: number
