@@ -197,8 +197,8 @@ class ClickHouseClient:
                 headers=self.headers,
                 raise_for_status=True,
             )
-        except aiohttp.ClientResponseError:
-            await self.logger.aexception("Failed ClickHouse liveness check")
+        except aiohttp.ClientResponseError as exc:
+            await self.logger.aexception("Failed ClickHouse liveness check", exc_info=exc)
             return False
         return True
 
