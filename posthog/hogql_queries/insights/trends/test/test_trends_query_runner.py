@@ -5317,4 +5317,4 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.results[0]["count"], 5.0)  # Should use person property value
-        self.assertEqual(response.results[0]["data"], [0.0, 0.0, 5.0] + [0.0] * 7)
+        self.assertEqual(response.results[0]["data"], [0.0, 0.0, 5.0] + [0.0] * 8)

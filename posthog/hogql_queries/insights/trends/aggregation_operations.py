@@ -131,6 +131,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             return [self.series.math_property]
         elif self.series.math_property_type == "data_warehouse_person_properties" and self.series.math_property:
             return ["person", *self.series.math_property.split(".")]
+        elif self.series.math_property_type == "person_properties" and self.series.math_property:
+            return ["person", "properties", self.series.math_property]
         return ["properties", self.series.math_property]
 
     def _math_func(self, method: str, override_chain: Optional[list[str | int]] = None) -> ast.Call:
@@ -156,9 +158,11 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 args=[
                     convert_currency_call(
                         ast.Field(chain=chain),
-                        ast.Constant(value=self.series.math_property_revenue_currency.static.value)
-                        if self.series.math_property_revenue_currency.static is not None
-                        else ast.Field(chain=["properties", self.series.math_property_revenue_currency.property]),
+                        (
+                            ast.Constant(value=self.series.math_property_revenue_currency.static.value)
+                            if self.series.math_property_revenue_currency.static is not None
+                            else ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
+                        ),
                         ast.Constant(value=self.team.revenue_config.baseCurrency.value),
                         ast.Call(name="_toDate", args=[ast.Field(chain=["timestamp"])]),
                     )
