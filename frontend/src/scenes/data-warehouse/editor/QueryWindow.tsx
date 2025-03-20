@@ -154,10 +154,10 @@ function RunButton(): JSX.Element {
 
     const [iconColor, tooltipContent] = useMemo(() => {
         if (isSourceQueryLastRun) {
-            return ['', 'No changes to run']
+            return ['var(--primary)', 'No changes to run']
         }
 
-        if (!metadata || isUsingIndices || queryInput.length === 0) {
+        if (!metadata || isUsingIndices || queryInput.trim().length === 0) {
             return ['var(--success)', 'New changes to run']
         }
 
