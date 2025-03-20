@@ -739,6 +739,7 @@ export enum ReplayTabs {
     Templates = 'templates',
     Home = 'home',
     Playlists = 'playlists',
+    Settings = 'settings',
 }
 
 export enum ExperimentsTabs {
@@ -2853,7 +2854,7 @@ export interface Survey {
     targeting_flag_filters?: FeatureFlagFilters
     conditions: {
         url: string
-        selector: string
+        selector?: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyMatchType
         deviceTypes?: string[]

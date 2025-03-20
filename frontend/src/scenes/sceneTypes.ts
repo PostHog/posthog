@@ -30,6 +30,7 @@ export enum Scene {
     ReplaySingle = 'ReplaySingle',
     ReplayPlaylist = 'ReplayPlaylist',
     ReplayFilePlayback = 'ReplayFilePlayback',
+    ReplaySettings = 'ReplaySettings',
     CustomCss = 'CustomCss',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',

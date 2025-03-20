@@ -7,7 +7,7 @@ import { ExperimentsImplementationSnippet } from './ExperimentsImplementationSni
 export function ExperimentsNextJSInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallNextJSInstructions />
+            <SDKInstallNextJSInstructions hideWizard />
             <h3>Client-side rendering</h3>
             <ExperimentsImplementationSnippet sdkKey={SDKKey.REACT} />
             <h3>Server-side rendering</h3>
