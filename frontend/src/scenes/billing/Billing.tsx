@@ -160,6 +160,8 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             ) : null}
 
+            <CreditCTAHero />
+
             <div
                 className={clsx('flex gap-6 max-w-300', {
                     'flex-col': size === 'small',
@@ -179,8 +181,6 @@ export function Billing(): JSX.Element {
             </div>
 
             {!showBillingSummary && <StripePortalButton />}
-
-            <CreditCTAHero />
 
             <LemonDivider className="mt-6 mb-8" />
 
