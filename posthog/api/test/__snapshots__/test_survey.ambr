@@ -1470,6 +1470,7 @@
          "posthog_action"."summary",
          "posthog_action"."last_summarized_at",
          "posthog_action"."embedding_last_synced_at",
+         "posthog_action"."embedding_version",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at"
   FROM "posthog_action"

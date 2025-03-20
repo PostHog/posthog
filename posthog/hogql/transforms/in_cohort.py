@@ -15,7 +15,7 @@ def resolve_in_cohorts(
     node: _T_AST,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]] = None,
-    context: HogQLContext = None,
+    context: Optional[HogQLContext] = None,
 ):
     InCohortResolver(stack=stack, dialect=dialect, context=context).visit(node)
 
@@ -267,7 +267,7 @@ class InCohortResolver(TraversingVisitor):
         self,
         dialect: Literal["hogql", "clickhouse"],
         stack: Optional[list[ast.SelectQuery]] = None,
-        context: HogQLContext = None,
+        context: Optional[HogQLContext] = None,
     ):
         super().__init__()
         self.stack: list[ast.SelectQuery] = stack or []

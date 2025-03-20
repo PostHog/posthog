@@ -1560,6 +1560,16 @@ class RecordingPropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
+class RefreshType(StrEnum):
+    ASYNC_ = "async"
+    ASYNC_EXCEPT_ON_CACHE_MISS = "async_except_on_cache_miss"
+    BLOCKING = "blocking"
+    FORCE_ASYNC = "force_async"
+    FORCE_BLOCKING = "force_blocking"
+    FORCE_CACHE = "force_cache"
+    LAZY_ASYNC = "lazy_async"
+
+
 class ResultCustomizationBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6759,6 +6769,9 @@ class RetentionResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdown_value: Optional[Union[str, float]] = Field(
+        default=None, description="Optional breakdown value for retention cohorts"
+    )
     date: AwareDatetime
     label: str
     values: list[RetentionValue]
@@ -8301,6 +8314,7 @@ class RetentionQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -9182,8 +9196,8 @@ class QueryRequest(BaseModel):
         ),
         discriminator="kind",
     )
-    refresh: Optional[Union[bool, str]] = Field(
-        default="blocking",
+    refresh: Optional[RefreshType] = Field(
+        default=RefreshType.BLOCKING,
         description=(
             "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
             " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
