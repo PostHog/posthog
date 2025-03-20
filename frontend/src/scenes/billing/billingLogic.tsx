@@ -406,6 +406,12 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.preflight, s.billing],
             (preflight, billing): boolean => !!preflight?.is_debug && !billing?.billing_period,
         ],
+        showBillingSummary: [
+            (s) => [s.billing, s.isOnboarding],
+            (billing: BillingType | null, isOnboarding: boolean): boolean => {
+                return !isOnboarding && !!billing?.billing_period
+            },
+        ],
         projectedTotalAmountUsdWithBillingLimits: [
             (s) => [s.billing],
             (billing: BillingType): number => {

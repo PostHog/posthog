@@ -1,10 +1,10 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { humanFriendlyCurrency } from 'lib/utils'
 
 import { billingLogic } from './billingLogic'
+import { StripePortalButton } from './StripePortalButton'
 
 export const BillingSummary = (): JSX.Element => {
     const { billing } = useValues(billingLogic)
@@ -100,23 +100,7 @@ export const BillingSummary = (): JSX.Element => {
                         </div>
                     )}
                 </div>
-                {billing?.customer_id && billing?.stripe_portal_url && (
-                    <div className="w-fit mt-4">
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            to={billing.stripe_portal_url}
-                            disableClientSideRouting
-                            targetBlank
-                            center
-                            data-attr="manage-billing"
-                        >
-                            {billing.has_active_subscription
-                                ? 'Manage card details and invoices'
-                                : 'View past invoices'}
-                        </LemonButton>
-                    </div>
-                )}
+                <StripePortalButton />
             </div>
         </div>
     )

@@ -24,6 +24,7 @@ import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
 import { BillingSummary } from './BillingSummary'
 import { CreditCTAHero } from './CreditCTAHero'
+import { StripePortalButton } from './StripePortalButton'
 import { UnsubscribeCard } from './UnsubscribeCard'
 
 export const scene: SceneExport = {
@@ -32,8 +33,14 @@ export const scene: SceneExport = {
 }
 
 export function Billing(): JSX.Element {
-    const { billing, billingLoading, isOnboarding, showLicenseDirectInput, isActivateLicenseSubmitting, billingError } =
-        useValues(billingLogic)
+    const {
+        billing,
+        billingLoading,
+        showLicenseDirectInput,
+        isActivateLicenseSubmitting,
+        billingError,
+        showBillingSummary,
+    } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -163,12 +170,14 @@ export function Billing(): JSX.Element {
                         <BillingCTAHero product={platformAndSupportProduct} />
                     </div>
                 )}
-                {!isOnboarding && !!billing?.billing_period && (
+                {showBillingSummary && (
                     <div className="flex-1">
                         <BillingSummary />
                     </div>
                 )}
             </div>
+
+            {!showBillingSummary && <StripePortalButton />}
 
             <CreditCTAHero />
 
