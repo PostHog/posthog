@@ -1,4 +1,5 @@
 from functools import cached_property
+from typing import Literal
 
 from django.utils import timezone
 
@@ -169,34 +170,24 @@ class CohortPropertyDescriber:
             # Fallback if anything goes wrong
             return "people in a precalculated cohort"
 
-    def _get_action_name(self) -> str:
-        prop = self._property
+    def _get_action_name(self, key: str) -> str:
         try:
-            action = Action.objects.get(pk=prop.key, team__project_id=self._team.project_id)
-            return f"the action `{action.name}` with ID `{prop.key}`"
+            action = Action.objects.get(pk=key, team__project_id=self._team.project_id)
+            return f"the action `{action.name}` with ID `{key}`"
         except Action.DoesNotExist:
-            return f"an unknown action with ID `{prop.key}`"
+            return f"an unknown action with ID `{key}`"
 
     @property
     def _cohort_name(self) -> str:
         return "people who"
 
-    @cached_property
-    def _verbose_name(self) -> str:
-        prop = self._property
-        if prop.event_type == "actions":
-            return self._get_action_name()
-        return f"the event `{prop.key}`"
+    def _get_verbose_name(self, type: Literal["events", "actions"], key: str) -> str:
+        if type == "actions":
+            return self._get_action_name(key)
+        return f"the event `{key}`"
 
-    @cached_property
-    def _time_period(self) -> str:
-        prop = self._property
-        time_period = ""
-        if prop.explicit_datetime:
-            time_period = _format_relative_time_delta(self._team, prop.explicit_datetime)
-        elif prop.time_value is not None and prop.time_interval:
-            time_period = f"in the last {prop.time_value} {_pluralize(prop.time_interval, prop.time_value)}"
-        return time_period
+    def _format_time_period(self, time_value: int, time_interval: str) -> str:
+        return f"{time_value} {_pluralize(time_interval, time_value)}"
 
     @cached_property
     def _frequency(self) -> str:
@@ -223,8 +214,8 @@ class CohortPropertyDescriber:
         if not isinstance(behavioral_type, str):
             return "Behavioral Cohort"
 
-        verbose_name = self._verbose_name
-        time_period = self._time_period
+        verbose_name = self._get_verbose_name(prop.event_type, prop.key)
+        time_period = self._format_time_period(prop.time_value, prop.time_interval)
         # Format sequential time period if available
         seq_time_period = ""
         if prop.seq_time_value is not None and prop.seq_time_interval:
@@ -238,10 +229,7 @@ class CohortPropertyDescriber:
                 return f"people who performed {verbose_name} for the first time {time_period}"
 
             case BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE:
-                seq_event_type_name = "action" if prop.seq_event_type == "actions" else "event"
-                seq_event_name = f"`{prop.seq_event}`"
-
-                return f"people who performed {verbose_name} {time_period} followed by {seq_event_type_name} {seq_event_name} within {seq_time_period}"
+                return self._summarize_behavioral_event_sequence()
 
             case BehavioralPropertyType.PERFORMED_EVENT_REGULARLY:
                 min_periods = prop.min_periods or 0
@@ -296,8 +284,15 @@ class CohortPropertyDescriber:
 
     def _summarize_behavioral_event_filters(self) -> str:
         prop = self._property
-        verbose_name = self._verbose_name
-        time_period = self._time_period
+        # Name
+        verbose_name = self._get_verbose_name(prop.event_type, prop.key)
+        # Time period
+        time_period = ""
+        if prop.explicit_datetime:
+            time_period = _format_relative_time_delta(self._team, prop.explicit_datetime)
+        elif prop.time_value is not None and prop.time_interval:
+            time_period = f"in the last {self._format_time_period(prop.time_value, prop.time_interval)}"
+        # Frequency
         frequency = f" {self._frequency}" if self._frequency else ""
 
         verb = "did not complete" if prop.negation else "completed"
@@ -309,6 +304,25 @@ class CohortPropertyDescriber:
             conditions_str = _format_conditions(conditions, " AND the ")
             return f"{self._cohort_name} {verb} {verbose_name} where the {conditions_str}{frequency} {time_period}"
         return f"{self._cohort_name} {verb} {verbose_name}{frequency} {time_period}"
+
+    def _summarize_behavioral_event_sequence(self) -> str:
+        prop = self._property
+        # Validation of Property will skip creating a property if any of these are missing,
+        # so we can safely assume they are not None. This is for mypy to be happy.
+        assert prop.seq_event is not None and prop.seq_event_type is not None
+        assert prop.time_value is not None and prop.time_interval is not None
+        assert prop.seq_time_value is not None and prop.seq_time_interval is not None
+
+        cohort_name = self._cohort_name
+        verb = "did not complete a sequence of" if prop.negation else "completed a sequence of"
+
+        first_event = self._get_verbose_name(prop.event_type, prop.key)
+        second_event = self._get_verbose_name(prop.seq_event_type, prop.seq_event)
+
+        time_period = f"the last {self._format_time_period(prop.time_value, prop.time_interval)}"
+        seq_time_period = self._format_time_period(prop.seq_time_value, prop.seq_time_interval)
+
+        return f"{cohort_name} {verb} {first_event} in {time_period} followed by {second_event} within {seq_time_period} of the initial event"
 
 
 class CohortPropertyGroupDescriber:

@@ -199,3 +199,78 @@ class TestPropertySummarizer(BaseTest):
             CohortPropertyDescriber(self.team, prop).summarize()
             == f"people who completed the action `Completed onboarding` with ID `{action.id}` where the person property `name` matches exactly `John` AND the person property `surname` contains `Mc` exactly 2 times in the last 7 days"
         )
+
+    def test_behavioral_cohort_performed_event_sequence(self):
+        prop = Property(
+            type="behavioral",
+            value="performed_event_sequence",
+            negation=False,
+            key="cohort created",
+            event_type="events",
+            time_value=10,
+            time_interval="day",
+            seq_event="cohort created",
+            seq_event_type="events",
+            seq_time_value=1,
+            seq_time_interval="day",
+        )
+        assert (
+            CohortPropertyDescriber(self.team, prop).summarize()
+            == "people who completed a sequence of the event `cohort created` in the last 10 days followed by the event `cohort created` within 1 day of the initial event"
+        )
+
+        prop = Property(
+            type="behavioral",
+            value="performed_event_sequence",
+            negation=True,
+            key="cohort created",
+            event_type="events",
+            time_value=1,
+            time_interval="year",
+            seq_event="cohort created",
+            seq_event_type="events",
+            seq_time_value=3,
+            seq_time_interval="month",
+        )
+        assert (
+            CohortPropertyDescriber(self.team, prop).summarize()
+            == "people who did not complete a sequence of the event `cohort created` in the last 1 year followed by the event `cohort created` within 3 months of the initial event"
+        )
+
+    def test_behavioral_cohort_performed_action_sequence(self):
+        action = self._create_action()
+        prop = Property(
+            type="behavioral",
+            value="performed_event_sequence",
+            negation=False,
+            key=str(action.id),
+            event_type="actions",
+            time_value=10,
+            time_interval="day",
+            seq_event=str(action.id),
+            seq_event_type="actions",
+            seq_time_value=1,
+            seq_time_interval="day",
+        )
+        assert (
+            CohortPropertyDescriber(self.team, prop).summarize()
+            == f"people who completed a sequence of the action `Completed onboarding` with ID `{action.id}` in the last 10 days followed by the action `Completed onboarding` with ID `{action.id}` within 1 day of the initial event"
+        )
+
+        prop = Property(
+            type="behavioral",
+            value="performed_event_sequence",
+            negation=True,
+            key=str(action.id),
+            event_type="actions",
+            time_value=1,
+            time_interval="year",
+            seq_event=str(action.id),
+            seq_event_type="actions",
+            seq_time_value=3,
+            seq_time_interval="month",
+        )
+        assert (
+            CohortPropertyDescriber(self.team, prop).summarize()
+            == f"people who did not complete a sequence of the action `Completed onboarding` with ID `{action.id}` in the last 1 year followed by the action `Completed onboarding` with ID `{action.id}` within 3 months of the initial event"
+        )
