@@ -17,3 +17,5 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 futures = { workspace = true }
 tracing = { workspace = true }
+flate2 = { workspace = true }
+common-metrics = { path = "../common/metrics" }

@@ -112,6 +112,10 @@ export function getExceptionAttributes(
     }
 }
 
+export function getSessionId(properties: Record<string, any>): string | undefined {
+    return properties['$session_id']
+}
+
 export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
     return exceptionList?.length > 0 && exceptionList.some((e) => !!e.stacktrace)
 }

@@ -486,7 +486,15 @@
         {
             "key": "organizations_projects",
             "name": "Projects",
-            "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
+            "unit": null,
+            "limit": null,
+            "note": "Unlimited"
+        },
+        {
+            "key": "environments",
+            "name": "Environments",
+            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
             "unit": null,
             "limit": null,
             "note": "Unlimited"
@@ -2373,14 +2381,6 @@
                     "type": "primary"
                 },
                 {
-                    "key": "multiple_environments",
-                    "name": "Multi-environment support",
-                    "description": "Test flags in local development or staging by using the same flag key across PostHog projects.",
-                    "images": null,
-                    "icon_key": "IconStack",
-                    "type": "secondary"
-                },
-                {
                     "key": "user_opt_in",
                     "name": "Early access feature opt-in widget",
                     "description": "Allow users to opt in to (or out of) specified features. Or use the API to build your own UI.",
@@ -3141,8 +3141,16 @@
                         {
                             "key": "organizations_projects",
                             "name": "Projects",
-                            "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+                            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
                             "unit": "project",
+                            "limit": 1,
+                            "note": null
+                        },
+                        {
+                            "key": "environments",
+                            "name": "Environments",
+                            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
+                            "unit": "environment",
                             "limit": 1,
                             "note": null
                         },
@@ -3213,7 +3221,15 @@
                         {
                             "key": "organizations_projects",
                             "name": "Projects",
-                            "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+                            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "environments",
+                            "name": "Environments",
+                            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
                             "unit": null,
                             "limit": null,
                             "note": "Unlimited"
@@ -3341,7 +3357,15 @@
                 {
                     "key": "organizations_projects",
                     "name": "Projects",
-                    "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+                    "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "environments",
+                    "name": "Environments",
+                    "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
                     "images": null,
                     "icon_key": null,
                     "type": null
