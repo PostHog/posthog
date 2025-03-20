@@ -48,10 +48,12 @@ describe('HogTransformer', () => {
         teamId = team.id
 
         hogTransformer = new HogTransformerService(hub)
+        await hogTransformer.start()
     })
 
     afterEach(async () => {
         await closeHub(hub)
+        await hogTransformer.stop()
 
         jest.spyOn(hogTransformer['pluginExecutor'], 'execute')
     })
@@ -73,7 +75,7 @@ describe('HogTransformer', () => {
 
             // Start the transformer after inserting functions because it is
             // starting the hogfunction manager which updates the cache
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [geoIpFunction.id])
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const event: PluginEvent = createPluginEvent({}, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
@@ -158,7 +160,7 @@ describe('HogTransformer', () => {
             })
             fn.bytecode = await compileHog(fn.hog)
             await insertHogFunction(hub.db.postgres, teamId, fn)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [fn.id])
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const event: PluginEvent = createPluginEvent({}, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
@@ -236,11 +238,7 @@ describe('HogTransformer', () => {
             await insertHogFunction(hub.db.postgres, teamId, defaultTransformationFunction)
             await insertHogFunction(hub.db.postgres, teamId, geoIpTransformationFunction)
 
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
-                testTransformationFunction.id,
-                defaultTransformationFunction.id,
-                geoIpTransformationFunction.id,
-            ])
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
 
@@ -332,10 +330,7 @@ describe('HogTransformer', () => {
             await insertHogFunction(hub.db.postgres, teamId, deletingTransformationFunction)
             await insertHogFunction(hub.db.postgres, teamId, addingTransformationFunction)
 
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
-                addingTransformationFunction.id,
-                deletingTransformationFunction.id,
-            ])
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
 
@@ -438,11 +433,7 @@ describe('HogTransformer', () => {
             await insertHogFunction(hub.db.postgres, teamId, thirdTransformationFunction)
             await insertHogFunction(hub.db.postgres, teamId, secondTransformationFunction)
             await insertHogFunction(hub.db.postgres, teamId, firstTransformationFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
-                thirdTransformationFunction.id,
-                secondTransformationFunction.id,
-                firstTransformationFunction.id,
-            ])
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
 
@@ -522,10 +513,7 @@ describe('HogTransformer', () => {
             await insertHogFunction(hub.db.postgres, teamId, successFunction)
             await insertHogFunction(hub.db.postgres, teamId, failFunction)
 
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
-                successFunction.id,
-                failFunction.id,
-            ])
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const event = createPluginEvent(
                 {
@@ -592,7 +580,7 @@ describe('HogTransformer', () => {
             })
 
             await insertHogFunction(hub.db.postgres, teamId, successFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [successFunction.id])
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const event = createPluginEvent(
                 {
@@ -637,7 +625,7 @@ describe('HogTransformer', () => {
             })
 
             await insertHogFunction(hub.db.postgres, teamId, filterOutPlugin)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [filterOutPlugin.id])
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             // Set up the spy after hogTransformer is initialized
             executeSpy = jest.spyOn(hogTransformer['pluginExecutor'], 'execute')
@@ -712,7 +700,7 @@ describe('HogTransformer', () => {
 
             await insertHogFunction(hub.db.postgres, teamId, geoIp)
             await insertHogFunction(hub.db.postgres, teamId, filterPlugin)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [geoIp.id, filterPlugin.id])
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const event: PluginEvent = createPluginEvent({ event: 'keep-me', team_id: teamId })
             const result = await hogTransformer.transformEventAndProduceMessages(event)

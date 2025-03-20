@@ -42,9 +42,17 @@ export class CdpApi {
     public get service(): PluginServerService {
         return {
             id: 'cdp-api',
-            onShutdown: async () => {},
+            onShutdown: async () => await this.stop(),
             healthcheck: () => this.isHealthy() ?? false,
         }
+    }
+
+    async start() {
+        await this.hogFunctionManager.start(['transformation', 'destination', 'internal_destination'])
+    }
+
+    async stop() {
+        await Promise.all([this.hogFunctionManager.stop()])
     }
 
     isHealthy() {
