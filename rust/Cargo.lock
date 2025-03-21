@@ -1606,7 +1606,6 @@ dependencies = [
  "csv",
  "flate2",
  "futures",
- "hex",
  "serde",
  "sqlx",
  "thiserror 1.0.69",
