@@ -1,4 +1,5 @@
-import { IconBook } from '@posthog/icons'
+import { IconBook, IconPlus } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -64,6 +65,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
         rename: (path: string) => ({ path }),
         createFolder: (parentPath: string) => ({ parentPath }),
+        loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
     }),
     loaders(({ actions, values }) => ({
         allUnfiledItems: [
@@ -82,12 +84,23 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 hasMore: boolean
             },
             {
-                setSearchTerm: async ({ searchTerm }, breakpoint) => {
-                    await breakpoint(100)
-                    const response = await api.fileSystem.list({ search: searchTerm, limit: PAGINATION_LIMIT + 1 })
+                loadSearchResults: async ({ searchTerm, offset }, breakpoint) => {
+                    await breakpoint(250)
+                    const response = await api.fileSystem.list({
+                        search: searchTerm,
+                        offset,
+                        limit: PAGINATION_LIMIT + 1,
+                    })
+                    breakpoint()
+
                     return {
                         searchTerm,
-                        results: response.results.slice(0, PAGINATION_LIMIT),
+                        results: [
+                            ...(offset > 0 && searchTerm === values.searchResults.searchTerm
+                                ? values.searchResults.results
+                                : []),
+                            ...response.results.slice(0, PAGINATION_LIMIT),
+                        ],
                         hasMore: response.results.length > PAGINATION_LIMIT,
                     }
                 },
@@ -359,20 +372,59 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ],
         ],
         searchedTreeItems: [
-            (s) => [s.searchResults],
-            (searchResults): TreeDataItem[] => {
-                return convertFileSystemEntryToFlatTreeDataItem(
+            (s) => [s.searchResults, s.searchResultsLoading],
+            (searchResults, searchResultsLoading): TreeDataItem[] => {
+                const results = convertFileSystemEntryToFlatTreeDataItem(
                     searchResults.results,
                     'search',
                     searchResults.searchTerm
                 )
+                if (searchResults.hasMore) {
+                    if (searchResultsLoading) {
+                        results.push({
+                            id: `search-loading/`,
+                            name: 'Loading...',
+                            icon: <Spinner />,
+                        })
+                    } else {
+                        results.push({
+                            id: `search-load-more/${searchResults.searchTerm}`,
+                            name: 'Load more...',
+                            icon: <IconPlus />,
+                            onClick: () =>
+                                projectTreeLogic.actions.loadSearchResults(
+                                    searchResults.searchTerm,
+                                    searchResults.results.length
+                                ),
+                        })
+                    }
+                }
+                return results
             },
         ],
         treeData: [
-            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree],
-            (searchTerm, searchedTreeItems, projectTree): TreeDataItem[] => {
+            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.searchResultsLoading],
+            (searchTerm, searchedTreeItems, projectTree, loadingPaths, searchResultsLoading): TreeDataItem[] => {
                 if (searchTerm) {
+                    if (searchResultsLoading && searchedTreeItems.length === 0) {
+                        return [
+                            {
+                                id: `search-loading/`,
+                                name: 'Loading...',
+                                icon: <Spinner />,
+                            },
+                        ]
+                    }
                     return searchedTreeItems
+                }
+                if (loadingPaths[''] && projectTree.length === 0) {
+                    return [
+                        {
+                            id: `project-loading/`,
+                            name: 'Loading...',
+                            icon: <Spinner />,
+                        },
+                    ]
                 }
                 return projectTree
             },
@@ -466,6 +518,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 const newPath = joinPath([...parentSplits, folder])
                 actions.addFolder(newPath)
             }
+        },
+        setSearchTerm: ({ searchTerm }) => {
+            actions.loadSearchResults(searchTerm)
         },
     })),
     afterMount(({ actions }) => {
