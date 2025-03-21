@@ -123,7 +123,7 @@ class Command(BaseCommand):
         max_concurrent_activities = options.get("max_concurrent_activities", None)
 
         try:
-            workflows = WORKFLOWS_DICT[task_queue]
+            workflows: list[type] = WORKFLOWS_DICT[task_queue]
             activities = ACTIVITIES_DICT[task_queue]
         except KeyError:
             raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
