@@ -229,9 +229,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
         setBreakdownColor: (breakdownValue: string, colorToken: DataColorToken) => ({ breakdownValue, colorToken }),
-        setFiltersAndLayoutsAndVariables: (filters: DashboardFilter, variables: Record<string, HogQLVariable>) => ({
+        setFiltersAndLayoutsAndVariables: (
+            filters: DashboardFilter,
+            variables: Record<string, HogQLVariable>,
+            breakdownColors: Record<string, DataColorToken>
+        ) => ({
             filters,
             variables,
+            breakdownColors,
         }),
         previewTemporaryFilters: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
@@ -345,6 +350,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             {
                                 filters: values.filters,
                                 variables: values.insightVariables,
+                                breakdown_colors: values.temporaryBreakdownColors,
                                 tiles: layoutsToUpdate,
                             }
                         )
@@ -1485,7 +1491,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // this is done in the reducer for dashboard
                 } else if (source === DashboardEventSource.DashboardHeaderSaveDashboard) {
                     // save edit mode changes
-                    actions.setFiltersAndLayoutsAndVariables(values.temporaryFilters, values.temporaryVariables)
+                    actions.setFiltersAndLayoutsAndVariables(
+                        values.temporaryFilters,
+                        values.temporaryVariables,
+                        values.temporaryBreakdownColors
+                    )
                 }
             }
 

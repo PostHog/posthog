@@ -8,6 +8,7 @@ import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { DashboardMode } from '~/types'
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
@@ -16,8 +17,8 @@ export function DashboardInsightColorsModal(): JSX.Element {
     const { isOpen, insightTilesLoading, breakdownValues } = useValues(dashboardInsightColorsModalLogic)
     const { hideInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
 
-    const { temporaryBreakdownColors } = useValues(dashboardLogic)
-    const { setBreakdownColor } = useActions(dashboardLogic)
+    const { temporaryBreakdownColors, dashboardMode } = useValues(dashboardLogic)
+    const { setBreakdownColor, setDashboardMode } = useActions(dashboardLogic)
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { cohorts } = useValues(cohortsModel)
@@ -30,7 +31,13 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 return (
                     <LemonColorPicker
                         selectedColorToken={temporaryBreakdownColors[breakdownValue] || null}
-                        onSelectColorToken={(colorToken) => setBreakdownColor(breakdownValue, colorToken)}
+                        onSelectColorToken={(colorToken) => {
+                            if (dashboardMode !== DashboardMode.Edit) {
+                                setDashboardMode(DashboardMode.Edit, null)
+                            }
+
+                            setBreakdownColor(breakdownValue, colorToken)
+                        }}
                     />
                 )
             },
