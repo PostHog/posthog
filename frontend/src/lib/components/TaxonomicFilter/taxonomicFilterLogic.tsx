@@ -611,9 +611,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (groupTypes) => {
                 const options = [
                     { icon: <IconLogomark />, name: 'Event', value: 'event' },
+                    { icon: <IconLogomark />, name: 'Timestamp', value: 'timestamp' },
                     { icon: <IconLogomark />, name: 'Distinct ID', value: 'distinct_id' },
                     { icon: <IconLogomark />, name: 'Person ID', value: 'person_id' },
-                    { icon: <IconLogomark />, name: 'Timestamp', value: 'timestamp' },
                 ] as Record<string, any>[]
                 for (const [groupTypeIndex, type] of groupTypes) {
                     const column = `$group_${groupTypeIndex}`
