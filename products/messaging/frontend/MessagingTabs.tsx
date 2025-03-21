@@ -13,6 +13,8 @@ export function MessagingTabs(): JSX.Element {
             onChange={(tab) => setTab(tab as MessagingTab)}
             tabs={[
                 { key: 'broadcasts', label: 'Broadcasts' },
+                { key: 'automations', label: 'Automations' },
+                { key: 'library', label: 'Library' },
                 { key: 'providers', label: 'Providers' },
             ]}
         />
