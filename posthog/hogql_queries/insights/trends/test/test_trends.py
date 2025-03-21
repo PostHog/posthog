@@ -6852,6 +6852,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_weekly_active_users_weekly(self):
+        """Test weekly active users with a week interval.
+
+        When using WEEKLY_ACTIVE math with an interval of WEEK or greater,
+        we should treat it like a normal unique users calculation (DAU) rather than
+        the sliding window calculation used for daily intervals.
+        """
         self._create_active_users_events()
 
         data = {
@@ -6871,7 +6877,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
         self.assertEqual(result[0]["days"], ["2019-12-29", "2020-01-05", "2020-01-12"])
-        self.assertEqual(result[0]["data"], [0.0, 1.0, 3.0])
+        self.assertEqual(result[0]["data"], [1, 2, 1])
 
     @snapshot_clickhouse_queries
     def test_weekly_active_users_hourly(self):

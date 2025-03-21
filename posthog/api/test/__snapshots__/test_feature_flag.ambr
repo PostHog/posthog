@@ -445,8 +445,8 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000000'::uuid,
-                                         '00000000000040008000000000000001'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid,
+                                         '00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
@@ -524,7 +524,7 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000002'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
@@ -615,10 +615,10 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000000'::uuid,
-                                         '00000000000040008000000000000001'::uuid,
-                                         '00000000000040008000000000000002'::uuid,
-                                         '00000000000040008000000000000003'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid,
+                                         '00000000000000000000000000000000'::uuid,
+                                         '00000000000000000000000000000000'::uuid,
+                                         '00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
@@ -916,8 +916,8 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000000'::uuid,
-                                         '00000000000040008000000000000001'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid,
+                                         '00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
@@ -1021,7 +1021,7 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000000'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
@@ -1268,7 +1268,7 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000002'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
@@ -1499,7 +1499,7 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000000'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1

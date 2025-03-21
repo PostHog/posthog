@@ -171,6 +171,10 @@ async function executeQuery<N extends DataNode>(
             variablesOverride
         )
 
+        if (response.detail) {
+            throw new Error(response.detail)
+        }
+
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
             return response
