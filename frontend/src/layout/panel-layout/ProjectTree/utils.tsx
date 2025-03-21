@@ -3,7 +3,7 @@ import { Spinner } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
-import SearchHighlight from '~/layout/navigation-3000/components/SearchHighlight'
+import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { iconForType } from './defaultTree'
@@ -135,8 +135,10 @@ export function convertFileSystemEntryToFlatTreeDataItem(
             name: itemName,
             displayName: (
                 <div className="flex flex-col gap-1">
-                    <SearchHighlight string={itemName} substring={searchTerm} />
-                    <div className="text-xxs font-normal">{folderPath}</div>
+                    <SearchHighlightMultiple string={itemName} substring={searchTerm} />
+                    <div className="text-xxs font-normal">
+                        <SearchHighlightMultiple string={folderPath} substring={searchTerm} />
+                    </div>
                 </div>
             ),
             icon: ('icon' in item && item.icon) || iconForType(item.type),
