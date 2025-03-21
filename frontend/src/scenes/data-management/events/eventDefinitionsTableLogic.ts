@@ -4,7 +4,7 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { PROPERTY_KEYS } from 'lib/taxonomy'
+import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS, PROPERTY_KEYS } from 'lib/taxonomy'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -200,10 +200,9 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     if (!url) {
                         url = api.propertyDefinitions.determineListEndpoint({
                             event_names: [definition.name],
-                            excluded_properties: PROPERTY_KEYS,
                             filter_by_event_names: true,
                             is_feature_flag: false,
-                            limit: PROPERTY_DEFINITIONS_PER_EVENT,
+                            limit: 1000,
                         })
                     }
                     actions.setEventDefinitionPropertiesLoading(
@@ -212,6 +211,12 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     cache.propertiesStartTime = performance.now()
                     const response = await api.get(url)
                     breakpoint()
+
+                    response.results = response.results.filter((prop: PropertyDefinition) => {
+                        const isPostHogProperty = prop.name.startsWith('$') || PROPERTY_KEYS.includes(prop.name)
+                        const isNonDollarPostHogProperty = CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(prop.name)
+                        return !isPostHogProperty && !isNonDollarPostHogProperty
+                    })
 
                     // Fetch one event as example and cache
                     let exampleEventProperties: Record<string, string>
