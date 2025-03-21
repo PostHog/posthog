@@ -535,8 +535,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             const mutationCount = Math.min(structuralChanges + Math.min(textAndAttrChanges, 2), 5)
                             rawActivity[timestamp].mutation +=
                                 maxMutationCount > 0 ? (mutationCount / maxMutationCount) * 0.5 : 0
-                        } else if (snapshot.type === EventType.Custom) {
-                            rawActivity[timestamp].custom += 0.1
                         }
                     })
                 })
@@ -544,9 +542,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Third pass: apply log scaling to each type separately
                 const maxUserActivity = Math.max(...Object.values(rawActivity).map((a) => a.user))
                 const maxMutationActivity = Math.max(...Object.values(rawActivity).map((a) => a.mutation))
-                const maxCustomActivity = Math.max(...Object.values(rawActivity).map((a) => a.custom))
 
-                const scaledActivity: Record<number, { user: number; mutation: number; custom: number }> = {}
+                const scaledActivity: Record<number, { user: number; mutation: number }> = {}
                 Object.entries(rawActivity).forEach(([second, activity]) => {
                     const secondInt = parseInt(second)
                     scaledActivity[secondInt] = {
@@ -555,8 +552,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             activity.mutation > 0
                                 ? (Math.log2(activity.mutation + 1) / Math.log2(maxMutationActivity + 1)) * 0.5
                                 : 0,
-                        custom:
-                            activity.custom > 0 ? Math.log2(activity.custom + 1) / Math.log2(maxCustomActivity + 1) : 0,
                     }
                 })
 
