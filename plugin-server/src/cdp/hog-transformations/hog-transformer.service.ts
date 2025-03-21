@@ -145,8 +145,7 @@ export class HogTransformerService {
                 if (this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
                     const timer = transformEventHogWatcherLatency.startTimer()
                     states = await this.hogWatcher.getStates(teamHogFunctions.map((hf) => hf.id))
-                    const durationSeconds = timer()
-                    transformEventHogWatcherLatency.observe({ operation: 'getStates' }, durationSeconds * 1000) // Convert seconds to milliseconds
+                    transformEventHogWatcherLatency.observe({ operation: 'getStates' }, timer() * 1000) // Convert seconds to milliseconds
                 }
 
                 // For now, execute each transformation function in sequence
@@ -287,8 +286,7 @@ export class HogTransformerService {
                 if (results.length > 0 && this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
                     const timer = transformEventHogWatcherLatency.startTimer()
                     await this.hogWatcher.observeResults(results)
-                    const durationSeconds = timer()
-                    transformEventHogWatcherLatency.observe({ operation: 'observeResults' }, durationSeconds * 1000) // Convert seconds to milliseconds
+                    transformEventHogWatcherLatency.observe({ operation: 'observeResults' }, timer() * 1000) // Convert seconds to milliseconds
                 }
 
                 if (transformationsFailed.length > 0) {
