@@ -195,13 +195,6 @@ class CohortPropertyDescriber(Summarizer):
         if not isinstance(behavioral_type, str):
             return "Behavioral Cohort"
 
-        verbose_name = self._get_verbose_name(prop.event_type, prop.key)
-        time_period = self._format_time_period(prop.time_value, prop.time_interval)
-        # Format sequential time period if available
-        seq_time_period = ""
-        if prop.seq_time_value is not None and prop.seq_time_interval:
-            seq_time_period = f"{prop.seq_time_value} {prop.seq_time_interval}{'s' if prop.seq_time_value != 1 else ''}"
-
         match behavioral_type:
             case BehavioralPropertyType.PERFORMED_EVENT | BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE:
                 return self._summarize_behavioral_event_filters()
@@ -215,16 +208,10 @@ class CohortPropertyDescriber(Summarizer):
             case BehavioralPropertyType.PERFORMED_EVENT_REGULARLY:
                 return self._summarize_lifecycle_performing_event_regularly()
 
-            case BehavioralPropertyType.STOPPED_PERFORMING_EVENT:
+            case BehavioralPropertyType.STOPPED_PERFORMING_EVENT | BehavioralPropertyType.RESTARTED_PERFORMING_EVENT:
                 return self._summarize_lifecycle_stopped_performing_event()
 
-            case BehavioralPropertyType.RESTARTED_PERFORMING_EVENT:
-                return (
-                    f"people who performed {verbose_name} {time_period} after not performing it for {seq_time_period}"
-                )
-
-            case _:
-                return f"Behavioral Cohort: {behavioral_type}"
+        raise NotImplementedError(f"Behavioral type {behavioral_type} not implemented")
 
     def _summarize_property_group(self) -> str:
         prop = self._property
@@ -325,11 +312,22 @@ class CohortPropertyDescriber(Summarizer):
 
         cohort_name = self._cohort_name
         verbose_name = self._get_verbose_name(prop.event_type, prop.key)
-        verb = "did" if prop.negation else "stopped doing"
+
+        if prop.value == BehavioralPropertyType.STOPPED_PERFORMING_EVENT:
+            verb = "did" if prop.negation else "stopped doing"
+            previous_condition = "had done"
+            frequency = ""
+        elif prop.value == BehavioralPropertyType.RESTARTED_PERFORMING_EVENT:
+            verb = "did not start doing" if prop.negation else "started doing"
+            previous_condition = "had not done"
+            frequency = " again"
+        else:
+            raise NotImplementedError(f"Behavioral type {prop.value} not implemented")
+
         had_done_period = self._format_time_period(prop.time_value, prop.time_interval)
         stopped_period = self._format_time_period(prop.seq_time_value, prop.seq_time_interval)
 
-        return f"{cohort_name} {verb} {verbose_name} in the last {stopped_period} but had done it in the last {had_done_period} prior now"
+        return f"{cohort_name} {verb} {verbose_name}{frequency} in the last {stopped_period} but {previous_condition} it in the last {had_done_period} prior now"
 
 
 class CohortPropertyGroupDescriber(Summarizer):
