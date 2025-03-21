@@ -507,24 +507,59 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     snapshots.forEach((snapshot) => {
                         const timestamp = toRelativeSecondInRecording(snapshot.timestamp, start.valueOf())
 
+                        if (!rawActivity[timestamp]) {
+                            rawActivity[timestamp] = { y: 0 }
+                        }
+
                         if (isUserActivity(snapshot)) {
-                            // user activity is more important than mutation activity
-                            rawActivity[timestamp].y += 10000
+                            rawActivity[timestamp].y += 50
                         } else if (
                             snapshot.type === EventType.IncrementalSnapshot &&
                             'source' in snapshot.data &&
                             snapshot.data.source === IncrementalSource.Mutation
                         ) {
-                            rawActivity[timestamp].y +=
-                                snapshot.data.adds.length +
-                                snapshot.data.removes.length +
-                                snapshot.data.attributes.length +
-                                snapshot.data.texts.length
+                            rawActivity[timestamp].y += 1
                         }
                     })
                 })
 
-                return rawActivity
+                // Apply smoothing
+                const sortedSeconds = Object.keys(rawActivity)
+                    .map(Number)
+                    .sort((a, b) => a - b)
+                const weights = [
+                    0.02,
+                    0.03,
+                    0.04,
+                    0.06,
+                    0.08,
+                    0.1,
+                    0.13,
+                    0.2, // center point
+                    0.13,
+                    0.1,
+                    0.08,
+                    0.06,
+                    0.04,
+                    0.03,
+                    0.02,
+                ]
+                const smoothedActivity: typeof rawActivity = {}
+
+                sortedSeconds.forEach((second) => {
+                    let smoothedY = 0
+                    for (let i = -7; i <= 7; i++) {
+                        const neighborSecond = second + i
+                        if (rawActivity[neighborSecond]) {
+                            smoothedY += rawActivity[neighborSecond].y * weights[i + 7]
+                        }
+                    }
+                    smoothedActivity[second] = {
+                        y: smoothedY,
+                    }
+                })
+
+                return smoothedActivity
             },
         ],
 

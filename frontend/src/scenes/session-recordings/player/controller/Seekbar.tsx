@@ -76,46 +76,11 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
     const points: ActivityPoint[] = useMemo(() => {
         const maxY = Math.max(...Object.values(activityPerSecond).map((activity) => activity.y))
 
-        // Convert to array and sort by second for easier neighbor access
-        const sortedPoints = Object.entries(activityPerSecond).map(([second, activity]) => ({
+        return Object.entries(activityPerSecond).map(([second, activity]) => ({
             second: parseInt(second),
-            ...activity,
+            x: (parseInt(second) / durationInSeconds) * width,
+            y: height - (Math.log(activity.y + 1) / Math.log(maxY + 1)) * height,
         }))
-
-        // Wider spread with 15 points - affects ±7 seconds
-        const weights = [
-            0.02,
-            0.03,
-            0.04,
-            0.06,
-            0.08,
-            0.1,
-            0.13,
-            0.2, // center point
-            0.13,
-            0.1,
-            0.08,
-            0.06,
-            0.04,
-            0.03,
-            0.02,
-        ]
-
-        return sortedPoints.map((point, index) => {
-            let smoothedY = 0
-            for (let i = -7; i <= 7; i++) {
-                const neighborIndex = index + i
-                if (neighborIndex >= 0 && neighborIndex < sortedPoints.length) {
-                    smoothedY += (sortedPoints[neighborIndex].y || 0) * weights[i + 7]
-                }
-            }
-
-            return {
-                second: point.second,
-                x: (point.second / durationInSeconds) * width,
-                y: height - (Math.log(smoothedY + 1) / Math.log(maxY + 1)) * height,
-            }
-        })
     }, [activityPerSecond, durationInSeconds, width, height])
 
     return (
@@ -128,7 +93,6 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
             style={{ height: '3rem' }}
         >
             <svg width="100%" height="100%" preserveAspectRatio="none">
-                {/* DOM Mutations - Medium opacity */}
                 <path
                     d={
                         points.length
