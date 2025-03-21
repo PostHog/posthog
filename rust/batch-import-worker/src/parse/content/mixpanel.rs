@@ -65,7 +65,7 @@ impl MixpanelEvent {
             let properties = mx.properties.other;
             let properties = map_geoip_props(properties);
             let properties = remove_mp_props(properties);
-            let properties = add_historical_migration(properties);
+            let properties = add_source_data(properties);
 
             let raw_event = RawEvent {
                 token: Some(token.clone()),
@@ -167,7 +167,7 @@ fn map_geoip_props(mut props: HashMap<String, Value>) -> HashMap<String, Value> 
     props
 }
 
-// We have to do some mapping because maxmind doesn't actually follow ISO3166, sigh
+// We have to do some mapping because maxmind doesn't precisely follow ISO3166
 // Names taken from: http://www.geonames.org/countries/
 const LONG_NAME_MAP: &[(&str, &str)] = &[
     ("The United States of America", "United States"),
@@ -206,7 +206,11 @@ fn remove_mp_props(mut props: HashMap<String, Value>) -> HashMap<String, Value> 
     props
 }
 
-fn add_historical_migration(mut props: HashMap<String, Value>) -> HashMap<String, Value> {
+fn add_source_data(mut props: HashMap<String, Value>) -> HashMap<String, Value> {
     props.insert("historical_migration".to_string(), Value::Bool(true));
+    props.insert(
+        "analytics_source".to_string(),
+        Value::String("mixpanel".to_string()),
+    );
     props
 }
