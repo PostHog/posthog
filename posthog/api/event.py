@@ -365,7 +365,7 @@ class EventViewSet(
                     )
                 ]
 
-            chain = [key] if is_column else ["properties", key]
+            chain: list[str | int] = [key] if is_column else ["properties", key]
 
             query = ast.SelectQuery(
                 select=[ast.Field(chain=chain)],
