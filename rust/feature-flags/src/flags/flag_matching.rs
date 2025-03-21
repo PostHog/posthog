@@ -1363,7 +1363,7 @@ impl FeatureFlagMatcher {
             return Ok(0.0); // NB: A flag with 0.0 hash will always evaluate to false
         }
 
-        calculate_hash(&hashed_identifier, &format!("{}.", feature_flag.key), salt).await
+        calculate_hash(&format!("{}.", feature_flag.key), &hashed_identifier, salt).await
     }
 
     async fn get_holdout_hash(
@@ -1372,7 +1372,7 @@ impl FeatureFlagMatcher {
         salt: Option<&str>,
     ) -> Result<f64, FlagError> {
         let hashed_identifier = self.hashed_identifier(feature_flag, None).await?;
-        let hash = calculate_hash(&hashed_identifier, "holdout-", salt.unwrap_or("")).await?;
+        let hash = calculate_hash("holdout-", &hashed_identifier, salt.unwrap_or("")).await?;
         Ok(hash)
     }
 
@@ -1431,8 +1431,8 @@ impl FeatureFlagMatcher {
 }
 
 pub async fn calculate_hash(
-    hashed_identifier: &str,
     prefix: &str,
+    hashed_identifier: &str,
     salt: &str,
 ) -> Result<f64, FlagError> {
     let hash_key = format!("{}{}{}", prefix, hashed_identifier, salt);
@@ -5483,7 +5483,7 @@ mod tests {
     #[case("example_id2", 0.6292740389966519)]
     #[tokio::test]
     async fn test_calculate_hash(#[case] hashed_identifier: &str, #[case] expected_hash: f64) {
-        let hash = calculate_hash(hashed_identifier, "holdout-", "")
+        let hash = calculate_hash("holdout-", hashed_identifier, "")
             .await
             .unwrap();
         assert!(

@@ -728,17 +728,17 @@ class FeatureFlagMatcher:
     # uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     # we can do _hash(key, identifier) < 0.2
     def get_hash(self, feature_flag: FeatureFlag, salt="") -> float:
-        return self.calculate_hash(self.hashed_identifier(feature_flag), f"{feature_flag.key}.", salt)
+        return self.calculate_hash(f"{feature_flag.key}.", self.hashed_identifier(feature_flag), salt)
 
     # This function takes a identifier and a feature flag and returns a float between 0 and 1.
     # Given the same identifier and key, it'll always return the same float. These floats are
     # uniformly distributed between 0 and 1, and are keyed only on user's distinct id / group key.
     # Thus, irrespective of the flag, the same user will always get the same value.
     def get_holdout_hash(self, feature_flag: FeatureFlag, salt="") -> float:
-        return self.calculate_hash(self.hashed_identifier(feature_flag), "holdout-", salt)
+        return self.calculate_hash("holdout-", self.hashed_identifier(feature_flag), salt)
 
     @classmethod
-    def calculate_hash(cls, hash_identifier: str | None, prefix: str, salt="") -> float:
+    def calculate_hash(cls, prefix: str, hash_identifier: str | None, salt="") -> float:
         if hash_identifier is None:
             # Return a hash value that will make the flag evaluate to false; since we
             # can't evaluate a flag without an identifier.

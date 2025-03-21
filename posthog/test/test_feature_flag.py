@@ -46,7 +46,7 @@ class TestFeatureFlagCohortExpansion(BaseTest):
         ]
     )
     def test_calculate_hash(self, identifier, expected_hash):
-        result = FeatureFlagMatcher.calculate_hash(identifier, "holdout-", "")
+        result = FeatureFlagMatcher.calculate_hash("holdout-", identifier, "")
         self.assertAlmostEqual(result, expected_hash)
 
     def test_cohort_expansion(self):
