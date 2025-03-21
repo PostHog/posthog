@@ -2016,7 +2016,6 @@ mod tests {
 
     use super::*;
     use crate::{
-        api::types::FlagEvaluationReason,
         flags::flag_models::{
             FeatureFlagRow, FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant,
         },
