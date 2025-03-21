@@ -82,7 +82,7 @@ export class HogFunctionManagerService {
                     hogFunctionIds: HogFunctionType['id'][]
                 }
 
-                logger.info('🍿', 'Marking hog functions for refresh', {
+                logger.info('[HogFunctionManager]', 'Marking hog functions for refresh', {
                     teamId,
                     hogFunctionIds,
                 })
@@ -201,6 +201,7 @@ export class HogFunctionManagerService {
     }
 
     private async fetchTeamHogFunctions(teamIds: string[]): Promise<Record<string, HogFunctionTeamInfo[]>> {
+        logger.info('[HogFunctionManager]', 'Fetching team hog functions', { teamIds })
         const response = await this.hub.postgres.query<Pick<HogFunctionType, 'id' | 'team_id' | 'type'>>(
             PostgresUse.COMMON_READ,
             `SELECT id, team_id, type FROM posthog_hogfunction WHERE enabled = TRUE AND deleted = FALSE AND team_id = ANY($1)`,
@@ -222,6 +223,8 @@ export class HogFunctionManagerService {
     }
 
     private async fetchHogFunctions(ids: string[]): Promise<Record<string, HogFunctionType | undefined>> {
+        logger.info('[HogFunctionManager]', 'Fetching hog functions', { ids })
+
         const response = await this.hub.postgres.query<HogFunctionType>(
             PostgresUse.COMMON_READ,
             `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE id = ANY($1)`,
@@ -263,9 +266,13 @@ export class HogFunctionManagerService {
                     }
                 } catch (error) {
                     if (encryptedInputs) {
-                        logger.warn('🍿', 'Could not parse encrypted inputs - preserving original value', {
-                            error: error instanceof Error ? error.message : 'Unknown error',
-                        })
+                        logger.warn(
+                            '[HogFunctionManager]',
+                            'Could not parse encrypted inputs - preserving original value',
+                            {
+                                error: error instanceof Error ? error.message : 'Unknown error',
+                            }
+                        )
                         captureException(error)
                     }
                 }
@@ -275,7 +282,7 @@ export class HogFunctionManagerService {
     }
 
     public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
-        logger.info('🍿', 'Enriching with integrations', { functionCount: items.length })
+        logger.info('[HogFunctionManager]', 'Enriching with integrations', { functionCount: items.length })
         const integrationIds: number[] = []
 
         items.forEach((item) => {
@@ -293,11 +300,11 @@ export class HogFunctionManagerService {
         })
 
         if (!integrationIds.length) {
-            logger.info('🍿', 'No integrations to enrich with')
+            logger.info('[HogFunctionManager]', 'No integrations to enrich with')
             return
         }
 
-        logger.info('🍿', 'Fetching integrations', { integrationCount: integrationIds.length })
+        logger.info('[HogFunctionManager]', 'Fetching integrations', { ids: integrationIds })
 
         const integrations: IntegrationType[] = (
             await this.hub.postgres.query(
@@ -310,7 +317,7 @@ export class HogFunctionManagerService {
             )
         ).rows
 
-        logger.info('🍿', 'Decrypting integrations', { integrationCount: integrations.length })
+        logger.info('[HogFunctionManager]', 'Decrypting integrations', { integrationCount: integrations.length })
 
         const integrationConfigsByTeamAndId: Record<string, Record<string, any>> = integrations.reduce(
             (acc, integration) => {
@@ -328,7 +335,7 @@ export class HogFunctionManagerService {
             },
             {}
         )
-        logger.info('🍿', 'Enriching hog functions', { functionCount: items.length })
+        logger.info('[HogFunctionManager]', 'Enriching hog functions', { functionCount: items.length })
 
         let updatedValuesCount = 0
         items.forEach((item) => {
@@ -347,6 +354,9 @@ export class HogFunctionManagerService {
                 }
             })
         })
-        logger.info('🍿', 'Enriched hog functions', { functionCount: items.length, updatedValuesCount })
+        logger.info('[HogFunctionManager]', 'Enriched hog functions', {
+            functionCount: items.length,
+            updatedValuesCount,
+        })
     }
 }

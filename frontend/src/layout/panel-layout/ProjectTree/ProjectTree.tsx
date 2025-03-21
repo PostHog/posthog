@@ -15,7 +15,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree(): JSX.Element {
-    const { treeData, loadingPaths, lastViewedId, viableItems, pendingActions } = useValues(projectTreeLogic)
+    const { treeData, lastViewedId, viableItems, pendingActions } = useValues(projectTreeLogic)
 
     const {
         createFolder,
@@ -111,9 +111,6 @@ export function ProjectTree(): JSX.Element {
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
                 data={treeData}
-                // Commented out until we fix the bug here where folders are not expanded/loaded, this is a bug in the projectTreeLogic + LemonTree
-                // expandedItemIds={expandedFolders}
-                isFinishedBuildingTreeData={Object.keys(loadingPaths).length === 0}
                 defaultSelectedFolderOrNodeId={lastViewedId || undefined}
                 isItemActive={(item) => {
                     if (!item.record?.href) {

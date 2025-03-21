@@ -28,11 +28,11 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
                             const event = CdpInternalEventSchema.parse(kafkaEvent)
 
                             const [teamHogFunctions, team] = await Promise.all([
-                                this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, ['destination']),
+                                this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, ['internal_destination']),
                                 this.hub.teamManager.fetchTeam(event.team_id),
                             ])
 
-                            if (!teamHogFunctions || !team) {
+                            if (!teamHogFunctions.length || !team) {
                                 return
                             }
 

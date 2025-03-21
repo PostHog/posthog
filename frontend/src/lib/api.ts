@@ -171,7 +171,6 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
-    async?: boolean
 }
 
 export class ApiError extends Error {
@@ -764,7 +763,7 @@ class ApiRequest {
 
     // Error tracking
     public errorTracking(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('error_tracking')
+        return this.environmentsDetail(teamId).addPathComponent('error_tracking')
     }
 
     public errorTrackingIssues(teamId?: TeamType['id']): ApiRequest {
@@ -1235,13 +1234,20 @@ const api = {
     },
 
     fileSystem: {
-        async list(
-            parent?: string,
-            depth?: number,
-            limit?: number,
+        async list({
+            parent,
+            depth,
+            limit,
+            offset,
+            search,
+        }: {
+            parent?: string
+            depth?: number
+            limit?: number
             offset?: number
-        ): Promise<CountedPaginatedResponse<FileSystemEntry>> {
-            return await new ApiRequest().fileSystem().withQueryString({ parent, depth, limit, offset }).get()
+            search?: string
+        }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest().fileSystem().withQueryString({ parent, depth, limit, offset, search }).get()
         },
         async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemUnfiled(type).get()

@@ -1,10 +1,56 @@
 from rest_framework import status
+from posthog.api.file_system import has_permissions_to_access_tree_view
 from posthog.test.base import APIBaseTest
 from posthog.models import FeatureFlag, Dashboard, Experiment, Insight, Notebook
-from posthog.models.file_system import FileSystem
+from posthog.models.file_system.file_system import FileSystem
+from unittest.mock import patch
+from rest_framework.exceptions import PermissionDenied
+
+
+class TestFileSystemAPIPermissions(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = False
+        self.user.save()
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_permissions_no_staff_no_feature(self, mock_feature_flag):
+        with self.assertRaises(PermissionDenied):
+            has_permissions_to_access_tree_view(self.user, self.team)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_permissions_no_staff_yes_feature(self, mock_feature_flag):
+        try:
+            has_permissions_to_access_tree_view(self.user, self.team)
+        except Exception as e:
+            self.fail(f"Permission check raised an exception unexpectedly: {e}")
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_permissions_yes_staff_no_feature(self, mock_feature_flag):
+        self.user.is_staff = True
+        self.user.save()
+        try:
+            has_permissions_to_access_tree_view(self.user, self.team)
+        except Exception as e:
+            self.fail(f"Permission check raised an exception unexpectedly: {e}")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_permissions_yes_staff_yes_feature(self, mock_feature_flag):
+        self.user.is_staff = True
+        self.user.save()
+        try:
+            has_permissions_to_access_tree_view(self.user, self.team)
+        except Exception as e:
+            self.fail(f"Permission check raised an exception unexpectedly: {e}")
 
 
 class TestFileSystemAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The user must be a staff user while we're beta testing
+        self.user.is_staff = True
+        self.user.save()
+
     def test_list_files_initially_empty(self):
         """
         When no FileSystem objects exist in the DB for the team, the list should be empty.
@@ -100,6 +146,7 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystem rows for the same objects.
         """
         FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         first_response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
         self.assertEqual(first_response.status_code, status.HTTP_200_OK)
@@ -126,6 +173,7 @@ class TestFileSystemAPI(APIBaseTest):
         Dashboard.objects.create(team=self.team, name="User Dashboard", created_by=self.user)
         Insight.objects.create(team=self.team, saved=True, name="Marketing Insight", created_by=self.user)
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
@@ -152,6 +200,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         flag = FeatureFlag.objects.create(team=self.team, name="Only Flag", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", feature_flag=flag, created_by=self.user)
+        FileSystem.objects.all().delete()
 
         # Filter for feature_flag only => creates 1 new 'leaf' item
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/?type=feature_flag")
@@ -274,6 +323,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         # Create a FeatureFlag
         FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         # Call unfiled - that should create the new FileSystem item
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
@@ -296,6 +346,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         # If a user enters something with a slash in the name...
         FeatureFlag.objects.create(team=self.team, name="Flag / With Slash", created_by=self.user)
+        FileSystem.objects.all().delete()
 
         # This becomes "Unfiled/Feature Flags/Flag \/ With Slash"
         # but that is still 3 path segments from the perspective of split_path()
