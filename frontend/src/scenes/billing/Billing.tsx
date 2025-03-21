@@ -165,7 +165,7 @@ export function Billing(): JSX.Element {
                 </div>
             )}
 
-            {!isManagedAccount && <CreditCTAHero />}
+            <CreditCTAHero />
 
             <div
                 className={clsx('flex justify-between', {
