@@ -1,4 +1,4 @@
-from functools import cached_property
+from functools import lru_cache
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.core.validators import MinLengthValidator
@@ -60,9 +60,9 @@ class Project(models.Model):
 
     __repr__ = sane_repr("id", "name")
 
-    @cached_property
-    def passthrough_team(self) -> "Team":
-        passthrough_team = self.teams.first()
+    @lru_cache(maxsize=1)
+    def get_passthrough_team(self, visible_team_ids: tuple[int, ...]) -> "Team":
+        passthrough_team = self.teams.filter(id__in=visible_team_ids).first()
         if passthrough_team is None:
             raise ValueError(f"Project {self.pk} has no environments, which should not be possible")
         return passthrough_team

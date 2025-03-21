@@ -214,7 +214,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
     def get_product_intents(self, obj):
         project = obj
-        team = project.passthrough_team
+        team = project.get_passthrough_team(self.user_permissions.team_ids_visible_for_user)
         calculate_product_activation.delay(team.id, only_calc_if_days_since_last_checked=1)
         return ProductIntent.objects.filter(team=team).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
@@ -295,7 +295,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return project
 
     def update(self, instance: Project, validated_data: dict[str, Any]) -> Project:
-        team = instance.passthrough_team
+        team = instance.get_passthrough_team(self.user_permissions.team_ids_visible_for_user)
         team_before_update = team.__dict__.copy()
         project_before_update = instance.__dict__.copy()
 
@@ -559,7 +559,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
-        project.passthrough_team.reset_token_and_save(
+        project.get_passthrough_team(self.user_permissions.team_ids_visible_for_user).reset_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated_session(request)
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
@@ -572,7 +572,13 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def is_generating_demo_data(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
-        return response.Response({"is_generating_demo_data": project.passthrough_team.get_is_generating_demo_data()})
+        return response.Response(
+            {
+                "is_generating_demo_data": project.get_passthrough_team(
+                    self.user_permissions.team_ids_visible_for_user
+                ).get_is_generating_demo_data()
+            }
+        )
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
@@ -598,7 +604,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
-        team = project.passthrough_team
+        team = project.get_passthrough_team(self.user_permissions.team_ids_visible_for_user)
         user = request.user
         product_type = request.data.get("product_type")
         current_url = request.headers.get("Referer")
@@ -641,7 +647,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
-        team = project.passthrough_team
+        team = project.get_passthrough_team(self.user_permissions.team_ids_visible_for_user)
         product_type = request.data.get("product_type")
         user = request.user
         current_url = request.headers.get("Referer")
@@ -803,7 +809,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @cached_property
     def user_permissions(self):
         project = self.get_object() if self.action == "reset_token" else None
-        team = project.passthrough_team if project else None
+        team = project.get_passthrough_team(self.user_permissions.team_ids_visible_for_user) if project else None
         return UserPermissions(cast(User, self.request.user), team)
 
 
