@@ -35,7 +35,7 @@ class NotificationSetting(Enum):
     ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
 
 
-NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled"]
+NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled", "error_tracking_issue_assigned"]
 
 
 def send_message_to_all_staff_users(message: EmailMessage) -> None:
