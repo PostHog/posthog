@@ -440,6 +440,7 @@ impl FeatureFlagMatcher {
 
         // Step 1: Evaluate flags with locally computable property overrides first
         for flag in &feature_flags.flags {
+            // we shouldn't have any disabled or deleted flags (the query should filter them out), but just in case, we skip them here
             if !flag.active || flag.deleted {
                 continue;
             }

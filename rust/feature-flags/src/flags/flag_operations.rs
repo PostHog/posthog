@@ -95,6 +95,7 @@ impl FeatureFlagList {
               JOIN posthog_team AS t ON (f.team_id = t.id)
             WHERE t.project_id = $1
               AND f.deleted = false
+              AND f.active = true
         "#;
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
             .bind(project_id)
@@ -1009,12 +1010,9 @@ mod tests {
             .await
             .expect("Failed to fetch flags from Postgres");
 
-        assert_eq!(pg_flags.flags.len(), 1);
+        assert_eq!(pg_flags.flags.len(), 0);
         assert!(!pg_flags.flags.iter().any(|f| f.deleted)); // no deleted flags
-        assert!(pg_flags
-            .flags
-            .iter()
-            .any(|f| f.key == "inactive_flag" && !f.active)); // only inactive flag is left
+        assert!(!pg_flags.flags.iter().any(|f| f.active)); // no inactive flags
     }
 
     #[tokio::test]
