@@ -3,7 +3,7 @@ from unittest.mock import ANY, patch
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Action, Tag, User
+from posthog.models import Action, Tag, User, Team, OrganizationMembership
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -440,3 +440,28 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         deletion_response = self.client.delete(f"/api/projects/{self.team.id}/actions/{response.json()['id']}")
         self.assertEqual(deletion_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_list_actions_in_project_with_original_team_restricted(self):
+        # Make original team inaccessible
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.team.access_control = True
+        self.team.save()
+
+        # Create a new team in the same project that's accessible
+        accessible_team = Team.objects.create(
+            organization=self.organization, project=self.team.project, name="Accessible"
+        )
+
+        # Create some actions in both teams
+        accessible_action = Action.objects.create(team=accessible_team, name="accessible action")
+
+        # User should be able to list actions from the accessible team
+        response = self.client.get(f"/api/projects/{self.project.id}/actions/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())  # The _project_ IS accessible
+
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)  # Should only see the accessible action
+        self.assertEqual(results[0]["name"], "accessible action")
+        self.assertEqual(results[0]["id"], accessible_action.id)
