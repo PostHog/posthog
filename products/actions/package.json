@@ -1,10 +1,5 @@
 {
     "name": "@posthog/products-actions",
-    "devDependencies": {
-        "@posthog/icons": "0.11.6",
-        "@types/react": "^17.0.39",
-        "react": "^18.2.0"
-    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",
