@@ -21,7 +21,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_brands"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_brands"),
             "endpoint": {
                 "data_selector": "brands",
                 "path": "/api/v2/brands",
@@ -42,7 +42,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_organizations"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_organizations"),
             "endpoint": {
                 "data_selector": "organizations",
                 "path": "/api/v2/organizations",
@@ -63,7 +63,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_groups"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_groups"),
             "endpoint": {
                 "data_selector": "groups",
                 "path": "/api/v2/groups",
@@ -86,7 +86,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_sla_policies"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_sla_policies"),
             "endpoint": {
                 "data_selector": "sla_policies",
                 "path": "/api/v2/slas/policies",
@@ -104,7 +104,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_users"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_users"),
             "endpoint": {
                 "data_selector": "users",
                 "path": "/api/v2/users",
@@ -130,7 +130,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_fields"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_fields"),
             "endpoint": {
                 "data_selector": "ticket_fields",
                 "path": "/api/v2/ticket_fields",
@@ -154,7 +154,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_events"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_events"),
             "endpoint": {
                 "data_selector": "ticket_events",
                 "path": "/api/v2/incremental/ticket_events?start_time=0",
@@ -167,7 +167,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "start_time": {
                     #     "type": "incremental",
                     #     "cursor_path": "end_time",
-                    #     "initial_value": 0,  # type: ignore
+                    #     "initial_value": 0,
                     # },
                 },
             },
@@ -183,7 +183,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_tickets"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_tickets"),
             "endpoint": {
                 "data_selector": "tickets",
                 "path": "/api/v2/incremental/tickets",
@@ -211,7 +211,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             }
             if is_incremental
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_metric_events"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_metric_events"),
             "endpoint": {
                 "data_selector": "ticket_metric_events",
                 "path": "/api/v2/incremental/ticket_metric_events?start_time=0",
@@ -224,7 +224,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "start_time": {
                     #     "type": "incremental",
                     #     "cursor_path": "end_time",
-                    #     "initial_value": 0,  # type: ignore
+                    #     "initial_value": 0,
                     # },
                 },
             },
