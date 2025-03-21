@@ -192,7 +192,7 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
                             <CodeSnippet language={Language.Bash}>{wizardCommand}</CodeSnippet>
                         </div>
                     </LemonBanner>
-                    <LemonDivider />
+                    <LemonDivider label="OR" />
                     <h2>Manual Installation</h2>
                 </>
             )}
