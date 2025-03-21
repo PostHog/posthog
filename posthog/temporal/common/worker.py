@@ -9,6 +9,7 @@ from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.client import connect
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.sentry import SentryInterceptor
 
 
@@ -54,7 +55,7 @@ async def start_worker(
         activities=activities,
         workflow_runner=UnsandboxedWorkflowRunner(),
         graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
-        interceptors=[SentryInterceptor()],
+        interceptors=[SentryInterceptor(), PostHogClientInterceptor()],
         activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
         max_concurrent_activities=max_concurrent_activities or 50,
         max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
