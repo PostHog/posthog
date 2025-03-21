@@ -180,6 +180,9 @@ impl FromFeatureAndMatch for FlagDetails {
             FeatureFlagMatchReason::SuperConditionValue => {
                 Some("Super condition value".to_string())
             }
+            FeatureFlagMatchReason::HoldoutConditionValue => {
+                Some("Holdout condition value".to_string())
+            }
         }
     }
 }
@@ -252,6 +255,16 @@ mod tests {
             payload: None,
         },
         Some("Super condition value".to_string())
+    )]
+    #[case::holdout_condition(
+        FeatureFlagMatch {
+            matches: true,
+            variant: None,
+            reason: FeatureFlagMatchReason::HoldoutConditionValue,
+            condition_index: None,
+            payload: None,
+        },
+        Some("Holdout condition value".to_string())
     )]
     fn test_get_reason_description(
         #[case] flag_match: FeatureFlagMatch,

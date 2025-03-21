@@ -1,10 +1,21 @@
+import { Counter } from 'prom-client'
+
+import { defaultConfig } from '../../config/config'
 import { ProductFeature, RawOrganization, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
+import { logger } from '../../utils/logger'
+import { TeamManagerLazy } from '../../utils/team-manager-lazy'
 import { getByAge } from '../../utils/utils'
 import { TeamManager } from './team-manager'
 
 const ONE_DAY = 24 * 60 * 60 * 1000
+
+const availableFeatureComparisonCounter = new Counter({
+    name: 'available_feature_comparison',
+    help: 'Checks available feature returned is the same as the lazy available feature',
+    labelNames: ['result'],
+})
 
 type OrganizationCache<T> = Map<RawOrganization['id'], [T, number]>
 
@@ -14,7 +25,7 @@ export class OrganizationManager {
     organizationCache: OrganizationCache<RawOrganization | null>
     availableProductFeaturesCache: Map<TeamId, [Array<ProductFeature>, number]>
 
-    constructor(postgres: PostgresRouter, teamManager: TeamManager) {
+    constructor(postgres: PostgresRouter, teamManager: TeamManager, private teamManagerLazy?: TeamManagerLazy) {
         this.postgres = postgres
         this.teamManager = teamManager
         this.organizationCache = new Map()
@@ -39,6 +50,26 @@ export class OrganizationManager {
     }
 
     public async hasAvailableFeature(teamId: TeamId, feature: string, team?: Team): Promise<boolean> {
+        const result = await this._hasAvailableFeature(teamId, feature, team)
+
+        try {
+            // NOTE: This is testing code to compare the outputs and ensure all is valid
+            if (defaultConfig.LAZY_TEAM_MANAGER_COMPARISON && this.teamManagerLazy) {
+                const lazyResult = await this.teamManagerLazy.hasAvailableFeature(teamId, feature)
+
+                if (lazyResult === result) {
+                    availableFeatureComparisonCounter.inc({ result: 'equal' })
+                } else {
+                    availableFeatureComparisonCounter.inc({ result: 'not_equal' })
+                }
+            }
+        } catch (e) {
+            logger.error('Error comparing available features', { error: e })
+        }
+        return result
+    }
+
+    private async _hasAvailableFeature(teamId: TeamId, feature: string, team?: Team): Promise<boolean> {
         const cachedAvailableFeatures = getByAge(this.availableProductFeaturesCache, teamId, ONE_DAY)
 
         if (cachedAvailableFeatures !== undefined) {
@@ -63,6 +94,10 @@ export class OrganizationManager {
     public resetAvailableProductFeaturesCache(organizationId: string) {
         this.availableProductFeaturesCache = new Map()
         this.organizationCache.delete(organizationId)
+
+        if (defaultConfig.LAZY_TEAM_MANAGER_COMPARISON && this.teamManagerLazy) {
+            this.teamManagerLazy.orgAvailableFeaturesChanged(organizationId)
+        }
     }
 }
 

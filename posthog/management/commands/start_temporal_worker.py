@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 import logging
 
 import structlog
@@ -90,6 +91,11 @@ class Command(BaseCommand):
             help="Port to export Prometheus metrics on",
         )
         parser.add_argument(
+            "--graceful-shutdown-timeout-seconds",
+            default=settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+            help="Time that the worker will wait after shutdown before canceling activities, in seconds",
+        )
+        parser.add_argument(
             "--max-concurrent-workflow-tasks",
             default=settings.MAX_CONCURRENT_WORKFLOW_TASKS,
             help="Maximum number of concurrent workflow tasks for this worker",
@@ -108,6 +114,7 @@ class Command(BaseCommand):
         server_root_ca_cert = options.get("server_root_ca_cert", None)
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
+        graceful_shutdown_timeout_seconds = options.get("graceful_shutdown_timeout_seconds", None)
         max_concurrent_workflow_tasks = options.get("max_concurrent_workflow_tasks", None)
         max_concurrent_activities = options.get("max_concurrent_activities", None)
 
@@ -136,6 +143,9 @@ class Command(BaseCommand):
                 client_key=client_key,
                 workflows=workflows,
                 activities=activities,
+                graceful_shutdown_timeout=dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
+                if graceful_shutdown_timeout_seconds is not None
+                else None,
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,
             )

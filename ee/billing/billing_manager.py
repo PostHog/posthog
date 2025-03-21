@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 from typing import Any, Optional, cast
 
@@ -37,7 +37,7 @@ def build_billing_token(license: License, organization: Organization, user: Opti
     license_secret = license.key.split("::")[1]
 
     payload = {
-        "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
+        "exp": datetime.now(tz=UTC) + timedelta(minutes=15),
         "id": license_id,
         "organization_id": str(organization.id),
         "organization_name": organization.name,

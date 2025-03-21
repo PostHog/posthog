@@ -1,16 +1,33 @@
 from typing import Any, cast
 
 from django.db.models import QuerySet
+import posthoganalytics
 from rest_framework import filters, serializers, viewsets, pagination, status
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.utils import action
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.file_system import FileSystem, save_unfiled_files, split_path
+from posthog.models.file_system.file_system import FileSystem, split_path
+from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.user import User
 from posthog.models.team import Team
+
+
+def has_permissions_to_access_tree_view(user, team):
+    tree_view_enabled = posthoganalytics.feature_enabled(
+        "tree-view",
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
+
+    if user.is_staff or tree_view_enabled:
+        return
+
+    raise PermissionDenied("You must have the 'tree-view' flag enabled, or be a staff user to access this resource.")
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
@@ -87,6 +104,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     pagination_class = FileSystemsLimitOffsetPagination
     search_fields = ["path"]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        has_permissions_to_access_tree_view(request.user, self.team)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team=self.team)
