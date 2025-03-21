@@ -4,6 +4,8 @@ import { useState } from 'react'
 
 import { LemonColorButton } from './LemonColorButton'
 import { LemonColorList } from './LemonColorList'
+import { useValues } from 'kea'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 type LemonColorPickerBaseProps = {
     showCustomColor?: boolean
@@ -48,6 +50,7 @@ export const LemonColorPickerOverlay = ({
 }: LemonColorPickerOverlayProps): JSX.Element => {
     const [color, setColor] = useState<string | null>(selectedColor || null)
     const [lastValidColor, setLastValidColor] = useState<string | null>(selectedColor || null)
+    const { getAvailableColorTokens } = useValues(dataThemeLogic)
 
     return (
         <div
@@ -67,14 +70,14 @@ export const LemonColorPickerOverlay = ({
             <LemonLabel className="mt-1 mb-0.5">Preset colors</LemonLabel>
             {colors ? (
                 <LemonColorList colors={colors} selectedColor={selectedColor} onSelectColor={onSelectColor} />
-            ) : colorTokens ? (
+            ) : (
                 <LemonColorList
                     themeId={themeId}
-                    colorTokens={colorTokens}
+                    colorTokens={colorTokens || getAvailableColorTokens(themeId)}
                     selectedColorToken={selectedColorToken}
                     onSelectColorToken={onSelectColorToken}
                 />
-            ) : null}
+            )}
             {showCustomColor && (
                 <div>
                     <LemonLabel className="mt-2 mb-0.5">Custom color</LemonLabel>

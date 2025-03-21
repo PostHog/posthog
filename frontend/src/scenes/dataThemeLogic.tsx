@@ -103,6 +103,17 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                     return theme[`preset-${wrappedNum}`]
                 },
         ],
+        getAvailableColorTokens: [
+            (s) => [s.getTheme],
+            (getTheme: (themeId: string | number | null | undefined) => DataColorTheme | null) =>
+                (themeId: string | number | null | undefined) => {
+                    const theme = getTheme(themeId)
+                    if (!theme) {
+                        return null
+                    }
+                    return Object.keys(theme || {})
+                },
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadThemes()
