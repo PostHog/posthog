@@ -3,7 +3,7 @@ import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
-import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
@@ -68,8 +68,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             ['aggregationLabel'],
             featureFlagLogic,
             ['featureFlags'],
-            dashboardInsightColorsModalLogic,
-            ['breakdownColors'],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),
@@ -415,19 +413,22 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
         ],
         getFunnelsColorToken: [
-            (s) => [s.resultCustomizations, s.theme, s.breakdownColors],
-            (resultCustomizations, theme, breakdownColors) => {
+            (s) => [s.resultCustomizations, s.theme],
+            (resultCustomizations, theme) => {
                 return (dataset) => {
                     if (theme == null) {
                         return null
                     }
 
+                    const logic = dashboardLogic.findMounted({ id: props.dashboardId })
+                    const temporaryBreakdownColors = logic?.values.temporaryBreakdownColors
+
                     // dashboard color overrides
                     const key = getFunnelDatasetKey(dataset)
                     const breakdownValue = JSON.parse(key)['breakdown_value']
 
-                    if (breakdownColors?.[breakdownValue]) {
-                        return breakdownColors[breakdownValue]
+                    if (temporaryBreakdownColors?.[breakdownValue]) {
+                        return temporaryBreakdownColors[breakdownValue]
                     }
 
                     // insight color overrides

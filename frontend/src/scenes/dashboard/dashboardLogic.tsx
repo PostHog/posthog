@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import { DataColorToken } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -227,6 +228,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
+        setBreakdownColor: (breakdownValue: string, colorToken: DataColorToken) => ({ breakdownValue, colorToken }),
         setFiltersAndLayoutsAndVariables: (filters: DashboardFilter, variables: Record<string, HogQLVariable>) => ({
             filters,
             variables,
@@ -587,6 +589,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               breakdown_filter: dashboard?.filters.breakdown_filter || null,
                           }
                         : state,
+            },
+        ],
+        temporaryBreakdownColors: [
+            {} as Record<string, DataColorToken>,
+            {
+                setBreakdownColor: (state, { breakdownValue, colorToken }) => ({
+                    ...state,
+                    [breakdownValue]: colorToken,
+                }),
+                loadDashboardSuccess: (state, { dashboard }) => {
+                    return dashboard
+                        ? {
+                              ...state,
+                              ...(dashboard.breakdown_colors ?? {}),
+                          }
+                        : state
+                },
             },
         ],
         filters: [

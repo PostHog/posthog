@@ -28,6 +28,7 @@ export function DashboardItems(): JSX.Element {
         canEditDashboard,
         itemsLoading,
         temporaryVariables,
+        temporaryBreakdownColors,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -154,6 +155,7 @@ export function DashboardItems(): JSX.Element {
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                     variablesOverride={temporaryVariables}
+                                    breakdownColorOverride={temporaryBreakdownColors}
                                     {...commonTileProps}
                                     // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />
