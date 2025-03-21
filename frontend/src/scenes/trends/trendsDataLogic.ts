@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { dayjs } from 'lib/dayjs'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -7,6 +8,7 @@ import {
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
+    getTrendDatasetKey,
     getTrendResultCustomizationColorToken,
 } from 'scenes/insights/utils'
 
@@ -105,7 +107,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
     }),
 
-    selectors(({ values }) => ({
+    selectors(({ values, props }) => ({
         /** series within the trend insight on which user can set alerts */
         alertSeries: [
             (s) => [s.querySource],
@@ -271,6 +273,18 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     if (theme == null) {
                         return null
                     }
+
+                    const logic = dashboardLogic.findMounted({ id: props.dashboardId })
+                    const temporaryBreakdownColors = logic?.values.temporaryBreakdownColors
+
+                    // dashboard color overrides
+                    const key = getTrendDatasetKey(dataset)
+                    const breakdownValue = JSON.parse(key)['breakdown_value']
+
+                    if (temporaryBreakdownColors?.[breakdownValue]) {
+                        return temporaryBreakdownColors[breakdownValue]
+                    }
+
                     return getTrendResultCustomizationColorToken(
                         resultCustomizationBy,
                         resultCustomizations,
