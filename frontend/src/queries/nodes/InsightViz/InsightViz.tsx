@@ -55,14 +55,16 @@ export function InsightViz({
     variablesOverride,
 }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
-    const insightProps: InsightLogicProps = context?.insightProps || {
-        dashboardItemId: `new-AdHoc.${key}`,
-        query,
-        setQuery,
-        dataNodeCollectionId: key,
-        filtersOverride,
-        variablesOverride,
-    }
+    const insightProps =
+        context?.insightProps ||
+        ({
+            dashboardItemId: `new-AdHoc.${key}`,
+            query,
+            setQuery,
+            dataNodeCollectionId: key,
+            filtersOverride,
+            variablesOverride,
+        } as InsightLogicProps<InsightVizNode>)
 
     if (!insightProps.setQuery && setQuery) {
         insightProps.setQuery = setQuery

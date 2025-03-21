@@ -191,7 +191,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         ? getSumQuery(metric, values.experiment)
                         : getFunnelQuery(metric, values.experiment)
 
-                const result = (await performQuery(query, undefined, true)) as Partial<TrendsQueryResponse>
+                const result = (await performQuery(query, undefined, 'force_blocking')) as Partial<TrendsQueryResponse>
 
                 return {
                     uniqueUsers: result?.results?.[0]?.count ?? null,

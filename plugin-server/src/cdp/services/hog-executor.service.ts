@@ -498,7 +498,9 @@ export class HogExecutorService {
                                     'postHogCapture was called more than once. Only one call is allowed per function'
                                 )
                             }
-                            const executionCount = globals.event.properties?.$hog_function_execution_count ?? 0
+
+                            const givenCount = globals.event.properties?.$hog_function_execution_count
+                            const executionCount = typeof givenCount === 'number' ? givenCount : 0
 
                             if (executionCount > 0) {
                                 result.logs.push({

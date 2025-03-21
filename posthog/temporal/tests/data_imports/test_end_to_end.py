@@ -236,7 +236,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 activity_executor=ThreadPoolExecutor(max_workers=50),
                 max_concurrent_activities=50,
             ):
-                await activity_environment.client.execute_workflow(  # type: ignore
+                await activity_environment.client.execute_workflow(
                     ExternalDataJobWorkflow.run,
                     inputs,
                     id=workflow_id,
