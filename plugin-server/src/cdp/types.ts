@@ -70,7 +70,7 @@ export type HogFunctionInvocationGlobals = {
         uuid: string
         event: string
         distinct_id: string
-        properties: Record<string, any>
+        properties: Record<string, unknown>
         elements_chain: string
         timestamp: string
 
