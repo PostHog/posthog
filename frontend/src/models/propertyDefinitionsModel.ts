@@ -137,11 +137,8 @@ const constructValuesEndpoint = (
     newInput: string | undefined,
     properties?: { key: string; values: string | string[] }[]
 ): string => {
-    const baseType = type === PropertyDefinitionType.EventMetadata ? 'event' : type
     const basePath =
-        type === PropertyDefinitionType.Session
-            ? `api/environments/${teamId}/${type}s/values`
-            : `api/${baseType}/values`
+        type === PropertyDefinitionType.Session ? `api/environments/${teamId}/${type}s/values` : `api/${type}/values`
     const path = endpoint ? endpoint : basePath + `?key=${encodeURIComponent(propertyKey)}`
 
     let eventParams = ''

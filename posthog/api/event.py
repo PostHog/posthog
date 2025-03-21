@@ -269,6 +269,7 @@ class EventViewSet(
 
         key = request.GET.get("key")
         event_names = request.GET.getlist("event_name", None)
+        is_column = request.GET.get("is_column", False)
 
         if key == "custom_event":
             system_events = [
@@ -306,12 +307,15 @@ class EventViewSet(
                     left=ast.Field(chain=["timestamp"]),
                     right=ast.Constant(value=date_to),
                 ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=["properties", key]),
-                    right=ast.Constant(value=None),
-                ),
             ]
+            if not is_column:
+                conditions.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["properties", key]),
+                        right=ast.Constant(value=None),
+                    )
+                )
 
             # Handle property filters from query parameters
             for param_key, param_value in request.GET.items():
@@ -361,8 +365,10 @@ class EventViewSet(
                     )
                 ]
 
+            chain = [key] if is_column else ["properties", key]
+
             query = ast.SelectQuery(
-                select=[ast.Field(chain=["properties", key])],
+                select=[ast.Field(chain=chain)],
                 distinct=True,
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                 where=ast.And(exprs=conditions),

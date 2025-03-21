@@ -226,6 +226,44 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 0)
 
+    @freeze_time("2020-01-10")
+    def test_event_column_values(self):
+        _create_event(
+            distinct_id="bla",
+            event="random event 1",
+            team=self.team,
+        )
+        _create_event(
+            distinct_id="blu",
+            event="random event 2",
+            team=self.team,
+            properties={"random_prop": "asdf"},
+        )
+        _create_event(
+            distinct_id="ble",
+            event="another random event",
+            team=self.team,
+            properties={"random_prop": "qwerty"},
+        )
+
+        team2 = Organization.objects.bootstrap(None)[2]
+        _create_event(
+            distinct_id="bla",
+            event="random event",
+            team=team2,
+            properties={"random_prop": "abcd"},
+        )
+
+        flush_persons_and_events()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=distinct_id&is_column=true").json()
+        self.assertEqual(response, [{"name": "ble"}, {"name": "bla"}, {"name": "blu"}])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=event&is_column=true").json()
+        self.assertEqual(
+            response, [{"name": "another random event"}, {"name": "random event 1"}, {"name": "random event 2"}]
+        )
+
     def test_custom_event_values(self):
         events = ["test", "new event", "another event"]
         for event in events:

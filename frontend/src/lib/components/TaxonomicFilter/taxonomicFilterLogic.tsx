@@ -341,6 +341,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             return coreDefinition ? coreDefinition.label : option.name
                         },
                         getValue: (option: PropertyDefinition) => option.id,
+                        valuesEndpoint: (key) => {
+                            return `api/event/values/?key=${key}&is_column=true`
+                        },
                         getPopoverHeader: () => 'Event metadata',
                     },
                     {
