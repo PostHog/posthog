@@ -35,6 +35,7 @@ from posthog.hogql.escape_sql import (
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
+    SURVEY_FUNCTIONS,
     find_hogql_aggregation,
     find_hogql_function,
     find_hogql_posthog_function,
@@ -1099,6 +1100,29 @@ class _Printer(Visitor):
             if self.dialect == "clickhouse":
                 args_count = len(node.args) - func_meta.passthrough_suffix_args_count
                 node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
+
+                if node.name in SURVEY_FUNCTIONS:
+                    if node.name == "getSurveyResponse":
+                        question_index = int(node_args[0].value)
+                        question_id = str(node_args[1].value) if len(node_args) > 1 else None
+                        id_based_key = f"$survey_response_{question_id}"
+                        index_based_key = (
+                            "$survey_response" if question_index == 0 else f"$survey_response_{question_index}"
+                        )
+
+                        if question_id:
+                            return f"""COALESCE(
+    NULLIF(JSONExtractString(properties, '{id_based_key}'), ''),
+    NULLIF(JSONExtractString(properties, '{index_based_key}'), '')
+)"""
+
+                        return f"""COALESCE(
+    NULLIF(JSONExtractString(properties,
+        CONCAT('$survey_response_',
+               JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[{question_index + 1}], 'id')
+        )), ''),
+    NULLIF(JSONExtractString(properties, '{index_based_key}'), '')
+)"""
 
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []
