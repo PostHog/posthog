@@ -565,6 +565,3 @@ posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredent
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
-posthog/year_in_posthog/year_in_posthog.py:0: error: Argument 1 to "stats_for_user" has incompatible type "dict[Any, Any] | None"; expected "dict[Any, Any]"  [arg-type]
-posthog/year_in_posthog/year_in_posthog.py:0: error: Item "None" of "dict[Any, Any] | None" has no attribute "get"  [union-attr]
-posthog/year_in_posthog/year_in_posthog.py:0: error: Item "None" of "dict[Any, Any] | None" has no attribute "get"  [union-attr]
