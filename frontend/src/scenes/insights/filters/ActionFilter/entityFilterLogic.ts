@@ -186,7 +186,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             const dataLogic = insightDataLogic.findMounted({
                 dashboardItemId: props.typeKey,
             })
-            dataLogic?.actions?.loadData(true)
+            dataLogic?.actions?.loadData('force_async')
         },
         hideModal: () => {
             actions.selectFilter(null)

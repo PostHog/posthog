@@ -1,3 +1,6 @@
+import { IconRocket } from '@posthog/icons'
+import { urls } from 'scenes/urls'
+
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -29,4 +32,18 @@ export const manifest: ProductManifest = {
             /** @param id A UUID or 'new'. ':id' for routing. */
             (id: string): string => `/early_access_features/${id}`,
     },
+    fileSystemTypes: {
+        // TODO: add to project tree backend
+        // early_access_feature: {
+        //     icon: <IconRocket />,
+        //     href: (ref: string) => urls.earlyAccessFeature(ref),
+        // },
+    },
+    treeItems: [
+        {
+            path: 'Explore/Early access features',
+            icon: <IconRocket />,
+            href: () => urls.earlyAccessFeatures(),
+        },
+    ],
 }

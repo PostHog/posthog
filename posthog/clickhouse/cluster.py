@@ -193,6 +193,10 @@ class ClickhouseCluster:
             hosts.update(shard_hosts)
         return hosts
 
+    @property
+    def shards(self) -> list[int]:
+        return list(self.__shards.keys())
+
     def any_host(self, fn: Callable[[Client], T]) -> Future[T]:
         with ThreadPoolExecutor() as executor:
             host = next(iter(self.__hosts))

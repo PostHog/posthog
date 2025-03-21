@@ -93,7 +93,7 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
         {
             title: (
                 <div className="inline-flex items-center deprecated-space-x-1">
-                    <div className="">Match evaluation</div>
+                    <div>Match evaluation</div>
                     <Tooltip
                         title={
                             <div className="deprecated-space-y-2">

@@ -27,6 +27,7 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { parseJSON } from '../../../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
@@ -147,7 +148,7 @@ describe('session recording integration', () => {
             .toString()
             .trim()
             .split('\n')
-            .map((line) => JSON.parse(line))
+            .map((line) => parseJSON(line))
     }
 
     it('should correctly record and read back multiple sessions', async () => {

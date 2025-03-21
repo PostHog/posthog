@@ -6,8 +6,8 @@ import {
     Cohort,
     Element,
     Hub,
+    InternalPerson,
     ISOTimestamp,
-    Person,
     PostIngestionEvent,
     PropertyOperator,
     RawAction,
@@ -21,7 +21,7 @@ import { ActionMatcher, castingCompare } from '../../../src/worker/ingestion/act
 import { commonUserId } from '../../helpers/plugins'
 import { getFirstTeam, insertRow, resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 
 /** Return a test event created on a common base using provided property overrides. */
 function createTestEvent(overrides: Partial<PostIngestionEvent> = {}): PostIngestionEvent {
@@ -1279,8 +1279,8 @@ describe('ActionMatcher', () => {
     describe('doesPersonBelongToCohort()', () => {
         let team: Team
         let cohort: Cohort
-        let person: Person
-        let personId: number
+        let person: InternalPerson
+        let personId: InternalPerson['id']
         const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
 
         beforeEach(async () => {
@@ -1294,7 +1294,6 @@ describe('ActionMatcher', () => {
 
             person = await hub.db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, new UUIDT().toString(), [])
 
-            // @ts-expect-error TODO: Update underlying person type
             personId = person.id
         })
 

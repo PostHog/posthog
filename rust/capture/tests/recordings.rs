@@ -2,7 +2,7 @@ use crate::common::*;
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
 use capture::config::CaptureMode;
-use capture::limiters::redis::QuotaResource;
+use limiters::redis::QuotaResource;
 use reqwest::StatusCode;
 use serde_json::{json, value::Value};
 use time::Duration;

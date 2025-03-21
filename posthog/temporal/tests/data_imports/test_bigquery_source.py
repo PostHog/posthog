@@ -111,6 +111,32 @@ def bigquery_table(
 
 
 @pytest.fixture
+def bigquery_view(
+    bigquery_config, bigquery_client, bigquery_dataset, bigquery_table
+) -> collections.abc.Generator[bigquery.Table, None, None]:
+    """Manage a BigQuery view for testing.
+
+    We clean up the view after every test. Could be quite time expensive, but guarantees a clean slate.
+    """
+    view_id = f"{bigquery_config['project_id']}.{bigquery_dataset.dataset_id}.test_bigquery_source_view"
+    source_id = f"{bigquery_config['project_id']}.{bigquery_table.dataset_id}.{bigquery_table.table_id}"
+
+    table = bigquery.Table(view_id)
+    table.view_query = f"SELECT * FROM `{source_id}`"
+    table_that_is_actually_a_view = bigquery_client.create_table(table)
+
+    # Just in case you don't believe me.
+    assert table_that_is_actually_a_view.table_type == "VIEW"
+
+    yield table_that_is_actually_a_view
+
+    try:
+        bigquery_client.delete_table(table_that_is_actually_a_view, not_found_ok=True)
+    except Exception as exc:
+        warnings.warn(f"Failed to clean up view: {view_id} due to '{exc.__class__.__name__}': {str(exc)}", stacklevel=1)
+
+
+@pytest.fixture
 def bucket_name(request) -> str:
     """Name for a test MinIO bucket."""
     try:
@@ -203,6 +229,7 @@ def setup_bigquery(
         if ExternalDataSchema.SyncType.INCREMENTAL
         else {},
     )
+
     job = ExternalDataJob.objects.create(
         team=team,
         pipeline=source,
@@ -217,7 +244,7 @@ def setup_bigquery(
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
 @pytest.mark.django_db(transaction=True)
-def test_bigquery_source_full_refresh(
+def test_bigquery_source_full_refresh_table(
     activity_environment,
     team,
     bigquery_client,
@@ -253,6 +280,66 @@ def test_bigquery_source_full_refresh(
     assert objects.get("KeyCount", 0) > 0
 
     table = DataWarehouseTable.objects.get(name=bigquery_table.table_id)
+    columns = table.get_columns()
+    assert "id" in columns
+    assert "value" in columns
+    assert columns["id"]["clickhouse"] == "Nullable(Int64)"  # type: ignore
+    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+
+    function_call, context = table.get_function_call()
+    query = f"SELECT * FROM {function_call}"
+    result = sync_execute(query, args=context.values)
+    assert result is not None
+    assert len(result) == 2
+
+    ids = []
+    values = []
+    for row in result:
+        ids.append(row[0])
+        values.append(row[1])
+
+    assert all(id in ids for id in [0, 1])
+    assert all(value in values for value in ["a", "b"])
+
+
+@SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
+@pytest.mark.django_db(transaction=True)
+def test_bigquery_source_full_refresh_view(
+    activity_environment,
+    team,
+    bigquery_client,
+    bigquery_config,
+    bigquery_dataset,
+    bigquery_view,
+    bucket_name,
+    minio_client,
+):
+    """Test a full-refresh sync job with BigQuery source.
+
+    We generate some data and ensure that running `import_data_activity_sync`
+    results in the data loaded in S3, and query-able using ClickHouse table
+    function.
+
+    Finally, we assert the values correspond to the ones we have inserted in
+    BigQuery.
+    """
+    inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_view, is_incremental=False)
+
+    with override_settings(
+        NEW_BIGQUERY_SOURCE_TEAM_IDS=[str(team.pk)],
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        BUCKET_URL=f"s3://{bucket_name}",
+        BUCKET=bucket_name,
+    ):
+        activity_environment.run(import_data_activity_sync, inputs)
+
+    objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
+    assert objects.get("KeyCount", 0) > 0
+
+    table = DataWarehouseTable.objects.get(name=bigquery_view.table_id)
     columns = table.get_columns()
     assert "id" in columns
     assert "value" in columns

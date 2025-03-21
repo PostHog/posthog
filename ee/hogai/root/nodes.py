@@ -27,7 +27,7 @@ from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
-RouteName = Literal["trends", "funnel", "retention", "root", "end", "docs"]
+RouteName = Literal["insights", "root", "end", "docs"]
 
 
 # Lower casing matters here. Do not change it.
@@ -37,10 +37,11 @@ class create_and_query_insight(BaseModel):
     This tool only retrieves data for a single insight at a time.
     The `trends` insight type is the only insight that can display multiple trends insights in one request.
     All other insight types strictly return data for a single insight.
+    This tool is also relevant if the user asks to write SQL.
     """
 
     query_description: str = Field(description="The description of the query being asked.")
-    query_kind: Literal["trends", "funnel", "retention"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
+    query_kind: Literal["trends", "funnel", "retention", "sql"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 
 class search_documentation(BaseModel):
@@ -278,7 +279,7 @@ class RootNodeTools(AssistantNode):
             return "root"
         if state.root_tool_call_id:
             if state.root_tool_insight_type:
-                return cast(RouteName, state.root_tool_insight_type)
+                return "insights"
             # If no insight type is set but we have a tool call ID, it must be a docs search
             return "docs"
         return "end"

@@ -98,11 +98,11 @@ def test_table_from_py_list_with_lists():
 def test_table_from_py_list_with_nan():
     table = table_from_py_list([{"column": 1.0}, {"column": float("NaN")}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
+    assert table.equals(pa.table({"column": [1.0, None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(2, 1)),
+                ("column", pa.float64()),
             ]
         )
     )
@@ -111,11 +111,11 @@ def test_table_from_py_list_with_nan():
 def test_table_from_py_list_with_inf():
     table = table_from_py_list([{"column": 1.0}, {"column": float("Inf")}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
+    assert table.equals(pa.table({"column": [1.0, None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(2, 1)),
+                ("column", pa.float64()),
             ]
         )
     )
@@ -124,11 +124,11 @@ def test_table_from_py_list_with_inf():
 def test_table_from_py_list_with_negative_inf():
     table = table_from_py_list([{"column": 1.0}, {"column": -float("Inf")}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
+    assert table.equals(pa.table({"column": [1.0, None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(2, 1)),
+                ("column", pa.float64()),
             ]
         )
     )
@@ -163,11 +163,11 @@ def test_table_from_py_list_with_negative_decimal_inf():
 def test_table_from_py_list_with_binary_column():
     table = table_from_py_list([{"column": 1.0, "some_bytes": b"hello"}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal("1.0")]}))
+    assert table.equals(pa.table({"column": [1.0]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(2, 1)),
+                ("column", pa.float64()),
             ]
         )
     )

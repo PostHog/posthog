@@ -661,29 +661,53 @@ function ResponseSummariesButton({ questionIndex }: { questionIndex: number | un
     const { summarize } = useActions(surveyLogic)
     const { responseSummary, responseSummaryLoading } = useValues(surveyLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const [showConsentPopover, setShowConsentPopover] = useState(false)
+
+    const summarizeQuestion = (): void => {
+        summarize({ questionIndex })
+    }
+
+    const handleSummarizeClick = (): void => {
+        if (!dataProcessingAccepted) {
+            setShowConsentPopover(true)
+        } else {
+            summarizeQuestion()
+        }
+    }
+
+    const handleDismissPopover = (): void => {
+        setShowConsentPopover(false)
+    }
 
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
-            <AIConsentPopoverWrapper showArrow>
+            {dataProcessingAccepted || !showConsentPopover ? (
                 <LemonButton
                     type="secondary"
                     data-attr="summarize-survey"
-                    onClick={() => summarize({ questionIndex })}
+                    onClick={handleSummarizeClick}
                     disabledReason={
-                        !dataProcessingAccepted
-                            ? dataProcessingApprovalDisabledReason || 'Data processing not accepted'
-                            : responseSummaryLoading
-                            ? 'Let me think...'
-                            : responseSummary
-                            ? 'Already summarized'
-                            : undefined
+                        responseSummaryLoading ? 'Let me think...' : responseSummary ? 'Already summarized' : undefined
                     }
                     icon={<IconSparkles />}
                     loading={responseSummaryLoading}
                 >
                     {responseSummaryLoading ? 'Let me think...' : 'Summarize responses'}
                 </LemonButton>
-            </AIConsentPopoverWrapper>
+            ) : (
+                <AIConsentPopoverWrapper showArrow onDismiss={handleDismissPopover}>
+                    <LemonButton
+                        type="secondary"
+                        data-attr="summarize-survey"
+                        onClick={handleSummarizeClick}
+                        disabledReason={dataProcessingApprovalDisabledReason || 'Data processing not accepted'}
+                        icon={<IconSparkles />}
+                        loading={responseSummaryLoading}
+                    >
+                        {responseSummaryLoading ? 'Let me think...' : 'Summarize responses'}
+                    </LemonButton>
+                </AIConsentPopoverWrapper>
+            )}
         </FlaggedFeature>
     )
 }

@@ -52,10 +52,12 @@ function SurveyIterationOptions(): JSX.Element {
                         },
                         {
                             value: SurveySchedule.Always,
-                            label: 'All the time',
+                            label: 'Always visible (for feedback surveys)',
                             'data-attr': 'survey-iteration-frequency-days',
                             disabledReason:
-                                survey.type !== SurveyType.Widget ? 'Only available for widget surveys' : undefined,
+                                survey.type !== SurveyType.Widget
+                                    ? 'Only available for feedback surveys. Please change the type in the Presentation tab'
+                                    : undefined,
                         },
                     ]}
                 />

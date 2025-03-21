@@ -71,6 +71,7 @@ class HogQLFunctionMeta:
     max_args: Optional[int] = 0
     min_params: int = 0
     max_params: Optional[int] = 0
+    passthrough_suffix_args_count: int = 0
     aggregate: bool = False
     overloads: Optional[list[Overload]] = None
     """Overloads allow for using a different ClickHouse function depending on the type of the first arg."""
@@ -400,8 +401,14 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "_toUInt64": HogQLFunctionMeta("toUInt64", 1, 1, signatures=[((UnknownType(),), IntegerType())]),
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
-    "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 2, 2),
-    "DATE": HogQLFunctionMeta("toDate", 1, 1),
+    "toDecimal": HogQLFunctionMeta(
+        "accurateCastOrNull",
+        2,
+        2,
+        passthrough_suffix_args_count=1,
+        suffix_args=[ast.Constant(value="Decimal64({0})")],  # Scale for Decimal64 is customizable
+    ),
+    "_toDate": HogQLFunctionMeta("toDate", 1, 1),
     "toDate": HogQLFunctionMeta(
         "toDateOrNull",
         1,

@@ -13,12 +13,15 @@ pub enum FeatureFlagMatchReason {
     OutOfRolloutBound,
     #[strum(serialize = "no_group_type")]
     NoGroupType,
+    #[strum(serialize = "holdout_condition_value")]
+    HoldoutConditionValue,
 }
 
 impl FeatureFlagMatchReason {
     pub fn score(&self) -> i32 {
         match self {
-            FeatureFlagMatchReason::SuperConditionValue => 4,
+            FeatureFlagMatchReason::SuperConditionValue => 5,
+            FeatureFlagMatchReason::HoldoutConditionValue => 4,
             FeatureFlagMatchReason::ConditionMatch => 3,
             FeatureFlagMatchReason::NoGroupType => 2,
             FeatureFlagMatchReason::OutOfRolloutBound => 1,
@@ -50,6 +53,7 @@ impl std::fmt::Display for FeatureFlagMatchReason {
                 FeatureFlagMatchReason::NoConditionMatch => "no_condition_match",
                 FeatureFlagMatchReason::OutOfRolloutBound => "out_of_rollout_bound",
                 FeatureFlagMatchReason::NoGroupType => "no_group_type",
+                FeatureFlagMatchReason::HoldoutConditionValue => "holdout_condition_value",
             }
         )
     }

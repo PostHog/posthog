@@ -257,6 +257,19 @@
             },
             "autoStartBrowser": false,
             "program": "${workspaceFolder}/manage.py"
+        },
+        {
+            "name": "Dagster: Debug Dagit UI",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "dagster",
+            "justMyCode": true,
+            "args": ["dev"],
+            "env": {
+                "DAGSTER_HOME": "${workspaceFolder}/.dagster_home",
+                "DEBUG": "1",
+                "AWS_PROFILE": "dev"
+            }
         }
     ],
     "inputs": [

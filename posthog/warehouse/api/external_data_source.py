@@ -8,24 +8,21 @@ from dateutil import parser
 from django.db.models import Prefetch, Q
 from psycopg2 import OperationalError
 from rest_framework import filters, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from posthog.exceptions_capture import capture_exception
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.cloud_utils import is_cloud
-from posthog.models.user import User
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql.database.database import create_hogql_database
+from posthog.models.user import User
 from posthog.temporal.data_imports.pipelines.bigquery import (
     filter_incremental_fields as filter_bigquery_incremental_fields,
-)
-from posthog.temporal.data_imports.pipelines.bigquery import (
     get_schemas as get_bigquery_schemas,
-)
-from posthog.temporal.data_imports.pipelines.bigquery import (
     validate_credentials as validate_bigquery_credentials,
 )
 from posthog.temporal.data_imports.pipelines.chargebee import (
@@ -71,9 +68,9 @@ from posthog.warehouse.models.external_data_schema import (
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
+    get_postgres_row_count,
     get_snowflake_schemas,
     get_sql_schemas_for_source_type,
-    get_postgres_row_count,
 )
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
@@ -277,6 +274,13 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
+        """Update source ensuring we merge with existing job inputs to allow partial updates."""
+        existing_job_inputs = instance.job_inputs
+
+        if existing_job_inputs:
+            new_job_inputs = validated_data.get("job_inputs", {})
+            validated_data["job_inputs"] = {**existing_job_inputs, **new_job_inputs}
+
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
         return updated_source
@@ -777,9 +781,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        dataset_id = payload.get("dataset_id")
         key_file = payload.get("key_file", {})
         project_id = key_file.get("project_id")
+
+        dataset_id = payload.get("dataset_id")
+        # Very common to include the project_id as a prefix of the dataset_id.
+        # We remove it if it's there.
+        if dataset_id:
+            dataset_id = dataset_id.removeprefix(f"{project_id}.")
+
         private_key = key_file.get("private_key")
         private_key_id = key_file.get("private_key_id")
         client_email = key_file.get("client_email")
@@ -789,6 +799,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         using_temporary_dataset = temporary_dataset.get("enabled", False)
         temporary_dataset_id = temporary_dataset.get("temporary_dataset_id", None)
 
+        job_inputs = {
+            "dataset_id": dataset_id,
+            "project_id": project_id,
+            "private_key": private_key,
+            "private_key_id": private_key_id,
+            "client_email": client_email,
+            "token_uri": token_uri,
+            "using_temporary_dataset": using_temporary_dataset,
+            "temporary_dataset_id": temporary_dataset_id,
+        }
+
+        required_inputs = {"private_key", "private_key_id", "client_email", "dataset_id", "project_id", "token_uri"}
+        have_all_required = all(job_inputs.get(input_name, None) is not None for input_name in required_inputs)
+
+        if not have_all_required:
+            included_inputs = {k for k, v in job_inputs.items() if v is not None}
+            missing = ", ".join(f"'{job_input}'" for job_input in required_inputs - included_inputs)
+            raise ValidationError(f"Missing required BigQuery inputs: {missing}")
+
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
@@ -797,16 +826,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
-            job_inputs={
-                "dataset_id": dataset_id,
-                "project_id": project_id,
-                "private_key": private_key,
-                "private_key_id": private_key_id,
-                "client_email": client_email,
-                "token_uri": token_uri,
-                "using_temporary_dataset": using_temporary_dataset,
-                "temporary_dataset_id": temporary_dataset_id,
-            },
+            job_inputs=job_inputs,
             prefix=prefix,
         )
 

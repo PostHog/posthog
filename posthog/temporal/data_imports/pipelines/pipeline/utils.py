@@ -6,7 +6,7 @@ import json
 import math
 import uuid
 from collections.abc import Iterator, Sequence
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import deltalake as deltalake
 import numpy as np
@@ -22,7 +22,7 @@ from dlt.sources import DltResource
 
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionMode, SourceResponse
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 
 DLT_TO_PA_TYPE_MAP = {
@@ -295,38 +295,67 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
 
 
 def append_partition_key_to_table(
-    table: pa.Table, partition_count: int, primary_keys: list[str], logger: FilteringBoundLogger
-) -> pa.Table:
-    normalized_primary_keys = [normalize_column_name(key) for key in primary_keys]
+    table: pa.Table,
+    partition_count: int,
+    partition_size: int,
+    partition_keys: list[str],
+    partition_mode: PartitionMode | None,
+    logger: FilteringBoundLogger,
+) -> tuple[pa.Table, PartitionMode, list[str]]:
+    normalized_partition_keys = [normalize_column_name(key) for key in partition_keys]
 
     partition_array: list[str] = []
 
-    mode: Literal["md5"] | Literal["numerical"] = "md5"
+    mode: PartitionMode = partition_mode or "md5"
 
     # If there is only one primary key and it's a numerical ID, then bucket by the ID itself instead of hashing it
-    if len(normalized_primary_keys) == 1 and pa.types.is_integer(table.field(normalized_primary_keys[0]).type):
+    if (
+        partition_mode is None
+        and len(normalized_partition_keys) == 1
+        and pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
+    ):
         mode = "numerical"
+    elif (
+        partition_mode is None
+        and "created_at" in table.column_names
+        and pa.types.is_timestamp(table.field("created_at").type)
+        and table.column("created_at").null_count != table.num_rows
+    ):
+        mode = "datetime"
+        normalized_partition_keys = ["created_at"]
 
     for batch in table.to_batches():
         for row in batch.to_pylist():
             if mode == "md5":
-                primary_key_values = [str(row[key]) for key in normalized_primary_keys]
+                primary_key_values = [str(row[key]) for key in normalized_partition_keys]
                 delimited_primary_key_value = "|".join(primary_key_values)
 
                 hash_value = int(hashlib.md5(delimited_primary_key_value.encode()).hexdigest(), 16)
                 partition = hash_value % partition_count
 
                 partition_array.append(str(partition))
-            else:
-                key = normalized_primary_keys[0]
-                partition = row[key] % partition_count
+            elif mode == "numerical":
+                key = normalized_partition_keys[0]
+                partition = row[key] // partition_size
 
                 partition_array.append(str(partition))
+            elif mode == "datetime":
+                key = normalized_partition_keys[0]
+                date = row[key]
+                if isinstance(date, int):
+                    date = datetime.datetime.fromtimestamp(date)
+                    partition_array.append(date.strftime("%Y-%m"))
+                elif isinstance(date, datetime.datetime):
+                    partition_array.append(date.strftime("%Y-%m"))
+                else:
+                    partition_array.append("1970-01")
+            else:
+                raise ValueError(f"Partition mode '{mode}' not supported")
 
     new_column = pa.array(partition_array, type=pa.string())
-    logger.debug(f"Partition key added")
+    logger.debug(f"Partition key added with mode={mode}")
 
-    return table.append_column(PARTITION_KEY, new_column)
+    return table.append_column(PARTITION_KEY, new_column), mode, normalized_partition_keys
 
 
 def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table, logger: FilteringBoundLogger) -> None:
@@ -579,29 +608,52 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
                 return decimal.Decimal(str(x))
 
-            all_values = columnar_table_data[field_name].tolist()
-            all_values_as_decimals_or_none = [_convert_to_decimal_or_none(x) for x in all_values]
+            def _convert_to_float_or_none(x: float | None) -> float | None:
+                if x is None:
+                    return None
 
-            if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
-                new_field_type = arrow_schema.field(field_index).type
-            else:
-                new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
+                if math.isnan(x) or np.isinf(x):
+                    return None
+
+                return x
+
+            all_values = columnar_table_data[field_name].tolist()
+
+            if len(unique_types_in_column) > 1 or issubclass(py_type, decimal.Decimal):
+                # Mixed types: convert all to decimals
+                all_values = [_convert_to_decimal_or_none(x) for x in all_values]
+
+                if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
+                    new_field_type = arrow_schema.field(field_index).type
+                else:
+                    new_field_type = _get_max_decimal_type([x for x in all_values if x is not None])
+
+                py_type = decimal.Decimal
+                unique_types_in_column = {decimal.Decimal}
+            elif issubclass(py_type, float):
+                all_values = [_convert_to_float_or_none(x) for x in all_values]
+
+                if arrow_schema:
+                    new_field_type = arrow_schema.field(field_index).type
+                else:
+                    new_field_type = pa.float64()
 
             try:
                 number_arr = pa.array(
-                    all_values_as_decimals_or_none,
+                    all_values,
                     type=new_field_type,
                 )
             except pa.ArrowInvalid as e:
                 if len(e.args) > 0 and "does not fit into precision" in e.args[0]:
-                    number_arr = _build_decimal_type_from_defaults(all_values_as_decimals_or_none)
+                    number_arr = _build_decimal_type_from_defaults([_convert_to_decimal_or_none(x) for x in all_values])
                     new_field_type = number_arr.type
+
+                    py_type = decimal.Decimal
+                    unique_types_in_column = {decimal.Decimal}
                 else:
                     raise
 
             columnar_table_data[field_name] = number_arr
-            py_type = decimal.Decimal
-            unique_types_in_column = {decimal.Decimal}
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(new_field_type))
 

@@ -24,8 +24,9 @@ import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
+import { logger } from '../logger'
 import { getObjectStorage } from '../object_storage'
-import { status } from '../status'
+import { TeamManagerLazy } from '../team-manager-lazy'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
@@ -64,7 +65,7 @@ export async function createHub(
     config: Partial<PluginsServerConfig> = {},
     capabilities: PluginServerCapabilities | null = null
 ): Promise<Hub> {
-    status.info('ℹ️', `Connecting to all services:`)
+    logger.info('ℹ️', `Connecting to all services:`)
 
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
@@ -73,10 +74,9 @@ export async function createHub(
     if (capabilities === null) {
         capabilities = getPluginServerCapabilities(serverConfig)
     }
-    status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     const instanceId = new UUIDT()
 
-    status.info('🤔', `Connecting to ClickHouse...`)
+    logger.info('🤔', `Connecting to ClickHouse...`)
     const clickhouse = new ClickHouse({
         // We prefer to run queries on the offline cluster.
         host: serverConfig.CLICKHOUSE_OFFLINE_CLUSTER_HOST ?? serverConfig.CLICKHOUSE_HOST,
@@ -94,29 +94,29 @@ export async function createHub(
             : undefined,
         rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
     })
-    status.info('👍', `ClickHouse ready`)
+    logger.info('👍', `ClickHouse ready`)
 
-    status.info('🤔', `Connecting to Kafka...`)
+    logger.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
     const kafkaProducer = await KafkaProducerWrapper.create(serverConfig)
-    status.info('👍', `Kafka ready`)
+    logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)
     // TODO: assert tables are reachable (async calls that cannot be in a constructor)
-    status.info('👍', `Postgres Router ready`)
+    logger.info('👍', `Postgres Router ready`)
 
-    status.info('🤔', `Connecting to Redis...`)
+    logger.info('🤔', `Connecting to Redis...`)
     const redisPool = createRedisPool(serverConfig, 'ingestion')
-    status.info('👍', `Redis ready`)
+    logger.info('👍', `Redis ready`)
 
-    status.info('🤔', `Connecting to object storage...`)
+    logger.info('🤔', `Connecting to object storage...`)
 
     const objectStorage = getObjectStorage(serverConfig)
     if (objectStorage) {
-        status.info('👍', 'Object storage ready')
+        logger.info('👍', 'Object storage ready')
     } else {
-        status.warn('🪣', `Object storage could not be created`)
+        logger.warn('🪣', `Object storage could not be created`)
     }
 
     const db = new DB(
@@ -127,8 +127,9 @@ export async function createHub(
         serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
         serverConfig.PERSON_INFO_CACHE_TTL
     )
-    const teamManager = new TeamManager(postgres)
-    const organizationManager = new OrganizationManager(postgres, teamManager)
+    const teamManagerLazy = new TeamManagerLazy(postgres)
+    const teamManager = new TeamManager(postgres, teamManagerLazy)
+    const organizationManager = new OrganizationManager(postgres, teamManager, teamManagerLazy)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const rustyHook = new RustyHook(serverConfig)
@@ -160,6 +161,7 @@ export async function createHub(
         pluginSchedule: null,
 
         teamManager,
+        teamManagerLazy,
         organizationManager,
         pluginsApiKeyManager,
         rootAccessManager,
