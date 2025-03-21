@@ -656,14 +656,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     listeners(({ actions, values, props }) => ({
         selectItem: ({ group, value, item, originalQuery }) => {
             if (item || group.type === TaxonomicFilterGroupType.HogQLExpression) {
-                if (item.name !== originalQuery) {
-                    posthog.capture('selected swapped in query in taxonomic filter', {
-                        group: group.type,
-                        value: value,
-                        itemName: item.name,
-                        originalQuery,
-                        item,
-                    })
+                try {
+                    const hasOriginalQuery = originalQuery && originalQuery.trim().length > 0
+                    const hasName = item && item.name && item.name.trim().length > 0
+                    const hasSwappedIn = hasOriginalQuery && hasName && item.name !== originalQuery
+                    if (hasSwappedIn) {
+                        posthog.capture('selected swapped in query in taxonomic filter', {
+                            group: group.type,
+                            value: value,
+                            itemName: item.name,
+                            originalQuery,
+                            item,
+                        })
+                    }
+                } catch (e) {
+                    posthog.captureException(e, { posthog_feature: 'taxonomic_filter_swapped_in_query' })
                 }
                 props.onChange?.(group, value, item, originalQuery)
             }
