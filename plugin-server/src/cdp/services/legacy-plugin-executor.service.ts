@@ -1,4 +1,4 @@
-import { PluginEvent, ProcessedPluginEvent, Properties, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
