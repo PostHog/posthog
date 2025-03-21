@@ -13,7 +13,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import {
@@ -333,7 +333,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.EventMetadata,
                         options: eventMetadataPropertyDefinitions,
                         getIcon: (option: PropertyDefinition) => getEventMetadataDefinitionIcon(option),
-                        getName: (option: PropertyDefinition) => option.name,
+                        getName: (option: PropertyDefinition) => {
+                            const coreDefinition = getCoreFilterDefinition(
+                                option.id,
+                                TaxonomicFilterGroupType.EventMetadata
+                            )
+                            return coreDefinition ? coreDefinition.label : option.name
+                        },
                         getValue: (option: PropertyDefinition) => option.id,
                         getPopoverHeader: () => 'Event metadata',
                     },

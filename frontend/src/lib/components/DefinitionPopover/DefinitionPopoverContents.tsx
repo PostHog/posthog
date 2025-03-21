@@ -160,8 +160,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
 
     const description: string | JSX.Element | undefined | null =
         (definition && 'description' in definition && definition?.description) ||
-        (definition?.name && CORE_FILTER_DEFINITIONS_BY_GROUP[group.type]?.[definition.name]?.description) ||
-        (definition?.id && CORE_FILTER_DEFINITIONS_BY_GROUP[group.type]?.[definition.id]?.description)
+        (definition?.name && CORE_FILTER_DEFINITIONS_BY_GROUP[group.type]?.[definition.name]?.description)
 
     const sharedComponents = (
         <>

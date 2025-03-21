@@ -33,7 +33,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 excludedProperties: props.excludedProperties,
                 propertyAllowList: props.propertyAllowList,
             } as TaxonomicFilterLogicProps),
-            ['taxonomicGroups', 'eventMetadataPropertyDefinitions'],
+            ['taxonomicGroups'],
             propertyDefinitionsModel,
             ['describeProperty'],
         ],
@@ -100,8 +100,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 }
 
                 if (propertyType === PropertyFilterType.EventMetadata && item.id.startsWith('$group_')) {
-                    const groupTypeFilter = filter as EventMetadataPropertyFilter
-                    groupTypeFilter.label = item.name
+                    const eventMetadataFilter = filter as EventMetadataPropertyFilter
+                    eventMetadataFilter.label = item.name
                 }
 
                 props.setFilter(props.filterIndex, filter)
