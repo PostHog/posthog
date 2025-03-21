@@ -318,7 +318,9 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         queue.task_done()
 
 
-async def start_job_modeling_run(team: Team, workflow_id: str, workflow_run_id: str, saved_query: DataWarehouseSavedQuery) -> DataModelingJob:
+async def start_job_modeling_run(
+    team: Team, workflow_id: str, workflow_run_id: str, saved_query: DataWarehouseSavedQuery
+) -> DataModelingJob:
     """Create a DataModelingJob record in an async-safe way."""
     job_create = database_sync_to_async(DataModelingJob.objects.create)
     return await job_create(
@@ -444,6 +446,7 @@ async def materialize_model(
     await database_sync_to_async(job.save)()
 
     return (key, delta_table, job.id)
+
 
 async def mark_job_as_failed(job: DataModelingJob, error_message: str) -> None:
     """
