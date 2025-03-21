@@ -1,5 +1,20 @@
 import { cn } from 'lib/utils/css-classes'
-import React, { cloneElement, forwardRef, isValidElement, ReactNode, useEffect, useRef } from 'react'
+import React, {
+    cloneElement,
+    createContext,
+    forwardRef,
+    isValidElement,
+    ReactNode,
+    useContext,
+    useEffect,
+    useRef,
+} from 'react'
+
+interface ListBoxContextType {
+    containerRef: React.RefObject<HTMLDivElement> | null
+}
+
+const ListBoxContext = createContext<ListBoxContextType>({ containerRef: null })
 
 interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
     children: ReactNode
@@ -79,17 +94,19 @@ export const ListBox = ({
     }, [focusedElement])
 
     return (
-        <div
-            ref={containerRef}
-            role="listbox"
-            tabIndex={0}
-            onKeyDown={handleKeyDown}
-            className={cn(className)}
-            aria-orientation="vertical"
-            {...props}
-        >
-            {children}
-        </div>
+        <ListBoxContext.Provider value={{ containerRef }}>
+            <div
+                ref={containerRef}
+                role="listbox"
+                tabIndex={0}
+                onKeyDown={handleKeyDown}
+                className={cn(className)}
+                aria-orientation="vertical"
+                {...props}
+            >
+                {children}
+            </div>
+        </ListBoxContext.Provider>
     )
 }
 
@@ -102,10 +119,12 @@ interface ListBoxItemProps extends React.LiHTMLAttributes<HTMLLIElement> {
 
 ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
     ({ children, asChild, onClick, ...props }, ref): JSX.Element => {
+        const { containerRef } = useContext(ListBoxContext)
+
         const handleFocus = (e: React.FocusEvent): void => {
             e.currentTarget.setAttribute('data-focused', 'true')
 
-            document.querySelectorAll('[data-listbox-item]').forEach((el) => {
+            containerRef?.current?.querySelectorAll('[data-listbox-item]').forEach((el: Element) => {
                 if (el !== e.currentTarget) {
                     el.setAttribute('data-focused', 'false')
                 }
@@ -115,7 +134,7 @@ ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
         const handleItemClick = (e: React.MouseEvent): void => {
             // Set `aria-current` on the clicked item
             e.currentTarget.setAttribute('aria-current', 'true')
-            document.querySelectorAll('[data-listbox-item]').forEach((el) => {
+            containerRef?.current?.querySelectorAll('[data-listbox-item]').forEach((el: Element) => {
                 if (el !== e.currentTarget) {
                     el.setAttribute('aria-current', 'false')
                 }
