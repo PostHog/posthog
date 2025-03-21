@@ -160,7 +160,8 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
 
     const description: string | JSX.Element | undefined | null =
         (definition && 'description' in definition && definition?.description) ||
-        (definition?.name && CORE_FILTER_DEFINITIONS_BY_GROUP[group.type]?.[definition.name]?.description)
+        (definition?.name && CORE_FILTER_DEFINITIONS_BY_GROUP[group.type]?.[definition.name]?.description) ||
+        (definition?.id && CORE_FILTER_DEFINITIONS_BY_GROUP[group.type]?.[definition.id]?.description)
 
     const sharedComponents = (
         <>
@@ -332,6 +333,24 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     <DefinitionPopover.Card
                         title="Sent as"
                         value={<span className="text-xs font-mono">{_definition.name}</span>}
+                    />
+                </DefinitionPopover.Section>
+            </>
+        )
+    }
+    if (group.type === TaxonomicFilterGroupType.EventMetadata) {
+        const _definition = definition as PropertyDefinition
+        return (
+            <>
+                {sharedComponents}
+                <DefinitionPopover.Grid cols={2}>
+                    <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
+                </DefinitionPopover.Grid>
+                <LemonDivider className="DefinitionPopover my-4" />
+                <DefinitionPopover.Section>
+                    <DefinitionPopover.Card
+                        title="Sent as"
+                        value={<span className="text-xs font-mono">{_definition.id}</span>}
                     />
                 </DefinitionPopover.Section>
             </>

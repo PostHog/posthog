@@ -1,4 +1,4 @@
-import { IconList, IconLogomark, IconServer } from '@posthog/icons'
+import { IconServer } from '@posthog/icons'
 import { actions, BuiltLogic, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
@@ -16,7 +16,11 @@ import { IconCohort } from 'lib/lemon-ui/icons'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import {
+    getEventDefinitionIcon,
+    getEventMetadataDefinitionIcon,
+    getPropertyDefinitionIcon,
+} from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
@@ -43,6 +47,7 @@ import {
     PersonProperty,
     PersonType,
     PropertyDefinition,
+    PropertyType,
     QueryBasedInsightModel,
 } from '~/types'
 
@@ -326,9 +331,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'event metadata',
                         type: TaxonomicFilterGroupType.EventMetadata,
                         options: eventMetadataOptions,
-                        getIcon: (option: Record<string, JSX.Element>) => option.icon,
-                        getName: (option: Record<string, string>) => option.name,
-                        getValue: (option: Record<string, string>) => option.value,
+                        getIcon: (option: PropertyDefinition) => getEventMetadataDefinitionIcon(option),
+                        getName: (option: PropertyDefinition) => option.name,
+                        getValue: (option: PropertyDefinition) => option.id,
                         getPopoverHeader: () => 'Event metadata',
                     },
                     {
@@ -610,17 +615,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (s) => [s.groupTypes],
             (groupTypes) => {
                 const options = [
-                    { icon: <IconLogomark />, name: 'Event', value: 'event' },
-                    { icon: <IconLogomark />, name: 'Timestamp', value: 'timestamp' },
-                    { icon: <IconLogomark />, name: 'Distinct ID', value: 'distinct_id' },
-                    { icon: <IconLogomark />, name: 'Person ID', value: 'person_id' },
-                ] as Record<string, any>[]
+                    { id: 'event', name: 'Event', property_type: PropertyType.String },
+                    { id: 'timestamp', name: 'Timestamp', property_type: PropertyType.DateTime },
+                    { id: 'distinct_id', name: 'Distinct ID', property_type: PropertyType.String },
+                    { id: 'person_id', name: 'Person ID', property_type: PropertyType.String },
+                ] as PropertyDefinition[]
                 for (const [groupTypeIndex, type] of groupTypes) {
                     const column = `$group_${groupTypeIndex}`
                     options.push({
-                        icon: <IconList />,
+                        id: column,
                         name: type.name_singular || type.group_type,
-                        value: column,
+                        property_type: PropertyType.String,
                     })
                 }
                 return options

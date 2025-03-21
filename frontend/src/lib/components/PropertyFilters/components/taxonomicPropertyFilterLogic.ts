@@ -99,7 +99,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     cohortFilter.cohort_name = item.name
                 }
 
-                if (propertyType === PropertyFilterType.EventMetadata && item.value.startsWith('$group_')) {
+                if (propertyType === PropertyFilterType.EventMetadata && item.id.startsWith('$group_')) {
                     const groupTypeFilter = filter as EventMetadataPropertyFilter
                     groupTypeFilter.label = item.name
                 }
