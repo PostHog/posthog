@@ -239,8 +239,7 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
             },
         )
 
-        if assignment_after:
-            send_error_tracking_issue_assigned(assignment_after, user)
+        send_error_tracking_issue_assigned(assignment_after, user)
 
         serialized_assignment_after = (
             ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None
