@@ -1,4 +1,3 @@
-import contextlib
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Optional
@@ -40,18 +39,13 @@ def test_get_latest_backup(table: str):
     assert result.table == expected_table
 
 
-@contextlib.contextmanager
-def prepare_backup_test(cluster: ClickhouseCluster, sharded: bool = False, incremental: bool = False):
-    bucket_name = f"test-backups-{uuid.uuid4()}"
-    run_id = uuid.uuid4()
-    s3_client = boto3.client(
-        "s3",
-        endpoint_url="http://localhost:19000",
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-    )
-
-    def create_bucket(name: str) -> None:
+def run_backup_test(
+    cluster: ClickhouseCluster,
+    job: dagster.JobDefinition,
+    job_config: BackupConfig,
+    sharded: bool = False,
+):
+    def create_bucket(name: str, s3_client: boto3.client) -> None:
         try:
             s3_client.create_bucket(Bucket=name)
         except s3_client.exceptions.BucketAlreadyExists:
@@ -66,7 +60,7 @@ def prepare_backup_test(cluster: ClickhouseCluster, sharded: bool = False, incre
             ],
         )
 
-    def create_backup(client: Client) -> None:
+    def create_backup(client: Client, bucket_name: str) -> None:
         date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         client.execute(
             """
@@ -85,176 +79,129 @@ def prepare_backup_test(cluster: ClickhouseCluster, sharded: bool = False, incre
             "SYSTEM FLUSH LOGS",
         )
 
+    def get_backup_status(client: Client, run_id: str) -> Optional[str]:
+        client.execute("SYSTEM FLUSH LOGS")
+        rows = client.execute(
+            """
+            SELECT status FROM system.backup_log
+            WHERE query_id LIKE '{run_id}%'
+            ORDER BY event_time_microseconds DESC
+            LIMIT 1
+            """.format(run_id=run_id),
+        )
+
+        return rows[0][0] if rows else None
+
+    bucket_name = f"test-backups-{uuid.uuid4()}"
+    run_id = uuid.uuid4()
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url="http://localhost:19000",
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+    )
     with (
         patch("django.conf.settings.CLICKHOUSE_BACKUPS_BUCKET", bucket_name),
         patch.object(Backup, "_bucket_base_path", return_value=f"http://objectstorage:19000/{bucket_name}"),
     ):
+        # Prepare needed data before running the job
+        # Insert some data and create the backup log table flushing the logs
         cluster.any_host(insert_data).result()
         cluster.any_host(create_backup_log_table).result()
-        create_bucket(bucket_name)
-        if incremental:
-            cluster.any_host(create_backup).result()
+        create_bucket(bucket_name, s3_client)
+        if job_config.incremental:
+            # Create a base backup and insert more data for the incremental backup
+            cluster.any_host(partial(create_backup, bucket_name=bucket_name)).result()
             cluster.any_host(insert_data).result()
-        yield (bucket_name, run_id)
 
+        # Execute the job
+        job.execute_in_process(
+            run_config=dagster.RunConfig(
+                {
+                    "get_latest_backup": {"config": job_config.model_dump()},
+                    "run_backup": {"config": job_config.model_dump()},
+                }
+            ),
+            resources={
+                "cluster": cluster,
+                "s3": S3Resource(
+                    endpoint_url="http://localhost:19000",
+                    aws_access_key_id="object_storage_root_user",
+                    aws_secret_access_key="object_storage_root_password",
+                ),
+            },
+            run_id=str(run_id),
+        )
 
-def get_backup_status(client: Client, run_id: str) -> Optional[str]:
-    client.execute("SYSTEM FLUSH LOGS")
-    rows = client.execute(
-        """
-        SELECT status FROM system.backup_log
-        WHERE query_id LIKE '{run_id}%'
-        ORDER BY event_time_microseconds DESC
-        LIMIT 1
-        """.format(run_id=run_id),
-    )
-
-    return rows[0][0] if rows else None
+        # Assert that the backup was created
+        statuses = [
+            status
+            for status in cluster.map_all_hosts(partial(get_backup_status, run_id=run_id)).result().values()
+            if status is not None
+        ]
+        assert len(statuses) > 0, "No status found for the backup"
+        assert all(status == "BACKUP_CREATED" for status in statuses), "Backup statuses are not all BACKUP_CREATED"
 
 
 def test_full_non_sharded_backup(cluster: ClickhouseCluster):
-    with prepare_backup_test(cluster) as (bucket_name, run_id):
-        config = BackupConfig(
-            database=settings.CLICKHOUSE_DATABASE,
-            date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
-            table="person_distinct_id_overrides",
-            incremental=False,
-            backup_bucket=bucket_name,
-        )
-        non_sharded_backup.execute_in_process(
-            run_config=dagster.RunConfig(
-                {
-                    "get_latest_backup": {"config": config.model_dump()},
-                    "run_backup": {"config": config.model_dump()},
-                }
-            ),
-            resources={
-                "cluster": cluster,
-                "s3": S3Resource(
-                    endpoint_url="http://localhost:19000",
-                    aws_access_key_id="object_storage_root_user",
-                    aws_secret_access_key="object_storage_root_password",
-                ),
-            },
-            run_id=str(run_id),
-        )
+    config = BackupConfig(
+        database=settings.CLICKHOUSE_DATABASE,
+        date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        table="person_distinct_id_overrides",
+        incremental=False,
+    )
 
-        # Assert that the backup was created
-        statuses = [
-            status
-            for status in cluster.map_all_hosts(partial(get_backup_status, run_id=run_id)).result().values()
-            if status is not None
-        ]
-        assert len(statuses) > 0, "No status found for the backup"
-        assert all(status == "BACKUP_CREATED" for status in statuses), "Backup statuses are not all BACKUP_CREATED"
+    run_backup_test(
+        cluster=cluster,
+        job=non_sharded_backup,
+        job_config=config,
+        sharded=False,
+    )
 
 
 def test_full_sharded_backup(cluster: ClickhouseCluster):
-    with prepare_backup_test(cluster) as (bucket_name, run_id):
-        config = BackupConfig(
-            database=settings.CLICKHOUSE_DATABASE,
-            date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
-            table="person_distinct_id_overrides",
-            incremental=False,
-            backup_bucket=bucket_name,
-        )
-        sharded_backup.execute_in_process(
-            run_config=dagster.RunConfig(
-                {
-                    "get_latest_backup": {"config": config.model_dump()},
-                    "run_backup": {"config": config.model_dump()},
-                }
-            ),
-            resources={
-                "cluster": cluster,
-                "s3": S3Resource(
-                    endpoint_url="http://localhost:19000",
-                    aws_access_key_id="object_storage_root_user",
-                    aws_secret_access_key="object_storage_root_password",
-                ),
-            },
-            run_id=str(run_id),
-        )
+    config = BackupConfig(
+        database=settings.CLICKHOUSE_DATABASE,
+        date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        table="person_distinct_id_overrides",
+        incremental=False,
+    )
 
-        # Assert that the backup was created
-        statuses = [
-            status
-            for status in cluster.map_all_hosts(partial(get_backup_status, run_id=run_id)).result().values()
-            if status is not None
-        ]
-        assert len(statuses) > 0, "No status found for the backup"
-        assert all(status == "BACKUP_CREATED" for status in statuses), "Backup statuses are not all BACKUP_CREATED"
-
-
-def test_incremental_sharded_backup(cluster: ClickhouseCluster):
-    with prepare_backup_test(cluster, sharded=True, incremental=True) as (bucket_name, run_id):
-        config = BackupConfig(
-            database=settings.CLICKHOUSE_DATABASE,
-            date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
-            table="person_distinct_id_overrides",
-            incremental=True,
-            backup_bucket=bucket_name,
-        )
-        sharded_backup.execute_in_process(
-            run_config=dagster.RunConfig(
-                {
-                    "get_latest_backup": {"config": config.model_dump()},
-                    "run_backup": {"config": config.model_dump()},
-                }
-            ),
-            resources={
-                "cluster": cluster,
-                "s3": S3Resource(
-                    endpoint_url="http://localhost:19000",
-                    aws_access_key_id="object_storage_root_user",
-                    aws_secret_access_key="object_storage_root_password",
-                ),
-            },
-            run_id=str(run_id),
-        )
-
-        # Assert that the backup was created
-        statuses = [
-            status
-            for status in cluster.map_all_hosts(partial(get_backup_status, run_id=run_id)).result().values()
-            if status is not None
-        ]
-        assert len(statuses) > 0, "No status found for the backup"
-        assert all(status == "BACKUP_CREATED" for status in statuses), "Backup statuses are not all BACKUP_CREATED"
+    run_backup_test(
+        cluster=cluster,
+        job=sharded_backup,
+        job_config=config,
+        sharded=True,
+    )
 
 
 def test_incremental_non_sharded_backup(cluster: ClickhouseCluster):
-    with prepare_backup_test(cluster, incremental=True) as (bucket_name, run_id):
-        config = BackupConfig(
-            database=settings.CLICKHOUSE_DATABASE,
-            date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
-            table="person_distinct_id_overrides",
-            incremental=True,
-            backup_bucket=bucket_name,
-        )
-        non_sharded_backup.execute_in_process(
-            run_config=dagster.RunConfig(
-                {
-                    "get_latest_backup": {"config": config.model_dump()},
-                    "run_backup": {"config": config.model_dump()},
-                }
-            ),
-            resources={
-                "cluster": cluster,
-                "s3": S3Resource(
-                    endpoint_url="http://localhost:19000",
-                    aws_access_key_id="object_storage_root_user",
-                    aws_secret_access_key="object_storage_root_password",
-                ),
-            },
-            run_id=str(run_id),
-        )
+    config = BackupConfig(
+        database=settings.CLICKHOUSE_DATABASE,
+        date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        table="person_distinct_id_overrides",
+        incremental=True,
+    )
 
-        # Assert that the backup was created
-        statuses = [
-            status
-            for status in cluster.map_all_hosts(partial(get_backup_status, run_id=run_id)).result().values()
-            if status is not None
-        ]
-        assert len(statuses) > 0, "No status found for the backup"
-        assert all(status == "BACKUP_CREATED" for status in statuses), "Backup statuses are not all BACKUP_CREATED"
+    run_backup_test(
+        cluster=cluster,
+        job=non_sharded_backup,
+        job_config=config,
+        sharded=False,
+    )
+
+
+def test_incremental_sharded_backup(cluster: ClickhouseCluster):
+    config = BackupConfig(
+        database=settings.CLICKHOUSE_DATABASE,
+        date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        table="person_distinct_id_overrides",
+        incremental=True,
+    )
+
+    run_backup_test(
+        cluster=cluster,
+        job=sharded_backup,
+        job_config=config,
+        sharded=True,
+    )
