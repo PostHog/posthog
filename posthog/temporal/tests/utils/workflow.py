@@ -25,6 +25,9 @@ class WaitInputs:
     wait_for: int | float | None
     raise_on_shutdown: bool = True
     mode: WaitMode = WaitMode.ASYNC
+    heartbeat_timeout_seconds: int = 10
+    start_to_close_timeout_seconds: int = 60
+    maximum_attempts: int = 1
 
 
 @dataclasses.dataclass
@@ -103,12 +106,12 @@ class WaitWorkflow(PostHogWorkflow):
                 Waiter.wait_for_activity,
                 WaitInputsActivity(wait_for=inputs.wait_for, raise_on_shutdown=inputs.raise_on_shutdown),
                 # Setting a timeout is required.
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                heartbeat_timeout=dt.timedelta(seconds=5),
+                start_to_close_timeout=dt.timedelta(seconds=inputs.start_to_close_timeout_seconds),
+                heartbeat_timeout=dt.timedelta(seconds=inputs.heartbeat_timeout_seconds),
                 retry_policy=RetryPolicy(
                     initial_interval=dt.timedelta(seconds=1),
                     maximum_interval=dt.timedelta(seconds=1),
-                    maximum_attempts=1,
+                    maximum_attempts=inputs.maximum_attempts,
                 ),
             )
         elif inputs.mode == WaitMode.SYNC:
@@ -116,12 +119,12 @@ class WaitWorkflow(PostHogWorkflow):
                 Waiter.wait_for_activity_sync,
                 WaitInputsActivity(wait_for=inputs.wait_for, raise_on_shutdown=inputs.raise_on_shutdown),
                 # Setting a timeout is required.
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                heartbeat_timeout=dt.timedelta(seconds=10),
+                start_to_close_timeout=dt.timedelta(seconds=inputs.start_to_close_timeout_seconds),
+                heartbeat_timeout=dt.timedelta(seconds=inputs.heartbeat_timeout_seconds),
                 retry_policy=RetryPolicy(
                     initial_interval=dt.timedelta(seconds=1),
                     maximum_interval=dt.timedelta(seconds=1),
-                    maximum_attempts=1,
+                    maximum_attempts=inputs.maximum_attempts,
                 ),
             )
 
