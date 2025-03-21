@@ -115,10 +115,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
-        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any) => ({
+        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any, originalQuery) => ({
             group,
             value,
             item,
+            originalQuery,
         }),
         infiniteListResultsReceived: (groupType: TaxonomicFilterGroupType, results: ListStorage) => ({
             groupType,
@@ -653,9 +654,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        selectItem: ({ group, value, item }) => {
+        selectItem: ({ group, value, item, originalQuery }) => {
             if (item || group.type === TaxonomicFilterGroupType.HogQLExpression) {
-                props.onChange?.(group, value, item)
+                if (item.name !== originalQuery) {
+                    posthog.capture('selected swapped in query in taxonomic filter', {
+                        group: group.type,
+                        value: value,
+                        itemName: item.name,
+                        originalQuery,
+                        item,
+                    })
+                }
+                props.onChange?.(group, value, item, originalQuery)
             }
             actions.setSearchQuery('')
         },
@@ -739,7 +749,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
 
         infiniteListResultsReceived: ({ groupType, results }) => {
             // Open the next tab if no results on an active tab.
-            if (groupType === values.activeTab && !results.count && !results.expandedCount) {
+            const activeTabHasNoResults = groupType === values.activeTab && !results.count && !results.expandedCount
+            const onReplayTabWithSomeSearchResults =
+                values.activeTab === TaxonomicFilterGroupType.Replay && results.count > 0
+
+            if (activeTabHasNoResults || onReplayTabWithSomeSearchResults) {
                 actions.tabRight()
             }
 
