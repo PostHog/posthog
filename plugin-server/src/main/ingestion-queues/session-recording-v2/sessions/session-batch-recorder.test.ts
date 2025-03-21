@@ -438,7 +438,7 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
-                message.message
+                message
             )
         })
 
@@ -474,8 +474,8 @@ describe('SessionBatchRecorder', () => {
             )
             const mockRecorder = jest.mocked(SessionConsoleLogRecorder).mock.results[0].value
             expect(mockRecorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(mockRecorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0].message)
-            expect(mockRecorder.recordMessage).toHaveBeenNthCalledWith(2, messages[1].message)
+            expect(mockRecorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0])
+            expect(mockRecorder.recordMessage).toHaveBeenNthCalledWith(2, messages[1])
         })
 
         it('should create separate console log recorders for different sessions', async () => {
@@ -514,10 +514,10 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
-                messages[0].message
+                messages[0]
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[1].value.recordMessage).toHaveBeenCalledWith(
-                messages[1].message
+                messages[1]
             )
         })
 
@@ -626,17 +626,17 @@ describe('SessionBatchRecorder', () => {
 
             // Verify session1 recorder calls
             expect(session1Recorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0].message)
-            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[2].message)
+            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0])
+            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[2])
 
             // Verify session2 recorder calls
             expect(session2Recorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[1].message)
-            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[4].message)
+            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[1])
+            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[4])
 
             // Verify session3 recorder calls
             expect(session3Recorder.recordMessage).toHaveBeenCalledTimes(1)
-            expect(session3Recorder.recordMessage).toHaveBeenCalledWith(messages[3].message)
+            expect(session3Recorder.recordMessage).toHaveBeenCalledWith(messages[3])
         })
 
         it('should handle messages with different team IDs', async () => {
@@ -674,12 +674,12 @@ describe('SessionBatchRecorder', () => {
 
             // Verify correct message recording for each team
             expect(session1Recorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0].message)
-            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[1].message)
+            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0])
+            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[1])
 
             expect(session2Recorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[2].message)
-            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[3].message)
+            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[2])
+            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[3])
         })
     })
 

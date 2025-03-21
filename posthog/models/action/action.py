@@ -50,6 +50,9 @@ class Action(models.Model):
     embedding_last_synced_at = models.DateTimeField(
         blank=True, null=True, help_text="The last time the action was synced to the vector database"
     )
+    embedding_version = models.PositiveSmallIntegerField(
+        blank=True, null=True, help_text="The version of the embedding model used to embed the action"
+    )
 
     # DEPRECATED: these were used before ClickHouse was our database
     is_calculating = models.BooleanField(default=False)

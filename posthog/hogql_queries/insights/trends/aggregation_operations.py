@@ -22,6 +22,10 @@ from posthog.schema import (
 )
 
 
+DEFAULT_CURRENCY_VALUE = "USD"
+DEFAULT_REVENUE_PROPERTY = "$revenue"
+
+
 class AggregationOperations(DataWarehouseInsightQueryMixin):
     team: Team
     series: Union[EventsNode, ActionsNode, DataWarehouseNode]
@@ -124,14 +128,17 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def is_first_matching_event(self):
         return self.series.math == "first_matching_event_for_user"
 
-    def _get_math_chain(self) -> list[str]:
+    def _get_math_chain(self) -> list[str | int]:
         if self.series.math_property == "$session_duration":
             return ["session_duration"]
         elif isinstance(self.series, DataWarehouseNode) and self.series.math_property:
             return [self.series.math_property]
         elif self.series.math_property_type == "data_warehouse_person_properties" and self.series.math_property:
             return ["person", *self.series.math_property.split(".")]
-        return ["properties", self.series.math_property]
+        elif self.series.math_property:
+            return ["properties", self.series.math_property]
+        else:
+            raise ValueError("No math property set")
 
     def _math_func(self, method: str, override_chain: Optional[list[str | int]] = None) -> ast.Call:
         if override_chain is not None:
@@ -151,15 +158,26 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         chain = self._get_math_chain()
 
         if self.series.math_property_revenue_currency is not None:
+            event_currency = (
+                ast.Constant(value=self.series.math_property_revenue_currency.static.value)
+                if self.series.math_property_revenue_currency.static is not None
+                else ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
+                if self.series.math_property_revenue_currency.property is not None
+                else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
+            )
+            base_currency = (
+                ast.Constant(value=self.team.revenue_config.baseCurrency.value)
+                if self.team.revenue_config.baseCurrency is not None
+                else ast.Constant(value=DEFAULT_CURRENCY_VALUE)
+            )
+
             return ast.Call(
                 name=method,
                 args=[
                     convert_currency_call(
                         ast.Field(chain=chain),
-                        ast.Constant(value=self.series.math_property_revenue_currency.static.value)
-                        if self.series.math_property_revenue_currency.static is not None
-                        else ast.Field(chain=["properties", self.series.math_property_revenue_currency.property]),
-                        ast.Constant(value=self.team.revenue_config.baseCurrency.value),
+                        event_currency,
+                        base_currency,
                         ast.Call(name="_toDate", args=[ast.Field(chain=["timestamp"])]),
                     )
                 ],
@@ -227,6 +245,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 "SELECT total FROM {inner_query}",
                 placeholders={"inner_query": inner_query},
             )
+            assert isinstance(query, ast.SelectQuery)
 
             if not self.is_total_value:
                 query.select.append(ast.Field(chain=["day_start"]))
@@ -300,6 +319,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     "total_alias": total_alias,
                 },
             )
+            assert isinstance(query, ast.SelectQuery)
 
             if not self.is_total_value:
                 query.select.append(ast.Field(chain=["day_start"]))
@@ -307,10 +327,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
             return query
 
-        query = cast(
-            ast.SelectQuery,
-            parse_select(
-                """
+        query = parse_select(
+            """
                 SELECT
                     d.timestamp,
                     COUNT(DISTINCT actor_id) AS counts
@@ -327,13 +345,14 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 GROUP BY d.timestamp
                 ORDER BY d.timestamp
             """,
-                placeholders={
-                    **self.query_date_range.to_placeholders(),
-                    **self._interval_placeholders(),
-                    "cross_join_select_query": cross_join_select_query,
-                },
-            ),
+            placeholders={
+                **self.query_date_range.to_placeholders(),
+                **self._interval_placeholders(),
+                "cross_join_select_query": cross_join_select_query,
+            },
         )
+        assert isinstance(query, ast.SelectQuery)
+        assert isinstance(query.group_by, list)
 
         if self.is_total_value:
             query.select = [ast.Field(chain=["d", "timestamp"]), ast.Field(chain=["actor_id"])]
@@ -411,6 +430,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     ),
                 },
             )
+            assert isinstance(query, ast.SelectQuery)
+            assert isinstance(query.group_by, list)
 
             if not self.is_total_value:
                 query.select.append(day_start)

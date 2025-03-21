@@ -39,7 +39,8 @@ ORDER BY week_of DESC"""
 
 SCHEMA_MESSAGE = (
     "This project's schema is:\n\n{schema_description}\nPerson or event metadata unspecified above (emails, names, etc.) "
-    'is stored in `properties` fields, accessed like: `properties.foo.bar`. Note: "persons" means "users".\nSpecial events/properties such as pageview or screen start with `$`. Custom ones don\'t.'
+    'is stored in `properties` fields, accessed like: `properties.foo.bar`. Note: "persons" means "users".\nSpecial events/properties such as pageview or screen start with `$`. Custom ones don\'t.\n'
+    "virtual_table and lazy_table fields are connections to linked tables, e.g. the `person` table allows accessing person properties like so: `person.properties.foo`."
 )
 
 CURRENT_QUERY_MESSAGE = (
