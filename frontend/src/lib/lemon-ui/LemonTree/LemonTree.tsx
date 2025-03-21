@@ -224,7 +224,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 tabIndex={-1}
                                                 size="small"
                                                 fullWidth
-                                                to={item.record?.href ? item.record.href : undefined}
                                                 data-id={item.id}
                                                 active={getItemActiveState(item)}
                                                 icon={getIcon({
