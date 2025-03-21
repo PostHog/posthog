@@ -5,13 +5,13 @@ import {
     DataTableNode,
     DataVisualizationNode,
     InsightActorsQuery,
-    InsightVizNode,
+    QuerySchema,
     RefreshType,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, TrendResult } from '~/types'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
-export interface QueryContext<T = InsightVizNode> {
+export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
     /** used to override the value in the query */
@@ -19,7 +19,7 @@ export interface QueryContext<T = InsightVizNode> {
     showQueryEditor?: boolean
     /* Adds help and examples to the query editor component */
     showQueryHelp?: boolean
-    insightProps?: InsightLogicProps<T>
+    insightProps?: InsightLogicProps<Q>
     emptyStateHeading?: string
     emptyStateDetail?: string
     renderEmptyStateAsSkeleton?: boolean
