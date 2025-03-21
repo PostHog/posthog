@@ -13,9 +13,9 @@ use crate::{
 use axum::{extract::State, http::HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
-use common_geoip::GeoIpClient;
 use chrono;
 use common_cookieless::EventData;
+use common_geoip::GeoIpClient;
 use flate2::read::GzDecoder;
 use limiters::redis::ServiceName;
 use serde::{Deserialize, Serialize};
@@ -149,8 +149,8 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
                 .unwrap_or(""),
             event_time_zone: None,
             hash_extra: None,
-            team_id: team_id as u64,
-            team_time_zone: None,
+            team_id: team_id,
+            team_time_zone: Some(team.timezone.as_str()),
         };
 
         context

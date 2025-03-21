@@ -113,10 +113,10 @@
             "expected_identifies_key": "cklsi:0:jZfBjkLcdjlQTVmIKIhC3Q"
         },
         {
-            "//": "Test case with very large team_id",
+            "//": "Test case with max i32 team_id",
             "hash": "jZfBjkLcdjlQTVmIKIhC3Q==",
-            "team_id": 9007199254740991,
-            "expected_identifies_key": "cklsi:9007199254740991:jZfBjkLcdjlQTVmIKIhC3Q"
+            "team_id": 2147483647, 
+            "expected_identifies_key": "cklsi:2147483647:jZfBjkLcdjlQTVmIKIhC3Q"
         }
     ],
     "extract_root_domain_tests": [

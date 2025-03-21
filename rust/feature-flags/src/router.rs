@@ -5,8 +5,8 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use common_geoip::GeoIpClient;
 use common_cookieless::CookielessManager;
+use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::HealthRegistry;

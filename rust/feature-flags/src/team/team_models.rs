@@ -1,11 +1,9 @@
+use common_types::{ProjectId, TeamId};
 use serde::{Deserialize, Serialize};
 
 // TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
 // TODO: Add integration tests across repos to ensure this doesn't happen.
 pub const TEAM_TOKEN_CACHE_PREFIX: &str = "posthog:1:team_token:";
-
-pub type TeamId = i32;
-pub type ProjectId = i64;
 
 #[derive(Clone, Debug, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Team {

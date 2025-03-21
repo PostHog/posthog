@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use base64::{engine::general_purpose, Engine};
 use chrono::{DateTime, Utc};
+use common_types::TeamId;
 use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
 use thiserror::Error;
 use url::Url;
@@ -88,7 +89,7 @@ pub struct HashParams<'a> {
     /// Team timezone
     pub team_time_zone: Option<&'a str>,
     /// Team ID
-    pub team_id: u64,
+    pub team_id: TeamId,
     /// IP address
     pub ip: &'a str,
     /// Host
@@ -117,7 +118,7 @@ pub struct EventData<'a> {
     /// Additional data to include in the hash (optional)
     pub hash_extra: Option<&'a str>,
     /// Team ID
-    pub team_id: u64,
+    pub team_id: TeamId,
     /// Team timezone (optional)
     pub team_time_zone: Option<&'a str>,
 }
@@ -262,7 +263,7 @@ impl CookielessManager {
     pub async fn get_identify_count(
         &self,
         hash: &[u8],
-        team_id: u64,
+        team_id: TeamId,
     ) -> Result<u64, CookielessManagerError> {
         // If we're in stateless mode, always return 0
         if self.config.force_stateless_mode {
@@ -387,7 +388,7 @@ fn to_yyyy_mm_dd_in_timezone_safe(
 }
 
 /// Get the Redis key for identify counts
-pub fn get_redis_identifies_key(hash: &[u8], team_id: u64) -> String {
+pub fn get_redis_identifies_key(hash: &[u8], team_id: TeamId) -> String {
     // cklsi = cookieless identifies
     format!(
         "cklsi:{}:{}",
@@ -894,7 +895,7 @@ mod tests {
             for test_case in identifies_key_tests.as_array().unwrap() {
                 let hash_base64 = test_case["hash"].as_str().unwrap();
                 let hash = general_purpose::STANDARD.decode(hash_base64).unwrap();
-                let team_id = test_case["team_id"].as_u64().unwrap();
+                let team_id: TeamId = test_case["team_id"].as_i64().unwrap().try_into().unwrap();
                 let expected_identifies_key =
                     test_case["expected_identifies_key"].as_str().unwrap();
 
