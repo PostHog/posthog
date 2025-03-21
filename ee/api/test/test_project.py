@@ -118,58 +118,73 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
     def test_list_projects_restricted_ones_hidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        Team.objects.create(
+        # This project should not be visible, because no team is visible
+        _other_project_in_org, _invisible_team_in_other_project = Project.objects.create_with_team(
             organization=self.organization,
             name="Other",
-            access_control=True,
+            team_fields={"access_control": True},
+            initiating_user=None,
+        )
+        # This project should be visible, because one of the teams is visible
+        _another_project_in_org, _invisible_team_in_another_project = Project.objects.create_with_team(
+            organization=self.organization,
+            name="Another",
+            team_fields={"access_control": True, "name": "Another 1"},
+            initiating_user=None,
+        )
+        _visible_team_in_another_project = Team.objects.create(
+            organization=self.organization,
+            project=_another_project_in_org,
+            name="Another 2",
         )
 
         # The other team should not be returned as it's restricted for the logged-in user
-        projects_response = self.client.get(f"/api/environments/")
+        projects_response = self.client.get(f"/api/projects/")
 
         # 9 (above):
-        with self.assertNumQueries(FuzzyInt(13, 14)):
+        with self.assertNumQueries(FuzzyInt(14, 15)):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
-        self.assertEqual(projects_response.status_code, 200)
-        self.assertEqual(
-            projects_response.json().get("results"),
-            [
-                {
-                    "id": self.team.id,
-                    "uuid": str(self.team.uuid),
-                    "organization": str(self.organization.id),
-                    "api_token": self.team.api_token,
-                    "name": self.team.name,
-                    "completed_snippet_onboarding": False,
-                    "has_completed_onboarding_for": {"product_analytics": True},
-                    "ingested_event": False,
-                    "is_demo": False,
-                    "timezone": "UTC",
-                    "access_control": False,
-                }
-            ],
-        )
-        self.assertEqual(current_org_response.status_code, 200)
-        self.assertEqual(
-            current_org_response.json().get("teams"),
-            [
-                {
-                    "id": self.team.id,
-                    "uuid": str(self.team.uuid),
-                    "organization": str(self.organization.id),
-                    "project_id": self.team.project.id,  # type: ignore
-                    "api_token": self.team.api_token,
-                    "name": self.team.name,
-                    "completed_snippet_onboarding": False,
-                    "has_completed_onboarding_for": {"product_analytics": True},
-                    "ingested_event": False,
-                    "is_demo": False,
-                    "timezone": "UTC",
-                    "access_control": False,
-                }
-            ],
-        )
+        expected_projects = [
+            {
+                "id": self.project.id,
+                "uuid": str(self.team.uuid),
+                "organization": str(self.organization.id),
+                "api_token": self.team.api_token,
+                "name": self.project.name,
+                "completed_snippet_onboarding": False,
+                "has_completed_onboarding_for": {"product_analytics": True},
+                "ingested_event": False,
+                "is_demo": False,
+                "timezone": "UTC",
+                "access_control": False,
+            },
+            {
+                "id": _another_project_in_org.id,
+                "uuid": str(_visible_team_in_another_project.uuid),
+                "organization": str(self.organization.id),
+                "api_token": _visible_team_in_another_project.api_token,
+                "name": _another_project_in_org.name,
+                "completed_snippet_onboarding": False,
+                "has_completed_onboarding_for": None,
+                "ingested_event": False,
+                "is_demo": False,
+                "timezone": "UTC",
+                "access_control": False,
+            },
+        ]
+
+        assert projects_response.status_code == 200
+        assert sorted(projects_response.json().get("results"), key=lambda x: x["id"]) == expected_projects
+        assert current_org_response.status_code == 200
+        assert sorted(current_org_response.json().get("projects"), key=lambda x: x["id"]) == [
+            {
+                "id": expected_project["id"],
+                "name": expected_project["name"],
+                "organization_id": expected_project["organization"],
+            }
+            for expected_project in expected_projects
+        ]
 
     def test_cannot_create_project_in_org_without_access(self):
         self.organization_membership.delete()
