@@ -18,6 +18,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models.team import Team
+from posthog.api.hog_function import MAX_BYTECODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
 
 
 EXAMPLE_FULL = {
@@ -1789,3 +1790,165 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert function.filters.get("events", None) is None
         assert function.filters.get("filter_test_accounts", None) is None
         assert function.filters.get("bytecode") is not None
+
+    def test_validates_bytecode_size(self):
+        # Mock compile_hog to return a large bytecode array
+        large_bytecode = ["_H", 1] + ["x" for _ in range(MAX_BYTECODE_SIZE_BYTES)]
+
+        with patch("posthog.api.hog_function.compile_hog") as mock_compile_hog:
+            # For the first test, return bytecode that's too large
+            with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+                mock_compile_hog.return_value = large_bytecode
+
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={
+                        "name": "Large Bytecode Function",
+                        "type": "transformation",
+                        "hog": "return event",
+                    },
+                )
+
+                assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+                assert response.json() == {
+                    "type": "validation_error",
+                    "code": "invalid_input",
+                    "detail": f"Compiled bytecode exceeds maximum size of {MAX_BYTECODE_SIZE_BYTES // 1024}KB. Please contact support if you need this limit increased.",
+                    "attr": "hog",
+                }
+
+                # For the second test, return bytecode that's within the limit
+                valid_bytecode = ["_H", 1, "x", "y", "z"]
+                mock_compile_hog.return_value = valid_bytecode
+
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={
+                        "name": "Valid Bytecode Function",
+                        "type": "transformation",
+                        "hog": "return event",
+                    },
+                )
+
+                assert response.status_code == status.HTTP_201_CREATED, response.json()
+                assert response.json()["bytecode"] == valid_bytecode
+
+    def test_limits_transformation_functions_per_team(self):
+        """Test that we can create unlimited disabled transformations but only 20 enabled ones"""
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            # 1. Create several disabled transformations (more than the limit)
+            for i in range(5):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={
+                        "name": f"Disabled Transformation {i}",
+                        "type": "transformation",
+                        "hog": "return event",
+                        "enabled": False,
+                    },
+                )
+                assert response.status_code == status.HTTP_201_CREATED
+
+            # 2. Create enabled transformations up to the limit
+            for i in range(MAX_TRANSFORMATIONS_PER_TEAM):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={
+                        "name": f"Enabled Transformation {i}",
+                        "type": "transformation",
+                        "hog": "return event",
+                        "enabled": True,
+                    },
+                )
+                assert response.status_code == status.HTTP_201_CREATED
+
+            # 3. Verify we hit the limit when trying to create one more enabled transformation
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "One Too Many",
+                    "type": "transformation",
+                    "hog": "return event",
+                    "enabled": True,
+                },
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "Maximum of 20 enabled transformation functions" in response.json()["detail"]
+
+            # 4. Verify we can still create disabled transformations when at the limit
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Another Disabled",
+                    "type": "transformation",
+                    "hog": "return event",
+                    "enabled": False,
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED
+
+            # 5. Test that we can enable after deleting an enabled one
+            # First delete an enabled transformation
+            enabled_transformation = HogFunction.objects.filter(
+                team=self.team, type="transformation", deleted=False, enabled=True
+            ).first()
+
+            self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{enabled_transformation.id}/",
+                data={"deleted": True},
+            )
+
+            # Then enable a disabled transformation
+            disabled_transformation = HogFunction.objects.filter(
+                team=self.team, type="transformation", deleted=False, enabled=False
+            ).first()
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{disabled_transformation.id}/",
+                data={"enabled": True},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+    def test_validates_bytecode_size_during_update(self):
+        """Test that we validate bytecode size when updating an existing function."""
+        # First create a hog function with small, valid bytecode
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            small_bytecode = ["_H", 1, "x", "y", "z"]
+
+            with patch("posthog.api.hog_function.compile_hog") as mock_compile_hog:
+                # Return small bytecode for creation
+                mock_compile_hog.return_value = small_bytecode
+
+                # Create the function
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={
+                        "name": "Valid Bytecode Function",
+                        "type": "transformation",
+                        "hog": "return event",
+                    },
+                )
+
+                assert response.status_code == status.HTTP_201_CREATED, response.json()
+                function_id = response.json()["id"]
+
+                # Now attempt to update with a large bytecode that exceeds the limit
+                large_bytecode = ["_H", 1] + ["x" for _ in range(MAX_BYTECODE_SIZE_BYTES)]
+                mock_compile_hog.return_value = large_bytecode
+
+                # Update the function
+                update_response = self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+                    data={
+                        "hog": "return [...event, 'some very large transformation']",
+                    },
+                )
+
+                # Verify the update was rejected with the correct error
+                assert update_response.status_code == status.HTTP_400_BAD_REQUEST, update_response.json()
+                assert update_response.json() == {
+                    "type": "validation_error",
+                    "code": "invalid_input",
+                    "detail": f"Compiled bytecode exceeds maximum size of {MAX_BYTECODE_SIZE_BYTES // 1024}KB. Please contact support if you need this limit increased.",
+                    "attr": "hog",
+                }

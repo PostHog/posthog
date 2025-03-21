@@ -43,6 +43,11 @@ from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 from django.conf import settings
 
+# Maximum size of bytecode in bytes (70KB) (biggest bytecode we've seen is 6.6KB)
+MAX_BYTECODE_SIZE_BYTES = 70 * 1024
+# Maximum number of transformation functions per team
+MAX_TRANSFORMATIONS_PER_TEAM = 20
+
 logger = structlog.get_logger(__name__)
 
 
@@ -235,6 +240,25 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             self.context.get("view") and self.context["view"].action == "create"
         )
 
+        # Check for transformation limit per team when the function will be enabled
+        # We allow unlimited creation of disabled transformations as they don't run during ingestion
+        if hog_type == "transformation" and attrs.get("enabled", False):
+            # Don't apply the limit for updates where the function was already enabled
+            apply_limit = is_create or (self.instance and not self.instance.enabled)
+
+            if apply_limit:
+                # Count enabled and non-deleted transformations
+                transformation_count = HogFunction.objects.filter(
+                    team=team, type="transformation", deleted=False, enabled=True
+                ).count()
+
+                if transformation_count >= MAX_TRANSFORMATIONS_PER_TEAM:
+                    raise serializers.ValidationError(
+                        {
+                            "type": f"Maximum of {MAX_TRANSFORMATIONS_PER_TEAM} enabled transformation functions allowed per team. Please contact support if you need this limit increased, or disable some existing transformations."
+                        }
+                    )
+
         if attrs.get("mappings", None) is not None:
             if hog_type not in ["site_destination", "destination"]:
                 raise serializers.ValidationError({"mappings": "Mappings are only allowed for destinations."})
@@ -256,6 +280,17 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["bytecode"] = None
             else:
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
+
+                # Check bytecode size after compiling
+                bytecode_json = json.dumps(attrs["bytecode"])
+                bytecode_size = len(bytecode_json.encode("utf-8"))
+                if bytecode_size > MAX_BYTECODE_SIZE_BYTES:
+                    raise serializers.ValidationError(
+                        {
+                            "hog": f"Compiled bytecode exceeds maximum size of {MAX_BYTECODE_SIZE_BYTES // 1024}KB. Please contact support if you need this limit increased."
+                        }
+                    )
+
                 attrs["transpiled"] = None
 
         if is_create:
