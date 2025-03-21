@@ -18,7 +18,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models.team import Team
-from posthog.api.hog_function import MAX_BYTECODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
+from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
 
 
 EXAMPLE_FULL = {
@@ -1791,48 +1791,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert function.filters.get("filter_test_accounts", None) is None
         assert function.filters.get("bytecode") is not None
 
-    def test_validates_bytecode_size(self):
-        # Mock compile_hog to return a large bytecode array
-        large_bytecode = ["_H", 1] + ["x" for _ in range(MAX_BYTECODE_SIZE_BYTES)]
-
-        with patch("posthog.api.hog_function.compile_hog") as mock_compile_hog:
-            # For the first test, return bytecode that's too large
-            with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
-                mock_compile_hog.return_value = large_bytecode
-
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/hog_functions/",
-                    data={
-                        "name": "Large Bytecode Function",
-                        "type": "transformation",
-                        "hog": "return event",
-                    },
-                )
-
-                assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-                assert response.json() == {
-                    "type": "validation_error",
-                    "code": "invalid_input",
-                    "detail": f"Compiled bytecode exceeds maximum size of {MAX_BYTECODE_SIZE_BYTES // 1024}KB. Please contact support if you need this limit increased.",
-                    "attr": "hog",
-                }
-
-                # For the second test, return bytecode that's within the limit
-                valid_bytecode = ["_H", 1, "x", "y", "z"]
-                mock_compile_hog.return_value = valid_bytecode
-
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/hog_functions/",
-                    data={
-                        "name": "Valid Bytecode Function",
-                        "type": "transformation",
-                        "hog": "return event",
-                    },
-                )
-
-                assert response.status_code == status.HTTP_201_CREATED, response.json()
-                assert response.json()["bytecode"] == valid_bytecode
-
     def test_limits_transformation_functions_per_team(self):
         """Test that we can create unlimited disabled transformations but only 20 enabled ones"""
         with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
@@ -1909,46 +1867,56 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             assert response.status_code == status.HTTP_200_OK
 
-    def test_validates_bytecode_size_during_update(self):
-        """Test that we validate bytecode size when updating an existing function."""
-        # First create a hog function with small, valid bytecode
+    def test_validates_raw_hog_code_size(self):
         with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
-            small_bytecode = ["_H", 1, "x", "y", "z"]
+            """Test that we validate the raw HOG code size before compiling it."""
+            # Generate a large HOG code string that exceeds the maximum allowed size
+            large_hog_code = "return " + "x" * (MAX_HOG_CODE_SIZE_BYTES + 1000)
 
-            with patch("posthog.api.hog_function.compile_hog") as mock_compile_hog:
-                # Return small bytecode for creation
-                mock_compile_hog.return_value = small_bytecode
+            # Try to create a function with HOG code exceeding the size limit
+            # No need to mock compile_hog as we're checking the string size directly
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Large HOG Code Function",
+                    "type": "transformation",
+                    "hog": large_hog_code,
+                },
+            )
 
-                # Create the function
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/hog_functions/",
-                    data={
-                        "name": "Valid Bytecode Function",
-                        "type": "transformation",
-                        "hog": "return event",
-                    },
-                )
+            # Verify the creation was rejected with the correct error
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert "HOG code exceeds maximum size" in response.json()["detail"]
+            assert f"{MAX_HOG_CODE_SIZE_BYTES // 1024}KB" in response.json()["detail"]
 
-                assert response.status_code == status.HTTP_201_CREATED, response.json()
-                function_id = response.json()["id"]
+    def test_validates_raw_hog_code_size_during_update(self):
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            """Test that we validate the raw HOG code size when updating an existing function."""
+            # First create a hog function with small, valid code
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Valid HOG Code Function",
+                    "type": "transformation",
+                    "hog": "return event",
+                },
+            )
 
-                # Now attempt to update with a large bytecode that exceeds the limit
-                large_bytecode = ["_H", 1] + ["x" for _ in range(MAX_BYTECODE_SIZE_BYTES)]
-                mock_compile_hog.return_value = large_bytecode
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            function_id = response.json()["id"]
 
-                # Update the function
-                update_response = self.client.patch(
-                    f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
-                    data={
-                        "hog": "return [...event, 'some very large transformation']",
-                    },
-                )
+            # Generate a large HOG code string for the update that exceeds the limit
+            large_hog_code = "return " + "x" * (MAX_HOG_CODE_SIZE_BYTES + 1000)
 
-                # Verify the update was rejected with the correct error
-                assert update_response.status_code == status.HTTP_400_BAD_REQUEST, update_response.json()
-                assert update_response.json() == {
-                    "type": "validation_error",
-                    "code": "invalid_input",
-                    "detail": f"Compiled bytecode exceeds maximum size of {MAX_BYTECODE_SIZE_BYTES // 1024}KB. Please contact support if you need this limit increased.",
-                    "attr": "hog",
-                }
+            # Update the function with large HOG code
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+                data={
+                    "hog": large_hog_code,
+                },
+            )
+
+            # Verify the update was rejected with the correct error
+            assert update_response.status_code == status.HTTP_400_BAD_REQUEST, update_response.json()
+            assert "HOG code exceeds maximum size" in update_response.json()["detail"]
+            assert f"{MAX_HOG_CODE_SIZE_BYTES // 1024}KB" in update_response.json()["detail"]

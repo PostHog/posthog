@@ -43,8 +43,8 @@ from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 from django.conf import settings
 
-# Maximum size of bytecode in bytes (70KB) (biggest bytecode we've seen is 6.6KB)
-MAX_BYTECODE_SIZE_BYTES = 70 * 1024
+# Maximum size of HOG code as a string in bytes (100KB)
+MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
 # Maximum number of transformation functions per team
 MAX_TRANSFORMATIONS_PER_TEAM = 20
 
@@ -264,6 +264,15 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 raise serializers.ValidationError({"mappings": "Mappings are only allowed for destinations."})
 
         if "hog" in attrs:
+            # First check the raw code size before trying to compile/transpile it
+            hog_code_size = len(attrs["hog"].encode("utf-8"))
+            if hog_code_size > MAX_HOG_CODE_SIZE_BYTES:
+                raise serializers.ValidationError(
+                    {
+                        "hog": f"HOG code exceeds maximum size of {MAX_HOG_CODE_SIZE_BYTES // 1024}KB. Please simplify your code or contact support if you need this limit increased."
+                    }
+                )
+
             if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                 try:
                     # Validate transpilation using the model instance
@@ -280,17 +289,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["bytecode"] = None
             else:
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
-
-                # Check bytecode size after compiling
-                bytecode_json = json.dumps(attrs["bytecode"])
-                bytecode_size = len(bytecode_json.encode("utf-8"))
-                if bytecode_size > MAX_BYTECODE_SIZE_BYTES:
-                    raise serializers.ValidationError(
-                        {
-                            "hog": f"Compiled bytecode exceeds maximum size of {MAX_BYTECODE_SIZE_BYTES // 1024}KB. Please contact support if you need this limit increased."
-                        }
-                    )
-
                 attrs["transpiled"] = None
 
         if is_create:
