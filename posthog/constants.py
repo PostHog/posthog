@@ -310,6 +310,7 @@ BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
 SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
 
+
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
