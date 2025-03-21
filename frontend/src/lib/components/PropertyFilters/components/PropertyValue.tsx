@@ -70,8 +70,10 @@ export function PropertyValue({
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
     useEffect(() => {
-        load('')
-    }, [propertyKey])
+        if (!isDateTimeProperty) {
+            load('')
+        }
+    }, [propertyKey, isDateTimeProperty])
 
     const displayOptions = options[propertyKey]?.values || []
 
