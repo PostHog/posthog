@@ -440,26 +440,8 @@ impl FeatureFlagMatcher {
 
         // Step 1: Evaluate flags with locally computable property overrides first
         for flag in &feature_flags.flags {
-            // we shouldn't have any deleted flags (the query should filter them out), but just in case
-            if flag.deleted {
-                continue;
-            }
-
-            // if the flag is not active, we can insert that immediately and go on to the next flag
-            if !flag.active {
-                flag_details_map.insert(
-                    flag.key.clone(),
-                    FlagDetails::create(
-                        flag,
-                        &FeatureFlagMatch {
-                            matches: false,
-                            variant: None,
-                            reason: FeatureFlagMatchReason::NoConditionMatch, // TODO: this is technically not true; IMO "disabled" and "no matches" are different things, but this is how the old service does it.  Something to fix in the future.
-                            condition_index: None,
-                            payload: None,
-                        },
-                    ),
-                );
+            // we shouldn't have any disabled or deleted flags (the query should filter them out), but just in case, we skip them here
+            if !flag.active || flag.deleted {
                 continue;
             }
 
@@ -2034,7 +2016,6 @@ mod tests {
 
     use super::*;
     use crate::{
-        api::types::FlagEvaluationReason,
         flags::flag_models::{
             FeatureFlagRow, FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant,
         },
@@ -5226,71 +5207,5 @@ mod tests {
 
         let match_result = result.unwrap();
         assert!(match_result.matches, "User should match the static cohort");
-    }
-
-    #[tokio::test]
-    async fn test_inactive_flags_included_as_false() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Create one active and one inactive flag
-        let active_flag = create_test_flag(
-            Some(1),
-            Some(team.id),
-            Some("Active Flag".to_string()),
-            Some("active_flag".to_string()),
-            None,
-            Some(false), // not deleted
-            Some(true),  // active
-            None,
-        );
-
-        let inactive_flag = create_test_flag(
-            Some(2),
-            Some(team.id),
-            Some("Inactive Flag".to_string()),
-            Some("inactive_flag".to_string()),
-            None,
-            Some(false), // not deleted
-            Some(false), // inactive
-            None,
-        );
-
-        let flags = FeatureFlagList {
-            flags: vec![active_flag, inactive_flag],
-        };
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader,
-            writer,
-            cohort_cache,
-            None,
-            None,
-        );
-
-        let result = matcher
-            .evaluate_flags_with_overrides(flags, None, None, None)
-            .await;
-
-        // Check that both flags are in the response
-        assert!(result.flags.contains_key("active_flag"));
-        assert!(result.flags.contains_key("inactive_flag"));
-
-        // Check that inactive flag is false with correct reason
-        let inactive_flag_details = result.flags.get("inactive_flag").unwrap();
-        assert!(!inactive_flag_details.enabled);
-        assert_eq!(
-            inactive_flag_details.reason,
-            FlagEvaluationReason {
-                code: "no_condition_match".to_string(),
-                condition_index: None,
-                description: Some("No matching condition set".to_string())
-            }
-        );
     }
 }
