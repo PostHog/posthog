@@ -11,7 +11,6 @@ import { useCallback, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
@@ -103,8 +102,8 @@ export function DataTableVisualization({
         variablesOverride,
     }
 
-    const { insightProps: insightLogicProps } = useValues(insightLogic)
-    const { exportContext } = useValues(insightDataLogic(insightLogicProps))
+    // The `as unknown as InsightLogicProps` below is smelly, but it's required because Kea logics can't be generic
+    const { exportContext } = useValues(insightDataLogic(insightProps as unknown as InsightLogicProps))
 
     const { loadData } = useActions(dataVisualizationLogic(dataVisualizationLogicProps))
 

@@ -1274,6 +1274,21 @@
                 }
             ]
         },
+        "AssistantHogQLQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "HogQLQuery",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "query"],
+            "type": "object"
+        },
         "AssistantInsightsQueryBase": {
             "additionalProperties": false,
             "properties": {
@@ -5353,6 +5368,21 @@
                         "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
+                },
+                "context": {
+                    "additionalProperties": false,
+                    "description": "Context for the table, used by components like ColumnConfigurator",
+                    "properties": {
+                        "eventDefinitionId": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "enum": ["event_definition", "team_columns"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type"],
+                    "type": "object"
                 },
                 "embedded": {
                     "description": "Uses the embedded version of LemonTable",
@@ -15285,6 +15315,21 @@
                     "description": "Can the user click on column headers to sort the table? (default: true)",
                     "type": "boolean"
                 },
+                "context": {
+                    "additionalProperties": false,
+                    "description": "Context for the table, used by components like ColumnConfigurator",
+                    "properties": {
+                        "eventDefinitionId": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "enum": ["event_definition", "team_columns"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type"],
+                    "type": "object"
+                },
                 "embedded": {
                     "description": "Query is embedded inside another bordered component",
                     "type": "boolean"
@@ -16761,6 +16806,9 @@
                         },
                         {
                             "$ref": "#/definitions/AssistantRetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantHogQLQuery"
                         }
                     ]
                 },

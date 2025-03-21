@@ -61,7 +61,7 @@ flaky==3.7.0
 aioresponses==0.7.6
 prance==23.06.21.0
 openapi-spec-validator==0.7.1 # Needed for prance as a validation backend
-deepeval==1.5.5
+deepeval==2.2.*
 tach~=0.20.0
 stpyv8==13.1.201.22
 types-boto3[essential]==1.37.6

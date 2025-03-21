@@ -79,6 +79,14 @@ export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
     '_kx',
 ])
 
+export const SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = new Set([
+    '$current_url', // Gets renamed to just $url
+    '$host',
+    '$pathname',
+    '$referrer',
+    ...SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
+])
+
 // changing values in here you need to sync to python posthog/posthog/taxonomy/taxonomy.py
 export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     events: {
@@ -1799,6 +1807,20 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
                 'description' in value
                     ? `${value.description} Data from the first event in this session.`
                     : 'Data from the first event in this session.',
+        }
+    }
+}
+
+for (const key of SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS) {
+    const mappedKey = key !== '$current_url' ? key.replace(/^\$/, '') : 'url'
+
+    if (key in CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties) {
+        const eventProps = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties as Record<string, CoreFilterDefinition>
+
+        eventProps[`$session_entry_${mappedKey}`] = {
+            ...eventProps[key],
+            label: `Session entry ${eventProps[key].label}`,
+            description: `${eventProps[key].description}. Captured at the start of the session and remains constant for the duration of the session.`,
         }
     }
 }
