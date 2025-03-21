@@ -58,7 +58,6 @@ function SeekbarSegments(): JSX.Element {
 }
 
 interface ActivityPoint {
-    second: number
     x: number
     y: number
 }
@@ -77,20 +76,25 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
         const maxY = Math.max(...Object.values(activityPerSecond).map((activity) => activity.y))
 
         return Object.entries(activityPerSecond).map(([second, activity]) => ({
-            second: parseInt(second),
             x: (parseInt(second) / durationInSeconds) * width,
             y: height - (Math.log(activity.y + 1) / Math.log(maxY + 1)) * height,
         }))
     }, [activityPerSecond, durationInSeconds, width, height])
 
+    const hasPoints = points.length > 0
+
     return (
         <div
-            className={cn('absolute bottom-0 w-full px-4 bg-surface-primary transition-opacity duration-300', {
-                'opacity-0': !isHovering,
-            })}
+            className={cn(
+                'absolute bottom-0 w-full bg-gradient-to-t from-surface-primary via-surface-primary to-transparent from-0% via-96% to-100% transition-opacity duration-300',
+                {
+                    'opacity-0': !isHovering,
+                }
+            )}
             ref={seekBarRef}
+            // if there are no points, we don't want to take up space
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ height: '3rem' }}
+            style={{ height: hasPoints ? '3rem' : '0' }}
         >
             <svg width="100%" height="100%" preserveAspectRatio="none">
                 <path
@@ -113,7 +117,7 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
 }
 
 export function Seekbar(): JSX.Element {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, logicProps, hasSnapshots } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { seekbarItems } = useValues(playerInspectorLogic(logicProps))
     const { endTimeMs, thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic(logicProps))
@@ -167,16 +171,20 @@ export function Seekbar(): JSX.Element {
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
                     />
 
-                    <PlayerSeekbarPreview
-                        minMs={0}
-                        maxMs={sessionPlayerData.durationMs}
-                        seekBarRef={seekBarRef}
-                        activeMs={
-                            sessionPlayerMetaData?.active_seconds ? sessionPlayerMetaData.active_seconds * 1000 : null
-                        }
-                        timestampFormat={timestampFormat}
-                        startTime={sessionPlayerData.start}
-                    />
+                    {hasSnapshots ? (
+                        <PlayerSeekbarPreview
+                            minMs={0}
+                            maxMs={sessionPlayerData.durationMs}
+                            seekBarRef={seekBarRef}
+                            activeMs={
+                                sessionPlayerMetaData?.active_seconds
+                                    ? sessionPlayerMetaData.active_seconds * 1000
+                                    : null
+                            }
+                            timestampFormat={timestampFormat}
+                            startTime={sessionPlayerData.start}
+                        />
+                    ) : null}
                 </div>
             </div>
         </div>

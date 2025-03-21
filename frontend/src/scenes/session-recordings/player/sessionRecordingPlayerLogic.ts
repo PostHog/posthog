@@ -487,11 +487,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
         playlistLogic: [() => [(_, props) => props], (props) => props.playlistLogic],
 
-        activityPerSecond: [
+        hasSnapshots: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData) => {
+                return Object.keys(sessionPlayerData.snapshotsByWindowId).length > 0
+            },
+        ],
+
+        activityPerSecond: [
+            (s) => [s.sessionPlayerData, s.hasSnapshots],
+            (sessionPlayerData: SessionPlayerData, hasSnapshots: boolean) => {
                 const start = sessionPlayerData.start
-                if (start === null) {
+                if (start === null || !hasSnapshots) {
                     return {}
                 }
 
