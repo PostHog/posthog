@@ -95,16 +95,18 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
             __default: null as ExportedSessionRecordingFileV2['data'] | null,
             loadFromFile: async (file: File) => {
                 try {
-                    const loadedFile: string = await new Promise((resolve, reject) => {
-                        const filereader = new FileReader()
-                        filereader.onload = (e) => {
-                            resolve(e.target?.result as string)
+                    const decoder = new TextDecoder('utf-8')
+                    let loadedFile = ''
+
+                    const stream = (file as Blob).stream().getReader()
+
+                    while (true) {
+                        const { done, value } = await stream.read()
+                        if (done) {
+                            break
                         }
-                        filereader.onerror = (e) => {
-                            reject(e)
-                        }
-                        filereader.readAsText(file)
-                    })
+                        loadedFile += decoder.decode(value, { stream: true })
+                    }
 
                     const data = parseExportedSessionRecording(loadedFile)
 
