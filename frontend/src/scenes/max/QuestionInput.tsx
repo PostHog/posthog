@@ -37,7 +37,7 @@ export function QuestionInput(): JSX.Element {
                     'flex flex-col items-center',
                     isFloating &&
                         'p-1 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]',
-                    tools.length > 0 ? 'mb-1.5' : 'mb-3'
+                    isFloating && (tools.length > 0 ? 'mb-1.5' : 'mb-3')
                 )}
             >
                 <div className="relative w-full">
