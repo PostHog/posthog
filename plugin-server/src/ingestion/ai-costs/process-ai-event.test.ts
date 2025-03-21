@@ -210,14 +210,14 @@ describe('processAiEvent()', () => {
 
             // For testing_model: prompt_token = 0.1, completion_token = 0.1
             // Write cost: 20 * 0.1 * 1.25 = 2.5
-            // Read cost: 30 * 0.1 * 0.1 = 0.3
-            // Uncached cost: 1000 * 0.1 = 100
-            // Input cost: 2.5 + 0.3 + 100 = 102.8
+            // Read cost: 1000 * 0.1 * 0.1 = 10
+            // Uncached cost: 100 * 0.1 = 10
+            // Input cost: 2.5 + 10 + 10 = 22.5
             // Output cost: 50 * 0.1 = 5
-            // Total cost: 102.8 + 5 = 107.8
-            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(102.8, 2)
+            // Total cost: 22.5 + 5 = 27.5
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(22.5, 2)
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(5, 2)
-            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(107.8, 2)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(27.5, 2)
         })
 
         it('handles zero cache tokens correctly', () => {
