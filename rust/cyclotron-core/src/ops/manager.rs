@@ -10,7 +10,7 @@ use crate::{
 use common_metrics::inc;
 
 // used in bulk_create_jobs_copy
-const CSV_NULL: &str = "NULL";
+const CSV_NULL: &[u8] = &[];
 const ZERO_VALUE: &str = "0";
 const ESTIMATED_RECORD_SIZE: usize = 1024;
 
@@ -199,14 +199,7 @@ pub async fn bulk_create_jobs_copy(
     jobs: &[JobInit],
     should_compress_vm_state: bool,
 ) -> Result<Vec<Uuid>, QueueError> {
-    let copy_in_stmt = format!(
-        r#"COPY "cyclotron_jobs"
-        (id, team_id, function_id, created, lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition, queue_name, state, scheduled, priority, vm_state, metadata, parameters, blob)
-        FROM STDIN WITH
-        (FORMAT CSV,
-         NULL '{}',
-         ENCODING 'UTF8',
-         QUOTE '"')"#, CSV_NULL);
+    let copy_in_stmt = "COPY cyclotron_jobs (id, team_id, function_id, created, lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition, queue_name, state, scheduled, priority, vm_state, metadata, parameters, blob) FROM STDIN WITH (FORMAT CSV, ENCODING 'UTF8');\r\n";
     let mut ids = Vec::with_capacity(jobs.len());
     let now = Utc::now().to_rfc3339();
 
@@ -274,9 +267,9 @@ pub async fn bulk_create_jobs_copy(
         csv_writer
             .write_field(j.priority.to_string())
             .map_err(|e| QueueError::CSVError("priority", e))?;
-        if let Some(vs) = vm_state {
+        if let Some(vs) = &vm_state {
             csv_writer
-                .write_field(encode_pg_bytea(&vs))
+                .write_field(encode_pg_bytea(vs))
                 .map_err(|e| QueueError::CSVError("vm_state", e))?;
         } else {
             csv_writer
@@ -285,7 +278,7 @@ pub async fn bulk_create_jobs_copy(
         }
         if let Some(m) = &j.metadata {
             csv_writer
-                .write_field(encode_pg_bytea(&m))
+                .write_field(encode_pg_bytea(m))
                 .map_err(|e| QueueError::CSVError("metadata", e))?;
         } else {
             csv_writer
@@ -294,7 +287,7 @@ pub async fn bulk_create_jobs_copy(
         }
         if let Some(ps) = &j.parameters {
             csv_writer
-                .write_field(encode_pg_bytea(&ps))
+                .write_field(encode_pg_bytea(ps))
                 .map_err(|e| QueueError::CSVError("parameters", e))?;
         } else {
             csv_writer
@@ -303,7 +296,7 @@ pub async fn bulk_create_jobs_copy(
         }
         if let Some(b) = &j.blob {
             csv_writer
-                .write_field(encode_pg_bytea(&b))
+                .write_field(encode_pg_bytea(b))
                 .map_err(|e| QueueError::CSVError("blob", e))?;
         } else {
             csv_writer
@@ -320,7 +313,7 @@ pub async fn bulk_create_jobs_copy(
         .flush()
         .map_err(|e| QueueError::CSVError("csv_flush", e.into()))?;
 
-    let mut stream = pool.copy_in_raw(&copy_in_stmt).await?;
+    let mut stream = pool.copy_in_raw(copy_in_stmt).await?;
     let _ = stream.send(&csv_writer.get_ref()[..]).await?;
     let rows_affected = stream.finish().await?;
     inc("bulk_create_jobs_copy_rows_affected", &[], rows_affected);
