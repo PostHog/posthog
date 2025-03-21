@@ -1,5 +1,13 @@
+import { dayjs } from 'lib/dayjs'
+
 import { constructSparklineConfig, SPARKLINE_CONFIGURATIONS } from './errorTrackingLogic'
 import { sparklineLabels } from './utils'
+
+function getSparklineLabels(timeAgo: string): string[] {
+    return sparklineLabels(SPARKLINE_CONFIGURATIONS[timeAgo]).map((label) => {
+        return dayjs(label).format('D MMM, YYYY HH:mm (UTC)')
+    })
+}
 
 describe('generateSparklineProps', () => {
     beforeAll(() => {
@@ -7,7 +15,7 @@ describe('generateSparklineProps', () => {
     })
 
     it('1h', async () => {
-        const labels = sparklineLabels(SPARKLINE_CONFIGURATIONS['1h'])
+        const labels = getSparklineLabels('1h')
         expect(labels.length).toEqual(60)
         expect(labels[0]).toEqual(`'10 Jan, 2023 16:23 (UTC)'`)
         expect(labels[58]).toEqual(`'10 Jan, 2023 17:21 (UTC)'`)
@@ -15,7 +23,7 @@ describe('generateSparklineProps', () => {
     })
 
     it('24h', async () => {
-        const labels = sparklineLabels(SPARKLINE_CONFIGURATIONS['24h'])
+        const labels = getSparklineLabels('24h')
         expect(labels.length).toEqual(24)
         expect(labels[0]).toEqual(`'9 Jan, 2023 18:00 (UTC)'`)
         expect(labels[22]).toEqual(`'10 Jan, 2023 16:00 (UTC)'`)
@@ -23,7 +31,7 @@ describe('generateSparklineProps', () => {
     })
 
     it('7d', async () => {
-        const labels = sparklineLabels(SPARKLINE_CONFIGURATIONS['7d'])
+        const labels = getSparklineLabels('7d')
         expect(labels.length).toEqual(168)
         expect(labels[0]).toEqual(`'3 Jan, 2023 18:00 (UTC)'`)
         expect(labels[166]).toEqual(`'10 Jan, 2023 16:00 (UTC)'`)
@@ -31,7 +39,7 @@ describe('generateSparklineProps', () => {
     })
 
     it('14d', async () => {
-        const labels = sparklineLabels(SPARKLINE_CONFIGURATIONS['14d'])
+        const labels = getSparklineLabels('14d')
         expect(labels.length).toEqual(336)
         expect(labels[0]).toEqual(`'27 Dec, 2022 18:00 (UTC)'`)
         expect(labels[334]).toEqual(`'10 Jan, 2023 16:00 (UTC)'`)
@@ -39,7 +47,7 @@ describe('generateSparklineProps', () => {
     })
 
     it('90d', async () => {
-        const labels = sparklineLabels(SPARKLINE_CONFIGURATIONS['90d'])
+        const labels = getSparklineLabels('90d')
         expect(labels.length).toEqual(90)
         expect(labels[0]).toEqual(`'13 Oct, 2022 00:00 (UTC)'`)
         expect(labels[88]).toEqual(`'9 Jan, 2023 00:00 (UTC)'`)
@@ -47,7 +55,7 @@ describe('generateSparklineProps', () => {
     })
 
     it('180d', async () => {
-        const labels = sparklineLabels(SPARKLINE_CONFIGURATIONS['180d'])
+        const labels = getSparklineLabels('180d')
         expect(labels.length).toEqual(26)
         expect(labels[0]).toEqual(`'17 Jul, 2022 00:00 (UTC)'`)
         expect(labels[24]).toEqual(`'1 Jan, 2023 00:00 (UTC)'`)
@@ -55,7 +63,7 @@ describe('generateSparklineProps', () => {
     })
 
     it('mStart', async () => {
-        const labels = sparklineLabels(SPARKLINE_CONFIGURATIONS['mStart'])
+        const labels = getSparklineLabels('mStart')
         expect(labels.length).toEqual(31)
         expect(labels[0]).toEqual(`'11 Dec, 2022 00:00 (UTC)'`) // goes back one full month
         expect(labels[29]).toEqual(`'9 Jan, 2023 00:00 (UTC)'`)
@@ -63,7 +71,7 @@ describe('generateSparklineProps', () => {
     })
 
     it('yStart', async () => {
-        const labels = sparklineLabels(SPARKLINE_CONFIGURATIONS['yStart'])
+        const labels = getSparklineLabels('yStart')
         expect(labels.length).toEqual(52)
         expect(labels[0]).toEqual(`'16 Jan, 2022 00:00 (UTC)'`) // goes back one full year
         expect(labels[50]).toEqual(`'1 Jan, 2023 00:00 (UTC)'`)
