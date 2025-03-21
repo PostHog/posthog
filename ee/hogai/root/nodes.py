@@ -62,9 +62,17 @@ class search_session_recordings(BaseModel):
     Update session recordings filters on this page, in order to search for session recordings by any criteria.
     """
 
+    change: str = Field(description="The specific change to be made to recordings filters, briefly described.")
+
 
 CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL = {
     AssistantContextualTool.SEARCH_SESSION_RECORDINGS: search_session_recordings,
+}
+CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT = {
+    AssistantContextualTool.SEARCH_SESSION_RECORDINGS: """
+Current recordings filters are:
+{{{search_session_recordings_current_filters}}}
+""".strip(),
 }
 CONTEXTUAL_TOOL_MODELS = tuple(CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL.values())
 
@@ -94,6 +102,14 @@ class RootNode(AssistantNode):
             ChatPromptTemplate.from_messages(
                 [
                     ("system", ROOT_SYSTEM_PROMPT),
+                    *[
+                        (
+                            "system",
+                            f"<{tool_name}>\n{CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT[tool_name]}\n</{tool_name}>",
+                        )
+                        for tool_name in config["configurable"].get("contextual_tools", {}).keys()
+                        if tool_name in CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT
+                    ],
                 ],
                 template_format="mustache",
             )
@@ -110,6 +126,11 @@ class RootNode(AssistantNode):
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_timezone": self._team.timezone_info.tzname(utc_now),
+                **{
+                    f"{tool_name}_{context_key}": context_value
+                    for tool_name, context in config["configurable"].get("contextual_tools", {}).items()
+                    for context_key, context_value in context.items()
+                },
             },
             config,
         )

@@ -112,11 +112,7 @@ export const RecordingsUniversalFilters = ({
                 }}
                 callback={(toolOutput: Record<string, any>) => {
                     // Improve type
-                    setFilters({
-                        filter_group: toolOutput.filter_group,
-                        date_from: toolOutput.date_from,
-                        date_to: toolOutput.date_to,
-                    })
+                    setFilters(toolOutput)
                     setIsFiltersExpanded(true)
                 }}
                 initialMaxPrompt="Show me recordings where "

@@ -48,10 +48,12 @@ import type {
     NodeKind,
     QueryStatus,
     RecordingOrder,
-    RecordingsQuery,
     RevenueTrackingConfig,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+
+// Re-exporting so that we don't have to update a bunch of imports yet
+export type { RecordingUniversalFilters } from '~/queries/schema/schema-replay'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -1132,15 +1134,6 @@ export interface LegacyRecordingFilters {
     snapshot_source?: AnyPropertyFilter | null
     filter_test_accounts?: boolean
     operand?: FilterLogicalOperator
-}
-
-export interface RecordingUniversalFilters {
-    date_from?: string | null
-    date_to?: string | null
-    duration: RecordingDurationFilter[]
-    filter_test_accounts?: boolean
-    filter_group: UniversalFiltersGroup
-    order?: RecordingsQuery['order']
 }
 
 export interface UniversalFiltersGroup {

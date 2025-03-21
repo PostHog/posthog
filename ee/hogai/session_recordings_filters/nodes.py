@@ -1,15 +1,17 @@
-from typing import Optional, cast
 from uuid import uuid4
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
-from ee.hogai.session_recordings_filters.prompts import AI_FILTER_INITIAL_PROMPT, AI_FILTER_PROPERTIES_PROMPT
-from ee.hogai.session_recordings_filters.schema import RecordingsFilters
+from ee.hogai.session_recordings_filters.prompts import (
+    AI_FILTER_INITIAL_PROMPT,
+    AI_FILTER_PROPERTIES_PROMPT,
+    AI_FILTER_REQUEST_PROMPT,
+)
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import AssistantContextualTool, AssistantToolCallMessage, HumanMessage
+from posthog.schema import AssistantContextualTool, AssistantToolCallMessage, MaxRecordingUniversalFilters
 
 
 class SessionRecordingsFiltersNode(AssistantNode):
@@ -21,26 +23,33 @@ class SessionRecordingsFiltersNode(AssistantNode):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        latest_human_message: Optional[HumanMessage] = next(
-            (msg for msg in reversed(state.messages) if isinstance(msg, HumanMessage)), None
+        assert state.root_tool_call_id is not None
+        tool_call = self._get_tool_call(state.messages, state.root_tool_call_id)
+
+        model = (
+            ChatOpenAI(model="gpt-4o", temperature=0.2)
+            .with_structured_output(MaxRecordingUniversalFilters, include_raw=False)
+            .with_retry()
         )
-
-        if latest_human_message is None:
-            raise ValueError("No human message found in the state")
-
-        model = ChatOpenAI(model="gpt-4o", temperature=0).with_structured_output(RecordingsFilters, include_raw=False)
 
         prompt = ChatPromptTemplate(
             [
                 ("system", AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT),
-                ("human", "{{{query}}}"),
+                ("human", AI_FILTER_REQUEST_PROMPT),
             ],
             template_format="mustache",
         )
 
         chain = prompt | model
 
-        result = cast(RecordingsFilters, chain.invoke({"query": latest_human_message.content}, config))
+        result = chain.invoke(
+            {
+                "change": tool_call.args["change"],
+                **config["configurable"].get("contextual_tools")[AssistantContextualTool.SEARCH_SESSION_RECORDINGS],
+            },
+            config,
+        )
+        assert isinstance(result, MaxRecordingUniversalFilters)
 
         return PartialAssistantState(
             messages=[
