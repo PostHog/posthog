@@ -260,10 +260,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         combinedMetricsQuery: [
             (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts],
             (pageUrl: string | null, stripQueryParams: boolean, shouldFilterTestAccounts: boolean) =>
-                (
-                    dateFilter: typeof webAnalyticsLogic.values.dateFilter,
-                    compareFilter: CompareFilter
-                ): InsightVizNode<TrendsQuery> => ({
+                (dateFilter: typeof webAnalyticsLogic.values.dateFilter): InsightVizNode<TrendsQuery> => ({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
@@ -296,7 +293,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             display: ChartDisplayType.ActionsLineGraph,
                             showLegend: true,
                         },
-                        compareFilter,
                         filterTestAccounts: shouldFilterTestAccounts,
                         properties: pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : [],
                     },
