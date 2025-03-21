@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import { DataColorToken } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -227,9 +228,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
-        setFiltersAndLayoutsAndVariables: (filters: DashboardFilter, variables: Record<string, HogQLVariable>) => ({
+        setBreakdownColor: (breakdownValue: string, colorToken: DataColorToken) => ({ breakdownValue, colorToken }),
+        setFiltersAndLayoutsAndVariables: (
+            filters: DashboardFilter,
+            variables: Record<string, HogQLVariable>,
+            breakdownColors: Record<string, DataColorToken>
+        ) => ({
             filters,
             variables,
+            breakdownColors,
         }),
         previewTemporaryFilters: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
@@ -343,6 +350,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             {
                                 filters: values.filters,
                                 variables: values.insightVariables,
+                                breakdown_colors: values.temporaryBreakdownColors,
                                 tiles: layoutsToUpdate,
                             }
                         )
@@ -592,6 +600,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               breakdown_filter: dashboard?.filters.breakdown_filter || null,
                           }
                         : state,
+            },
+        ],
+        temporaryBreakdownColors: [
+            {} as Record<string, DataColorToken>,
+            {
+                setBreakdownColor: (state, { breakdownValue, colorToken }) => ({
+                    ...state,
+                    [breakdownValue]: colorToken,
+                }),
+                loadDashboardSuccess: (state, { dashboard }) => {
+                    return dashboard
+                        ? {
+                              ...state,
+                              ...(dashboard.breakdown_colors ?? {}),
+                          }
+                        : state
+                },
             },
         ],
         filters: [
@@ -1472,7 +1497,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // this is done in the reducer for dashboard
                 } else if (source === DashboardEventSource.DashboardHeaderSaveDashboard) {
                     // save edit mode changes
-                    actions.setFiltersAndLayoutsAndVariables(values.temporaryFilters, values.temporaryVariables)
+                    actions.setFiltersAndLayoutsAndVariables(
+                        values.temporaryFilters,
+                        values.temporaryVariables,
+                        values.temporaryBreakdownColors
+                    )
                 }
             }
 

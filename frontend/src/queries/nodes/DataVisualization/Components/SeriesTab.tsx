@@ -11,10 +11,10 @@ import {
     LemonTag,
     Popover,
 } from '@posthog/lemon-ui'
+import { LemonColorPicker } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
-import { LemonColorPicker } from 'lib/lemon-ui/LemonColor/LemonColorPicker'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'

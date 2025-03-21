@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, path, props, reducers, selectors, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { DataColorTheme } from 'lib/colors'
+import { DataColorTheme, DataColorToken } from 'lib/colors'
 
 import { DataColorThemeModel } from '~/types'
 
@@ -101,6 +101,17 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                     // once all colors are exhausted, start again from the beginning
                     const wrappedNum = ((colorNo - 1) % availableColors) + 1
                     return theme[`preset-${wrappedNum}`]
+                },
+        ],
+        getAvailableColorTokens: [
+            (s) => [s.getTheme],
+            (getTheme: (themeId: string | number | null | undefined) => DataColorTheme | null) =>
+                (themeId: string | number | null | undefined): DataColorToken[] | null => {
+                    const theme = getTheme(themeId)
+                    if (!theme) {
+                        return null
+                    }
+                    return Object.keys(theme || {}) as DataColorToken[]
                 },
         ],
     }),
