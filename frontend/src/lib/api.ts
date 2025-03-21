@@ -763,7 +763,7 @@ class ApiRequest {
 
     // Error tracking
     public errorTracking(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('error_tracking')
+        return this.environmentsDetail(teamId).addPathComponent('error_tracking')
     }
 
     public errorTrackingIssues(teamId?: TeamType['id']): ApiRequest {

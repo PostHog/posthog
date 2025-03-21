@@ -203,7 +203,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
-        CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED: true,
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
@@ -240,6 +239,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
         SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: '',
+        SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,

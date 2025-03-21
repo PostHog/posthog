@@ -108,7 +108,7 @@ if (res.status >= 400) {
             filters=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].filters,
             input_schema_overrides={
                 "text": {
-                    "default": "**🔴 {event.properties.name} created:** {event.properties.description}",
+                    "default": "**🔴 {event.properties.name} created:** {event.properties.description} (View in [Posthog]({project.url}/error_tracking/{event.distinct_id}))",
                 }
             },
         ),
