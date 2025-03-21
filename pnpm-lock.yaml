@@ -1537,12 +1537,6 @@ importers:
 
   products/actions:
     dependencies:
-      '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      '@types/react':
-        specifier: '*'
-        version: 17.0.52
       clsx:
         specifier: '*'
         version: 1.2.1
@@ -1558,8 +1552,15 @@ importers:
       kea-router:
         specifier: '*'
         version: 3.2.1(kea@3.1.5(react@18.2.0))
+    devDependencies:
+      '@posthog/icons':
+        specifier: 0.11.6
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: ^17.0.39
+        version: 17.0.52
       react:
-        specifier: '*'
+        specifier: ^18.2.0
         version: 18.2.0
 
   products/dashboards:
