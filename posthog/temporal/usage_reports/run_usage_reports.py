@@ -184,7 +184,7 @@ async def send_usage_reports(
             },
             groups={"instance": settings.SITE_URL},
         )
-        pha_client.shutdown()  # Flush and close the client
+        pha_client.flush()  # Flush and close the client
 
 
 @workflow.defn(name="run-usage-reports")
