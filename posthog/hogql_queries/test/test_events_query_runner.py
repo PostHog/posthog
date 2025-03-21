@@ -309,7 +309,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="$autocapture",
             team=self.team,
             distinct_id="test_user",
-            properties={"attr": "some_value"},
+            properties={"attr": "has div"},
             elements=[
                 Element(
                     tag_name="a",
@@ -342,7 +342,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="$autocapture",
             team=self.team,
             distinct_id="test_user",
-            properties={"attr": "some_value"},
+            properties={"attr": "no div"},
             elements=[
                 Element(
                     tag_name="a",
@@ -384,3 +384,4 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.run()
 
         self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0][0]["properties"]["attr"], "no div")
