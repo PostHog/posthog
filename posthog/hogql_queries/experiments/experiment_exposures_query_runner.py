@@ -62,9 +62,6 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:
-        feature_flag_key = self.feature_flag.key
-        feature_flag_property = f"$feature/{feature_flag_key}"
-
         test_accounts_filter: list[ast.Expr] = []
         if (
             self.experiment.exposure_criteria
@@ -89,9 +86,14 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         if exposure_config and exposure_config.get("kind") == "ExperimentEventExposureConfig":
             event_name = exposure_config.get("event")
             exposure_property_filters: list[ast.Expr] = []
+
+            # Where on the event we can find the feature flag variant
+            feature_flag_variant_property = f"$feature/{self.feature_flag.key}"
+
             if exposure_config.get("properties"):
                 for property in exposure_config.get("properties"):
                     exposure_property_filters.append(property_to_expr(property, self.team))
+
             exposure_where_clause = ast.And(
                 exprs=[
                     ast.CompareOperation(
@@ -101,13 +103,16 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", feature_flag_property]),
+                        left=ast.Field(chain=["properties", feature_flag_variant_property]),
                         right=ast.Constant(value=self.variants),
                     ),
                     *exposure_property_filters,
                 ]
             )
         else:
+            # Where on the $feature_flag_called event we can find the feature flag variant
+            feature_flag_variant_property = "$feature_flag_response"
+
             exposure_where_clause = ast.And(
                 exprs=[
                     ast.CompareOperation(
@@ -118,16 +123,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=["properties", "$feature_flag"]),
-                        right=ast.Constant(value=feature_flag_key),
+                        right=ast.Constant(value=self.feature_flag.key),
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", "$feature_flag_response"]),
-                        right=ast.Constant(value=self.variants),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", feature_flag_property]),
+                        left=ast.Field(chain=["properties", feature_flag_variant_property]),
                         right=ast.Constant(value=self.variants),
                     ),
                 ]
@@ -146,9 +146,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                         ast.Alias(
                             alias="variant",
                             expr=parse_expr(
-                                "if(count(distinct {feature_flag_property}) > 1, {multiple_variant_key}, any({feature_flag_property}))",
+                                "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
                                 placeholders={
-                                    "feature_flag_property": ast.Field(chain=["properties", feature_flag_property]),
+                                    "variant_property": ast.Field(chain=["properties", feature_flag_variant_property]),
                                     "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                                 },
                             ),

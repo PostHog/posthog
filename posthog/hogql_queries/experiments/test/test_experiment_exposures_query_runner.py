@@ -643,7 +643,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_invalid_feature_flag_property(self):
+    def test_exposure_query_without_feature_flag_property(self):
         ff_property = f"$feature/{self.feature_flag.key}"
 
         # Create test data using journeys
@@ -677,7 +677,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "timestamp": "2024-01-03",
                         "properties": {
                             "$feature_flag_response": "control",
-                            ff_property: "",  # Intentionally empty
+                            ff_property: "",  # Intentionally empty, should still be included as some SDKs don't include this
                             "$feature_flag": self.feature_flag.key,
                         },
                     },
@@ -766,7 +766,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(response.timeseries), 2)
 
-        self.assertEqual(response.total_exposures["control"], 3)
+        self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 5)
 
     @freeze_time("2024-01-07T12:00:00Z")
