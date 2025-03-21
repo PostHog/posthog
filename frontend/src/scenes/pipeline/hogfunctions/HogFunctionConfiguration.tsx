@@ -24,13 +24,14 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
 
 import { DestinationTag } from '../destinations/DestinationTag'
 import { HogFunctionFilters } from './filters/HogFunctionFilters'
-import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic, mightDropEvents } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
@@ -55,43 +56,6 @@ export interface HogFunctionConfigurationProps {
         canEditSource?: boolean
         showPersonsCount?: boolean
     }
-}
-
-// Helper function to check if code might return null/undefined
-function mightDropEvents(code: string): boolean {
-    if (!code) {
-        return false
-    }
-    // Direct null/undefined returns
-    if (
-        code.includes('return null') ||
-        code.includes('return undefined') ||
-        /\breturn\b\s*;/.test(code) ||
-        /\breturn\b\s*$/.test(code) ||
-        /\bif\s*\([^)]*\)\s*\{\s*\breturn\s+(null|undefined)\b/.test(code)
-    ) {
-        return true
-    }
-
-    // Check for variables set to null/undefined that are also returned
-    const nullVarMatch = code.match(/\blet\s+(\w+)\s*:?=\s*(null|undefined)/g)
-    if (nullVarMatch) {
-        // Extract variable names
-        const nullVars = nullVarMatch
-            .map((match) => {
-                return match.match(/\blet\s+(\w+)/)?.[1]
-            })
-            .filter(Boolean)
-
-        // Check if any of these variables are returned
-        for (const varName of nullVars) {
-            if (new RegExp(`\\breturn\\s+${varName}\\b`).test(code)) {
-                return true
-            }
-        }
-    }
-
-    return false
 }
 
 export function HogFunctionConfiguration({
@@ -124,6 +88,30 @@ export function HogFunctionConfiguration({
         usesGroups,
         hasGroupsAddon,
     } = useValues(logic)
+
+    // State for debounced mightDropEvents check
+    const [mightDrop, setMightDrop] = useState(false)
+    const [debouncedCode, setDebouncedCode] = useState('')
+
+    // Debounce the code check
+    useEffect(() => {
+        if (type !== 'transformation' || !configuration?.hog) {
+            setMightDrop(false)
+            return
+        }
+
+        const hogCode = configuration.hog || ''
+
+        const timeoutId = setTimeout(() => {
+            if (debouncedCode !== hogCode) {
+                setDebouncedCode(hogCode)
+                setMightDrop(mightDropEvents(hogCode))
+            }
+        }, 500)
+
+        return () => clearTimeout(timeoutId)
+    }, [configuration?.hog, type, debouncedCode])
+
     const {
         submitConfiguration,
         resetForm,
@@ -508,7 +496,7 @@ export function HogFunctionConfiguration({
                                                             for more info
                                                         </span>
                                                     ) : null}
-                                                    {type === 'transformation' && mightDropEvents(value) && (
+                                                    {type === 'transformation' && mightDrop && (
                                                         <LemonBanner type="warning" className="mt-2">
                                                             <b>Warning:</b> Returning null or undefined will drop the
                                                             event. If this is unintentional, return the event object
