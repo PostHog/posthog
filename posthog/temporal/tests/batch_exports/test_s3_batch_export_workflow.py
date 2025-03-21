@@ -2344,7 +2344,7 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
                     ("person_properties", pa.string()),  # JSON string
                     ("set", pa.string()),  # JSON string
                     ("set_once", pa.string()),  # JSON string
-                ]
+                ]  # type: ignore
             )
 
             now = dt.datetime.now(dt.UTC)
@@ -2363,7 +2363,7 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
                 pa.array([json.dumps({"set1": "value1"})]),  # set
                 pa.array([json.dumps({"set_once1": "value1"})]),  # set_once
             ]
-            return pa.RecordBatch.from_arrays(arrays, schema=schema)
+            return pa.RecordBatch.from_arrays(arrays, schema=schema)  # type: ignore
 
         async def _create_record_batch_iterator(self):
             """Create an async iterator that yields a single record batch with test data."""
