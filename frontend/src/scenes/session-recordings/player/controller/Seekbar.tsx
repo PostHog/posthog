@@ -75,28 +75,53 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
     const isHovering = useIsHovering(hoverRef)
 
     const points: ActivityPoint[] = useMemo(() => {
-        // Find the maximum y value in the dataset
         const maxY = Math.max(...Object.values(activityPerSecond).map((activity) => activity.y))
 
-        return Object.entries(activityPerSecond).map(([secondInRecording, activity]) => {
-            const intSecond = parseInt(secondInRecording)
-            // console.log('intSecond', intSecond)
-            // if (intSecond >= 500 && intSecond <= 1200) {
-            //     console.log('intSecond', intSecond)
-            //     console.log('activity.type', activity.type)
-            //     console.log('activity.y', activity.y)
-            //     console.log('height', height)
-            //     console.log('maxY', maxY)
-            //     console.log('activity.y / maxY', activity.y / maxY)
-            //     console.log('((activity.y / maxY) * height)', ((activity.y / maxY) * height))
-            //     console.log('height - ((activity.y / maxY) * height)', height - ((activity.y / maxY) * height))
-            // }
-            // console.log(intSecond, height - ((activity.y / maxY) * height))
+        // Convert to array and sort by second for easier neighbor access
+        const sortedPoints = Object.entries(activityPerSecond).map(([second, activity]) => ({
+            second: parseInt(second),
+            ...activity,
+        }))
+
+        // Wider spread with 21 points - affects ±10 seconds
+        const weights = [
+            0.01,
+            0.02,
+            0.03,
+            0.04,
+            0.05,
+            0.06,
+            0.07,
+            0.08,
+            0.09,
+            0.1,
+            0.1, // center point
+            0.1,
+            0.09,
+            0.08,
+            0.07,
+            0.06,
+            0.05,
+            0.04,
+            0.03,
+            0.02,
+            0.01,
+        ]
+
+        return sortedPoints.map((point, index) => {
+            let smoothedY = 0
+            for (let i = -10; i <= 10; i++) {
+                const neighborIndex = index + i
+                if (neighborIndex >= 0 && neighborIndex < sortedPoints.length) {
+                    smoothedY += (sortedPoints[neighborIndex].y || 0) * weights[i + 10]
+                }
+            }
+
             return {
-                second: intSecond,
-                x: (intSecond / durationInSeconds) * width,
-                y: height - (Math.log(activity.y + 1) / Math.log(maxY + 1)) * height,
-                type: activity.type,
+                second: point.second,
+                x: (point.second / durationInSeconds) * width,
+                y: height - (Math.log(smoothedY + 1) / Math.log(maxY + 1)) * height,
+                type: point.type,
             }
         })
     }, [activityPerSecond, durationInSeconds, width, height])

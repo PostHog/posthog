@@ -506,7 +506,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         const timestamp = toRelativeSecondInRecording(snapshot.timestamp, start.valueOf())
 
                         if (isUserActivity(snapshot)) {
-                            rawActivity[timestamp].y += 1
+                            rawActivity[timestamp].y += 10000
                             rawActivity[timestamp].type += 'user'
                         } else if (
                             snapshot.type === EventType.IncrementalSnapshot &&
