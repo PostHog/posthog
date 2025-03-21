@@ -199,7 +199,7 @@ pub async fn bulk_create_jobs_copy(
     jobs: &[JobInit],
     should_compress_vm_state: bool,
 ) -> Result<Vec<Uuid>, QueueError> {
-    let copy_in_stmt = "COPY cyclotron_jobs (id, team_id, function_id, created, lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition, queue_name, state, scheduled, priority, vm_state, metadata, parameters, blob) FROM STDIN WITH (FORMAT CSV, ENCODING 'UTF8');\r\n";
+    let copy_in_stmt = "COPY cyclotron_jobs (id, team_id, function_id, created, lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition, queue_name, state, scheduled, priority, vm_state, metadata, parameters, blob) FROM STDIN WITH (FORMAT CSV, ENCODING 'UTF8')";
     let mut ids = Vec::with_capacity(jobs.len());
     let now = Utc::now().to_rfc3339();
 
@@ -259,7 +259,7 @@ pub async fn bulk_create_jobs_copy(
             .write_field(&j.queue_name)
             .map_err(|e| QueueError::CSVError("queue_name", e))?;
         csv_writer
-            .write_field((JobState::Available as u32).to_string())
+            .write_field("available")
             .map_err(|e| QueueError::CSVError("state", e))?;
         csv_writer
             .write_field(j.scheduled.to_string())
