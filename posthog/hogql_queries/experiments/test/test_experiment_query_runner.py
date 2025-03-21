@@ -1313,8 +1313,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.stats_config = {"version": 2}
         experiment.save()
 
-        feature_flag_property = f"$feature/{feature_flag.key}"
-
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(event="purchase"),
@@ -1337,7 +1335,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_id="user_invalid_id",
             timestamp="2020-01-15T12:00:00Z",
             properties={
-                feature_flag_property: "",  # Intentionally empty
+                # No $feature/<key> property, should still be included as some SDKs don't include this
                 "$feature_flag_response": "control",
                 "$feature_flag": feature_flag.key,
             },
@@ -1359,7 +1357,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_variant.count, 6)
         self.assertEqual(test_variant.count, 8)
-        self.assertEqual(control_variant.absolute_exposure, 10)
+        self.assertEqual(control_variant.absolute_exposure, 11)
         self.assertEqual(test_variant.absolute_exposure, 10)
 
     @freeze_time("2020-01-01T12:00:00Z")
