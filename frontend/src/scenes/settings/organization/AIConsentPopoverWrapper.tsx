@@ -41,7 +41,7 @@ export function AIConsentPopoverWrapper({
                         <br />
                         so that you can focus on building. This <em>can</em> include
                         <br />
-                        identyifying data of your users, if you're capturing it.
+                        identifying data of your users, if you're capturing it.
                         <br />
                         <em>Your data won't be used for training models.</em>
                     </p>
