@@ -1,5 +1,5 @@
 import json
-from temporalio import activity, workflow
+from temporalio import activity, workflow, common
 from datetime import datetime, timedelta
 from typing import Optional
 import dataclasses
@@ -9,6 +9,7 @@ import logging
 from dateutil import parser
 from django.conf import settings
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.exceptions_capture import capture_exception
 
 from posthog.utils import (
     get_instance_region,
@@ -108,9 +109,11 @@ async def send_usage_reports(
 
     pha_client.capture(
         "internal_billing_events",
-        "organization usage report starting",
+        "usage reports - starting to send",
         {
             "total_orgs": total_orgs,
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
             "region": get_instance_region(),
         },
         groups={"instance": settings.SITE_URL},
@@ -148,16 +151,17 @@ async def send_usage_reports(
 
     pha_client.capture(
         "internal_billing_events",
-        "organization usage report complete",
+        "usage reports - sending complete",
         {
             "total_orgs": total_orgs,
+            "total_orgs_sent": total_orgs_sent,
             "period_start": period_start.isoformat(),
             "period_end": period_end.isoformat(),
-            "total_orgs_sent": total_orgs_sent,
             "region": get_instance_region(),
         },
         groups={"instance": settings.SITE_URL},
     )
+    pha_client.shutdown()  # Flush and close the client
 
 
 @workflow.defn(name="run-usage-reports")
@@ -169,29 +173,40 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
         return RunUsageReportsInputs(**loaded)
 
     @workflow.run
-    async def run(self, inputs: RunUsageReportsInputs) -> str:
-        query_usage_reports_inputs = QueryUsageReportsInputs(
-            at=inputs.at,
-        )
-        query_usage_reports_result = await workflow.execute_activity(
-            query_usage_reports,
-            query_usage_reports_inputs,
-            start_to_close_timeout=timedelta(minutes=20),
-        )
+    async def run(self, inputs: RunUsageReportsInputs) -> None:
+        try:
+            query_usage_reports_inputs = QueryUsageReportsInputs(
+                at=inputs.at,
+            )
+            query_usage_reports_result = await workflow.execute_activity(
+                query_usage_reports,
+                query_usage_reports_inputs,
+                start_to_close_timeout=timedelta(minutes=20),
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(minutes=1),
+                ),
+            )
 
-        if not query_usage_reports_result.org_reports:
-            return "success - no reports to send"
+            if not query_usage_reports_result.org_reports:
+                return
 
-        send_usage_reports_inputs = SendUsageReportsInputs(
-            org_reports=query_usage_reports_result.org_reports,
-            period=query_usage_reports_result.period,
-            skip_capture_event=inputs.skip_capture_event,
-            at=inputs.at,
-        )
-        await workflow.execute_activity(
-            send_usage_reports,
-            send_usage_reports_inputs,
-            start_to_close_timeout=timedelta(minutes=10),
-        )
+            send_usage_reports_inputs = SendUsageReportsInputs(
+                org_reports=query_usage_reports_result.org_reports,
+                period=query_usage_reports_result.period,
+                skip_capture_event=inputs.skip_capture_event,
+                at=inputs.at,
+            )
+            await workflow.execute_activity(
+                send_usage_reports,
+                send_usage_reports_inputs,
+                start_to_close_timeout=timedelta(minutes=30),
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(minutes=1),
+                ),
+            )
 
-        return "success"
+        except Exception as e:
+            capture_exception(e)
+            raise
