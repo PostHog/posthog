@@ -140,7 +140,7 @@ export function Group(): JSX.Element {
                             <Query
                                 query={groupEventsQuery}
                                 setQuery={setGroupEventsQuery}
-                                context={{ refresh: true }}
+                                context={{ refresh: 'force_blocking' }}
                             />
                         ) : (
                             <Spinner />

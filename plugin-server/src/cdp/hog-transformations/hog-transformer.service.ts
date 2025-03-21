@@ -151,6 +151,40 @@ export class HogTransformerService {
                 for (const hogFunction of teamHogFunctions) {
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
 
+                    // Check if we should apply this transformation based on its filters
+                    if (this.hub.FILTER_TRANSFORMATIONS_ENABLED) {
+                        const globals = this.createInvocationGlobals(event)
+                        const filterGlobals = convertToHogFunctionFilterGlobal(globals)
+
+                        // Check if function has filters - if not, always apply
+                        if (hogFunction.filters?.bytecode) {
+                            const filterResults = checkHogFunctionFilters({
+                                hogFunction,
+                                filterGlobals,
+                                eventUuid: globals.event?.uuid,
+                            })
+
+                            // If filter didn't pass and there was no error, skip this transformation
+                            if (!filterResults.match && !filterResults.error) {
+                                transformationsSkipped.push(transformationIdentifier)
+                                results.push({
+                                    invocation: createInvocation(
+                                        {
+                                            ...globals,
+                                            inputs: {}, // Not needed as this is only for a valid return type
+                                        },
+                                        hogFunction
+                                    ),
+                                    metrics: filterResults.metrics,
+                                    logs: filterResults.logs,
+                                    error: null,
+                                    finished: true,
+                                })
+                                continue
+                            }
+                        }
+                    }
+
                     // Check if the function would be disabled via hogWatcher - but don't actually disable yet
                     if (this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
                         const functionState = states[hogFunction.id]

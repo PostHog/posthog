@@ -370,6 +370,10 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
             saved_query.latest_error = error_message
             await database_sync_to_async(saved_query.save)()
             raise CannotCoerceColumnException(f"Type coercion error in model {model_label}: {error_message}") from e
+        else:
+            saved_query.latest_error = f"Failed to materialize model {model_label}"
+            await database_sync_to_async(saved_query.save)()
+            raise Exception(f"Failed to materialize model {model_label}: {error_message}") from e
 
     tables = get_delta_tables(pipeline)
 
@@ -380,6 +384,11 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
         file_uris = table.file_uris()
 
         prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris)
+
+    if not tables:
+        saved_query.latest_error = f"No tables were created by pipeline for model {model_label}"
+        await database_sync_to_async(saved_query.save)()
+        raise Exception(f"No tables were created by pipeline for model {model_label}")
 
     key, delta_table = tables.popitem()
     return (key, delta_table)

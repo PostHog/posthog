@@ -118,6 +118,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         setMetadataLoading: (loading: boolean) => ({ loading }),
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
         updateQueryTabState: true,
+        setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -174,6 +175,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             } as DataVisualizationNode,
             {
                 setSourceQuery: (_, { sourceQuery }) => sourceQuery,
+            },
+        ],
+        lastRunQuery: [
+            null as DataVisualizationNode | null,
+            {
+                setLastRunQuery: (_, { lastRunQuery }) => lastRunQuery,
             },
         ],
         queryInput: [
@@ -512,6 +519,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 ...values.sourceQuery,
                 source: newSource,
             })
+            actions.setLastRunQuery({
+                ...values.sourceQuery,
+                source: newSource,
+            })
             dataNodeLogic({
                 key: values.currentDataLogicKey,
                 query: newSource,
@@ -520,7 +531,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             dataNodeLogic({
                 key: values.currentDataLogicKey,
                 query: newSource,
-            }).actions.loadData(!switchTab)
+            }).actions.loadData(!switchTab ? 'force_async' : 'async')
         },
         saveAsView: async () => {
             LemonDialog.openForm({
@@ -714,6 +725,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             (s) => [s.activeModelUri],
             (activeModelUri) => {
                 return activeModelUri?.uri.path ?? dataNodeKey
+            },
+        ],
+        isSourceQueryLastRun: [
+            (s) => [s.queryInput, s.lastRunQuery],
+            (queryInput, lastRunQuery) => {
+                return queryInput === lastRunQuery?.source.query
             },
         ],
     }),
