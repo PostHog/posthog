@@ -311,7 +311,7 @@ class EventViewSet(
             if not is_column:
                 conditions.append(
                     ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
+                        op=ast.CompareOperationOp.NotEq,
                         left=ast.Field(chain=["properties", key]),
                         right=ast.Constant(value=None),
                     )
