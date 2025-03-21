@@ -24,9 +24,8 @@ class InsightRagContextNode(AssistantNode):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        configurable = config.get("configurable", {})
-        trace_id = configurable.get("trace_id")
-        distinct_id = configurable.get("distinct_id")
+        trace_id = self._get_trace_id(config)
+        distinct_id = self._get_user_distinct_id(config)
 
         plan = state.root_tool_insight_plan
         assert plan is not None
@@ -37,7 +36,8 @@ class InsightRagContextNode(AssistantNode):
         try:
             client = get_cohere_client()
             vector = embed_search_query(client, plan)
-        except (BaseCohereApiError, ValueError):
+        except (BaseCohereApiError, ValueError) as e:
+            posthoganalytics.capture_exception(e, distinct_id, {"tag": "max"})
             return None
         return PartialAssistantState(
             rag_context=self._retrieve_actions(vector, trace_id=trace_id, distinct_id=distinct_id)
