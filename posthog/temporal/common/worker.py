@@ -57,6 +57,9 @@ async def start_worker(
         activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
         max_concurrent_activities=max_concurrent_activities or 50,
         max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+        # Worker will flush heartbeats every
+        # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
+        max_heartbeat_throttle_interval=timedelta(seconds=5),
     )
 
     # catch the TERM signal, and stop the worker gracefully

@@ -1,10 +1,12 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { RefreshType } from '~/queries/schema/schema-general'
+
 import type { dataNodeCollectionLogicType } from './dataNodeCollectionLogicType'
 
 export interface DataNodeRegisteredProps {
     id: string
-    loadData: (refresh: boolean) => void
+    loadData: (refresh?: RefreshType) => void
     cancelQuery: () => void
 }
 
@@ -79,7 +81,10 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
     }),
     listeners(({ values }) => ({
         reloadAll: () => {
-            values.mountedDataNodes.forEach((node) => node.loadData(true))
+            // We want to force refresh all nodes, so we use 'force_async' to bypass cache
+            // The loadData function in each node will handle converting this to the appropriate type
+            // based on whether the node is an insight or not
+            values.mountedDataNodes.forEach((node) => node.loadData('force_async'))
         },
         cancelAllLoading: () => {
             values.mountedDataNodes.forEach((node) => {

@@ -1,4 +1,9 @@
-import { AssistantFunnelsQuery, AssistantRetentionQuery, AssistantTrendsQuery } from './schema-assistant-queries'
+import {
+    AssistantFunnelsQuery,
+    AssistantHogQLQuery,
+    AssistantRetentionQuery,
+    AssistantTrendsQuery,
+} from './schema-assistant-queries'
 
 export enum AssistantMessageType {
     Human = 'human',
@@ -55,7 +60,7 @@ export interface VisualizationMessage extends BaseAssistantMessage {
     /** @default '' */
     query: string
     plan?: string
-    answer?: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery
+    answer?: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
     initiator?: string
 }
 

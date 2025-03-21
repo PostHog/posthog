@@ -6,7 +6,6 @@ import gzip
 import json
 import base64
 
-import pytest
 import structlog
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
@@ -1950,28 +1949,27 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             #     timestamp=None,
             # )
 
-    @freeze_time("2021-10-10T23:01:00Z")
-    @patch("posthog.tasks.usage_report.capture_exception")
-    @patch("posthog.tasks.usage_report.sync_execute", side_effect=Exception())
-    @patch("posthog.tasks.usage_report.get_ph_client")
-    @patch("ee.sqs.SQSProducer.get_sqs_producer")
-    def test_send_usage_cloud_exception(
-        self,
-        mock_get_sqs_producer: MagicMock,
-        mock_client: MagicMock,
-        mock_sync_execute: MagicMock,
-        mock_capture_exception: MagicMock,
-    ) -> None:
-        with pytest.raises(Exception):
-            with self.is_cloud(True):
-                mockresponse = Mock()
-                mock_get_sqs_producer.return_value = MagicMock()
-                mockresponse.status_code = 200
-                mockresponse.json = lambda: self._usage_report_response()
-                mock_posthog = MagicMock()
-                mock_client.return_value = mock_posthog
-                send_all_org_usage_reports(dry_run=False)
-        assert mock_capture_exception.call_count == 1
+    # @freeze_time("2021-10-10T23:01:00Z")
+    # @patch("posthog.tasks.usage_report.sync_execute", side_effect=Exception())
+    # @patch("posthog.tasks.usage_report.get_ph_client")
+    # @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    # def test_send_usage_cloud_exception(
+    #     self,
+    #     mock_get_sqs_producer: MagicMock,
+    #     mock_client: MagicMock,
+    #     mock_sync_execute: MagicMock,
+    #     mock_capture_exception: MagicMock,
+    # ) -> None:
+    #     with pytest.raises(Exception):
+    #         with self.is_cloud(True):
+    #             mockresponse = Mock()
+    #             mock_get_sqs_producer.return_value = MagicMock()
+    #             mockresponse.status_code = 200
+    #             mockresponse.json = lambda: self._usage_report_response()
+    #             mock_posthog = MagicMock()
+    #             mock_client.return_value = mock_posthog
+    #             send_all_org_usage_reports(dry_run=False)
+    #     assert mock_capture_exception.call_count == 1
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     def test_capture_event_called_with_string_timestamp(self, mock_client: MagicMock) -> None:

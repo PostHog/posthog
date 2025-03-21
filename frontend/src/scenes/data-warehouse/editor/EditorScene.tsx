@@ -100,7 +100,7 @@ export function EditorScene(): JSX.Element {
         sourceQuery,
         setQuery: setSourceQuery,
         onUpdate: (query) => {
-            loadData(true, undefined, query.source)
+            loadData('force_async', undefined, query.source)
         },
     }
 
