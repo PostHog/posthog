@@ -2,7 +2,7 @@ import { actions, kea, path, reducers, selectors } from 'kea'
 import { getFunnelDatasetKey, getTrendDatasetKey } from 'scenes/insights/utils'
 
 import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardTile, FunnelVizType, QueryBasedInsightModel } from '~/types'
 
 import type { dashboardInsightColorsModalLogicType } from './dashboardInsightColorsModalLogicType'
 import { dashboardLogic } from './dashboardLogic'
@@ -15,13 +15,20 @@ function extractBreakdownValues(insightTiles: DashboardTile<QueryBasedInsightMod
     return insightTiles
         .flatMap((tile) => {
             if (isInsightVizNode(tile.insight?.query)) {
-                if (isFunnelsQuery(tile.insight.query.source)) {
-                    return tile.insight?.result.map((result) => {
+                const querySource = tile.insight?.query.source
+                if (
+                    isFunnelsQuery(querySource) &&
+                    (querySource.funnelsFilter?.funnelVizType === undefined ||
+                        querySource.funnelsFilter?.funnelVizType === FunnelVizType.Steps)
+                ) {
+                    const breakdownValues = ['Baseline']
+                    tile.insight?.result.forEach((result: any) => {
                         const key = getFunnelDatasetKey(result)
                         const keyParts = JSON.parse(key)
-                        return keyParts['breakdown_value']
+                        breakdownValues.push(keyParts['breakdown_value'])
                     })
-                } else if (isTrendsQuery(tile.insight.query.source)) {
+                    return breakdownValues
+                } else if (isTrendsQuery(querySource)) {
                     return tile.insight?.result.map((result: any) => {
                         const key = getTrendDatasetKey(result)
                         const keyParts = JSON.parse(key)
