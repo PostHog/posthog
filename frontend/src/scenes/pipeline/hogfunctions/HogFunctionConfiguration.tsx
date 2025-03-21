@@ -57,6 +57,43 @@ export interface HogFunctionConfigurationProps {
     }
 }
 
+// Helper function to check if code might return null/undefined
+function mightDropEvents(code: string): boolean {
+    if (!code) {
+        return false
+    }
+    // Direct null/undefined returns
+    if (
+        code.includes('return null') ||
+        code.includes('return undefined') ||
+        /\breturn\b\s*;/.test(code) ||
+        /\breturn\b\s*$/.test(code) ||
+        /\bif\s*\([^)]*\)\s*\{\s*\breturn\s+(null|undefined)\b/.test(code)
+    ) {
+        return true
+    }
+
+    // Check for variables set to null/undefined that are also returned
+    const nullVarMatch = code.match(/\blet\s+(\w+)\s*:?=\s*(null|undefined)/g)
+    if (nullVarMatch) {
+        // Extract variable names
+        const nullVars = nullVarMatch
+            .map((match) => {
+                return match.match(/\blet\s+(\w+)/)?.[1]
+            })
+            .filter(Boolean)
+
+        // Check if any of these variables are returned
+        for (const varName of nullVars) {
+            if (new RegExp(`\\breturn\\s+${varName}\\b`).test(code)) {
+                return true
+            }
+        }
+    }
+
+    return false
+}
+
 export function HogFunctionConfiguration({
     templateId,
     id,
@@ -471,6 +508,13 @@ export function HogFunctionConfiguration({
                                                             for more info
                                                         </span>
                                                     ) : null}
+                                                    {type === 'transformation' && mightDropEvents(value) && (
+                                                        <LemonBanner type="warning" className="mt-2">
+                                                            <b>Warning:</b> Returning null or undefined will drop the
+                                                            event. If this is unintentional, return the event object
+                                                            instead.
+                                                        </LemonBanner>
+                                                    )}
                                                     <CodeEditorResizeable
                                                         language={type.startsWith('site_') ? 'typescript' : 'hog'}
                                                         value={value ?? ''}
