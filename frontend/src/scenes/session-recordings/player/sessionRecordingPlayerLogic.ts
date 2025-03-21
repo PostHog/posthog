@@ -495,19 +495,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return {}
                 }
 
-                // First pass: collect raw activity counts and find max mutation count
-                const rawActivity: Record<number, { y: number; type: 'user' | 'mutation' }> = {}
-                Array.from({ length: sessionPlayerData.durationMs / 1000 }, (_, i) => i).forEach((second) => {
-                    rawActivity[second] = { y: 0, type: 'user' }
-                })
+                // First add a 0 for every second in the recording
+                const rawActivity: Record<number, { y: number }> = {}
+                Array.from({ length: Math.ceil(sessionPlayerData.durationMs / 1000 + 1) }, (_, i) => i).forEach(
+                    (second) => {
+                        rawActivity[second] = { y: 0 }
+                    }
+                )
 
                 Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([_, snapshots]) => {
                     snapshots.forEach((snapshot) => {
                         const timestamp = toRelativeSecondInRecording(snapshot.timestamp, start.valueOf())
 
                         if (isUserActivity(snapshot)) {
+                            // user activity is more important than mutation activity
                             rawActivity[timestamp].y += 10000
-                            rawActivity[timestamp].type += 'user'
                         } else if (
                             snapshot.type === EventType.IncrementalSnapshot &&
                             'source' in snapshot.data &&
@@ -518,21 +520,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                                 snapshot.data.removes.length +
                                 snapshot.data.attributes.length +
                                 snapshot.data.texts.length
-                            rawActivity[timestamp].type += 'mutation'
                         }
                     })
                 })
 
-                const scaledActivity: Record<number, { y: number; type: 'user' | 'mutation' }> = {}
-                Object.entries(rawActivity).forEach(([second, activity]) => {
-                    const secondInt = parseInt(second)
-                    scaledActivity[secondInt] = {
-                        y: activity.y,
-                        type: activity.type,
-                    }
-                })
-
-                return scaledActivity
+                return rawActivity
             },
         ],
 

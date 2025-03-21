@@ -61,7 +61,6 @@ interface ActivityPoint {
     second: number
     x: number
     y: number
-    type: 'user' | 'mutation'
 }
 
 export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivElement | null> }): JSX.Element {
@@ -83,37 +82,31 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
             ...activity,
         }))
 
-        // Wider spread with 21 points - affects ±10 seconds
+        // Wider spread with 15 points - affects ±7 seconds
         const weights = [
-            0.01,
             0.02,
             0.03,
             0.04,
-            0.05,
             0.06,
-            0.07,
             0.08,
-            0.09,
             0.1,
-            0.1, // center point
+            0.13,
+            0.2, // center point
+            0.13,
             0.1,
-            0.09,
             0.08,
-            0.07,
             0.06,
-            0.05,
             0.04,
             0.03,
             0.02,
-            0.01,
         ]
 
         return sortedPoints.map((point, index) => {
             let smoothedY = 0
-            for (let i = -10; i <= 10; i++) {
+            for (let i = -7; i <= 7; i++) {
                 const neighborIndex = index + i
                 if (neighborIndex >= 0 && neighborIndex < sortedPoints.length) {
-                    smoothedY += (sortedPoints[neighborIndex].y || 0) * weights[i + 10]
+                    smoothedY += (sortedPoints[neighborIndex].y || 0) * weights[i + 7]
                 }
             }
 
@@ -121,7 +114,6 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
                 second: point.second,
                 x: (point.second / durationInSeconds) * width,
                 y: height - (Math.log(smoothedY + 1) / Math.log(maxY + 1)) * height,
-                type: point.type,
             }
         })
     }, [activityPerSecond, durationInSeconds, width, height])
