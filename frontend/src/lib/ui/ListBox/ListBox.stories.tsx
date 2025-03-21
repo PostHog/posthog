@@ -21,7 +21,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
     return (
         <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
-                <p className="m-0">Focus is handled with keybaord navigation.</p>
+                <p className="m-0">Focus is handled with keyboard navigation.</p>
                 <p>
                     all elements inside (button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])) gain
                     focus when clicked or focused with keyboard.
