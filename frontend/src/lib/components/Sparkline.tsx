@@ -17,6 +17,8 @@ export interface SparklineTimeSeries {
     hoverColor?: string
 }
 
+export type AnyScaleOptions = ScaleOptions<'linear' | 'logarithmic' | 'time' | 'timeseries' | 'category'>
+
 interface SparklineProps {
     /** Optional labels for the X axis. */
     labels?: string[]
@@ -29,9 +31,9 @@ interface SparklineProps {
     /** A skeleton is shown during loading. */
     loading?: boolean
     /** Update the X-axis scale. */
-    withXScale?: (x: ScaleOptions<'linear'>) => ScaleOptions<'linear'>
+    withXScale?: (x: AnyScaleOptions) => AnyScaleOptions
     /** Update the Y-axis scale. */
-    withYScale?: (y: ScaleOptions<'linear'>) => ScaleOptions<'linear'>
+    withYScale?: (y: AnyScaleOptions) => AnyScaleOptions
     /** Render a label for the tooltip. */
     renderLabel?: (label: string) => string
     className?: string
@@ -63,10 +65,11 @@ export function Sparkline({
         if (data === undefined || data.length === 0) {
             return
         }
-        const defaultXScale: ScaleOptions<'linear'> = {
+        const defaultXScale: AnyScaleOptions = {
             // X axis not needed in line charts without indicators
             display: type === 'bar' || maximumIndicator,
             bounds: 'data',
+            type: 'linear',
             stacked: true,
             ticks: {
                 display: false,
@@ -77,7 +80,7 @@ export function Sparkline({
             },
             alignToPixels: true,
         }
-        const defaultYScale: ScaleOptions<'linear'> = {
+        const defaultYScale: AnyScaleOptions = {
             // We use the Y axis for the maximum indicator
             display: maximumIndicator,
             bounds: 'data',

@@ -1,15 +1,14 @@
-import { ScaleOptions } from 'chart.js'
 import { TimeUnit } from 'chart.js'
 import { useValues } from 'kea'
-import { Sparkline } from 'lib/components/Sparkline'
+import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { useCallback, useMemo } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ErrorTrackingIssueAggregations, ErrorTrackingSparklineConfig } from '~/queries/schema/schema-general'
 
-import { errorTrackingLogic } from '../errorTrackingLogic'
-import { sparklineLabels } from '../utils'
+import { errorTrackingLogic } from './errorTrackingLogic'
+import { sparklineLabels } from './utils'
 
 export function OccurrenceSparkline({
     values,
@@ -48,7 +47,7 @@ export function OccurrenceSparkline({
         ]
     }, [values, unit, interval, colors])
 
-    const withXScale = useCallback((scale: ScaleOptions) => {
+    const withXScale = useCallback((scale: AnyScaleOptions) => {
         return {
             ...scale,
             type: 'timeseries',
@@ -67,7 +66,7 @@ export function OccurrenceSparkline({
                     day: 'D MMM',
                 },
             },
-        } as ScaleOptions
+        } as AnyScaleOptions
     }, [])
 
     return (

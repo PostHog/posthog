@@ -1,8 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { ScaleOptions } from 'chart.js'
 import { dayjs } from 'lib/dayjs'
 
-import { Sparkline } from './Sparkline'
+import { AnyScaleOptions, Sparkline } from './Sparkline'
 
 type Story = StoryObj<typeof Sparkline>
 const meta: Meta<typeof Sparkline> = {
@@ -34,7 +33,7 @@ TimeseriesChart.args = {
     ],
     labels: dataRange.map((i) => dayjs().subtract(i, 'day').format()),
     renderLabel: (label) => dayjs(label).format('MMM D'),
-    withXScale: (scale: ScaleOptions) => {
+    withXScale: (scale: AnyScaleOptions) => {
         return {
             ...scale,
             type: 'timeseries',
@@ -51,6 +50,6 @@ TimeseriesChart.args = {
                     day: 'MMM D',
                 },
             },
-        } as ScaleOptions
+        } as AnyScaleOptions
     },
 }
