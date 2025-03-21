@@ -18,6 +18,7 @@ import {
     PropertyType,
 } from '~/types'
 
+import { groupsModel } from './groupsModel'
 import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
@@ -136,8 +137,11 @@ const constructValuesEndpoint = (
     newInput: string | undefined,
     properties?: { key: string; values: string | string[] }[]
 ): string => {
+    const baseType = type === PropertyDefinitionType.EventMetadata ? 'event' : type
     const basePath =
-        type === PropertyDefinitionType.Session ? `api/environments/${teamId}/${type}s/values` : `api/${type}/values`
+        type === PropertyDefinitionType.Session
+            ? `api/environments/${teamId}/${type}s/values`
+            : `api/${baseType}/values`
     const path = endpoint ? endpoint : basePath + `?key=${encodeURIComponent(propertyKey)}`
 
     let eventParams = ''
@@ -159,7 +163,7 @@ const constructValuesEndpoint = (
 export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     path(['models', 'propertyDefinitionsModel']),
     connect({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes']],
     }),
     actions({
         // public
@@ -220,6 +224,18 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     listeners(({ actions, values, cache }) => ({
         loadPropertyDefinitions: async ({ propertyKeys, type, groupTypeIndex }) => {
             const { propertyDefinitionStorage } = values
+
+            if (type === PropertyDefinitionType.EventMetadata) {
+                actions.updatePropertyDefinitions(
+                    Object.fromEntries(
+                        values.eventMetadataPropertyDefinitions.map((definition) => [
+                            `${PropertyDefinitionType.EventMetadata}/${definition.id}`,
+                            definition,
+                        ])
+                    )
+                )
+                return
+            }
 
             const pendingStateUpdate: PropertyDefinitionStorage = {}
             for (const propertyKey of propertyKeys) {
@@ -525,6 +541,47 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     // but if the caller sent a single value we should return one
                     return Array.isArray(valueToFormat) ? formattedValues : formattedValues[0]
                 }
+            },
+        ],
+        eventMetadataPropertyDefinitions: [
+            (s) => [s.groupTypes],
+            (groupTypes) => {
+                const definitions = [
+                    {
+                        id: 'event',
+                        name: 'event',
+                        property_type: PropertyType.String,
+                        type: PropertyDefinitionType.EventMetadata,
+                    },
+                    {
+                        id: 'timestamp',
+                        name: 'timestamp',
+                        property_type: PropertyType.DateTime,
+                        type: PropertyDefinitionType.EventMetadata,
+                    },
+                    {
+                        id: 'distinct_id',
+                        name: 'distinct_id',
+                        property_type: PropertyType.String,
+                        type: PropertyDefinitionType.EventMetadata,
+                    },
+                    {
+                        id: 'person_id',
+                        name: 'person_id',
+                        property_type: PropertyType.String,
+                        type: PropertyDefinitionType.EventMetadata,
+                    },
+                ] as PropertyDefinition[]
+                for (const [groupTypeIndex] of groupTypes) {
+                    const column = `$group_${groupTypeIndex}`
+                    definitions.push({
+                        id: column,
+                        name: column,
+                        property_type: PropertyType.String,
+                        type: PropertyDefinitionType.EventMetadata,
+                    })
+                }
+                return definitions
             },
         ],
     }),

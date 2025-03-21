@@ -33,7 +33,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 excludedProperties: props.excludedProperties,
                 propertyAllowList: props.propertyAllowList,
             } as TaxonomicFilterLogicProps),
-            ['taxonomicGroups'],
+            ['taxonomicGroups', 'eventMetadataPropertyDefinitions'],
             propertyDefinitionsModel,
             ['describeProperty'],
         ],

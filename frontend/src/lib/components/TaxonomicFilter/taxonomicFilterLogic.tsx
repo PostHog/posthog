@@ -32,7 +32,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
 import {
     ActionType,
@@ -47,7 +47,6 @@ import {
     PersonProperty,
     PersonType,
     PropertyDefinition,
-    PropertyType,
     QueryBasedInsightModel,
 } from '~/types'
 
@@ -109,6 +108,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['dataWarehouseTables'],
             dataWarehouseJoinsLogic,
             ['columnsJoinedToPersons'],
+            propertyDefinitionsModel,
+            ['eventMetadataPropertyDefinitions'],
         ],
     }),
     actions(() => ({
@@ -194,7 +195,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.metadataSource,
                 s.excludedProperties,
                 s.propertyAllowList,
-                s.eventMetadataOptions,
+                s.eventMetadataPropertyDefinitions,
             ],
             (
                 teamId,
@@ -206,7 +207,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 metadataSource,
                 excludedProperties,
                 propertyAllowList,
-                eventMetadataOptions
+                eventMetadataPropertyDefinitions
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -330,7 +331,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Event metadata',
                         searchPlaceholder: 'event metadata',
                         type: TaxonomicFilterGroupType.EventMetadata,
-                        options: eventMetadataOptions,
+                        options: eventMetadataPropertyDefinitions,
                         getIcon: (option: PropertyDefinition) => getEventMetadataDefinitionIcon(option),
                         getName: (option: PropertyDefinition) => option.name,
                         getValue: (option: PropertyDefinition) => option.id,
@@ -610,26 +611,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     getIcon: getPropertyDefinitionIcon,
                     groupTypeIndex: type.group_type_index,
                 })),
-        ],
-        eventMetadataOptions: [
-            (s) => [s.groupTypes],
-            (groupTypes) => {
-                const options = [
-                    { id: 'event', name: 'Event', property_type: PropertyType.String },
-                    { id: 'timestamp', name: 'Timestamp', property_type: PropertyType.DateTime },
-                    { id: 'distinct_id', name: 'Distinct ID', property_type: PropertyType.String },
-                    { id: 'person_id', name: 'Person ID', property_type: PropertyType.String },
-                ] as PropertyDefinition[]
-                for (const [groupTypeIndex, type] of groupTypes) {
-                    const column = `$group_${groupTypeIndex}`
-                    options.push({
-                        id: column,
-                        name: type.name_singular || type.group_type,
-                        property_type: PropertyType.String,
-                    })
-                }
-                return options
-            },
         ],
         infiniteListLogics: [
             (s) => [s.taxonomicGroupTypes, (_, props) => props],

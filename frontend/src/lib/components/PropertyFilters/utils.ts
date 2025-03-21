@@ -343,6 +343,8 @@ export function propertyFilterTypeToPropertyDefinitionType(
 ): PropertyDefinitionType {
     return filterType === PropertyFilterType.Event
         ? PropertyDefinitionType.Event
+        : filterType === PropertyFilterType.EventMetadata
+        ? PropertyDefinitionType.EventMetadata
         : filterType === PropertyFilterType.Person
         ? PropertyDefinitionType.Person
         : filterType === PropertyFilterType.Group

@@ -3364,6 +3364,7 @@ export enum PropertyType {
 
 export enum PropertyDefinitionType {
     Event = 'event',
+    EventMetadata = 'event_metadata',
     Person = 'person',
     Group = 'group',
     Session = 'session',
