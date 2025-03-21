@@ -309,8 +309,8 @@ class CohortPropertyDescriber(Summarizer):
         verbose_name = self._get_verbose_name(prop.event_type, prop.key)
         verb = "did not perform" if prop.negation else "performed"
         time_period = self._format_time_period(prop.time_value, prop.time_interval)
-        frequency = f" {self._frequency}" if self._frequency else ""
-        quantifier = "any of" if prop.min_periods > 1 else ""
+        frequency = self._frequency
+        quantifier = " any of" if prop.min_periods > 1 else ""
 
         return f"{cohort_name} {verb} {verbose_name} {frequency} per {time_period} for at least {self._format_times_value(prop.min_periods)} in{quantifier} the last {self._format_periods_value(prop.total_periods)}"
 

@@ -383,7 +383,7 @@ class TestPropertySummarizer(BaseTest):
         )
         assert (
             CohortPropertyDescriber(self.team, prop).summary
-            == "people who performed the event `contacted support` exactly 5 times in the last 1 day and at least 3 times in any of the last 6 periods"
+            == "people who performed the event `contacted support` at least 5 times per 1 day for at least 3 times in any of the last 6 periods"
         )
 
     def test_lifecycle_regular_event_once_values(self):
@@ -402,7 +402,7 @@ class TestPropertySummarizer(BaseTest):
         )
         assert (
             CohortPropertyDescriber(self.team, prop).summary
-            == "people who did not the event `contacted support` at most once in the last 1 day and at least once in the last period"
+            == "people who did not perform the event `contacted support` at most once per 1 month for at least once in the last period"
         )
 
     def test_lifecycle_stopped_performing_event(self):
