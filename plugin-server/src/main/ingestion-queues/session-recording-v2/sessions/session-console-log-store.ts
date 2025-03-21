@@ -17,16 +17,15 @@ export type ConsoleLogEntry = {
 
 export class SessionConsoleLogStore {
     private consoleLogsCount = 0
-    private pendingPromises: Promise<void>[] = []
-    private syncPromise: Promise<void> | null = null
-    private readonly promiseLimit: number
+    private pendingMessages: ConsoleLogEntry[] = []
+    private readonly messageLimit: number
 
     constructor(
         private readonly producer: KafkaProducerWrapper,
         private readonly topic: string,
-        options: { promiseLimit?: number } = {}
+        options: { messageLimit?: number } = {}
     ) {
-        this.promiseLimit = options.promiseLimit ?? 100
+        this.messageLimit = options.messageLimit ?? 1000
         logger.debug('session_console_log_store_created')
         if (!this.topic) {
             logger.warn('session_console_log_store_no_topic_configured')
@@ -35,55 +34,44 @@ export class SessionConsoleLogStore {
 
     public async storeSessionConsoleLogs(logs: ConsoleLogEntry[]): Promise<void> {
         if (logs.length === 0 || !this.topic) {
-            return Promise.resolve()
+            return
         }
 
-        if (this.pendingPromises.length >= this.promiseLimit) {
-            this.syncPromise = this.sync()
-        }
-
-        if (this.syncPromise) {
-            await this.syncPromise
-            return this.storeSessionConsoleLogs(logs)
-        }
-
-        this.pendingPromises.push(
-            this.producer.queueMessages({
-                topic: this.topic,
-                messages: logs.map((log) => ({
-                    value: JSON.stringify(log),
-                    key: log.log_source_id,
-                })),
-            })
-        )
-
+        this.pendingMessages.push(...logs)
         this.consoleLogsCount += logs.length
+
         logger.debug(`stored ${logs.length} console logs for session ${logs[0].log_source_id}`)
         SessionBatchMetrics.incrementConsoleLogsStored(logs.length)
-        return Promise.resolve()
+
+        if (this.pendingMessages.length < this.messageLimit) {
+            return
+        }
+        return this.sync()
     }
 
     public async flush(): Promise<void> {
-        if (this.syncPromise) {
-            await this.syncPromise
-            return this.flush()
-        } else {
-            await this.sync()
-        }
-
         logger.info(`flushing ${this.consoleLogsCount} console logs`)
+        await this.sync()
         await this.producer.flush()
         this.consoleLogsCount = 0
     }
 
     private async sync(): Promise<void> {
-        if (this.syncPromise) {
-            return this.syncPromise
+        if (this.pendingMessages.length === 0) {
+            return
         }
 
-        logger.debug(`syncing ${this.pendingPromises.length} console log promises`)
-        await Promise.all(this.pendingPromises)
-        this.pendingPromises = []
-        this.syncPromise = null
+        logger.debug(`syncing ${this.pendingMessages.length} console log messages`)
+
+        const messages = this.pendingMessages.map((log) => ({
+            value: JSON.stringify(log),
+            key: log.log_source_id,
+        }))
+        this.pendingMessages = []
+
+        await this.producer.queueMessages({
+            topic: this.topic,
+            messages,
+        })
     }
 }

@@ -288,25 +288,18 @@ describe('SessionConsoleLogStore', () => {
         })
     })
 
-    describe('promise limit and sync behavior', () => {
+    describe('message limit and sync behavior', () => {
         let mockProducer: jest.Mocked<KafkaProducerWrapper>
         let store: SessionConsoleLogStore
-        let resolveProducerPromises: (() => void)[]
 
         beforeEach(() => {
-            resolveProducerPromises = []
             mockProducer = {
-                queueMessages: jest.fn().mockImplementation(() => {
-                    return new Promise<void>((resolve) => {
-                        // Store the resolve function so we can control when this promise resolves
-                        resolveProducerPromises.push(resolve)
-                    })
-                }),
+                queueMessages: jest.fn().mockResolvedValue(undefined),
                 flush: jest.fn().mockResolvedValue(undefined),
             } as unknown as jest.Mocked<KafkaProducerWrapper>
 
-            // Set promise limit to 1 to make testing easier
-            store = new SessionConsoleLogStore(mockProducer, 'log_entries_v2', { promiseLimit: 1 })
+            // Set message limit to 2 to make testing easier
+            store = new SessionConsoleLogStore(mockProducer, 'log_entries_v2', { messageLimit: 2 })
         })
 
         const createTestLog = (id: string): ConsoleLogEntry => ({
@@ -320,104 +313,61 @@ describe('SessionConsoleLogStore', () => {
             batch_id: `batch${id}`,
         })
 
-        it('should not await producer promise when storing logs initially', async () => {
-            const log = createTestLog('1')
+        it('should sync when message limit is reached', async () => {
+            const log1 = createTestLog('1')
+            const log2 = createTestLog('2')
 
-            // This should return immediately without waiting for the producer
-            const storePromise = store.storeSessionConsoleLogs([log])
+            // First store call should not trigger sync
+            await store.storeSessionConsoleLogs([log1])
+            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
 
-            // Verify that storeSessionConsoleLogs resolves before the producer promise
-            let storeResolved = false
-            void storePromise.then(() => {
-                storeResolved = true
-            })
-
-            await new Promise((resolve) => setTimeout(resolve, 10))
-            expect(storeResolved).toBe(true)
-            expect(resolveProducerPromises.length).toBe(1)
+            // Second store call should trigger sync because limit is 2
+            await store.storeSessionConsoleLogs([log2])
             expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-
-            // Now when we flush, it should wait for all producer promises
-            const flushPromise = store.flush()
-            let flushResolved = false
-            void flushPromise.then(() => {
-                flushResolved = true
+            expect(mockProducer.queueMessages).toHaveBeenCalledWith({
+                topic: 'log_entries_v2',
+                messages: [
+                    { key: 'session1', value: expect.any(String) },
+                    { key: 'session2', value: expect.any(String) },
+                ],
             })
-
-            await new Promise((resolve) => setTimeout(resolve, 10))
-            expect(flushResolved).toBe(false)
-
-            // Resolve the producer promise
-            resolveProducerPromises[0]()
-
-            // Now flush should complete
-            await flushPromise
-            expect(mockProducer.flush).toHaveBeenCalledTimes(1)
         })
 
-        it('should handle sync correctly with multiple messages', async () => {
+        it('should handle batches larger than the limit', async () => {
             const log1 = createTestLog('1')
             const log2 = createTestLog('2')
             const log3 = createTestLog('3')
 
-            // First store call should return immediately
-            const store1Promise = store.storeSessionConsoleLogs([log1])
-            let store1Resolved = false
-            void store1Promise.then(() => {
-                store1Resolved = true
-            })
+            // Store 3 logs at once
+            await store.storeSessionConsoleLogs([log1, log2, log3])
 
-            // Second store call should trigger a sync because limit is 1
-            const store2Promise = store.storeSessionConsoleLogs([log2])
-            let store2Resolved = false
-            void store2Promise.then(() => {
-                store2Resolved = true
-            })
-
-            // Third store call should queue up behind the sync
-            const store3Promise = store.storeSessionConsoleLogs([log3])
-            let store3Resolved = false
-            void store3Promise.then(() => {
-                store3Resolved = true
-            })
-
-            // First store should have resolved immediately
-            await new Promise((resolve) => setTimeout(resolve, 10))
-            expect(store1Resolved).toBe(true)
-            expect(store2Resolved).toBe(false)
-            expect(store3Resolved).toBe(false)
+            // Should trigger immediate sync due to exceeding limit
             expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-            expect(resolveProducerPromises.length).toBe(1)
+            expect(mockProducer.queueMessages).toHaveBeenCalledWith({
+                topic: 'log_entries_v2',
+                messages: [
+                    { key: 'session1', value: expect.any(String) },
+                    { key: 'session2', value: expect.any(String) },
+                    { key: 'session3', value: expect.any(String) },
+                ],
+            })
+        })
 
-            // Resolve first producer promise
-            resolveProducerPromises[0]()
+        it('should sync remaining messages on flush', async () => {
+            const log1 = createTestLog('1')
 
-            // Wait a bit for promises to resolve
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            // Store one log (under limit)
+            await store.storeSessionConsoleLogs([log1])
+            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
 
-            // Second store should now be resolved and third should be queued
-            expect(store2Resolved).toBe(true)
-            expect(store3Resolved).toBe(false)
-            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(2)
-            expect(resolveProducerPromises.length).toBe(2)
-
-            // Resolve second producer promise
-            resolveProducerPromises[1]()
-
-            // Wait a bit for promises to resolve
-            await new Promise((resolve) => setTimeout(resolve, 10))
-
-            // All stores should be resolved now
-            expect(store3Resolved).toBe(true)
-            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(3)
-            expect(resolveProducerPromises.length).toBe(3)
-
-            // Resolve final producer promise
-            resolveProducerPromises[2]()
-
-            // Flush should work as expected
+            // Flush should sync remaining messages
             await store.flush()
-            expect(mockProducer.flush).toHaveBeenCalledTimes(1)
+            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(mockProducer.queueMessages).toHaveBeenCalledWith({
+                topic: 'log_entries_v2',
+                messages: [{ key: 'session1', value: expect.any(String) }],
+            })
+            expect(mockProducer.flush).toHaveBeenCalled()
         })
     })
 })
