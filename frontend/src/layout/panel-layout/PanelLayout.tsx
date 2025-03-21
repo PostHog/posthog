@@ -92,7 +92,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 )}
             >
                 <PanelLayoutNavBar>
-                    {activePanelIdentifier === 'project' && <ProjectTree />}
+                    {activePanelIdentifier === 'Project' && <ProjectTree />}
                     {/* {activePanelIdentifier === 'persons' && <PersonsTree />} */}
                 </PanelLayoutNavBar>
             </div>

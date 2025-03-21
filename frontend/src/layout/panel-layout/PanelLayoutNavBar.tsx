@@ -107,68 +107,75 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     ]
     const navItems = [
         {
-            id: 'project',
-            label: 'Project',
+            id: 'Project',
             icon: <IconFolderOpen className="stroke-[1.2]" />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('project')
+                    handlePanelTriggerClick('Project')
                 }
             },
             showChevron: true,
         },
         {
-            id: 'search',
-            label: 'Search',
+            id: 'Search',
             icon: <IconSearch />,
             onClick: () => toggleSearchBar(),
         },
         {
-            id: 'home',
-            label: 'Home',
+            id: 'Home',
             icon: <IconHome />,
             to: urls.projectHomepage(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.projectHomepage(), true)
+            },
         },
         {
-            id: 'max',
-            label: 'Max',
+            id: 'Max',
             icon: <IconSparkles />,
             to: urls.max(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.max(), true)
+            },
         },
         {
-            id: 'dashboards',
-            label: 'Dashboards',
+            id: 'Dashboards',
             icon: <IconDashboard />,
             to: urls.dashboards(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.dashboards(), true)
+            },
         },
         {
-            id: 'notebooks',
-            label: 'Notebooks',
+            id: 'Notebooks',
             icon: <IconNotebook />,
             to: urls.notebooks(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.notebooks(), true)
+            },
         },
         {
-            id: 'data-management',
-            label: 'Data management',
+            id: 'Data management',
             icon: <IconDatabase />,
             to: urls.eventDefinitions(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.eventDefinitions(), true)
+            },
         },
         {
-            id: 'persons-and-groups',
-            label: 'Persons and groups',
+            id: 'Persons and groups',
             icon: <IconPeople />,
             to: urls.persons(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.persons(), true)
+            },
         },
         {
-            id: 'activity',
-            label: 'Activity',
+            id: 'Activity',
             icon: <IconClock />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter') {
-                    handleStaticNavbarItemClick(urls.activity(), !!e)
-                }
-            },
             to: urls.activity(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.activity(), true)
+            },
         },
     ]
 
@@ -214,7 +221,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                             key={item.id}
                                             asChild
                                             onClick={() => item.onClick?.()}
-                                            onKeyDown={(e) => item.onClick?.(e)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    item.onClick?.(e)
+                                                }
+                                            }}
                                         >
                                             <LemonButton
                                                 className={cn(
@@ -233,14 +244,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 }
                                                 to={item.to}
                                                 disabledReason={
-                                                    item.id === 'project' && isLayoutPanelPinned && isLayoutPanelVisible
+                                                    item.id === 'Project' && isLayoutPanelPinned && isLayoutPanelVisible
                                                         ? 'Project panel is pinned'
                                                         : undefined
                                                 }
                                             >
-                                                <span>{item.label}</span>
+                                                <span>{item.id}</span>
                                                 <span className="ml-auto">
-                                                    {item.id === 'project' &&
+                                                    {item.id === 'Project' &&
                                                         isLayoutPanelPinned &&
                                                         isLayoutPanelVisible && (
                                                             <IconWrapper size="sm">
@@ -341,7 +352,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="border-b border-secondary h-px " />
 
-                        <div className="pt-1 px-1">
+                        <div className="pt-1 px-1 pb-2">
                             <LemonButton
                                 className={cn(
                                     'hover:bg-fill-highlight-50',
