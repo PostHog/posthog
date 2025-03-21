@@ -9,7 +9,7 @@ import { HogWatcherState } from '../services/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { createTeam, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
     createHogExecutionGlobals,
@@ -99,7 +99,7 @@ describe.each([
         hub = await createHub()
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
-        team2 = (await hub.teamManager.fetchTeam(team2Id))!
+        team2 = (await getTeam(hub, team2Id))!
 
         processor = new Consumer(hub)
         await processor.start()
