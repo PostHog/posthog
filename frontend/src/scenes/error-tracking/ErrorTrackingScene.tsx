@@ -37,7 +37,7 @@ import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { StatusIndicator } from './issue/Indicator'
-import { OccurrenceSparkline, useSparklineData } from './issue/OccurrenceSparkline'
+import { OccurrenceSparkline, useSparklineData } from './OccurrenceSparkline'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,

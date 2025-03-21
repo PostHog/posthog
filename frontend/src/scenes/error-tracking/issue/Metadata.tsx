@@ -6,7 +6,7 @@ import { ClampedText } from 'lib/lemon-ui/ClampedText'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 
-import { OccurrenceSparkline, useSparklineData } from './OccurrenceSparkline'
+import { OccurrenceSparkline, useSparklineData } from '../OccurrenceSparkline'
 
 export const Metadata = (): JSX.Element => {
     const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
