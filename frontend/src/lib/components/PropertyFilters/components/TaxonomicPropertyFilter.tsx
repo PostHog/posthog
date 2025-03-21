@@ -144,6 +144,7 @@ export function TaxonomicPropertyFilter({
                         value: newValue || null,
                         operator: newOperator,
                         type: filter?.type,
+                        label: filter?.label,
                         ...(isGroupPropertyFilter(filter) ? { group_type_index: filter.group_type_index } : {}),
                     } as AnyPropertyFilter)
                 }
@@ -210,6 +211,9 @@ export function TaxonomicPropertyFilter({
                             >
                                 {filter?.type === 'cohort' ? (
                                     filter.cohort_name || `Cohort #${filter?.value}`
+                                ) : filter?.type === PropertyFilterType.EventMetadata &&
+                                  filter?.key?.startsWith('$group_') ? (
+                                    filter.label || `Group ${filter?.value}`
                                 ) : filter?.key ? (
                                     <PropertyKeyInfo
                                         value={filter.key}

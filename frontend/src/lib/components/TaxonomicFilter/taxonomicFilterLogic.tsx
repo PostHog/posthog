@@ -619,7 +619,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     const column = `$group_${groupTypeIndex}`
                     options.push({
                         icon: <IconList />,
-                        name: `${type.group_type} (${column})`,
+                        name: type.name_singular || type.group_type,
                         value: column,
                     })
                 }

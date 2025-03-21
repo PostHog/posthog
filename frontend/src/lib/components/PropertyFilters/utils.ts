@@ -124,14 +124,14 @@ export function formatPropertyLabel(
     if (isHogQLPropertyFilter(item as AnyFilterLike)) {
         return extractExpressionComment(item.key)
     }
-    const { value, key, operator, type, cohort_name } = item
+    const { value, key, operator, type, cohort_name, label } = item
 
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
 
     return type === 'cohort'
         ? `${capitalizeFirstLetter(cohortOperatorMap[operator || 'in'] || 'user in')} ` +
               (cohort_name || cohortsById[value]?.name || `ID ${value}`)
-        : (CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label || key) +
+        : (CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label || label || key) +
               (isOperatorFlag(operator)
                   ? ` ${allOperatorsMapping[operator]}`
                   : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
