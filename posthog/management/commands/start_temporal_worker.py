@@ -1,5 +1,4 @@
 import asyncio
-import collections.abc
 import datetime as dt
 import logging
 
@@ -124,7 +123,7 @@ class Command(BaseCommand):
         max_concurrent_activities = options.get("max_concurrent_activities", None)
 
         try:
-            workflows: collections.abc.Sequence[type] = WORKFLOWS_DICT[task_queue]
+            workflows = WORKFLOWS_DICT[task_queue]
             activities = ACTIVITIES_DICT[task_queue]
         except KeyError:
             raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
@@ -146,7 +145,7 @@ class Command(BaseCommand):
                 server_root_ca_cert=server_root_ca_cert,
                 client_cert=client_cert,
                 client_key=client_key,
-                workflows=workflows,
+                workflows=workflows,  # type: ignore
                 activities=activities,
                 graceful_shutdown_timeout=dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
                 if graceful_shutdown_timeout_seconds is not None
