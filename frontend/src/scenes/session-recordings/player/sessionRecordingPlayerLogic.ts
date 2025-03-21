@@ -779,7 +779,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMetaSuccess: () => {
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.syncSnapshotsWithPlayer()
-            actions.loadSimilarRecordings()
             if (props.autoPlay) {
                 // Autoplay assumes we are playing immediately so lets go ahead and load more data
                 actions.setPlay()
@@ -1180,7 +1179,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (!values.sessionRecordingId) {
                 return
             }
-            actions.loadSimilarRecordings()
         },
     })),
 

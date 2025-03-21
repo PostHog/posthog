@@ -7,6 +7,7 @@ __pycache__/
 # Assistant Evaluation with Deepeval
 .deepeval
 .deepeval_telemtry.txt
+.deepeval_telemetry.txt
 .deepeval-cache.json
 .dlt
 .dmypy.json

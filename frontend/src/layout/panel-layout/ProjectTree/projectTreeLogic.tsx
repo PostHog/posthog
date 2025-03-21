@@ -1,8 +1,7 @@
-import { IconBook } from '@posthog/icons'
-import Fuse from 'fuse.js'
+import { IconPlus } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -17,7 +16,13 @@ import { panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
-import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
+import {
+    convertFileSystemEntryToFlatTreeDataItem,
+    convertFileSystemEntryToTreeDataItem,
+    findInProjectTree,
+    joinPath,
+    splitPath,
+} from './utils'
 const PAGINATION_LIMIT = 100
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
@@ -29,8 +34,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             panelLayoutLogic,
-            ['searchTerm', 'isLayoutPanelPinned'],
+            ['searchTerm'],
         ],
+        actions: [panelLayoutLogic, ['setSearchTerm']],
     }),
     actions({
         loadUnfiledItems: true,
@@ -58,6 +64,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
         rename: (path: string) => ({ path }),
         createFolder: (parentPath: string) => ({ parentPath }),
+        loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
     }),
     loaders(({ actions, values }) => ({
         allUnfiledItems: [
@@ -66,6 +73,35 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 loadUnfiledItems: async () => {
                     const response = await api.fileSystem.unfiled()
                     return [...values.allUnfiledItems, ...response.results]
+                },
+            },
+        ],
+        searchResults: [
+            { searchTerm: '', results: [], hasMore: false } as {
+                searchTerm: string
+                results: FileSystemEntry[]
+                hasMore: boolean
+            },
+            {
+                loadSearchResults: async ({ searchTerm, offset }, breakpoint) => {
+                    await breakpoint(250)
+                    const response = await api.fileSystem.list({
+                        search: searchTerm,
+                        offset,
+                        limit: PAGINATION_LIMIT + 1,
+                    })
+                    breakpoint()
+
+                    return {
+                        searchTerm,
+                        results: [
+                            ...(offset > 0 && searchTerm === values.searchResults.searchTerm
+                                ? values.searchResults.results
+                                : []),
+                            ...response.results.slice(0, PAGINATION_LIMIT),
+                        ],
+                        hasMore: response.results.length > PAGINATION_LIMIT,
+                    }
                 },
             },
         ],
@@ -317,81 +353,62 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 // .filter(f => !f.flag || featureFlags[f.flag])
                 convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes), folderStates, 'root'),
         ],
-        projectRow: [
-            (s) => [s.isLayoutPanelPinned],
-            (isLayoutPanelPinned): TreeDataItem[] => [
-                {
-                    id: 'project',
-                    name: 'Default Project',
-                    icon: <IconBook />,
-                    record: { type: 'project', id: 'project' },
-                    onClick: () => {
-                        if (!isLayoutPanelPinned) {
-                            panelLayoutLogic.actions.showLayoutPanel(false)
-                        }
-                        router.actions.push(urls.projectHomepage())
-                    },
-                },
-            ],
-        ],
         searchedTreeItems: [
-            (s) => [s.projectTree, s.projectRow, s.searchTerm],
-            (projectTree: TreeDataItem[], projectRow: TreeDataItem[], searchTerm: string): TreeDataItem[] => {
-                if (!searchTerm) {
-                    return [...projectRow, ...projectTree]
-                }
-
-                const allItems = [...projectRow, ...projectTree]
-
-                // TODO: remove from client side @marius :)
-                const fuse = new Fuse(allItems, {
-                    keys: ['name'],
-                    threshold: 0.3,
-                    ignoreLocation: true,
-                })
-
-                const searchResults = fuse.search(searchTerm).map((result) => result.item)
-
-                // Helper function to check if any child matches the search
-                const hasMatchingChild = (item: TreeDataItem): boolean => {
-                    if (!item.children) {
-                        return false
-                    }
-                    return item.children.some(
-                        (child) => searchResults.some((result) => result.id === child.id) || hasMatchingChild(child)
-                    )
-                }
-
-                // Include parent folders of matching items
-                const resultWithParents = searchResults.reduce((acc: TreeDataItem[], item) => {
-                    if (!acc.some((i) => i.id === item.id)) {
-                        acc.push(item)
-                    }
-
-                    // If it's a matching folder, include its children
-                    if (item.children) {
-                        item.children.forEach((child) => {
-                            if (
-                                !acc.some((i) => i.id === child.id) &&
-                                (searchResults.some((r) => r.id === child.id) || hasMatchingChild(child))
-                            ) {
-                                acc.push(child)
-                            }
+            (s) => [s.searchResults, s.searchResultsLoading],
+            (searchResults, searchResultsLoading): TreeDataItem[] => {
+                const results = convertFileSystemEntryToFlatTreeDataItem(
+                    searchResults.results,
+                    'search',
+                    searchResults.searchTerm
+                )
+                if (searchResults.hasMore) {
+                    if (searchResultsLoading) {
+                        results.push({
+                            id: `search-loading/`,
+                            name: 'Loading...',
+                            icon: <Spinner />,
+                        })
+                    } else {
+                        results.push({
+                            id: `search-load-more/${searchResults.searchTerm}`,
+                            name: 'Load more...',
+                            icon: <IconPlus />,
+                            onClick: () =>
+                                projectTreeLogic.actions.loadSearchResults(
+                                    searchResults.searchTerm,
+                                    searchResults.results.length
+                                ),
                         })
                     }
-                    return acc
-                }, [])
-
-                return resultWithParents
+                }
+                return results
             },
         ],
         treeData: [
-            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.projectRow],
-            (searchTerm, searchedTreeItems, projectTree, projectRow): TreeDataItem[] => {
+            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.searchResultsLoading],
+            (searchTerm, searchedTreeItems, projectTree, loadingPaths, searchResultsLoading): TreeDataItem[] => {
                 if (searchTerm) {
+                    if (searchResultsLoading && searchedTreeItems.length === 0) {
+                        return [
+                            {
+                                id: `search-loading/`,
+                                name: 'Loading...',
+                                icon: <Spinner />,
+                            },
+                        ]
+                    }
                     return searchedTreeItems
                 }
-                return [...projectRow, ...projectTree] as TreeDataItem[]
+                if (loadingPaths[''] && projectTree.length === 0) {
+                    return [
+                        {
+                            id: `project-loading/`,
+                            name: 'Loading...',
+                            icon: <Spinner />,
+                        },
+                    ]
+                }
+                return projectTree
             },
         ],
     }),
@@ -404,12 +421,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.loadFolderStart(folder)
             try {
                 const previousFiles = values.folders[folder] || []
-                const response = await api.fileSystem.list(
-                    folder,
-                    splitPath(folder).length + 1,
-                    PAGINATION_LIMIT + 1,
-                    previousFiles.length
-                )
+                const response = await api.fileSystem.list({
+                    parent: folder,
+                    depth: splitPath(folder).length + 1,
+                    limit: PAGINATION_LIMIT + 1,
+                    offset: previousFiles.length,
+                })
 
                 let files = response.results
                 let hasMore = false
@@ -483,6 +500,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 const newPath = joinPath([...parentSplits, folder])
                 actions.addFolder(newPath)
             }
+        },
+        setSearchTerm: ({ searchTerm }) => {
+            actions.loadSearchResults(searchTerm)
         },
     })),
     afterMount(({ actions }) => {

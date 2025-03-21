@@ -145,6 +145,23 @@ def bigquery_source(
 
                 bq_table = bq_client.get_table(destination_table)
 
+            elif bq_table.table_type in ("VIEW", "MATERIALIZED_VIEW"):
+                # BigQuery storage API does not support reading directly from views or
+                # materialized views. So, similarly to incremental runs, we must copy the
+                # results to a temporary table first. In the case of an incremental sync,
+                # we already do this for all tables and views, so here we just handle the
+                # views or materialized views that are not incremental.
+                query = f"""
+                SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
+                """
+
+                destination_table = bigquery.Table(bq_destination_table_id)
+                job_config = QueryJobConfig(destination=destination_table)
+                job = bq_client.query(query, job_config=job_config)
+                _ = job.result()
+
+                bq_table = bq_client.get_table(destination_table)
+
             requested_session = bigquery_storage.ReadSession(
                 table=bq_table.to_bqstorage(),
                 data_format=bigquery_storage.DataFormat.ARROW,
