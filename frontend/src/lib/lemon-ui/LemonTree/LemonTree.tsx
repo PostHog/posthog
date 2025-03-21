@@ -224,7 +224,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 tabIndex={-1}
                                                 size="small"
                                                 fullWidth
-                                                to={item.record?.href ? item.record.href : undefined}
                                                 data-id={item.id}
                                                 active={getItemActiveState(item)}
                                                 icon={getIcon({
@@ -236,6 +235,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 tooltipPlacement="right"
                                                 style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
                                                 truncate
+                                                to={item.record?.href ? item.record.href : undefined}
                                                 sideAction={itemSideAction ? itemSideAction(item) : undefined}
                                                 buttonWrapper={
                                                     enableDragAndDrop && isItemDraggable?.(item) && item.record?.path

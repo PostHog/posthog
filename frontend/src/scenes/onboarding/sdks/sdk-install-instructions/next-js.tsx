@@ -1,4 +1,4 @@
-import { LemonBanner, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -170,23 +170,31 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const showSetupWizard = useFeatureFlag('AI_SETUP_WIZARD') && !hideWizard && isCloudOrDev
 
-    const region = preflight?.region
+    const region = preflight?.region || 'us'
 
-    const wizardCommand = `npx @posthog/wizard${region ? ` --region ${region.toLowerCase()}` : ''}`
+    const wizardCommand = `npx @posthog/wizard@latest${region ? ` --region ${region.toLowerCase()}` : ''}`
     return (
         <>
             {showSetupWizard && (
-                <LemonBanner type="info" hideIcon={true}>
-                    <div className="flex flex-col p-2">
+                <>
+                    <h2>Automated Installation</h2>
+                    <LemonBanner type="info" hideIcon={true}>
                         <h3 className="flex items-center gap-2 pb-1">
                             <LemonTag type="completion">ALPHA</LemonTag> AI setup wizard
                         </h3>
-                        <p className="font-normal pb-2">
-                            Try using the AI setup wizard to automatically install PostHog with a single command.
-                        </p>
-                        <CodeSnippet language={Language.Bash}>{wizardCommand}</CodeSnippet>
-                    </div>
-                </LemonBanner>
+                        <div className="flex flex-col p-2">
+                            <p className="font-normal pb-1">
+                                Try using the AI setup wizard to automatically install PostHog.
+                            </p>
+                            <p className="font-normal pb-2">
+                                Run the following command from the root of your NextJS project.
+                            </p>
+                            <CodeSnippet language={Language.Bash}>{wizardCommand}</CodeSnippet>
+                        </div>
+                    </LemonBanner>
+                    <LemonDivider label="OR" />
+                    <h2>Manual Installation</h2>
+                </>
             )}
             <h3>Install posthog-js using your package manager</h3>
             <JSInstallSnippet />

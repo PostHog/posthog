@@ -4978,7 +4978,7 @@ export type HogFunctionInvocationGlobals = {
 }
 
 export type HogFunctionTestInvocationResult = {
-    status: 'success' | 'error'
+    status: 'success' | 'error' | 'skipped'
     logs: LogEntry[]
     result: any
     errors?: string[]
