@@ -45,10 +45,9 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         backgroundColor: 'bg-danger-highlight',
         getDescription: () => (
             <>
-                <p>PostHog comes with all product features on every plan.</p>
                 <p>Add your credit card to remove usage limits and unlock all platform features.</p>
                 <p>Set billing limits as low as $0 to control your spend.</p>
-                <p className="italic">P.S. You still keep the monthly free allotment for every product!</p>
+                <p className="italic">P.S. You still keep the monthly free allowance for every product!</p>
             </>
         ),
     },
@@ -116,26 +115,36 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
     },
     [StartupProgramLabel.YC]: {
         title: 'Lucky you!',
-        subtitle: "You're on the special YC plan.",
+        subtitle: "You're on the YC plan.",
         backgroundColor: 'bg-warning-highlight',
         getDescription: (billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
-            <p>
-                If you're growing like crazy, you might want to check out the{' '}
-                {billingPlan !== BillingPlan.Teams ? (
-                    <>
-                        {scrollToProduct ? (
-                            <>
-                                <Link onClick={() => scrollToProduct('teams')}>Teams</Link>
-                                {' or '}
-                            </>
-                        ) : (
-                            'Teams or '
-                        )}
-                    </>
-                ) : null}
-                {scrollToProduct ? <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link> : 'Enterprise'}{' '}
-                plan.
-            </p>
+            <>
+                <p>
+                    Enjoy your founder merch, and don't forget to say hello in the{' '}
+                    <Link to="https://posthog.slack.com/archives/C04J1TJ11UZ">Founders Club!</Link>
+                </p>
+                <p>
+                    If you're growing like crazy, you might want to check out the{' '}
+                    {billingPlan !== BillingPlan.Teams ? (
+                        <>
+                            {scrollToProduct ? (
+                                <>
+                                    <Link onClick={() => scrollToProduct('teams')}>Teams</Link>
+                                    {' or '}
+                                </>
+                            ) : (
+                                'Teams or '
+                            )}
+                        </>
+                    ) : null}
+                    {scrollToProduct ? (
+                        <Link onClick={() => scrollToProduct('enterprise')}>Enterprise</Link>
+                    ) : (
+                        'Enterprise'
+                    )}{' '}
+                    plan.
+                </p>
+            </>
         ),
     },
 }
