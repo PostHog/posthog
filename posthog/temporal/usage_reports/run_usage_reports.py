@@ -11,6 +11,7 @@ from django.conf import settings
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.heartbeat import Heartbeater
+from asgiref.sync import sync_to_async
 
 from posthog.utils import (
     get_instance_region,
@@ -47,13 +48,11 @@ class QueryUsageReportsInputs:
 @dataclasses.dataclass
 class QueryUsageReportsResult:
     org_reports: dict[str, OrgReport]
-    period: tuple[datetime, datetime]
 
 
 @dataclasses.dataclass
 class SendUsageReportsInputs:
     org_reports: dict[str, OrgReport]
-    period: tuple[datetime, datetime]
     skip_capture_event: Optional[bool] = False
     at: Optional[str] = None
 
@@ -80,11 +79,14 @@ async def query_usage_reports(
         period = get_previous_day(at=at_date)
         period_start, period_end = period
 
-        org_reports = _get_all_org_reports(period_start, period_end)
+        @sync_to_async
+        def get_all_org_reports(ps, pe):
+            return _get_all_org_reports(ps, pe)
+
+        org_reports = await get_all_org_reports(period_start, period_end)
 
         return QueryUsageReportsResult(
             org_reports=org_reports,
-            period=period,
         )
 
 
@@ -93,10 +95,15 @@ async def send_usage_reports(
     inputs: SendUsageReportsInputs,
 ) -> None:
     async with Heartbeater():
-        instance_metadata = get_instance_metadata(inputs.period)
-
         at_date = parser.parse(inputs.at) if inputs.at else None
-        period_start, period_end = inputs.period
+        period = get_previous_day(at=at_date)
+        period_start, period_end = period
+
+        @sync_to_async
+        def async_get_instance_metadata(p):
+            return get_instance_metadata(p)
+
+        instance_metadata = await async_get_instance_metadata(period)
 
         producer = None
         try:
@@ -131,26 +138,38 @@ async def send_usage_reports(
                 full_report = _get_full_org_usage_report(org_report, instance_metadata)
                 full_report_dict = _get_full_org_usage_report_as_dict(full_report)
 
-                # First capture the events to PostHog
-                if not inputs.skip_capture_event:
+                @sync_to_async
+                def async_capture_report(p, oid, frd, ad) -> bool:
                     try:
-                        at_date_str = at_date.isoformat() if at_date else None
+                        at_date_str = ad.isoformat() if ad else None
                         capture_report(
-                            pha_client=pha_client,
-                            organization_id=organization_id,
-                            full_report_dict=full_report_dict,
+                            pha_client=p,
+                            organization_id=oid,
+                            full_report_dict=frd,
                             at_date=at_date_str,
                         )
                     except Exception as err:
-                        logger.exception(f"Error capturing report for organization {organization_id}: {err}")
+                        logger.exception(f"Error capturing report for organization {oid}: {err}")
+
+                # First capture the events to PostHog
+                if not inputs.skip_capture_event:
+                    await async_capture_report(pha_client, organization_id, full_report_dict, at_date)
+
+                @sync_to_async
+                def async_queue_report(p, oid, frd) -> bool:
+                    try:
+                        _queue_report(p, oid, frd)
+                        return True
+                    except Exception as err:
+                        logger.exception(f"Error queueing report for organization {oid}: {err}")
+                        return False
 
                 # Then send the reports to billing through SQS (only if the producer is available)
                 if has_non_zero_usage(full_report) and producer:
-                    try:
-                        _queue_report(producer, organization_id, full_report_dict)
+                    success = await async_queue_report(producer, organization_id, full_report_dict)
+                    if success:
                         total_orgs_sent += 1
-                    except Exception as err:
-                        logger.exception(f"Error queueing report for organization {organization_id}: {err}")
+
             except Exception as loop_err:
                 logger.exception(f"Error processing organization report: {loop_err}")
 
@@ -199,7 +218,6 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
 
             send_usage_reports_inputs = SendUsageReportsInputs(
                 org_reports=query_usage_reports_result.org_reports,
-                period=query_usage_reports_result.period,
                 skip_capture_event=inputs.skip_capture_event,
                 at=inputs.at,
             )
