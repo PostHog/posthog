@@ -2,8 +2,6 @@ import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BurningMoneyHog } from 'lib/components/hedgehogs'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import useResizeObserver from 'use-resize-observer'
 
 import { billingLogic } from './billingLogic'
@@ -13,14 +11,16 @@ export const DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD = 500
 
 export const CreditCTAHero = (): JSX.Element | null => {
     const { width, ref: heroRef } = useResizeObserver()
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const { creditOverview, isPurchaseCreditsModalOpen, isCreditCTAHeroDismissed, computedDiscount } =
-        useValues(billingLogic)
+    const {
+        creditOverview,
+        isPurchaseCreditsModalOpen,
+        isCreditCTAHeroDismissed,
+        computedDiscount,
+        showCreditCTAHero,
+    } = useValues(billingLogic)
     const { showPurchaseCreditsModal, toggleCreditCTAHeroDismissed } = useActions(billingLogic)
 
-    const isEligible = creditOverview.eligible || featureFlags[FEATURE_FLAGS.SELF_SERVE_CREDIT_OVERRIDE]
-    if (creditOverview.status === 'paid' || !isEligible) {
+    if (!showCreditCTAHero) {
         return null
     }
 
@@ -64,7 +64,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                 </div>
             )}
             <div className="p-4 flex-1">
-                {isEligible && creditOverview.status === 'pending' && (
+                {creditOverview.status === 'pending' && (
                     <>
                         <h1 className="mb-0">We're applying your credits</h1>
                         <p className="mt-2 mb-0 max-w-xl">
@@ -86,7 +86,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                         )}
                     </>
                 )}
-                {isEligible && (!creditOverview || creditOverview.status === 'none') && (
+                {(!creditOverview || creditOverview.status === 'none') && (
                     <>
                         <h2 className="mb-0">
                             Stop burning money.{' '}

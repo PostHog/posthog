@@ -407,12 +407,6 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.preflight, s.billing],
             (preflight, billing): boolean => !!preflight?.is_debug && !billing?.billing_period,
         ],
-        showBillingSummary: [
-            (s) => [s.billing, s.isOnboarding],
-            (billing: BillingType | null, isOnboarding: boolean): boolean => {
-                return !isOnboarding && !!billing?.billing_period
-            },
-        ],
         projectedTotalAmountUsdWithBillingLimits: [
             (s) => [s.billing],
             (billing: BillingType): number => {
@@ -462,6 +456,31 @@ export const billingLogic = kea<billingLogicType>([
         startupProgramLabel: [
             (s) => [s.billing],
             (billing: BillingType | null): StartupProgramLabel | null => billing?.startup_program_label || null,
+        ],
+        showBillingSummary: [
+            (s) => [s.billing, s.isOnboarding],
+            (billing: BillingType | null, isOnboarding: boolean): boolean => {
+                return !isOnboarding && !!billing?.billing_period
+            },
+        ],
+        showCreditCTAHero: [
+            (s) => [s.creditOverview, s.featureFlags],
+            (
+                creditOverview: typeof billingLogic.values.creditOverview,
+                featureFlags: typeof billingLogic.values.featureFlags
+            ): boolean => {
+                const isEligible = creditOverview.eligible || !!featureFlags[FEATURE_FLAGS.SELF_SERVE_CREDIT_OVERRIDE]
+                return isEligible && creditOverview.status !== 'paid'
+            },
+        ],
+        showBillingHero: [
+            (s) => [s.billing, s.billingPlan, s.showCreditCTAHero],
+            (billing: BillingType | null, billingPlan: BillingPlan | null, showCreditCTAHero: boolean): boolean => {
+                const platformAndSupportProduct = billing?.products?.find(
+                    (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
+                )
+                return !!billingPlan && !billing?.trial && !!platformAndSupportProduct && !showCreditCTAHero
+            },
         ],
     }),
     forms(({ actions, values }) => ({

@@ -39,8 +39,9 @@ export function Billing(): JSX.Element {
         showLicenseDirectInput,
         isActivateLicenseSubmitting,
         billingError,
-        billingPlan,
         showBillingSummary,
+        showCreditCTAHero,
+        showBillingHero,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -160,25 +161,28 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             ) : null}
 
-            <CreditCTAHero />
-
-            <div
-                className={clsx('flex gap-6 max-w-300', {
-                    'flex-col': size === 'small',
-                    'flex-row': size !== 'small',
-                })}
-            >
-                {showBillingSummary && (
-                    <div className="flex-1">
-                        <BillingSummary />
-                    </div>
-                )}
-                {!!billingPlan && !billing?.trial && !!platformAndSupportProduct && (
-                    <div className="flex-1">
-                        <BillingHero product={platformAndSupportProduct} />
-                    </div>
-                )}
-            </div>
+            {(showBillingSummary || showCreditCTAHero || showBillingHero) && (
+                <div
+                    className={clsx('flex gap-6 max-w-300', {
+                        'flex-col': size === 'small',
+                        'flex-row': size !== 'small',
+                    })}
+                >
+                    {showBillingSummary && (
+                        <div className="flex-1">
+                            <BillingSummary />
+                        </div>
+                    )}
+                    {(showCreditCTAHero || showBillingHero) && (
+                        <div className="flex-1">
+                            {showCreditCTAHero && <CreditCTAHero />}
+                            {showBillingHero && !!platformAndSupportProduct && (
+                                <BillingHero product={platformAndSupportProduct} />
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {!showBillingSummary && <StripePortalButton />}
 
