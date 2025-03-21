@@ -11,7 +11,7 @@ pub fn upload(host: &str, directory: &PathBuf, _build_id: &Option<String>) -> Re
     let token = load_token().context("While starting upload command")?;
 
     let url = format!(
-        "{}/api/projects/{}/error_tracking/symbol_sets",
+        "{}/api/environments/{}/error_tracking/symbol_sets",
         host, token.env_id
     );
 
