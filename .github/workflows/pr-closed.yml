@@ -22,9 +22,12 @@ jobs:
                   else
                       echo is_revert=false >> $GITHUB_ENV
                   fi
+                  # Escape the PR title for JSON
+                  pr_title_escaped=$(echo "${{ github.event.pull_request.title }}" | jq -R .)
+                  echo "pr_title_escaped=${pr_title_escaped}" >> $GITHUB_ENV
             - name: Capture PR age to PostHog
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-pr-stats'
-                  properties: '{"prAgeInSeconds": ${{ env.pr_age }}, "isRevert": ${{env.is_revert}}, "prTitle": "${{ github.event.pull_request.title}}", "prNumber": "${{ github.event.pull_request.number}}"  }'
+                  properties: '{"prAgeInSeconds": ${{ env.pr_age }}, "isRevert": ${{env.is_revert}}, "prTitle": ${{ env.pr_title_escaped }}, "prNumber": "${{ github.event.pull_request.number}}"  }'

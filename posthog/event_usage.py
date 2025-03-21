@@ -28,6 +28,8 @@ def report_user_signed_up(
     Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
     joins a new organization, this event is **not** triggered; see `report_user_joined_organization`).
     """
+    if not user.distinct_id:
+        return
 
     props = {
         "is_first_user": is_instance_first_user,
@@ -60,6 +62,9 @@ def report_user_verified_email(current_user: User) -> None:
     """
     Triggered after a user verifies their email address.
     """
+    if not current_user.distinct_id:
+        return
+
     posthoganalytics.capture(
         current_user.distinct_id,
         "user verified email",
@@ -70,6 +75,9 @@ def report_user_verified_email(current_user: User) -> None:
 
 
 def alias_invite_id(user: User, invite_id: str) -> None:
+    if not user.distinct_id:
+        return
+
     posthoganalytics.alias(user.distinct_id, f"invite_{invite_id}")
 
 
@@ -77,6 +85,9 @@ def report_user_joined_organization(organization: Organization, current_user: Us
     """
     Triggered after an already existing user joins an already existing organization.
     """
+    if not current_user.distinct_id:
+        return
+
     posthoganalytics.capture(
         current_user.distinct_id,
         "user joined organization",
@@ -99,6 +110,9 @@ def report_user_logged_in(
     """
     Reports that a user has logged in to PostHog.
     """
+    if not user.distinct_id:
+        return
+
     posthoganalytics.capture(
         user.distinct_id,
         "user logged in",
@@ -111,6 +125,8 @@ def report_user_updated(user: User, updated_attrs: list[str]) -> None:
     """
     Reports a user has been updated. This includes current_team, current_organization & password.
     """
+    if not user.distinct_id:
+        return
 
     updated_attrs.sort()
     posthoganalytics.capture(
@@ -125,6 +141,9 @@ def report_user_password_reset(user: User) -> None:
     """
     Reports a user resetting their password.
     """
+    if not user.distinct_id:
+        return
+
     posthoganalytics.capture(
         user.distinct_id,
         "user password reset",
@@ -163,12 +182,13 @@ def report_team_member_invited(
     }
 
     # Report for inviting user
-    posthoganalytics.capture(
-        inviting_user.distinct_id,
-        "team member invited",
-        properties=inviting_user_properties,
-        groups=groups(inviting_user.current_organization, inviting_user.current_team),
-    )
+    if inviting_user.distinct_id:
+        posthoganalytics.capture(
+            inviting_user.distinct_id,
+            "team member invited",
+            properties=inviting_user_properties,
+            groups=groups(inviting_user.current_organization, inviting_user.current_team),
+        )
 
     # Report for invitee
     posthoganalytics.capture(
@@ -192,6 +212,9 @@ def report_bulk_invited(
     """
     Triggered after a user bulk creates invites for another user.
     """
+    if not user.distinct_id:
+        return
+
     posthoganalytics.capture(
         user.distinct_id,
         "bulk invite executed",
@@ -217,6 +240,8 @@ def report_user_organization_membership_level_changed(
     """
     Triggered after a user's membership level in an organization is changed.
     """
+    if not user.distinct_id:
+        return
     posthoganalytics.capture(
         user.distinct_id,
         "membership level changed",
@@ -230,6 +255,8 @@ def report_user_organization_membership_level_changed(
 
 
 def report_user_action(user: User, event: str, properties: Optional[dict] = None, team: Optional[Team] = None):
+    if not user.distinct_id:
+        return
     if properties is None:
         properties = {}
     posthoganalytics.capture(
@@ -241,6 +268,8 @@ def report_user_action(user: User, event: str, properties: Optional[dict] = None
 
 
 def report_organization_deleted(user: User, organization: Organization):
+    if not user.distinct_id:
+        return
     posthoganalytics.capture(
         user.distinct_id,
         "organization deleted",

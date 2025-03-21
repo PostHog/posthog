@@ -1305,15 +1305,99 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_variant.absolute_exposure, 10)
         self.assertEqual(test_variant.absolute_exposure, 10)
 
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_custom_exposure_on_feature_flag_called_event(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
+        )
+
+        feature_flag_property = "$feature_flag_response"
+
+        for variant, purchase_count in [("control", 6), ("test", 8)]:
+            for i in range(10):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                if i < purchase_count:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={
+                            feature_flag_property: variant,
+                            "$feature_flag": feature_flag.key,
+                            "amount": 10 if i < 2 else "",
+                        },
+                    )
+
+        # Extra exposure that should be excluded
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=f"user_extra_1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+                "plan": "free",
+            },
+        )
+
+        flush_persons_and_events()
+
+        exposure_config = ExperimentEventExposureConfig(
+            event="$feature_flag_called",
+            properties=[
+                {"key": "plan", "operator": "is_not", "value": "free", "type": "event"},
+            ],
+        )
+        experiment.exposure_criteria = {
+            "exposure_config": exposure_config.model_dump(mode="json"),
+        }
+        experiment.save()
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=ExperimentMetric(
+                metric_type=ExperimentMetricType.MEAN,
+                metric_config=ExperimentEventMetricConfig(event="purchase"),
+            ),
+        )
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.count, 6)
+        self.assertEqual(test_variant.count, 8)
+        self.assertEqual(control_variant.absolute_exposure, 10)
+        self.assertEqual(test_variant.absolute_exposure, 10)
+
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_invalid_feature_flag_property(self):
+    def test_query_runner_without_feature_flag_property(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag, end_date=datetime(2020, 2, 1, 12, 0, 0))
         experiment.stats_config = {"version": 2}
         experiment.save()
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.MEAN,
@@ -1337,7 +1421,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_id="user_invalid_id",
             timestamp="2020-01-15T12:00:00Z",
             properties={
-                feature_flag_property: "",  # Intentionally empty
+                # No $feature/<key> property, should still be included as some SDKs don't include this
                 "$feature_flag_response": "control",
                 "$feature_flag": feature_flag.key,
             },
@@ -1359,7 +1443,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_variant.count, 6)
         self.assertEqual(test_variant.count, 8)
-        self.assertEqual(control_variant.absolute_exposure, 10)
+        self.assertEqual(control_variant.absolute_exposure, 11)
         self.assertEqual(test_variant.absolute_exposure, 10)
 
     @freeze_time("2020-01-01T12:00:00Z")

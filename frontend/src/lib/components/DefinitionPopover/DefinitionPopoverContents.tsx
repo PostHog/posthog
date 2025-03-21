@@ -415,7 +415,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     <div className="flex justify-end">
                         <LemonButton
                             onClick={() => {
-                                selectItem(group, itemValue ?? null, localDefinition)
+                                selectItem(group, itemValue ?? null, localDefinition, undefined)
                             }}
                             disabledReason={
                                 dataWarehousePopoverFields.every(

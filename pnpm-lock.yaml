@@ -337,9 +337,6 @@ importers:
       less-loader:
         specifier: ^7.0.2
         version: 7.3.0(less@4.2.2)(webpack@5.88.2)
-      monaco-editor-webpack-plugin:
-        specifier: ^7.0.1
-        version: 7.0.1(monaco-editor@0.49.0)(webpack@5.88.2)
       postcss-loader:
         specifier: ^4.3.0
         version: 4.3.0(postcss@8.5.3)(webpack@5.88.2)
@@ -842,8 +839,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.232.2
-        version: 1.232.2(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.232.3
+        version: 1.232.3(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -11958,12 +11955,6 @@ packages:
   moment@2.29.4:
     resolution: {integrity: sha512-5LC9SOxjSc2HF6vO2CyuTDNivEdoz2IvyJJGj6X8DJ0eFyfszE0QiEd+iXmBvUP3WHxSjFH/vIsA0EN00cgr8w==}
 
-  monaco-editor-webpack-plugin@7.0.1:
-    resolution: {integrity: sha512-M8qIqizltrPlIbrb73cZdTWfU9sIsUVFvAZkL3KGjAHmVWEJ0hZKa/uad14JuOckc0GwnCaoGHvMoYtJjVyCzw==}
-    peerDependencies:
-      monaco-editor: '>= 0.31.0'
-      webpack: ^4.5.0 || 5.x
-
   monaco-editor@0.49.0:
     resolution: {integrity: sha512-2I8/T3X/hLxB2oPHgqcNYUVdA/ZEFShT7IAujifIPMfKkNbLOqY8XCoyHCXrsdjb36dW9MwoTwBCFpXKMwNwaQ==}
 
@@ -13167,8 +13158,8 @@ packages:
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
 
-  posthog-js@1.232.2:
-    resolution: {integrity: sha512-osMaI9hJFf/h5dOxaMZYmB1eNydB/vg4ZnO3DuvweaQ8/AraIO16JH6ZNDSH6/eB8/m8XXs2CadQNpylHfXMUQ==}
+  posthog-js@1.232.3:
+    resolution: {integrity: sha512-rzSMhz0Pe52OM20TyL6isbAOw+ewvie9zUxPwITRGkphPxNzwsTqEoCU7H3pj0+Fs+Qb8kKLjNnwYnx+Zmk0DA==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -15394,8 +15385,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.235.0:
-    resolution: {integrity: sha512-62WqMxI3EvIquwstMZVDW2UTGT67AgqOyEbFpYiViXGzDtzha2pArQITYsOXaJBDcR5DwgKOnLwTzOwWQ/fXkg==}
+  unlayer-types@1.237.0:
+    resolution: {integrity: sha512-DEU7XnG7iaNIJoNXrWR7qEmrH0nw31Y3uCZX9E7+etHY7uhulCtZaYbACEKH5+4f+1I836SKtsr6FGW7pCUPvQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -29152,12 +29143,6 @@ snapshots:
 
   moment@2.29.4: {}
 
-  monaco-editor-webpack-plugin@7.0.1(monaco-editor@0.49.0)(webpack@5.88.2):
-    dependencies:
-      loader-utils: 2.0.4
-      monaco-editor: 0.49.0
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
-
   monaco-editor@0.49.0: {}
 
   moo-color@1.0.3:
@@ -30746,7 +30731,7 @@ snapshots:
       preact: 10.25.4
       web-vitals: 4.2.4
 
-  posthog-js@1.232.2(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.232.3(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
@@ -31251,7 +31236,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.235.0
+      unlayer-types: 1.237.0
 
   react-error-overlay@6.0.9: {}
 
@@ -33352,7 +33337,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.235.0: {}
+  unlayer-types@1.237.0: {}
 
   unpipe@1.0.0: {}
 

@@ -98,6 +98,7 @@ export function HogFunctionConfiguration({
         deleteHogFunction,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
+    const showTransformationFilters = useFeatureFlag('HOG_TRANSFORMATIONS_WITH_FILTERS')
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -177,8 +178,11 @@ export function HogFunctionConfiguration({
     const showOverview = !(displayOptions.hideOverview ?? false)
     const showFilters =
         displayOptions.showFilters ??
-        ['destination', 'internal_destination', 'site_destination', 'broadcast'].includes(type)
-    const showExpectedVolume = displayOptions.showExpectedVolume ?? ['destination', 'site_destination'].includes(type)
+        (['destination', 'internal_destination', 'site_destination', 'broadcast'].includes(type) ||
+            (type === 'transformation' && showTransformationFilters))
+    const showExpectedVolume =
+        displayOptions.showExpectedVolume ??
+        (['destination', 'site_destination'].includes(type) || (type === 'transformation' && showTransformationFilters))
     const showStatus =
         displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
     const showEnabled =

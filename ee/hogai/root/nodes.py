@@ -37,10 +37,11 @@ class create_and_query_insight(BaseModel):
     This tool only retrieves data for a single insight at a time.
     The `trends` insight type is the only insight that can display multiple trends insights in one request.
     All other insight types strictly return data for a single insight.
+    This tool is also relevant if the user asks to write SQL.
     """
 
     query_description: str = Field(description="The description of the query being asked.")
-    query_kind: Literal["trends", "funnel", "retention"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
+    query_kind: Literal["trends", "funnel", "retention", "sql"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 
 class search_documentation(BaseModel):
