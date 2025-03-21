@@ -1000,6 +1000,7 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": False,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": False,
+                "error_tracking_issue_assigned_disabled": False,
             },
         )
 
