@@ -203,4 +203,282 @@ describe('tiktok template', () => {
 
         expect(response.invocation.queueParameters?.body).toContain(`"event":"${expectedEvent}"`)
     })
+
+    it('works with empty product properties', async () => {
+        const response = await tester.invoke(
+            {
+                accessToken: 'access-token',
+                pixelId: 'pixel-id',
+            },
+            {
+                event: {
+                    properties: {},
+                    event: 'Order Completed',
+                    uuid: 'event-id',
+                    timestamp: '2025-01-01T00:00:00Z',
+                    distinct_id: 'distinct-id',
+                    elements_chain: '',
+                    url: 'https://us.posthog.com/projects/1/events/1234',
+                },
+                person: {
+                    id: 'person-id',
+                    properties: {
+                        email: 'example@posthog.com',
+                        ttclid: 'tiktok-id',
+                    },
+                    url: 'https://us.posthog.com/projects/1/persons/1234',
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(false)
+        expect(response.invocation.queue).toEqual('fetch')
+        expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
+            {
+              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ttclid":"tiktok-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"properties":{"content_type":"product","currency":"USD","num_items":0},"page":{}}]}",
+              "headers": {
+                "Access-Token": "access-token",
+                "Content-Type": "application/json",
+              },
+              "method": "POST",
+              "return_queue": "hog",
+              "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
+            }
+        `)
+
+        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+            response: { status: 200, headers: {} },
+            body: '{"status": "OK"}',
+        })
+
+        expect(fetchResponse.finished).toBe(true)
+        expect(fetchResponse.error).toBeUndefined()
+    })
+
+    it('handles error responses', async () => {
+        const response = await tester.invoke(
+            {
+                accessToken: 'access-token',
+                pixelId: 'pixel-id',
+            },
+            {
+                event: {
+                    properties: {},
+                    event: 'Order Completed',
+                    uuid: 'event-id',
+                    timestamp: '2025-01-01T00:00:00Z',
+                    distinct_id: 'distinct-id',
+                    elements_chain: '',
+                    url: 'https://us.posthog.com/projects/1/events/1234',
+                },
+                person: {
+                    id: 'person-id',
+                    properties: {
+                        email: 'example@posthog.com',
+                        ttclid: 'tiktok-id',
+                    },
+                    url: 'https://us.posthog.com/projects/1/persons/1234',
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(false)
+        expect(response.invocation.queue).toEqual('fetch')
+        expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
+            {
+              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ttclid":"tiktok-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"properties":{"content_type":"product","currency":"USD","num_items":0},"page":{}}]}",
+              "headers": {
+                "Access-Token": "access-token",
+                "Content-Type": "application/json",
+              },
+              "method": "POST",
+              "return_queue": "hog",
+              "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
+            }
+        `)
+
+        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+            response: { status: 400, headers: {} },
+            body: '{"status": "Something went wrong", "message": "Invalid event properties"}',
+        })
+
+        expect(fetchResponse.finished).toBe(true)
+        expect(fetchResponse.error).toMatchInlineSnapshot(
+            `"Error from business-api.tiktok.com (status 400): {'status': 'Something went wrong', 'message': 'Invalid event properties'}"`
+        )
+    })
+
+    it('sends test event code if specified', async () => {
+        const response = await tester.invoke(
+            {
+                accessToken: 'access-token',
+                pixelId: 'pixel-id',
+                testEventCode: 'test-event-code',
+            },
+            {
+                event: {
+                    properties: {},
+                    event: 'Order Completed',
+                    uuid: 'event-id',
+                    timestamp: '2025-01-01T00:00:00Z',
+                    distinct_id: 'distinct-id',
+                    elements_chain: '',
+                    url: 'https://us.posthog.com/projects/1/events/1234',
+                },
+                person: {
+                    id: 'person-id',
+                    properties: {
+                        email: 'example@posthog.com',
+                        ttclid: 'tiktok-id',
+                    },
+                    url: 'https://us.posthog.com/projects/1/persons/1234',
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(false)
+        expect(response.invocation.queue).toEqual('fetch')
+        expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
+            {
+              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ttclid":"tiktok-id","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"properties":{"content_type":"product","currency":"USD","num_items":0},"page":{}}],"test_event_code":"test-event-code"}",
+              "headers": {
+                "Access-Token": "access-token",
+                "Content-Type": "application/json",
+              },
+              "method": "POST",
+              "return_queue": "hog",
+              "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
+            }
+        `)
+
+        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+            response: { status: 200, headers: {} },
+            body: '{"status": "OK"}',
+        })
+
+        expect(fetchResponse.finished).toBe(true)
+        expect(fetchResponse.error).toBeUndefined()
+    })
+
+    it('sensitive values are hashed', async () => {
+        const response = await tester.invoke(
+            {
+                accessToken: 'access-token',
+                pixelId: 'pixel-id',
+            },
+            {
+                event: {
+                    properties: {
+                        $ip: '123.123.123.123',
+                        $raw_user_agent:
+                            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+                    },
+                    event: 'Order Completed',
+                    uuid: 'event-id',
+                    timestamp: '2025-01-01T00:00:00Z',
+                    distinct_id: 'distinct-id',
+                    elements_chain: '',
+                    url: 'https://us.posthog.com/projects/1/events/1234',
+                },
+                person: {
+                    id: 'person-id',
+                    properties: {
+                        email: 'example@posthog.com',
+                        ttclid: 'tiktok-id',
+                        phone: '+1234567890',
+                        first_name: 'Max',
+                        last_name: 'AI',
+                    },
+                    url: 'https://us.posthog.com/projects/1/persons/1234',
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(false)
+        expect(response.invocation.queue).toEqual('fetch')
+        expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
+            {
+              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"CompletePayment","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ttclid":"tiktok-id","phone":"422ce82c6fc1724ac878042f7d055653ab5e983d186e616826a72d4384b68af8","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","ip":"123.123.123.123","user_agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36","first_name":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","last_name":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566"},"properties":{"content_type":"product","currency":"USD","num_items":0},"page":{}}]}",
+              "headers": {
+                "Access-Token": "access-token",
+                "Content-Type": "application/json",
+              },
+              "method": "POST",
+              "return_queue": "hog",
+              "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
+            }
+        `)
+
+        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+            response: { status: 200, headers: {} },
+            body: '{"status": "OK"}',
+        })
+
+        expect(fetchResponse.finished).toBe(true)
+        expect(fetchResponse.error).toBeUndefined()
+    })
+
+    it('handles missing pixel id', async () => {
+        const response = await tester.invoke(
+            {
+                accessToken: 'access-token',
+            },
+            {
+                event: {
+                    properties: {},
+                    event: 'Order Completed',
+                    uuid: 'event-id',
+                    timestamp: '2025-01-01T00:00:00Z',
+                    distinct_id: 'distinct-id',
+                    elements_chain: '',
+                    url: 'https://us.posthog.com/projects/1/events/1234',
+                },
+                person: {
+                    id: 'person-id',
+                    properties: {
+                        email: 'example@posthog.com',
+                        ttclid: 'tiktok-id',
+                    },
+                    url: 'https://us.posthog.com/projects/1/persons/1234',
+                },
+            }
+        )
+
+        expect(response.error).toMatchInlineSnapshot(`"Pixel ID and access token are required"`)
+        expect(response.finished).toEqual(true)
+    })
+
+    it('handles missing access token', async () => {
+        const response = await tester.invoke(
+            {
+                pixelId: 'pixel-id',
+            },
+            {
+                event: {
+                    properties: {},
+                    event: 'Order Completed',
+                    uuid: 'event-id',
+                    timestamp: '2025-01-01T00:00:00Z',
+                    distinct_id: 'distinct-id',
+                    elements_chain: '',
+                    url: 'https://us.posthog.com/projects/1/events/1234',
+                },
+                person: {
+                    id: 'person-id',
+                    properties: {
+                        email: 'example@posthog.com',
+                        ttclid: 'tiktok-id',
+                    },
+                    url: 'https://us.posthog.com/projects/1/persons/1234',
+                },
+            }
+        )
+
+        expect(response.error).toMatchInlineSnapshot(`"Pixel ID and access token are required"`)
+        expect(response.finished).toEqual(true)
+    })
 })

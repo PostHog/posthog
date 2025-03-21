@@ -5,11 +5,15 @@ export const template: HogFunctionTemplate = {
     status: 'beta',
     type: 'destination',
     id: 'template-tiktok-ads',
-    name: 'TikTok Ads Conversions (node based)',
+    name: 'TikTok Ads Conversions',
     description: 'Send conversion events to TikTok Ads',
     icon_url: '/static/services/tiktok.png',
     category: ['Advertisement'],
     hog: `
+if (empty(inputs.pixelId) or empty(inputs.accessToken)) {
+    throw Error('Pixel ID and access token are required')
+}
+
 let body := {
     'event_source': 'web',
     'event_source_id': inputs.pixelId,
@@ -95,6 +99,7 @@ if (res.status >= 400) {
                 ": event.event == 'Order Completed' ? 'PlaceAnOrder'" +
                 ": event.event == 'Products Searched' ? 'Search'" +
                 ": event.event == 'Product Viewed' ? 'ViewContent'" +
+                ": event.event == '$pageview' ? 'Pageview'" +
                 ': event.event' +
                 '}',
             secret: false,
@@ -113,8 +118,7 @@ if (res.status >= 400) {
             key: 'eventTimestamp',
             type: 'string',
             label: 'Event timestamp',
-            description:
-                'A Unix timestamp in seconds indicating when the actual event occurred. You must send this date in GMT time zone.',
+            description: 'A Unix timestamp in seconds indicating when the actual event occurred.',
             default: '{toUnixTimestamp(event.timestamp)}',
             secret: false,
             required: true,
@@ -146,9 +150,9 @@ if (res.status >= 400) {
                 'A map that contains customer information data. See this page for options: https://business-api.tiktok.com/portal/docs?id=1771101151059969#item-link-properties%20parameters',
             default: {
                 content_ids:
-                    "{event.event in ('Order Completed', 'Checkout Started') ? arrayMap(x -> x.sku, event.properties.products ?? []) : [event.properties.sku]}",
+                    "{event.event in ('Order Completed', 'Checkout Started') ? arrayMap(x -> x.sku, event.properties.products ?? []) : not empty(event.properties.sku) ? [event.properties.sku] : []}",
                 contents:
-                    "{event.event in ('Order Completed', 'Checkout Started') ? arrayMap(x -> ({'price': x.price, 'content_id': x.sku, 'content_category': x.category, 'content_name': x.name, 'brand': x.brand}), event.properties.products ?? []) : [{'price': event.properties.price, 'content_id': event.properties.sku, 'content_category': event.properties.category, 'content_name': event.properties.name, 'brand': event.properties.brand}]}",
+                    "{event.event in ('Order Completed', 'Checkout Started') ? arrayMap(x -> ({'price': x.price, 'content_id': x.sku, 'content_category': x.category, 'content_name': x.name, 'brand': x.brand}), event.properties.products ?? []) : (not empty(event.properties.sku) and not empty(event.properties.price) and not empty(event.properties.category) and not empty(event.properties.name) and not empty(event.properties.brand) ? [{'price': event.properties.price, 'content_id': event.properties.sku, 'content_category': event.properties.category, 'content_name': event.properties.name, 'brand': event.properties.brand}] : [])}",
                 content_type: 'product',
                 currency: "{event.properties.currency ?? 'USD'}",
                 value: '{toFloat(event.properties.value ?? event.properties.revenue ?? event.properties.price)}',
@@ -188,6 +192,7 @@ if (res.status >= 400) {
     ],
     filters: {
         events: [
+            { id: '$pageview', name: 'Pageview', type: 'events' },
             { id: 'Payment Info Entered', type: 'events' },
             { id: 'Product Added', type: 'events' },
             { id: 'Product Added to Wishlist', type: 'events' },
