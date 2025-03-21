@@ -520,7 +520,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 actions.setPageUrl(searchParams.pageURL)
             }
 
-            if (searchParams.stripQueryParams !== values.stripQueryParams) {
+            if (Boolean(searchParams.stripQueryParams) !== values.stripQueryParams) {
                 actions.toggleStripQueryParams()
             }
         },
@@ -537,13 +537,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 delete searchParams.pageURL
             }
 
-            searchParams.stripQueryParams = values.stripQueryParams
+            searchParams.stripQueryParams = Boolean(values.stripQueryParams)
 
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },
         toggleStripQueryParams: () => {
             const searchParams = { ...router.values.searchParams }
-            searchParams.stripQueryParams = values.stripQueryParams
+
+            searchParams.stripQueryParams = Boolean(values.stripQueryParams)
 
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },
