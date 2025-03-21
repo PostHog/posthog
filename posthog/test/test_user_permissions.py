@@ -5,6 +5,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.test.base import BaseTest
@@ -117,6 +118,44 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         )
 
         assert self.permissions().team_ids_visible_for_user == [self.team.pk]
+
+    def test_project_ids_visible_for_user(self):
+        assert self.permissions().project_ids_visible_for_user == [self.team.project_id]
+
+    def test_project_ids_visible_for_user_multiple_teams(self):
+        # Create a second team with the same project_id
+        _second_team = Team.objects.create(
+            organization=self.organization, name="Second Team", project_id=self.team.project_id
+        )
+
+        # Create a new project for the third team
+        new_project, _third_team = Project.objects.create_with_team(
+            organization=self.organization,
+            name="New Project",
+            initiating_user=self.user,
+        )
+
+        # User should see both project IDs
+        assert sorted(self.permissions().project_ids_visible_for_user) == sorted([self.team.project_id, new_project.id])
+
+    def test_project_ids_visible_for_user_no_explicit_permissions(self):
+        self.team.access_control = True
+        self.team.save()
+
+        # User shouldn't see any project IDs
+        assert self.permissions().project_ids_visible_for_user == []
+
+    def test_project_ids_visible_for_user_explicit_permission(self):
+        self.team.access_control = True
+        self.team.save()
+
+        ExplicitTeamMembership.objects.create(
+            team=self.team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.ADMIN,
+        )
+
+        assert self.permissions().project_ids_visible_for_user == [self.team.project_id]
 
 
 class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
