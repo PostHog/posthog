@@ -561,7 +561,7 @@ environments_router.register(
     r"error_tracking/stack_frames",
     error_tracking.ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
-    ["project_id"],
+    ["team_id"],
 )
 
 projects_router.register(
