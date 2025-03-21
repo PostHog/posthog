@@ -76,7 +76,7 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
         const maxY = Math.max(...Object.values(activityPerSecond).map((activity) => activity.y))
 
         return Object.entries(activityPerSecond).map(([second, activity]) => ({
-            x: (parseInt(second) / durationInSeconds) * width,
+            x: (parseInt(second, 10) / durationInSeconds) * width,
             y: height - (Math.log(activity.y + 1) / Math.log(maxY + 1)) * height,
         }))
     }, [activityPerSecond, durationInSeconds, width, height])
