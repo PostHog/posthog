@@ -123,13 +123,17 @@ pub fn match_property(
         }
         OperatorType::Regex | OperatorType::NotRegex => {
             if match_value.is_none() {
+                // When value doesn't exist:
+                // - for Regex: it's not a match (false)
+                // - for NotRegex: it is a match (true)
                 return Ok(operator == OperatorType::NotRegex);
             }
             let pattern = match Regex::new(&to_string_representation(value)) {
                 Ok(pattern) => pattern,
-                Err(_) => {
-                    return Ok(false);
-                }
+                Err(_) => return Ok(false),
+                //TODO: Should we return Err here and handle elsewhere?
+                //Err(FlagMatchingError::InvalidRegexPattern)
+                // python just returns false here
             };
             let haystack = to_string_representation(match_value.unwrap_or(&Value::Null));
             let match_ = pattern.find(&haystack);
