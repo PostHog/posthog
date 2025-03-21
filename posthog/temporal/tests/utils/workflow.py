@@ -22,8 +22,15 @@ class WaitMode(enum.StrEnum):
 
 @dataclasses.dataclass
 class WaitInputs:
-    wait_for: int | float
+    wait_for: int | float | None
+    raise_on_shutdown: bool = True
     mode: WaitMode = WaitMode.ASYNC
+
+
+@dataclasses.dataclass
+class WaitInputsActivity:
+    wait_for: int | float | None
+    raise_on_shutdown: bool = True
 
 
 class Waiter:
@@ -35,7 +42,7 @@ class Waiter:
         self.shutdown_monitor: ShutdownMonitor | None = None
 
     @activity.defn
-    async def wait_for_activity(self, wait_for: int | float) -> None:
+    async def wait_for_activity(self, inputs: WaitInputsActivity) -> None:
         """A test activity that simply waits."""
         elapsed = 0.0
         loop = asyncio.get_running_loop()
@@ -50,14 +57,15 @@ class Waiter:
             while True:
                 elapsed = loop.time() - start
 
-                if elapsed > wait_for:
+                if inputs.wait_for is not None and elapsed > inputs.wait_for:
                     return
 
-                self.shutdown_monitor.raise_if_is_worker_shutdown()
+                if inputs.raise_on_shutdown:
+                    self.shutdown_monitor.raise_if_is_worker_shutdown()
                 await asyncio.sleep(0)
 
     @activity.defn
-    def wait_for_activity_sync(self, wait_for: int | float) -> None:
+    def wait_for_activity_sync(self, inputs: WaitInputsActivity) -> None:
         """A test activity that simply waits."""
         elapsed = 0.0
         start = time.monotonic()
@@ -70,10 +78,11 @@ class Waiter:
             while True:
                 elapsed = time.monotonic() - start
 
-                if elapsed > wait_for:
+                if inputs.wait_for is not None and elapsed > inputs.wait_for:
                     return
 
-                self.shutdown_monitor.raise_if_is_worker_shutdown()
+                if inputs.raise_on_shutdown:
+                    self.shutdown_monitor.raise_if_is_worker_shutdown()
                 time.sleep(0.1)
 
 
@@ -92,7 +101,7 @@ class WaitWorkflow(PostHogWorkflow):
         if inputs.mode == WaitMode.ASYNC:
             await workflow.execute_activity_method(
                 Waiter.wait_for_activity,
-                inputs.wait_for,
+                WaitInputsActivity(wait_for=inputs.wait_for, raise_on_shutdown=inputs.raise_on_shutdown),
                 # Setting a timeout is required.
                 start_to_close_timeout=dt.timedelta(minutes=1),
                 heartbeat_timeout=dt.timedelta(seconds=5),
@@ -105,7 +114,7 @@ class WaitWorkflow(PostHogWorkflow):
         elif inputs.mode == WaitMode.SYNC:
             await workflow.execute_activity_method(
                 Waiter.wait_for_activity_sync,
-                inputs.wait_for,
+                WaitInputsActivity(wait_for=inputs.wait_for, raise_on_shutdown=inputs.raise_on_shutdown),
                 # Setting a timeout is required.
                 start_to_close_timeout=dt.timedelta(minutes=1),
                 heartbeat_timeout=dt.timedelta(seconds=10),
@@ -115,3 +124,10 @@ class WaitWorkflow(PostHogWorkflow):
                     maximum_attempts=1,
                 ),
             )
+
+
+WAITER = Waiter()
+
+WORKFLOWS = [WaitWorkflow]
+
+ACTIVITIES = [WAITER.wait_for_activity, WAITER.wait_for_activity_sync]
