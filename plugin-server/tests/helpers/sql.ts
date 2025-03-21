@@ -41,6 +41,9 @@ DECLARE
 BEGIN
     -- Delete from tables in order of dependencies
     DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
+    DELETE FROM posthog_cohortpeople CASCADE;
+    DELETE FROM posthog_cohort CASCADE;
+    DELETE FROM posthog_featureflag CASCADE;
     DELETE FROM posthog_persondistinctid CASCADE;
     DELETE FROM posthog_person CASCADE;
     

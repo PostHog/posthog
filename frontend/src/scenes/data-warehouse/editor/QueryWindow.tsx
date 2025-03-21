@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import type { editor as importedEditor } from 'monaco-editor'
+import { useMemo } from 'react'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
@@ -147,12 +148,25 @@ function RunButton(): JSX.Element {
     const { runQuery } = useActions(multitabEditorLogic)
     const { cancelQuery } = useActions(dataNodeLogic)
     const { responseLoading } = useValues(dataNodeLogic)
-    const { metadata, queryInput } = useValues(multitabEditorLogic)
+    const { metadata, queryInput, isSourceQueryLastRun } = useValues(multitabEditorLogic)
 
     const isUsingIndices = metadata?.isUsingIndices === 'yes'
-    const tooltipContent = !isUsingIndices
-        ? 'This query is not using indices optimally, which may result in slower performance.'
-        : undefined
+
+    const [iconColor, tooltipContent] = useMemo(() => {
+        if (isSourceQueryLastRun) {
+            return ['var(--primary)', 'No changes to run']
+        }
+
+        if (!metadata || isUsingIndices || queryInput.trim().length === 0) {
+            return ['var(--success)', 'New changes to run']
+        }
+
+        const tooltipContent = !isUsingIndices
+            ? 'This query is not using indices optimally, which may result in slower performance.'
+            : undefined
+
+        return ['var(--warning)', tooltipContent]
+    }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun])
 
     return (
         <LemonButton
@@ -163,17 +177,7 @@ function RunButton(): JSX.Element {
                     runQuery()
                 }
             }}
-            icon={
-                responseLoading ? (
-                    <IconCancel />
-                ) : (
-                    <IconPlayFilled
-                        color={
-                            !metadata || isUsingIndices || queryInput.length === 0 ? 'var(--success)' : 'var(--warning)'
-                        }
-                    />
-                )
-            }
+            icon={responseLoading ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
             type="tertiary"
             size="xsmall"
             tooltip={tooltipContent}
