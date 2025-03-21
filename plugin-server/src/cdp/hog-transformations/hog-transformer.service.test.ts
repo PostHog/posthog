@@ -10,6 +10,7 @@ import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import { logger } from '../../utils/logger'
 import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
@@ -1287,8 +1288,8 @@ describe('HogTransformer', () => {
             hub.FILTER_TRANSFORMATIONS_ENABLED = true
         })
 
-        it('should skip disabled functions', async () => {
-            const produceAppMetricSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'produceAppMetric')
+        it('should log but not skip functions that would be disabled', async () => {
+            const logSpy = jest.spyOn(logger, 'info')
 
             // Mock the getStates method to return a disabled state for our function
             const getStatesSpy = jest.spyOn(hogTransformer['hogWatcher'], 'getStates').mockImplementation((ids) => {
@@ -1303,18 +1304,18 @@ describe('HogTransformer', () => {
                 return Promise.resolve(states)
             })
 
-            // Create a transformation that should be skipped due to being disabled
+            // Create a transformation that would normally be disabled but runs in monitoring mode
             const template = {
                 free: true,
                 status: 'beta',
                 type: 'transformation',
                 id: 'template-test',
-                name: 'Disabled Template',
-                description: 'A template that should be skipped due to being disabled',
+                name: 'Would Be Disabled Template',
+                description: 'A template that would be disabled but runs in monitoring mode',
                 category: ['Custom'],
                 hog: `
                     let returnEvent := event
-                    returnEvent.properties.should_not_be_set := true
+                    returnEvent.properties.should_still_be_set := true
                     return returnEvent
                 `,
                 inputs_schema: [],
@@ -1335,23 +1336,32 @@ describe('HogTransformer', () => {
             const event = createPluginEvent({ event: 'test-event' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify the function was skipped due to being disabled
-            expect(result.event?.properties?.should_not_be_set).toBeUndefined()
-            expect(result.event?.properties?.$transformations_skipped).toEqual([
-                `${hogFunction.name} (${hogFunction.id}) (disabled)`,
-            ])
+            // Verify the function still ran despite being "disabled" in monitoring mode
+            expect(result.event?.properties?.should_still_be_set).toBe(true)
 
-            // Verify metrics were produced for the disabled function
-            expect(produceAppMetricSpy).toHaveBeenCalledWith({
-                team_id: teamId,
-                app_source_id: hogFunction.id,
-                metric_kind: 'failure',
-                metric_name: 'disabled_temporarily',
-                count: 1,
-            })
+            // Verify transformations_succeeded contains our function (not skipped)
+            expect(result.event?.properties?.$transformations_succeeded).toContain(
+                `${hogFunction.name} (${hogFunction.id})`
+            )
+
+            // Verify transformations_skipped doesn't exist or is empty
+            expect(result.event?.properties?.$transformations_skipped).toBeUndefined()
+
+            // Verify that the appropriate monitoring log was created
+            expect(logSpy).toHaveBeenCalledWith(
+                '🧪',
+                '[MONITORING MODE] Transformation would be disabled but is allowed to run for testing',
+                expect.objectContaining({
+                    function_id: hogFunction.id,
+                    function_name: hogFunction.name,
+                    team_id: teamId,
+                    state: HogWatcherState.disabledForPeriod,
+                    monitoring_only: true,
+                })
+            )
 
             getStatesSpy.mockRestore()
-            produceAppMetricSpy.mockRestore()
+            logSpy.mockRestore()
         })
 
         it('should observe results for rate limiting', async () => {
@@ -1415,18 +1425,18 @@ describe('HogTransformer', () => {
             observeResultsSpy.mockRestore()
         })
 
-        it('should respect multiple function states from HogWatcher', async () => {
-            const produceAppMetricSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'produceAppMetric')
+        it('should log monitoring status for functions with different states', async () => {
+            const logSpy = jest.spyOn(logger, 'info')
 
-            // Two functions: one disabled, one healthy
-            const disabledFunctionId = '22222222-2222-4222-a222-222222222222'
+            // Two functions: one would be disabled, one healthy
+            const wouldBeDisabledFunctionId = '22222222-2222-4222-a222-222222222222'
             const healthyFunctionId = '33333333-3333-4333-a333-333333333333'
 
             // Mock getStates to return different states for different functions
             jest.spyOn(hogTransformer['hogWatcher'], 'getStates').mockImplementation((ids) => {
                 const states: Record<string, any> = {}
                 ids.forEach((id) => {
-                    if (id === disabledFunctionId) {
+                    if (id === wouldBeDisabledFunctionId) {
                         states[id] = {
                             state: HogWatcherState.disabledIndefinitely,
                             tokens: 0,
@@ -1444,17 +1454,17 @@ describe('HogTransformer', () => {
             })
 
             // Create two templates and functions
-            const disabledTemplate = {
+            const wouldBeDisabledTemplate = {
                 free: true,
                 status: 'beta',
                 type: 'transformation',
-                id: 'template-disabled',
-                name: 'Disabled Template',
-                description: 'A template that should be skipped',
+                id: 'template-would-be-disabled',
+                name: 'Would Be Disabled Template',
+                description: 'A template that would be disabled but runs in monitoring mode',
                 category: ['Custom'],
                 hog: `
                     let returnEvent := event
-                    returnEvent.properties.should_not_be_set := true
+                    returnEvent.properties.first_transformation := true
                     return returnEvent
                 `,
                 inputs_schema: [],
@@ -1466,23 +1476,23 @@ describe('HogTransformer', () => {
                 type: 'transformation',
                 id: 'template-healthy',
                 name: 'Healthy Template',
-                description: 'A template that should run',
+                description: 'A healthy template that should run normally',
                 category: ['Custom'],
                 hog: `
                     let returnEvent := event
-                    returnEvent.properties.should_be_set := true
+                    returnEvent.properties.second_transformation := true
                     return returnEvent
                 `,
                 inputs_schema: [],
             }
 
-            const disabledFunction = createHogFunction({
+            const wouldBeDisabledFunction = createHogFunction({
                 type: 'transformation',
-                name: disabledTemplate.name,
+                name: wouldBeDisabledTemplate.name,
                 team_id: teamId,
                 enabled: true,
-                bytecode: await compileHog(disabledTemplate.hog),
-                id: disabledFunctionId,
+                bytecode: await compileHog(wouldBeDisabledTemplate.hog),
+                id: wouldBeDisabledFunctionId,
                 execution_order: 1,
             })
 
@@ -1496,38 +1506,56 @@ describe('HogTransformer', () => {
                 execution_order: 2,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, disabledFunction)
+            await insertHogFunction(hub.db.postgres, teamId, wouldBeDisabledFunction)
             await insertHogFunction(hub.db.postgres, teamId, healthyFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
-                disabledFunction.id,
+                wouldBeDisabledFunction.id,
                 healthyFunction.id,
             ])
 
             const event = createPluginEvent({ event: 'test-event' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify the disabled function was skipped and the healthy one ran
-            expect(result.event?.properties?.should_not_be_set).toBeUndefined()
-            expect(result.event?.properties?.should_be_set).toBe(true)
+            // Verify both functions ran despite one being "disabled" in monitoring mode
+            expect(result.event?.properties?.first_transformation).toBe(true)
+            expect(result.event?.properties?.second_transformation).toBe(true)
 
-            // Verify transformations_skipped and transformations_succeeded are correctly set
-            expect(result.event?.properties?.$transformations_skipped).toContain(
-                `${disabledFunction.name} (${disabledFunction.id}) (disabled)`
+            // Verify transformations_succeeded contains both functions
+            expect(result.event?.properties?.$transformations_succeeded).toContain(
+                `${wouldBeDisabledFunction.name} (${wouldBeDisabledFunction.id})`
             )
             expect(result.event?.properties?.$transformations_succeeded).toContain(
                 `${healthyFunction.name} (${healthyFunction.id})`
             )
 
-            // Verify correct metrics were produced
-            expect(produceAppMetricSpy).toHaveBeenCalledWith({
-                team_id: teamId,
-                app_source_id: disabledFunction.id,
-                metric_kind: 'failure',
-                metric_name: 'disabled_permanently',
-                count: 1,
-            })
+            // Verify no transformations were skipped
+            expect(result.event?.properties?.$transformations_skipped).toBeUndefined()
 
-            produceAppMetricSpy.mockRestore()
+            // Verify that the appropriate monitoring log message was created for the would-be-disabled function
+            expect(logSpy).toHaveBeenCalledWith(
+                '🧪',
+                '[MONITORING MODE] Transformation would be disabled but is allowed to run for testing',
+                expect.objectContaining({
+                    function_id: wouldBeDisabledFunction.id,
+                    function_name: wouldBeDisabledFunction.name,
+                    team_id: teamId,
+                    state: HogWatcherState.disabledIndefinitely,
+                    state_name: 'disabled_permanently',
+                    monitoring_only: true,
+                })
+            )
+
+            // Instead of checking total call count, verify the monitoring log was not created for the healthy function
+            const monitoringLogCalls = logSpy.mock.calls.filter(
+                (call) =>
+                    call[0] === '🧪' &&
+                    call[1] ===
+                        '[MONITORING MODE] Transformation would be disabled but is allowed to run for testing' &&
+                    call[2].function_id === healthyFunction.id
+            )
+            expect(monitoringLogCalls.length).toBe(0)
+
+            logSpy.mockRestore()
         })
     })
 })

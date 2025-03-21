@@ -148,26 +148,29 @@ export class HogTransformerService {
                     transformEventHogWatcherLatency.observe({ operation: 'getStates' }, timer() * 1000) // Convert seconds to milliseconds
                 }
 
-                // For now, execute each transformation function in sequence
                 for (const hogFunction of teamHogFunctions) {
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
 
-                    // Check if the function is disabled via hogWatcher - skip if feature flag is disabled
+                    // Check if the function would be disabled via hogWatcher - but don't actually disable yet
                     if (this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
                         const functionState = states[hogFunction.id]
                         if (functionState?.state >= HogWatcherState.disabledForPeriod) {
-                            this.hogFunctionMonitoringService.produceAppMetric({
-                                team_id: event.team_id,
-                                app_source_id: hogFunction.id,
-                                metric_kind: 'failure',
-                                metric_name:
-                                    functionState.state === HogWatcherState.disabledForPeriod
-                                        ? 'disabled_temporarily'
-                                        : 'disabled_permanently',
-                                count: 1,
-                            })
-                            transformationsSkipped.push(`${transformationIdentifier} (disabled)`)
-                            continue
+                            // Just log that we would have disabled this transformation but we're letting it run
+                            logger.info(
+                                '🧪',
+                                '[MONITORING MODE] Transformation would be disabled but is allowed to run for testing',
+                                {
+                                    function_id: hogFunction.id,
+                                    function_name: hogFunction.name,
+                                    team_id: event.team_id,
+                                    state: functionState.state,
+                                    state_name:
+                                        functionState.state === HogWatcherState.disabledForPeriod
+                                            ? 'disabled_temporarily'
+                                            : 'disabled_permanently',
+                                    monitoring_only: true,
+                                }
+                            )
                         }
                     }
 
