@@ -174,7 +174,9 @@ class CohortPropertyDescriber(Summarizer):
     @cached_property
     def _frequency(self) -> str:
         prop = self._property
-        assert prop.operator is not None and prop.operator_value is not None
+        if prop.operator is None or prop.operator_value is None:
+            return ""
+
         operator_desc = self._format_times_value(prop.operator_value)
         if prop.operator == "gte":
             return f"at least {operator_desc}"

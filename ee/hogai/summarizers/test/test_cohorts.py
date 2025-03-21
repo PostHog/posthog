@@ -134,7 +134,7 @@ class TestPropertySummarizer(BaseTest):
         )
         assert (
             CohortPropertyDescriber(self.team, prop).summary
-            == "people who completed the event `$pageview` exactly 1 time in the last 7 days"
+            == "people who completed the event `$pageview` exactly once in the last 7 days"
         )
         prop = Property(
             key="$pageview",
@@ -374,7 +374,7 @@ class TestPropertySummarizer(BaseTest):
             key="contacted support",
             event_type="events",
             negation=False,
-            operator="exact",
+            operator="gte",
             operator_value=5,
             time_value=1,
             time_interval="day",
@@ -402,7 +402,7 @@ class TestPropertySummarizer(BaseTest):
         )
         assert (
             CohortPropertyDescriber(self.team, prop).summary
-            == "people who did not the event `contacted support` at least once in the last 1 day and at least once in the last period"
+            == "people who did not the event `contacted support` at most once in the last 1 day and at least once in the last period"
         )
 
     def test_lifecycle_stopped_performing_event(self):
