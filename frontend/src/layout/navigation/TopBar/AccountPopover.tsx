@@ -3,6 +3,7 @@ import './AccountPopover.scss'
 import {
     IconCheckCircle,
     IconConfetti,
+    IconCopy,
     IconFeatures,
     IconGear,
     IconLeave,
@@ -20,7 +21,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
 
@@ -105,6 +108,36 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
             <div className="grow">
                 <span className="font-medium">{organization.name}</span>
                 <AccessLevelIndicator organization={organization} />
+            </div>
+        </LemonButton>
+    )
+}
+
+function AccountOwner({ name, email }: { name: string; email: string }): JSX.Element {
+    const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
+
+    return (
+        <LemonButton
+            onClick={() => {
+                void copyToClipboard(email, 'email')
+                reportAccountOwnerClicked({ name, email })
+            }}
+            fullWidth
+            sideIcon={<IconCopy />}
+            tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
+        >
+            <div className="flex items-center gap-2 grow">
+                <ProfilePicture
+                    user={{
+                        first_name: name,
+                        email: email,
+                    }}
+                    size="md"
+                />
+                <div>
+                    <div className="font-medium truncate">{name}</div>
+                    <div className="text-sm text-muted truncate">{email}</div>
+                </div>
             </div>
         </LemonButton>
     )
@@ -215,6 +248,7 @@ export function AccountPopoverOverlay(): JSX.Element {
     const { preflight, isCloudOrDev, isCloud } = useValues(preflightLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { billing } = useValues(billingLogic)
 
     return (
         <>
@@ -239,6 +273,12 @@ export function AccountPopoverOverlay(): JSX.Element {
                     </LemonButton>
                 ) : null}
                 <InviteMembersButton />
+                {billing?.account_owner?.email && billing?.account_owner?.name && (
+                    <>
+                        <h5 className="flex items-center mt-2">YOUR POSTHOG HUMAN</h5>
+                        <AccountOwner name={billing.account_owner.name} email={billing.account_owner.email} />
+                    </>
+                )}
             </AccountPopoverSection>
             {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
                 <AccountPopoverSection title="Other organizations">
