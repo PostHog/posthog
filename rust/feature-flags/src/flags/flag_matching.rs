@@ -29,7 +29,7 @@ use std::{
     time::Duration,
 };
 use tokio::time::{sleep, timeout};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 #[cfg(test)]
 use crate::api::types::{FlagValue, LegacyFlagsResponse}; // Only used in the tests
@@ -445,6 +445,8 @@ impl FeatureFlagMatcher {
                 continue;
             }
 
+            // println!("flag: {:?}", flag);
+
             // if the flag is not active, we can insert that immediately and go on to the next flag
             if !flag.active {
                 flag_details_map.insert(
@@ -502,6 +504,11 @@ impl FeatureFlagMatcher {
                 .filter_map(|flag| flag.get_group_type_index())
                 .collect();
 
+            println!(
+                "group_type_indexes_required: {:?}",
+                group_type_indexes_required
+            );
+
             // Map group names to group_type_index and group_keys
             let group_type_to_key_map: HashMap<GroupTypeIndex, String> = self
                 .groups
@@ -516,6 +523,8 @@ impl FeatureFlagMatcher {
                 })
                 .collect();
 
+            println!("group_type_to_key_map: {:?}", group_type_to_key_map);
+
             // Extract group_keys that are relevant to the required group_type_indexes
             let group_keys: HashSet<String> = group_type_to_key_map
                 .iter()
@@ -527,6 +536,8 @@ impl FeatureFlagMatcher {
                     }
                 })
                 .collect();
+
+            println!("group_keys: {:?}", group_keys);
 
             // Extract group_type_indexes for the required flags
             let group_type_indexes: HashSet<GroupTypeIndex> = group_type_indexes_required.clone();
@@ -564,6 +575,8 @@ impl FeatureFlagMatcher {
                     );
                 }
             }
+
+            println!("properties_cache: {:?}", self.properties_cache);
 
             // Step 3: Evaluate remaining flags with cached properties
             for flag in flags_needing_db_properties {
@@ -617,6 +630,8 @@ impl FeatureFlagMatcher {
             .flat_map(|c| c.properties.clone().unwrap_or_default())
             .collect();
 
+        println!("flag_property_filters: {:?}", flag_property_filters);
+
         let overrides = match flag.get_group_type_index() {
             Some(group_type_index) => {
                 self.get_group_overrides(
@@ -628,6 +643,8 @@ impl FeatureFlagMatcher {
             }
             None => self.get_person_overrides(person_property_overrides, &flag_property_filters),
         };
+
+        println!("overrides: {:?}", overrides);
 
         match overrides {
             Some(props) => self
@@ -869,6 +886,11 @@ impl FeatureFlagMatcher {
             let person_or_group_properties = self
                 .get_properties_to_check(feature_flag, property_overrides, &non_cohort_filters)
                 .await?;
+
+            println!(
+                "Person or group properties: {:?}",
+                person_or_group_properties
+            );
 
             // Evaluate non-cohort filters first, since they're cheaper to evaluate and we can return early if they don't match
             if !all_properties_match(&non_cohort_filters, &person_or_group_properties) {
@@ -1123,12 +1145,18 @@ impl FeatureFlagMatcher {
         &mut self,
         group_type_index: GroupTypeIndex,
     ) -> Result<HashMap<String, Value>, FlagError> {
-        // check if the properties are already cached, if so return them
+        println!(
+            "Fetching group properties for group_type_index: {}",
+            group_type_index
+        );
+
+        // check if the properties are already cached
         if let Some(properties) = self
             .properties_cache
             .group_properties
             .get(&group_type_index)
         {
+            println!("Found cached group properties: {:?}", properties);
             inc(
                 PROPERTY_CACHE_HITS_COUNTER,
                 &[("type".to_string(), "group_properties".to_string())],
@@ -1196,6 +1224,8 @@ impl FeatureFlagMatcher {
             &[("team_id".to_string(), team_id.to_string())],
             1,
         );
+
+        println!("Fetched group properties: {:?}", db_properties);
 
         // once the properties are fetched, cache them so we don't need to fetch again in a given request
         self.properties_cache

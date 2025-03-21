@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use dateparser::parse as parse_date;
 use regex::Regex;
 use serde_json::Value;
+use tracing::debug;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FlagMatchingError {
@@ -36,6 +37,11 @@ pub fn match_property(
     matching_property_values: &HashMap<String, Value>,
     partial_props: bool,
 ) -> Result<bool, FlagMatchingError> {
+    debug!(
+        "Attempting to match property: {:?} with values: {:?}",
+        property, matching_property_values
+    );
+
     // only looks for matches where key exists in override_property_values
     // doesn't support operator is_not_set with partial_props
     if partial_props && !matching_property_values.contains_key(&property.key) {
@@ -123,20 +129,23 @@ pub fn match_property(
         }
         OperatorType::Regex | OperatorType::NotRegex => {
             if match_value.is_none() {
-                // When value doesn't exist:
-                // - for Regex: it's not a match (false)
-                // - for NotRegex: it is a match (true)
+                debug!("No value to match regex against for key: {}", key);
                 return Ok(operator == OperatorType::NotRegex);
             }
             let pattern = match Regex::new(&to_string_representation(value)) {
                 Ok(pattern) => pattern,
-                Err(_) => return Ok(false),
-                //TODO: Should we return Err here and handle elsewhere?
-                //Err(FlagMatchingError::InvalidRegexPattern)
-                // python just returns false here
+                Err(e) => {
+                    debug!("Failed to compile regex pattern '{}': {}", value, e);
+                    return Ok(false);
+                }
             };
             let haystack = to_string_representation(match_value.unwrap_or(&Value::Null));
+            debug!(
+                "Matching regex '{}' against value '{}' for key '{}'",
+                pattern, haystack, key
+            );
             let match_ = pattern.find(&haystack);
+            debug!("Regex match result: {:?}", match_);
 
             if operator == OperatorType::Regex {
                 Ok(match_.is_some())

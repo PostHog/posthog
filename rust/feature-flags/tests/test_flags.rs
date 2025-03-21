@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
 
 use feature_flags::api::types::{FlagsResponse, LegacyFlagsResponse};
+use feature_flags::client::database::Client;
 use limiters::redis::ServiceName;
 use rand::Rng;
 use reqwest::StatusCode;
@@ -1114,3 +1117,172 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_complex_regex_and_name_match_flag() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "example_id".to_string();
+    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_pg(pg_client.clone(), None).await?;
+    let token = team.api_token;
+
+    // Create a group with matching name
+    create_group_in_pg(
+        pg_client.clone(),
+        team.id,
+        "project",
+        "0183ccf3-5efd-0000-1541-bbd96d7d6b7f",
+        json!({
+            "name": "RaquelMSmith",
+            "created_at": "2023-10-16T16:00:00Z"
+        }),
+    )
+    .await?;
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "complex-flag",
+        "name": "Complex Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": "created_at",
+                            "type": "group",
+                            "value": "2023-10-16T(15|16|17|18|19|20|21|22|23)|2023-10-1[7-9]T|2023-10-[2-3][0-9]T|2023-1[1-2]-",
+                            "operator": "regex",
+                            "group_type_index": 0
+                        }
+                    ],
+                    "rollout_percentage": null
+                },
+                {
+                    "variant": "test",
+                    "properties": [
+                        {
+                            "key": "name",
+                            "type": "group",
+                            "value": ["RaquelMSmith", "Raquel's Test Org", "Raquel Test Org 3"],
+                            "operator": "exact",
+                            "group_type_index": 0
+                        }
+                    ],
+                    "rollout_percentage": 100
+                }
+            ],
+            "payloads": {},
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50}
+                ]
+            },
+            "aggregation_group_type_index": 0
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(
+        redis_client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test with matching group
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "groups": {
+            "project": "0183ccf3-5efd-0000-1541-bbd96d7d6b7f"
+        }
+    });
+
+    let res = server.send_flags_request(payload.to_string(), None).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {
+                "complex-flag": "test"  // Should get "test" variant due to name match
+            }
+        })
+    );
+
+    // Test with non-matching name but matching date
+    create_group_in_pg(
+        pg_client.clone(),
+        team.id,
+        "project",
+        "other_project",
+        json!({
+            "name": "Other Org",
+            "created_at": "2023-10-16T16:00:00Z"
+        }),
+    )
+    .await?;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "groups": {
+            "project": "other_project"
+        }
+    });
+
+    let res = server.send_flags_request(payload.to_string(), None).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    let flag_value = json_data["featureFlags"]["complex-flag"].as_str().unwrap();
+    assert!(
+        ["control", "test"].contains(&flag_value),
+        "Expected either 'control' or 'test' variant, got {}",
+        flag_value
+    );
+
+    Ok(())
+
+    // // After creating the group, verify it was created correctly
+    // let created_group =
+    //     fetch_group_from_db(pg_client.clone(), team.id, "project", "test_project").await?;
+    // println!("Created group: {:?}", created_group);
+
+    // // After getting the response
+    // let response_text = res.text().await?;
+    // println!("Response: {}", response_text);
+    // let json_data: Value = serde_json::from_str(&response_text)?;
+
+    // Ok(())
+}
+
+// // Add this helper function
+// async fn fetch_group_from_db(
+//     client: Arc<dyn Client + Send + Sync>,
+//     team_id: i32,
+//     group_type: &str,
+//     group_key: &str,
+// ) -> Result<Value> {
+//     let mut conn = client.get_connection().await?;
+//     let row = sqlx::query(
+//         "SELECT group_properties FROM posthog_group
+//          WHERE team_id = $1 AND group_type = $2 AND group_key = $3",
+//     )
+//     .bind(team_id)
+//     .bind(group_type)
+//     .bind(group_key)
+//     .fetch_one(&mut *conn)
+//     .await?;
+
+//     Ok(row.get("group_properties"))
+// }
