@@ -60,10 +60,8 @@ function SeekbarSegments(): JSX.Element {
 interface ActivityPoint {
     second: number
     x: number
-    y: {
-        user: number
-        mutation: number
-    }
+    y: number
+    type: 'user' | 'mutation'
 }
 
 export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivElement | null> }): JSX.Element {
@@ -77,14 +75,30 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
     const isHovering = useIsHovering(hoverRef)
 
     const points: ActivityPoint[] = useMemo(() => {
-        return Object.entries(activityPerSecond).map(([secondInRecording, activity]) => ({
-            second: parseInt(secondInRecording),
-            x: (parseInt(secondInRecording) / durationInSeconds) * width,
-            y: {
-                user: height - activity.user * height,
-                mutation: height - activity.mutation * height,
-            },
-        }))
+        // Find the maximum y value in the dataset
+        const maxY = Math.max(...Object.values(activityPerSecond).map((activity) => activity.y))
+
+        return Object.entries(activityPerSecond).map(([secondInRecording, activity]) => {
+            const intSecond = parseInt(secondInRecording)
+            // console.log('intSecond', intSecond)
+            // if (intSecond >= 500 && intSecond <= 1200) {
+            //     console.log('intSecond', intSecond)
+            //     console.log('activity.type', activity.type)
+            //     console.log('activity.y', activity.y)
+            //     console.log('height', height)
+            //     console.log('maxY', maxY)
+            //     console.log('activity.y / maxY', activity.y / maxY)
+            //     console.log('((activity.y / maxY) * height)', ((activity.y / maxY) * height))
+            //     console.log('height - ((activity.y / maxY) * height)', height - ((activity.y / maxY) * height))
+            // }
+            // console.log(intSecond, height - ((activity.y / maxY) * height))
+            return {
+                second: intSecond,
+                x: (intSecond / durationInSeconds) * width,
+                y: height - (Math.log(activity.y + 1) / Math.log(maxY + 1)) * height,
+                type: activity.type,
+            }
+        })
     }, [activityPerSecond, durationInSeconds, width, height])
 
     return (
@@ -103,22 +117,7 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
                         points.length
                             ? `
                         M 0,${height}
-                        ${points.map((point) => `L ${point.x},${point.y.mutation}`).join(' ')}
-                        L ${width},${height}
-                        Z
-                    `
-                            : ''
-                    }
-                    fill="var(--bg-fill-highlight-100)"
-                    stroke="none"
-                />
-                {/* User Activity - Highest opacity */}
-                <path
-                    d={
-                        points.length
-                            ? `
-                        M 0,${height}
-                        ${points.map((point) => `L ${point.x},${point.y.user}`).join(' ')}
+                        ${points.map((point) => `L ${point.x},${point.y}`).join(' ')}
                         L ${width},${height}
                         Z
                     `

@@ -496,62 +496,39 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
 
                 // First pass: collect raw activity counts and find max mutation count
-                const rawActivity: Record<number, { user: number; mutation: number; custom: number }> = {}
-                let maxMutationCount = 0
-
-                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([_, snapshots]) => {
-                    snapshots.forEach((snapshot) => {
-                        if (
-                            snapshot.type === EventType.IncrementalSnapshot &&
-                            'source' in snapshot.data &&
-                            snapshot.data.source === IncrementalSource.Mutation
-                        ) {
-                            const structuralChanges = snapshot.data.adds.length + snapshot.data.removes.length
-                            const textAndAttrChanges = snapshot.data.texts.length + snapshot.data.attributes.length
-                            const mutationCount = Math.min(structuralChanges + Math.min(textAndAttrChanges, 2), 5)
-                            maxMutationCount = Math.max(maxMutationCount, mutationCount)
-                        }
-                    })
+                const rawActivity: Record<number, { y: number; type: 'user' | 'mutation' }> = {}
+                Array.from({ length: sessionPlayerData.durationMs / 1000 }, (_, i) => i).forEach((second) => {
+                    rawActivity[second] = { y: 0, type: 'user' }
                 })
 
-                // Second pass: calculate activity with normalized mutation counts
                 Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([_, snapshots]) => {
                     snapshots.forEach((snapshot) => {
                         const timestamp = toRelativeSecondInRecording(snapshot.timestamp, start.valueOf())
 
-                        if (!rawActivity[timestamp]) {
-                            rawActivity[timestamp] = { user: 0, mutation: 0, custom: 0 }
-                        }
-
                         if (isUserActivity(snapshot)) {
-                            rawActivity[timestamp].user += 2
+                            rawActivity[timestamp].y += 1
+                            rawActivity[timestamp].type += 'user'
                         } else if (
                             snapshot.type === EventType.IncrementalSnapshot &&
                             'source' in snapshot.data &&
                             snapshot.data.source === IncrementalSource.Mutation
                         ) {
-                            const structuralChanges = snapshot.data.adds.length + snapshot.data.removes.length
-                            const textAndAttrChanges = snapshot.data.texts.length + snapshot.data.attributes.length
-                            const mutationCount = Math.min(structuralChanges + Math.min(textAndAttrChanges, 2), 5)
-                            rawActivity[timestamp].mutation +=
-                                maxMutationCount > 0 ? (mutationCount / maxMutationCount) * 0.5 : 0
+                            rawActivity[timestamp].y +=
+                                snapshot.data.adds.length +
+                                snapshot.data.removes.length +
+                                snapshot.data.attributes.length +
+                                snapshot.data.texts.length
+                            rawActivity[timestamp].type += 'mutation'
                         }
                     })
                 })
 
-                // Third pass: apply log scaling to each type separately
-                const maxUserActivity = Math.max(...Object.values(rawActivity).map((a) => a.user))
-                const maxMutationActivity = Math.max(...Object.values(rawActivity).map((a) => a.mutation))
-
-                const scaledActivity: Record<number, { user: number; mutation: number }> = {}
+                const scaledActivity: Record<number, { y: number; type: 'user' | 'mutation' }> = {}
                 Object.entries(rawActivity).forEach(([second, activity]) => {
                     const secondInt = parseInt(second)
                     scaledActivity[secondInt] = {
-                        user: activity.user > 0 ? Math.log2(activity.user + 1) / Math.log2(maxUserActivity + 1) : 0,
-                        mutation:
-                            activity.mutation > 0
-                                ? (Math.log2(activity.mutation + 1) / Math.log2(maxMutationActivity + 1)) * 0.5
-                                : 0,
+                        y: activity.y,
+                        type: activity.type,
                     }
                 })
 
