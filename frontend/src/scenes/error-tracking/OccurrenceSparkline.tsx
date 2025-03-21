@@ -85,8 +85,8 @@ function useSparklineColors(): { color: string; hoverColor: string } {
 
     return useMemo(() => {
         return {
-            color: isDarkModeOn ? 'primitive-neutral-200' : 'primitive-neutral-800',
-            hoverColor: 'primary-3000',
+            color: isDarkModeOn ? 'primitive-neutral-800' : 'primitive-neutral-200',
+            hoverColor: isDarkModeOn ? 'primitive-neutral-200' : 'primitive-neutral-800',
         }
     }, [isDarkModeOn])
 }
@@ -94,7 +94,7 @@ function useSparklineColors(): { color: string; hoverColor: string } {
 export function useSparklineData(aggregations?: ErrorTrackingIssueAggregations): [number[], TimeUnit, number] {
     const { sparklineSelectedPeriod, customSparklineConfig } = useValues(errorTrackingLogic)
 
-    const [values, unit, interval]: [number[], TimeUnit, number] = useMemo(() => {
+    const result: [number[], TimeUnit, number] = useMemo(() => {
         if (!aggregations) {
             return [[], 'hour', 0]
         }
@@ -111,7 +111,7 @@ export function useSparklineData(aggregations?: ErrorTrackingIssueAggregations):
         return [[], 'hour', 0]
     }, [aggregations, customSparklineConfig, sparklineSelectedPeriod])
 
-    return [values, unit, interval]
+    return result
 }
 
 function wrapDataWithColor(data: any[] | null, colors: { color: string; hoverColor: string }): any[] {

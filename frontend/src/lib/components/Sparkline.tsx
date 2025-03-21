@@ -69,7 +69,6 @@ export function Sparkline({
             // X axis not needed in line charts without indicators
             display: type === 'bar' || maximumIndicator,
             bounds: 'data',
-            type: 'linear',
             stacked: true,
             ticks: {
                 display: false,
@@ -192,7 +191,7 @@ export function Sparkline({
         return () => {
             chart?.destroy()
         }
-    }, [labels, adjustedData, withXScale, withYScale, data, maximumIndicator, type])
+    }, [labels, adjustedData, withXScale, withYScale, renderLabel, data, maximumIndicator, type])
 
     const dataPointCount = adjustedData[0]?.values?.length || 0
     const finalClassName = clsx(
