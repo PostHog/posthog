@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 import re
 import structlog
 from typing import Any
@@ -9,10 +11,9 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     HogQLFilters,
     ErrorTrackingQuery,
-    ErrorTrackingSparklineConfig,
     ErrorTrackingQueryResponse,
     CachedErrorTrackingQueryResponse,
-    Interval,
+    DateRange,
 )
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.models.filters.mixins.utils import cached_property
@@ -28,13 +29,21 @@ INTERVAL_FUNCTIONS = {
     "month": "toStartOfMonth",
 }
 
+DEFAULT_VOLUME_RESOLUTION = 10
+
+
+@dataclass
+class VolumeOptions:
+    date_range: DateRange
+    resolution: int = 10
+
 
 class ErrorTrackingQueryRunner(QueryRunner):
     query: ErrorTrackingQuery
     response: ErrorTrackingQueryResponse
     cached_response: CachedErrorTrackingQueryResponse
     paginator: HogQLHasMorePaginator
-    sparklineConfigs: dict[str, ErrorTrackingSparklineConfig]
+    sparklineConfigs: dict[str, VolumeOptions]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -43,14 +52,16 @@ class ErrorTrackingQueryRunner(QueryRunner):
             limit=self.query.limit if self.query.limit else None,
             offset=self.query.offset,
         )
-
+        dayRange = DateRange(
+            date_from=(datetime.now() - timedelta(days=7)).isoformat(), date_to=datetime.now().isoformat()
+        )
+        volumeResolution: int = (
+            int(self.query.volumeResolution) if self.query.volumeResolution else DEFAULT_VOLUME_RESOLUTION
+        )
         self.sparklineConfigs = {
-            "volumeDay": ErrorTrackingSparklineConfig(interval=Interval.HOUR, value=24),
-            "volumeMonth": ErrorTrackingSparklineConfig(interval=Interval.DAY, value=31),
+            "volumeDay": VolumeOptions(date_range=dayRange, resolution=volumeResolution),
+            # "volumeRange": VolumeOptions(date_range=self.query.dateRange, resolution=volumeResolution),
         }
-
-        if self.query.customVolume:
-            self.sparklineConfigs["customVolume"] = self.query.customVolume
 
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
@@ -109,14 +120,19 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         return exprs
 
-    def select_sparkline_array(self, alias: str, config: ErrorTrackingSparklineConfig):
-        toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
-        intervalStr = config.interval.value
-        isHotIndex = f"dateDiff('{intervalStr}', {toStartOfInterval}(timestamp), {toStartOfInterval}(now())) = x"
-        isLiveIndexFn = f"if({isHotIndex}, 1, 0)"
-
-        constructed = f"arrayMap(x -> {isLiveIndexFn}, range({config.value}))"
-        summed = f"reverse(sumForEach({constructed}))"
+    def select_sparkline_array(self, alias: str, opts: VolumeOptions):
+        # toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
+        start_time = f"toDateTime('{opts.date_range.date_from}')"
+        end_time = f"toDateTime('{opts.date_range.date_to}')"
+        bin_size = f"dateDiff('seconds', {start_time}, {end_time}) / {opts.resolution}"
+        bin_times = (
+            f"arrayMap(i -> dateAdd({start_time}, toIntervalSecond(i * {bin_size})), range(0, {opts.resolution}))"
+        )
+        hot_indices = f"arrayMap(bin -> if(timestamp > bin AND dateDiff('seconds', bin, timestamp) < {bin_size}, 1, 0), {bin_times})"
+        # isHotIndex = f"dateDiff('{intervalStr}', {toStartOfInterval}(timestamp), {toStartOfInterval}(now())) = x"
+        # isLiveIndexFn = f"if({isHotIndex}, 1, 0)"
+        # constructed = f"arrayMap(x -> {isLiveIndexFn}, range({config.value}))"
+        summed = f"sumForEach({hot_indices})"
         return parse_expr(summed)
 
     def where(self):
@@ -249,8 +265,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return results
 
     def extract_aggregations(self, result):
-        aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeDay", "volumeMonth")}
-        aggregations["customVolume"] = result.get("customVolume") if "customVolume" in result else None
+        aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeDay")}
+        aggregations["volumeRange"] = [1]  ## result.get("customVolume") if "customVolume" in result else None
         return aggregations
 
     @property

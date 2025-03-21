@@ -66,7 +66,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         ],
     }),
 
-    selectors(({ values }) => ({
+    selectors(() => ({
         query: [
             (s) => [
                 s.orderBy,
@@ -97,7 +97,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     filterGroup,
                     // we do not want to recompute the query when then sparkline selection changes
                     // because we have already fetched the alternative option (24h, 30d, custom)
-                    customVolume: values.customSparklineConfig,
+                    volumeResolution: 20,
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users', 'assignee'],
                     orderDirection,

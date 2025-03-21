@@ -3,7 +3,6 @@ import {
     DateRange,
     ErrorTrackingIssue,
     ErrorTrackingQuery,
-    ErrorTrackingSparklineConfig,
     EventsQuery,
     InsightVizNode,
     NodeKind,
@@ -18,16 +17,23 @@ export const errorTrackingQuery = ({
     filterTestAccounts,
     filterGroup,
     searchQuery,
-    customVolume,
+    volumeResolution,
     columns,
     orderDirection,
     limit = 50,
 }: Pick<
     ErrorTrackingQuery,
-    'orderBy' | 'status' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery' | 'orderDirection'
+    | 'orderBy'
+    | 'status'
+    | 'dateRange'
+    | 'assignee'
+    | 'filterTestAccounts'
+    | 'limit'
+    | 'searchQuery'
+    | 'orderDirection'
+    | 'volumeResolution'
 > & {
     filterGroup: UniversalFiltersGroup
-    customVolume?: ErrorTrackingSparklineConfig | null
     columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
 }): DataTableNode => {
     return {
@@ -38,7 +44,7 @@ export const errorTrackingQuery = ({
             status,
             dateRange,
             assignee,
-            customVolume,
+            volumeResolution,
             filterGroup: filterGroup as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
             searchQuery: searchQuery,
@@ -54,18 +60,18 @@ export const errorTrackingQuery = ({
 export const errorTrackingIssueQuery = ({
     issueId,
     dateRange,
-    customVolume,
+    volumeResolution,
 }: {
     issueId: string
     dateRange: DateRange
-    customVolume?: ErrorTrackingSparklineConfig | null
+    volumeResolution: number
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
         dateRange,
         filterTestAccounts: false,
-        customVolume,
+        volumeResolution,
     }
 }
 
