@@ -1023,3 +1023,139 @@ class TestExternalDataSource(APIBaseTest):
 
         assert source.job_inputs["stripe_secret_key"] == "sk_test_123"
         assert source.job_inputs["stripe_account_id"] == "blah"
+
+    @patch("posthog.warehouse.api.external_data_source.StripeSourceHandler")
+    def test_check_schema_changes_no_changes(self, mock_stripe_handler):
+        # Setup mock handler and response
+        mock_handler_instance = mock_stripe_handler.return_value
+        mock_handler_instance.validate_credentials.return_value = (True, "")
+        mock_handler_instance.get_schema_options.return_value = [
+            {"table": "Customer"},
+            {"table": "Product"},
+            {"table": "Invoice"},
+        ]
+
+        # Create source and schemas
+        source = self._create_external_data_source()
+        ExternalDataSchema.objects.create(name="Customer", team_id=self.team.pk, source_id=source.pk)
+        ExternalDataSchema.objects.create(name="Product", team_id=self.team.pk, source_id=source.pk)
+        ExternalDataSchema.objects.create(name="Invoice", team_id=self.team.pk, source_id=source.pk)
+
+        # Test the endpoint
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/check_schema_changes/"
+        )
+        results = response.json()
+
+        assert response.status_code == 200
+        assert results["has_changes"] is False
+        assert results["new_schemas"] == []
+        assert results["removed_schemas"] == []
+        assert sorted(results["existing_schemas"]) == ["Customer", "Invoice", "Product"]
+        assert sorted(results["current_schemas"]) == ["Customer", "Invoice", "Product"]
+
+    @patch("posthog.warehouse.api.external_data_source.StripeSourceHandler")
+    def test_check_schema_changes_new_schemas(self, mock_stripe_handler):
+        # Setup mock handler and response
+        mock_handler_instance = mock_stripe_handler.return_value
+        mock_handler_instance.validate_credentials.return_value = (True, "")
+        mock_handler_instance.get_schema_options.return_value = [
+            {"table": "Customer"},
+            {"table": "Product"},
+            {"table": "Invoice"},
+            {"table": "Subscription"},
+            {"table": "Charge"},
+        ]
+
+        # Create source and schemas
+        source = self._create_external_data_source()
+        ExternalDataSchema.objects.create(name="Customer", team_id=self.team.pk, source_id=source.pk)
+        ExternalDataSchema.objects.create(name="Product", team_id=self.team.pk, source_id=source.pk)
+        ExternalDataSchema.objects.create(name="Invoice", team_id=self.team.pk, source_id=source.pk)
+
+        # Test the endpoint
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/check_schema_changes/"
+        )
+        results = response.json()
+
+        assert response.status_code == 200
+        assert results["has_changes"] is True
+        assert sorted(results["new_schemas"]) == ["Charge", "Subscription"]
+        assert results["removed_schemas"] == []
+        assert sorted(results["existing_schemas"]) == ["Customer", "Invoice", "Product"]
+        assert sorted(results["current_schemas"]) == ["Charge", "Customer", "Invoice", "Product", "Subscription"]
+
+    @patch("posthog.warehouse.api.external_data_source.StripeSourceHandler")
+    def test_check_schema_changes_removed_schemas(self, mock_stripe_handler):
+        # Setup mock handler and response
+        mock_handler_instance = mock_stripe_handler.return_value
+        mock_handler_instance.validate_credentials.return_value = (True, "")
+        mock_handler_instance.get_schema_options.return_value = [{"table": "Customer"}]
+
+        # Create source and schemas
+        source = self._create_external_data_source()
+        ExternalDataSchema.objects.create(name="Customer", team_id=self.team.pk, source_id=source.pk)
+        ExternalDataSchema.objects.create(name="Product", team_id=self.team.pk, source_id=source.pk)
+        ExternalDataSchema.objects.create(name="Invoice", team_id=self.team.pk, source_id=source.pk)
+
+        # Test the endpoint
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/check_schema_changes/"
+        )
+        results = response.json()
+
+        assert response.status_code == 200
+        assert results["has_changes"] is True
+        assert results["new_schemas"] == []
+        assert sorted(results["removed_schemas"]) == ["Invoice", "Product"]
+        assert sorted(results["existing_schemas"]) == ["Customer", "Invoice", "Product"]
+        assert results["current_schemas"] == ["Customer"]
+
+    @patch("posthog.warehouse.api.external_data_source.StripeSourceHandler")
+    def test_check_schema_changes_credential_invalid(self, mock_stripe_handler):
+        # Setup mock handler with invalid credentials
+        mock_handler_instance = mock_stripe_handler.return_value
+        mock_handler_instance.validate_credentials.return_value = (False, "Invalid credentials")
+
+        # Create source
+        source = self._create_external_data_source()
+
+        # Test the endpoint
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/check_schema_changes/"
+        )
+        results = response.json()
+
+        assert response.status_code == 400
+        assert results["message"] == "Invalid credentials"
+
+    @patch("posthog.warehouse.api.external_data_source.StripeSourceHandler")
+    def test_check_schema_changes_both_new_and_removed(self, mock_stripe_handler):
+        # Setup mock handler and response
+        mock_handler_instance = mock_stripe_handler.return_value
+        mock_handler_instance.validate_credentials.return_value = (True, "")
+        mock_handler_instance.get_schema_options.return_value = [
+            {"table": "Customer"},
+            {"table": "Subscription"},
+            {"table": "Charge"},
+        ]
+
+        # Create source and schemas
+        source = self._create_external_data_source()
+        ExternalDataSchema.objects.create(name="Customer", team_id=self.team.pk, source_id=source.pk)
+        ExternalDataSchema.objects.create(name="Product", team_id=self.team.pk, source_id=source.pk)
+        ExternalDataSchema.objects.create(name="Invoice", team_id=self.team.pk, source_id=source.pk)
+
+        # Test the endpoint
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/check_schema_changes/"
+        )
+        results = response.json()
+
+        assert response.status_code == 200
+        assert results["has_changes"] is True
+        assert sorted(results["new_schemas"]) == ["Charge", "Subscription"]
+        assert sorted(results["removed_schemas"]) == ["Invoice", "Product"]
+        assert sorted(results["existing_schemas"]) == ["Customer", "Invoice", "Product"]
+        assert sorted(results["current_schemas"]) == ["Charge", "Customer", "Subscription"]

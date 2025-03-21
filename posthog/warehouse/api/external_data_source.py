@@ -1064,6 +1064,67 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return True
 
+    @action(methods=["POST"], detail=True)
+    def check_schema_changes(self, request: Request, *args: Any, **kwargs: Any):
+        instance: ExternalDataSource = self.get_object()
+        source_type = instance.source_type
+
+        handler = self.get_source_handler(source_type, instance.job_inputs)
+        if not handler:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Unsupported source type: {source_type}"},
+            )
+
+        try:
+            # Validate credentials are still valid
+            is_valid, error_message = handler.validate_credentials()
+            if not is_valid:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": error_message},
+                )
+
+            # Get current schema options from source
+            current_schemas = handler.get_schema_options()
+            current_schemas = [schema["table"] for schema in current_schemas]
+
+            # Get existing schemas from database
+            existing_schemas = list(
+                ExternalDataSchema.objects.filter(source=instance).exclude(deleted=True).values_list("name", flat=True)
+            )
+
+            # Find new schemas (in source but not in db)
+            new_schemas = []
+            for schema_name in current_schemas:
+                if schema_name not in existing_schemas:
+                    new_schemas.append(schema_name)
+
+            # Find removed schemas (in db but not in source)
+            removed_schemas = []
+            for schema_name in existing_schemas:
+                if schema_name not in current_schemas:
+                    removed_schemas.append(schema_name)
+
+            return Response(
+                status=status.HTTP_200_OK,
+                data={
+                    "has_changes": len(new_schemas) > 0 or len(removed_schemas) > 0,
+                    "new_schemas": new_schemas,
+                    "removed_schemas": removed_schemas,
+                    "existing_schemas": existing_schemas,
+                    "current_schemas": current_schemas,
+                },
+            )
+
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Error checking schema changes for source type {source_type}", exc_info=e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Error checking schema changes: {str(e)}"},
+            )
+
 
 class InternalPostgresError(Exception):
     pass
