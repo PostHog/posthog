@@ -1,4 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -45,10 +45,20 @@ export function BulkActions(): JSX.Element {
                         disabledReason={!hasAtLeastTwoIssues ? 'Select at least two issues to merge' : null}
                         type="secondary"
                         size="small"
-                        onClick={() => {
-                            mergeIssues(selectedIssueIds)
-                            setSelectedIssueIds([])
-                        }}
+                        onClick={() =>
+                            LemonDialog.open({
+                                title: 'Merge Issues',
+                                content: `Are you sure you want to merge these ${selectedIssueIds.length} issues?`,
+                                primaryButton: {
+                                    children: 'Merge',
+                                    status: 'danger',
+                                    onClick: () => {
+                                        mergeIssues(selectedIssueIds)
+                                        setSelectedIssueIds([])
+                                    },
+                                },
+                            })
+                        }
                     >
                         Merge
                     </LemonButton>
