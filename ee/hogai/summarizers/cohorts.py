@@ -1,5 +1,4 @@
 from functools import cached_property
-from typing import Literal
 
 from django.utils import timezone
 
@@ -93,7 +92,7 @@ def _format_relative_time_delta(team: Team, date_string: str) -> str:
 
 
 def _convert_property_to_property_filter(prop: Property) -> PropertyFilterUnion:
-    property_type_to_schema: dict[PropertyType, PropertyFilterUnion] = {
+    property_type_to_schema: dict[PropertyType, type[PropertyFilterUnion]] = {
         "event": EventPropertyFilter,
         "person": PersonPropertyFilter,
         "element": ElementPropertyFilter,
@@ -142,7 +141,7 @@ class CohortPropertyDescriber(Summarizer):
         # Regular property filters or precalculated cohorts.
         return self._summarize_property_group()
 
-    def _get_action_name(self, key: str) -> str:
+    def _get_action_name(self, key: str | int) -> str:
         try:
             action = Action.objects.get(pk=key, team__project_id=self._team.project_id)
             return f"the action `{action.name}` with ID `{key}`"
@@ -153,20 +152,24 @@ class CohortPropertyDescriber(Summarizer):
     def _cohort_name(self) -> str:
         return "people who"
 
-    def _get_verbose_name(self, type: Literal["events", "actions"], key: str) -> str:
+    def _get_verbose_name(self, type: str | None, key: str | int | None) -> str:
+        assert key is not None and type is not None
         if type == "actions":
             return self._get_action_name(key)
         return f"the event `{key}`"
 
-    def _format_time_period(self, time_value: int, time_interval: str) -> str:
+    def _format_time_period(self, time_value: int | None, time_interval: str | None) -> str:
+        assert time_value is not None and time_interval is not None
         return f"{time_value} {self.pluralize(time_interval, time_value)}"
 
-    def _format_times_value(self, operator_value: int):
+    def _format_times_value(self, operator_value: int | None) -> str:
+        operator_value = operator_value or 0
         if operator_value == 1:
             return "once"
         return f"{operator_value} {self.pluralize('time', operator_value)}"
 
-    def _format_periods_value(self, period_count: int):
+    def _format_periods_value(self, period_count: int | None) -> str:
+        period_count = period_count or 0
         if period_count == 1:
             return "period"
         return f"{period_count} {self.pluralize('period', period_count)}"
@@ -253,11 +256,6 @@ class CohortPropertyDescriber(Summarizer):
 
     def _summarize_behavioral_event_sequence(self) -> str:
         prop = self._property
-        # Validation of Property will skip creating a property if any of these are missing,
-        # so we can safely assume they are not None. This is for mypy to be happy.
-        assert prop.seq_event is not None and prop.seq_event_type is not None
-        assert prop.time_value is not None and prop.time_interval is not None
-        assert prop.seq_time_value is not None and prop.seq_time_interval is not None
 
         cohort_name = self._cohort_name
         verb = "did not complete a sequence of" if prop.negation else "completed a sequence of"
@@ -273,11 +271,6 @@ class CohortPropertyDescriber(Summarizer):
     def _summarize_lifecycle_first_time_event(self) -> str:
         prop = self._property
 
-        # Validation of Property will skip creating a property if any of these are missing,
-        # so we can safely assume they are not None. This is for mypy to be happy.
-        assert prop.event_type is not None
-        assert prop.time_interval is not None and prop.time_value is not None
-
         cohort_name = self._cohort_name
         verb = "did not perform" if prop.negation else "performed"
         time_period = self._format_time_period(prop.time_value, prop.time_interval)
@@ -286,29 +279,18 @@ class CohortPropertyDescriber(Summarizer):
 
     def _summarize_lifecycle_performing_event_regularly(self) -> str:
         prop = self._property
-        # Validation of Property will skip creating a property if any of these are missing,
-        # so we can safely assume they are not None. This is for mypy to be happy.
-        assert prop.event_type is not None
-        assert prop.time_interval is not None and prop.time_value is not None
-        assert prop.min_periods is not None and prop.total_periods is not None
 
         cohort_name = self._cohort_name
         verbose_name = self._get_verbose_name(prop.event_type, prop.key)
         verb = "did not perform" if prop.negation else "performed"
         time_period = self._format_time_period(prop.time_value, prop.time_interval)
         frequency = self._frequency
-        quantifier = " any of" if prop.min_periods > 1 else ""
+        quantifier = " any of" if (prop.min_periods or 0) > 1 else ""
 
         return f"{cohort_name} {verb} {verbose_name} {frequency} per {time_period} for at least {self._format_times_value(prop.min_periods)} in{quantifier} the last {self._format_periods_value(prop.total_periods)}"
 
     def _summarize_lifecycle_stopped_performing_event(self) -> str:
         prop = self._property
-
-        # Validation of Property will skip creating a property if any of these are missing,
-        # so we can safely assume they are not None. This is for mypy to be happy.
-        assert prop.event_type is not None
-        assert prop.time_interval is not None and prop.time_value is not None
-        assert prop.seq_time_interval is not None and prop.seq_time_value is not None
 
         cohort_name = self._cohort_name
         verbose_name = self._get_verbose_name(prop.event_type, prop.key)
