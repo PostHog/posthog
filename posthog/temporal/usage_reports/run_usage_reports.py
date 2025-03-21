@@ -52,7 +52,7 @@ class QueryUsageReportsResult:
 class SendUsageReportsInputs:
     org_reports: dict[str, OrgReport]
     period: tuple[datetime, datetime]
-    skip_capture_event: bool
+    skip_capture_event: Optional[bool] = False
     at: Optional[str] = None
 
 
@@ -66,7 +66,10 @@ async def query_usage_reports(
     are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
     if are_usage_reports_disabled:
         capture_message(f"Usage reports are disabled for {inputs.at}")
-        return
+        return QueryUsageReportsResult(
+            org_reports={},
+            period=(datetime.now(), datetime.now()),  # Empty period
+        )
 
     at_date = parser.parse(inputs.at) if inputs.at else None
     period = get_previous_day(at=at_date)
@@ -175,6 +178,9 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             query_usage_reports_inputs,
             start_to_close_timeout=timedelta(minutes=20),
         )
+
+        if not query_usage_reports_result.org_reports:
+            return "success - no reports to send"
 
         send_usage_reports_inputs = SendUsageReportsInputs(
             org_reports=query_usage_reports_result.org_reports,
