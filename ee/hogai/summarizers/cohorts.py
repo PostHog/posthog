@@ -124,7 +124,7 @@ def _convert_property_to_property_filter(prop: Property) -> PropertyFilterUnion:
     return schema
 
 
-class CohortPropertyDescriber(Summarizer):
+class CohortPropertySummarizer(Summarizer):
     _property: Property
 
     def __init__(self, team: Team, prop: Property):
@@ -312,7 +312,7 @@ class CohortPropertyDescriber(Summarizer):
         return f"{cohort_name} {verb} {verbose_name}{frequency} in the last {stopped_period} but {previous_condition} it in the last {had_done_period} prior now"
 
 
-class CohortPropertyGroupDescriber(Summarizer):
+class CohortPropertyGroupSummarizer(Summarizer):
     _property_group: PropertyGroup
     _inline_conditions: bool
 
@@ -325,9 +325,9 @@ class CohortPropertyGroupDescriber(Summarizer):
         summaries: list[str] = []
         for group in self._property_group.values:
             if isinstance(group, PropertyGroup):
-                summary = CohortPropertyGroupDescriber(self._team, group, self._is_next_level_inline).summary
+                summary = CohortPropertyGroupSummarizer(self._team, group, self._is_next_level_inline).summary
             else:
-                summary = CohortPropertyDescriber(self._team, group).summary
+                summary = CohortPropertySummarizer(self._team, group).summary
             summaries.append(summary)
         # No need to concatenate if there's only one condition
         summary = self.join_conditions(summaries, self._separator) if len(summaries) > 1 else summaries[0]
@@ -420,6 +420,6 @@ class CohortSummarizer(Summarizer):
     def _summarize_property_filters(self) -> str | None:
         property_groups = self._cohort.properties
         if property_groups and property_groups.values:
-            describer = CohortPropertyGroupDescriber(self._team, property_groups, self._inline_conditions)
+            describer = CohortPropertyGroupSummarizer(self._team, property_groups, self._inline_conditions)
             return describer.summary
         return None

@@ -1,6 +1,7 @@
-from ee.hogai.summarizers.cohorts import CohortPropertyDescriber
+from ee.hogai.summarizers.cohorts import CohortPropertyGroupSummarizer, CohortPropertySummarizer
+from posthog.constants import PropertyOperatorType
 from posthog.models import Action, Cohort
-from posthog.models.property.property import Property
+from posthog.models.property.property import Property, PropertyGroup
 from posthog.test.base import BaseTest
 
 """
@@ -46,7 +47,7 @@ class TestPropertySummarizer(BaseTest):
             explicit_datetime="-30d",
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who completed the event `$pageview` where the event property `$browser` matches exactly `Chrome` in the last 30 days"
         )
 
@@ -74,7 +75,7 @@ class TestPropertySummarizer(BaseTest):
             explicit_datetime="-1dStart",
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who completed the event `$pageview` where the person property `name` matches exactly `John` AND the person property `surname` contains `Mc` yesterday"
         )
 
@@ -88,7 +89,7 @@ class TestPropertySummarizer(BaseTest):
             explicit_datetime="2025-03-10",
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who did not complete the event `$pageview` on 2025-03-10"
         )
 
@@ -102,7 +103,7 @@ class TestPropertySummarizer(BaseTest):
             explicit_datetime="2025-03-10",
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == f"people who completed the action `Completed onboarding` with ID `{self.action.id}` on 2025-03-10"
         )
 
@@ -116,7 +117,7 @@ class TestPropertySummarizer(BaseTest):
             explicit_datetime="2025-03-10",
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == f"people who did not complete an unknown action with ID `0` on 2025-03-10"
         )
 
@@ -133,7 +134,7 @@ class TestPropertySummarizer(BaseTest):
             operator="exact",
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who completed the event `$pageview` exactly once in the last 7 days"
         )
         prop = Property(
@@ -147,7 +148,7 @@ class TestPropertySummarizer(BaseTest):
             operator="exact",
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who completed the event `$pageview` exactly 2 times in the last 7 days"
         )
 
@@ -163,7 +164,7 @@ class TestPropertySummarizer(BaseTest):
             operator="gte",
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who did not complete the event `$pageview` at least 10 times yesterday"
         )
 
@@ -179,7 +180,7 @@ class TestPropertySummarizer(BaseTest):
             operator="lte",
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who completed the event `$pageview` at most 10 times on 2025-03-10"
         )
 
@@ -210,7 +211,7 @@ class TestPropertySummarizer(BaseTest):
             ],
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == f"people who completed the action `Completed onboarding` with ID `{action.id}` where the person property `name` matches exactly `John` AND the person property `surname` contains `Mc` exactly 2 times in the last 7 days"
         )
 
@@ -229,7 +230,7 @@ class TestPropertySummarizer(BaseTest):
             seq_time_interval="day",
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who completed a sequence of the event `cohort created` in the last 10 days followed by the event `cohort created` within 1 day of the initial event"
         )
 
@@ -247,7 +248,7 @@ class TestPropertySummarizer(BaseTest):
             seq_time_interval="month",
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who did not complete a sequence of the event `cohort created` in the last 1 year followed by the event `cohort created` within 3 months of the initial event"
         )
 
@@ -267,7 +268,7 @@ class TestPropertySummarizer(BaseTest):
             seq_time_interval="day",
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == f"people who completed a sequence of the action `Completed onboarding` with ID `{action.id}` in the last 10 days followed by the action `Completed onboarding` with ID `{action.id}` within 1 day of the initial event"
         )
 
@@ -285,7 +286,7 @@ class TestPropertySummarizer(BaseTest):
             seq_time_interval="month",
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == f"people who did not complete a sequence of the action `Completed onboarding` with ID `{action.id}` in the last 1 year followed by the action `Completed onboarding` with ID `{action.id}` within 3 months of the initial event"
         )
 
@@ -298,7 +299,7 @@ class TestPropertySummarizer(BaseTest):
             value=["Chrome"],
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who have the person property `$browser` that matches exactly `Chrome`"
         )
 
@@ -311,28 +312,28 @@ class TestPropertySummarizer(BaseTest):
             value=["Chrome"],
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who do not have the person property `$browser` that matches exactly `Chrome`"
         )
 
     def test_person_is_in_cohort(self):
         prop = Property(key="id", type="cohort", value=self.cohort.id)
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == f"people who are a part of the dynamic cohort `Visited homepage` with ID `{self.cohort.id}` having the following filters (people who have the event property `$title` that is one of the values in `Homepage`)"
         )
 
     def test_person_is_not_in_cohort(self):
         prop = Property(key="id", type="cohort", negation=True, value=self.cohort.id)
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == f"people who are not a part of the dynamic cohort `Visited homepage` with ID `{self.cohort.id}` having the following filters (people who have the event property `$title` that is one of the values in `Homepage`)"
         )
 
     def test_precalculated_cohort(self):
         prop = Property(key="id", type="precalculated-cohort", value=self.cohort.id)
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == f"people who are a part of the dynamic cohort `Visited homepage` with ID `{self.cohort.id}` having the following filters (people who have the event property `$title` that is one of the values in `Homepage`)"
         )
 
@@ -347,7 +348,7 @@ class TestPropertySummarizer(BaseTest):
             negation=False,
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who performed the event `$pageview` for the first time in the last 30 days"
         )
 
@@ -363,7 +364,7 @@ class TestPropertySummarizer(BaseTest):
             negation=True,
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == f"people who did not perform the action `Completed onboarding` with ID `{action.id}` for the first time in the last 1 month"
         )
 
@@ -382,7 +383,7 @@ class TestPropertySummarizer(BaseTest):
             total_periods=6,
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who performed the event `contacted support` at least 5 times per 1 day for at least 3 times in any of the last 6 periods"
         )
 
@@ -401,7 +402,7 @@ class TestPropertySummarizer(BaseTest):
             total_periods=1,
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who did not perform the event `contacted support` at most once per 1 month for at least once in the last period"
         )
 
@@ -418,12 +419,12 @@ class TestPropertySummarizer(BaseTest):
             negation=False,
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who stopped doing the event `contacted support` in the last 2 weeks but had done it in the last 4 weeks prior now"
         )
         prop.negation = True
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who did the event `contacted support` in the last 2 weeks but had done it in the last 4 weeks prior now"
         )
 
@@ -440,11 +441,93 @@ class TestPropertySummarizer(BaseTest):
             negation=False,
         )
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who started doing the event `contacted support` again in the last 2 weeks but had not done it in the last 4 weeks prior now"
         )
         prop.negation = True
         assert (
-            CohortPropertyDescriber(self.team, prop).summary
+            CohortPropertySummarizer(self.team, prop).summary
             == "people who did not start doing the event `contacted support` again in the last 2 weeks but had not done it in the last 4 weeks prior now"
+        )
+
+
+class TestCohortPropertyGroupDescriber(BaseTest):
+    def setUp(self):
+        self.cond_1 = Property(
+            key="$pageview",
+            type="behavioral",
+            value="performed_event",
+            negation=True,
+            event_type="events",
+            explicit_datetime="2025-03-10",
+        )
+        self.summary_1 = "people who did not complete the event `$pageview` on 2025-03-10"
+        self.cond_2 = Property(
+            key="$pageview",
+            type="event",
+            value="Homepage",
+            operator="icontains",
+        )
+        self.summary_2 = "people who have the event property `$pageview` that contains `Homepage`"
+
+    def test_cohort_property_group_describer_inline(self):
+        prop_group = PropertyGroup(
+            type=PropertyOperatorType.OR,
+            values=[self.cond_1, self.cond_2],
+        )
+        assert (
+            CohortPropertyGroupSummarizer(self.team, prop_group, inline_conditions=True).summary
+            == f"({self.summary_1}) OR ({self.summary_2})"
+        )
+
+        prop_group = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[self.cond_1, self.cond_2],
+        )
+        assert (
+            CohortPropertyGroupSummarizer(self.team, prop_group, inline_conditions=True).summary
+            == f"({self.summary_1}) AND ({self.summary_2})"
+        )
+
+    def test_cohort_property_group_describer_multiline(self):
+        prop_group = PropertyGroup(
+            type=PropertyOperatorType.OR,
+            values=[self.cond_1, self.cond_2],
+        )
+        assert (
+            CohortPropertyGroupSummarizer(self.team, prop_group, inline_conditions=False).summary
+            == f"{self.summary_1}\n\nOR\n\n{self.summary_2}"
+        )
+
+        prop_group = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[self.cond_1, self.cond_2],
+        )
+        assert (
+            CohortPropertyGroupSummarizer(self.team, prop_group, inline_conditions=False).summary
+            == f"{self.summary_1}\n\nAND\n\n{self.summary_2}"
+        )
+
+    def test_cohort_property_group_describer_nested_groups(self):
+        prop_group_1 = PropertyGroup(
+            type=PropertyOperatorType.OR,
+            values=[self.cond_1, self.cond_2],
+        )
+        prop_group_2 = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[self.cond_1, self.cond_2],
+        )
+        prop_group_3 = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[prop_group_1, prop_group_2],
+        )
+
+        assert (
+            CohortPropertyGroupSummarizer(self.team, prop_group_3, inline_conditions=True).summary
+            == f"(({self.summary_1} OR {self.summary_2}) AND ({self.summary_1} AND {self.summary_2}))"
+        )
+
+        assert (
+            CohortPropertyGroupSummarizer(self.team, prop_group_3, inline_conditions=False).summary
+            == f"({self.summary_1} OR {self.summary_2})\n\nAND\n\n({self.summary_1} AND {self.summary_2})"
         )
