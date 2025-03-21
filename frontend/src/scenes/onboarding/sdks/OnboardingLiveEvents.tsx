@@ -24,7 +24,7 @@ const columns: LemonTableColumns<LiveEvent> = [
                         />
                         <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-success" />
                     </span>
-                    <PropertyKeyInfo value={event.event.repeat(3)} type={TaxonomicFilterGroupType.Events} />
+                    <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
                 </span>
             )
         },
