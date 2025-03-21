@@ -23,9 +23,9 @@ export class SessionConsoleLogStore {
     constructor(
         private readonly producer: KafkaProducerWrapper,
         private readonly topic: string,
-        options: { messageLimit?: number } = {}
+        options: { messageLimit: number }
     ) {
-        this.messageLimit = options.messageLimit ?? 1000
+        this.messageLimit = options.messageLimit
         logger.debug('session_console_log_store_created')
         if (!this.topic) {
             logger.warn('session_console_log_store_no_topic_configured')

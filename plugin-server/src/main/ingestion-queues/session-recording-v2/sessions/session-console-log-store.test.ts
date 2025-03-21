@@ -27,7 +27,7 @@ describe('SessionConsoleLogStore', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<KafkaProducerWrapper>
 
-        store = new SessionConsoleLogStore(mockProducer, 'log_entries_v2')
+        store = new SessionConsoleLogStore(mockProducer, 'log_entries_v2', { messageLimit: 1000 })
     })
 
     it('should queue logs to kafka with correct data', async () => {
@@ -174,7 +174,7 @@ describe('SessionConsoleLogStore', () => {
     })
 
     it('should not produce if topic is empty', async () => {
-        store = new SessionConsoleLogStore(mockProducer, '')
+        store = new SessionConsoleLogStore(mockProducer, '', { messageLimit: 1000 })
 
         const logs: ConsoleLogEntry[] = [
             {
@@ -196,7 +196,7 @@ describe('SessionConsoleLogStore', () => {
 
     it('should use custom topic when provided', async () => {
         const customTopic = 'custom_log_entries_topic'
-        store = new SessionConsoleLogStore(mockProducer, customTopic)
+        store = new SessionConsoleLogStore(mockProducer, customTopic, { messageLimit: 1000 })
 
         const logs: ConsoleLogEntry[] = [
             {
@@ -268,7 +268,7 @@ describe('SessionConsoleLogStore', () => {
         })
 
         it('should not increment metric when topic is empty', async () => {
-            store = new SessionConsoleLogStore(mockProducer, '')
+            store = new SessionConsoleLogStore(mockProducer, '', { messageLimit: 1000 })
             const logs: ConsoleLogEntry[] = [
                 {
                     team_id: 1,
