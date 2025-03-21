@@ -64,7 +64,16 @@ export function DashboardInsightColorsModal(): JSX.Element {
     ]
 
     return (
-        <LemonModal title="Customize Colors" isOpen={isOpen} onClose={hideInsightColorsModal}>
+        <LemonModal title="Customize Breakdown Colors" isOpen={isOpen} onClose={hideInsightColorsModal}>
+            <p className="text-muted-alt mb-4">
+                Assign custom colors to breakdown values that will be used consistently across all insights on this
+                dashboard. When you assign a color to a value, it will be used for that value in every insight where it
+                appears.
+            </p>
+            <p className="text-muted-alt mb-4">
+                <i>Note: This feature currently only works for trend and funnel insights.</i>
+            </p>
+
             {insightTilesLoading ? (
                 <div className="flex flex-col items-center">
                     {/* Slightly offset to the left for visual balance. */}
