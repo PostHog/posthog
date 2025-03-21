@@ -139,33 +139,29 @@ export class HogTransformerService {
 
                         // Check if function has filters - if not, always apply
                         if (hogFunction.filters?.bytecode) {
-                            try {
-                                const filterResults = checkHogFunctionFilters({
-                                    hogFunction,
-                                    filterGlobals,
-                                    eventUuid: globals.event?.uuid,
-                                })
+                            const filterResults = checkHogFunctionFilters({
+                                hogFunction,
+                                filterGlobals,
+                                eventUuid: globals.event?.uuid,
+                            })
 
-                                // If filter didn't pass and there was no error, skip this transformation
-                                if (!filterResults.match && !filterResults.error) {
-                                    transformationsSkipped.push(transformationIdentifier)
-                                    results.push({
-                                        invocation: createInvocation(
-                                            {
-                                                ...globals,
-                                                inputs: {}, // Not needed as this is only for a valid return type
-                                            },
-                                            hogFunction
-                                        ),
-                                        metrics: filterResults.metrics,
-                                        logs: filterResults.logs,
-                                        error: null,
-                                        finished: true,
-                                    })
-                                    continue
-                                }
-                            } catch (error) {
-                                // Already logged in the utility, continue with transformation for backward compatibility
+                            // If filter didn't pass and there was no error, skip this transformation
+                            if (!filterResults.match && !filterResults.error) {
+                                transformationsSkipped.push(transformationIdentifier)
+                                results.push({
+                                    invocation: createInvocation(
+                                        {
+                                            ...globals,
+                                            inputs: {}, // Not needed as this is only for a valid return type
+                                        },
+                                        hogFunction
+                                    ),
+                                    metrics: filterResults.metrics,
+                                    logs: filterResults.logs,
+                                    error: null,
+                                    finished: true,
+                                })
+                                continue
                             }
                         }
                     }
