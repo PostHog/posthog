@@ -235,7 +235,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
                         [currentUrl]: {
-                            count: response.count,
+                            count: response.results.length,
                             previous: normalizePropertyDefinitionEndpointUrl(response.previous),
                             next: normalizePropertyDefinitionEndpointUrl(response.next),
                             current: currentUrl,
