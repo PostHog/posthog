@@ -98,9 +98,9 @@ async def test_start_batch_export_run(activity_environment, team, batch_export):
     run_id = await activity_environment.run(start_batch_export_run, inputs)
 
     runs = BatchExportRun.objects.filter(id=run_id)
-    assert await sync_to_async(runs.exists)()  # type:ignore
+    assert await sync_to_async(runs.exists)()
 
-    run = await sync_to_async(runs.first)()  # type:ignore
+    run = await sync_to_async(runs.first)()
     assert run is not None
     assert run.data_interval_start == start
     assert run.data_interval_end == end
@@ -123,7 +123,7 @@ async def test_finish_batch_export_run(activity_environment, team, batch_export)
     run_id = await activity_environment.run(start_batch_export_run, inputs)
 
     runs = BatchExportRun.objects.filter(id=run_id)
-    run = await sync_to_async(runs.first)()  # type:ignore
+    run = await sync_to_async(runs.first)()
     assert run is not None
     assert run.status == "Starting"
 
@@ -136,7 +136,7 @@ async def test_finish_batch_export_run(activity_environment, team, batch_export)
     await activity_environment.run(finish_batch_export_run, finish_inputs)
 
     runs = BatchExportRun.objects.filter(id=run_id)
-    run = await sync_to_async(runs.first)()  # type:ignore
+    run = await sync_to_async(runs.first)()
     assert run is not None
     assert run.status == "Completed"
 

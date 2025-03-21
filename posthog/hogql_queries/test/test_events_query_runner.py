@@ -5,7 +5,7 @@ from datetime import datetime
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Person, Team
+from posthog.models import Person, Team, Element
 from posthog.models.organization import Organization
 from posthog.schema import (
     CachedEventsQueryResponse,
@@ -300,3 +300,88 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             datetime(2020, 1, 12, 12, 0, 0, tzinfo=self.team.timezone_info),
             datetime(2020, 1, 12, 23, 0, 0, tzinfo=self.team.timezone_info),
         ]
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
+    def test_element_chain_property_filter(self):
+        # Create an event with 'div' in elements_chain
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="test_user",
+            properties={"attr": "has div"},
+            elements=[
+                Element(
+                    tag_name="a",
+                    href="/test-url",
+                    attr_class=["link"],
+                    text="Click me",
+                    attributes={},
+                    nth_child=1,
+                    nth_of_type=0,
+                ),
+                Element(
+                    tag_name="div",
+                    attr_class=["container"],
+                    attr_id="main-container",
+                    nth_child=0,
+                    nth_of_type=0,
+                ),
+                Element(
+                    tag_name="button",
+                    attr_class=["btn", "btn-primary"],
+                    text="Submit",
+                    nth_child=0,
+                    nth_of_type=0,
+                ),
+            ],
+        )
+
+        # Create an event without elements_chain
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="test_user",
+            properties={"attr": "no div"},
+            elements=[
+                Element(
+                    tag_name="a",
+                    href="/test-url",
+                    attr_class=["link"],
+                    text="Click me",
+                    attributes={},
+                    nth_child=1,
+                    nth_of_type=0,
+                ),
+                Element(
+                    tag_name="button",
+                    attr_class=["btn", "btn-primary"],
+                    text="Submit",
+                    nth_child=0,
+                    nth_of_type=0,
+                ),
+            ],
+        )
+
+        # Filter for events with a specific element text in the elements chain with $elements_chain not_icontains
+        query = EventsQuery(
+            after="-24h",
+            event="$autocapture",
+            kind="EventsQuery",
+            orderBy=["timestamp ASC"],
+            select=["*"],
+            properties=[
+                EventPropertyFilter(
+                    key="$elements_chain",
+                    value="div",
+                    operator=PropertyOperator.NOT_ICONTAINS,
+                    type="event",
+                )
+            ],
+        )
+
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0][0]["properties"]["attr"], "no div")

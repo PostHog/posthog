@@ -211,7 +211,7 @@ const VariableInput = ({
                     </LemonButton>
                 )}
             </div>
-            {showEditingUI && (
+            {showEditingUI ? (
                 <>
                     <LemonDivider className="m1" />
 
@@ -268,6 +268,22 @@ const VariableInput = ({
                         )}
                     </div>
                 </>
+            ) : (
+                <>
+                    <LemonDivider className="m1" />
+                    <div className="flex p-1">
+                        <LemonSwitch
+                            size="xsmall"
+                            label="Set to null"
+                            checked={isNull}
+                            onChange={(value) => {
+                                setIsNull(value)
+                                onChange(variable.id, null, value)
+                            }}
+                            bordered
+                        />
+                    </div>
+                </>
             )}
         </div>
     )
@@ -282,7 +298,7 @@ interface VariableComponentProps {
     variableSettingsOnClick?: () => void
 }
 
-const VariableComponent = ({
+export const VariableComponent = ({
     variable,
     showEditingUI,
     onChange,

@@ -68,7 +68,6 @@ def team(django_db_blocker) -> Generator[Team, None, None]:
             has_completed_onboarding_for={"product_analytics": True},
         )
         yield team
-        organization.delete()
 
 
 @pytest.fixture(scope="package")
