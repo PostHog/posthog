@@ -50,6 +50,7 @@ from posthog.hogql.transforms.property_types import PropertySwapper, build_prope
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
+from posthog.models.surveys.util import get_survey_response_clickhouse_query
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
@@ -1105,24 +1106,7 @@ class _Printer(Visitor):
                     if node.name == "getSurveyResponse":
                         question_index = int(node_args[0].value)
                         question_id = str(node_args[1].value) if len(node_args) > 1 else None
-                        id_based_key = f"$survey_response_{question_id}"
-                        index_based_key = (
-                            "$survey_response" if question_index == 0 else f"$survey_response_{question_index}"
-                        )
-
-                        if question_id:
-                            return f"""COALESCE(
-    NULLIF(JSONExtractString(properties, '{id_based_key}'), ''),
-    NULLIF(JSONExtractString(properties, '{index_based_key}'), '')
-)"""
-
-                        return f"""COALESCE(
-    NULLIF(JSONExtractString(properties,
-        CONCAT('$survey_response_',
-               JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[{question_index + 1}], 'id')
-        )), ''),
-    NULLIF(JSONExtractString(properties, '{index_based_key}'), '')
-)"""
+                        return get_survey_response_clickhouse_query(question_index, question_id)
 
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []
