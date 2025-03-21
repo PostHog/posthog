@@ -150,7 +150,7 @@ class ActionViewSet(
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
-        return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
+        return queryset.order_by(*self.ordering)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         # :HACKY: we need to override this viewset method until actions support
