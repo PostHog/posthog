@@ -1356,7 +1356,6 @@ describe('HogTransformer', () => {
                     function_name: hogFunction.name,
                     team_id: teamId,
                     state: HogWatcherState.disabledForPeriod,
-                    monitoring_only: true,
                 })
             )
 
@@ -1541,7 +1540,6 @@ describe('HogTransformer', () => {
                     team_id: teamId,
                     state: HogWatcherState.disabledIndefinitely,
                     state_name: 'disabled_permanently',
-                    monitoring_only: true,
                 })
             )
 

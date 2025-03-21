@@ -168,7 +168,6 @@ export class HogTransformerService {
                                         functionState.state === HogWatcherState.disabledForPeriod
                                             ? 'disabled_temporarily'
                                             : 'disabled_permanently',
-                                    monitoring_only: true,
                                 }
                             )
                         }
