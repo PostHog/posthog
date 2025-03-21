@@ -1,3 +1,10 @@
+import { PaymentsTabs } from 'scenes/payments/components/PaymentsTabs'
+
 export function PaymentsTransactionsScene(): JSX.Element {
-    return <div>Payments Transactions</div>
+    return (
+        <>
+            <PaymentsTabs />
+            Transactions
+        </>
+    )
 }

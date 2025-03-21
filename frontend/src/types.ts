@@ -766,6 +766,13 @@ export enum PipelineTab {
     History = 'history',
 }
 
+export enum PaymentsTab {
+    Overview = 'overview',
+    Products = 'products',
+    Transactions = 'transactions',
+    Settings = 'settings',
+}
+
 export enum PipelineStage {
     Transformation = 'transformation',
     Destination = 'destination',

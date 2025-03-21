@@ -1,3 +1,10 @@
+import { PaymentsTabs } from 'scenes/payments/components/PaymentsTabs'
+
 export function PaymentsSettingsScene(): JSX.Element {
-    return <div>Payments Settings</div>
+    return (
+        <>
+            <PaymentsTabs />
+            Settings
+        </>
+    )
 }
