@@ -1105,7 +1105,7 @@ impl FeatureFlagMatcher {
         &mut self,
         group_type_index: GroupTypeIndex,
     ) -> Result<HashMap<String, Value>, FlagError> {
-        // check if the properties are already cached
+        // check if the properties are already cached, if so return them
         if let Some(properties) = self
             .properties_cache
             .group_properties
