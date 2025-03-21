@@ -1074,6 +1074,7 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": True,  # Default value
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
+                "error_tracking_issue_assigned_disabled": False,  # Default value
             },
         )
 

@@ -29,7 +29,7 @@ class Notifications(TypedDict, total=False):
 
 NOTIFICATION_DEFAULTS: Notifications = {
     "plugin_disabled": True,  # Catch all for any Pipeline destination issue (plugins, hog functions, batch exports)
-    "error_tracking_issue_assigned_disabled": True,  # Error tracking issue assignment
+    "error_tracking_issue_assigned_disabled": False,  # Error tracking issue assignment
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
 }
