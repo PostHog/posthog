@@ -159,21 +159,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                         parse_expr("toDate(toString(min(timestamp))) as day"),
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    where=ast.And(
-                        exprs=[
-                            *exposure_conditions,
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.GtEq,
-                                left=ast.Field(chain=["timestamp"]),
-                                right=ast.Constant(value=self.date_range_query.date_from()),
-                            ),
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.LtEq,
-                                left=ast.Field(chain=["timestamp"]),
-                                right=ast.Constant(value=self.date_range_query.date_to()),
-                            ),
-                        ]
-                    ),
+                    where=ast.And(exprs=exposure_conditions),
                     group_by=[
                         ast.Field(chain=["person_id"]),
                     ],
