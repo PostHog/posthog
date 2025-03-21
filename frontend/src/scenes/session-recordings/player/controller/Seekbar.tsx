@@ -85,7 +85,7 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
 
     return (
         <div
-            className={cn('absolute bottom-0 w-full bg-surface-primary transition-opacity duration-300', {
+            className={cn('absolute bottom-0 w-full px-4 bg-surface-primary transition-opacity duration-300', {
                 'opacity-0': !isHovering,
             })}
             ref={seekBarRef}
