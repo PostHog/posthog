@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
 
 use feature_flags::api::types::{FlagsResponse, LegacyFlagsResponse};
-use feature_flags::client::database::Client;
 use limiters::redis::ServiceName;
 use rand::Rng;
 use reqwest::StatusCode;
