@@ -545,3 +545,9 @@ export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
     /** Properties specific to the retention insight */
     retentionFilter: AssistantRetentionFilter
 }
+
+export interface AssistantHogQLQuery {
+    kind: NodeKind.HogQLQuery
+    /** SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions. */
+    query: string
+}

@@ -42,17 +42,9 @@ export class CdpApi {
     public get service(): PluginServerService {
         return {
             id: 'cdp-api',
-            onShutdown: async () => await this.stop(),
+            onShutdown: async () => {},
             healthcheck: () => this.isHealthy() ?? false,
         }
-    }
-
-    async start() {
-        await this.hogFunctionManager.start(['transformation', 'destination', 'internal_destination'])
-    }
-
-    async stop() {
-        await Promise.all([this.hogFunctionManager.stop()])
     }
 
     isHealthy() {
@@ -272,7 +264,10 @@ export class CdpApi {
                 compoundConfiguration.id = new UUIDT().toString()
                 const pluginEvent: PluginEvent = {
                     ...triggerGlobals.event,
-                    ip: triggerGlobals.event.properties.$ip,
+                    ip:
+                        typeof triggerGlobals.event.properties.$ip === 'string'
+                            ? triggerGlobals.event.properties.$ip
+                            : null,
                     site_url: triggerGlobals.project.url,
                     team_id: triggerGlobals.project.id,
                     now: '',

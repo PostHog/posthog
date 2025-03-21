@@ -255,7 +255,6 @@ export class PluginServer {
                 serviceLoaders.push(async () => {
                     await initPlugins()
                     const api = new CdpApi(hub)
-                    await api.start()
                     this.expressApp.use('/', api.router())
                     return api.service
                 })

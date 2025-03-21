@@ -1270,6 +1270,21 @@
                 }
             ]
         },
+        "AssistantHogQLQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "HogQLQuery",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "query"],
+            "type": "object"
+        },
         "AssistantInsightsQueryBase": {
             "additionalProperties": false,
             "properties": {
@@ -5345,6 +5360,21 @@
                         "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
+                },
+                "context": {
+                    "additionalProperties": false,
+                    "description": "Context for the table, used by components like ColumnConfigurator",
+                    "properties": {
+                        "eventDefinitionId": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "enum": ["event_definition", "team_columns"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type"],
+                    "type": "object"
                 },
                 "embedded": {
                     "description": "Uses the embedded version of LemonTable",
@@ -14552,39 +14582,16 @@
             "type": "object"
         },
         "RefreshType": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "const": "async",
-                    "type": "string"
-                },
-                {
-                    "const": "async_except_on_cache_miss",
-                    "type": "string"
-                },
-                {
-                    "const": "blocking",
-                    "type": "string"
-                },
-                {
-                    "const": "force_async",
-                    "type": "string"
-                },
-                {
-                    "const": "force_blocking",
-                    "type": "string"
-                },
-                {
-                    "const": "force_cache",
-                    "type": "string"
-                },
-                {
-                    "const": "lazy_async",
-                    "type": "string"
-                }
-            ]
+            "enum": [
+                "async",
+                "async_except_on_cache_miss",
+                "blocking",
+                "force_async",
+                "force_blocking",
+                "force_cache",
+                "lazy_async"
+            ],
+            "type": "string"
         },
         "ResultCustomization": {
             "anyOf": [
@@ -14780,6 +14787,10 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter",
+                    "description": "Breakdown of the events and actions"
+                },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
                     "type": ["number", "null"]
@@ -14870,6 +14881,10 @@
         "RetentionResult": {
             "additionalProperties": false,
             "properties": {
+                "breakdown_value": {
+                    "description": "Optional breakdown value for retention cohorts",
+                    "type": ["string", "number", "null"]
+                },
                 "date": {
                     "format": "date-time",
                     "type": "string"
@@ -15167,6 +15182,21 @@
                 "allowSorting": {
                     "description": "Can the user click on column headers to sort the table? (default: true)",
                     "type": "boolean"
+                },
+                "context": {
+                    "additionalProperties": false,
+                    "description": "Context for the table, used by components like ColumnConfigurator",
+                    "properties": {
+                        "eventDefinitionId": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "enum": ["event_definition", "team_columns"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type"],
+                    "type": "object"
                 },
                 "embedded": {
                     "description": "Query is embedded inside another bordered component",
@@ -16644,6 +16674,9 @@
                         },
                         {
                             "$ref": "#/definitions/AssistantRetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantHogQLQuery"
                         }
                     ]
                 },

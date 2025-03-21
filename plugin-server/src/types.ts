@@ -115,7 +115,6 @@ export type CdpConfig = {
     CDP_REDIS_PASSWORD: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
-    CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED: boolean
 }
 
 export type IngestionConsumerConfig = {
@@ -330,6 +329,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
     SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
+    SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -338,6 +338,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
     PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: string
     PROPERTY_DEFS_WRITE_DISABLED: boolean
+
+    LAZY_TEAM_MANAGER_COMPARISON: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
