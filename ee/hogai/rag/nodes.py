@@ -55,7 +55,7 @@ class InsightRagContextNode(AssistantNode):
             query=VectorSearchQuery(embedding=embedding),
         )
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-        if not isinstance(response, CachedVectorSearchQueryResponse):
+        if not isinstance(response, CachedVectorSearchQueryResponse) or not response.results:
             return ""
 
         actions = Action.objects.filter(

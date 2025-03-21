@@ -25,7 +25,7 @@ async def aembed_documents(client: cohere.AsyncClientV2, texts: list[str]) -> li
 def embed_search_query(client: cohere.ClientV2, texts: str) -> list[float]:
     """Embed a search query for semantic search by stored documents."""
     response = client.embed(
-        texts=texts,
+        texts=[texts],
         model="embed-english-v3.0",
         input_type="search_query",
         embedding_types=["float"],
