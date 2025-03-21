@@ -172,7 +172,7 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
 
     const region = preflight?.region || 'us'
 
-    const wizardCommand = `npx --yes @posthog/wizard@latest${region ? ` --region ${region.toLowerCase()}` : ''}`
+    const wizardCommand = `npx @posthog/wizard@latest${region ? ` --region ${region.toLowerCase()}` : ''}`
     return (
         <>
             {showSetupWizard && (
