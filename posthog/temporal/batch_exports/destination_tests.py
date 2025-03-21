@@ -793,20 +793,21 @@ class SnowflakeDatabaseTestStep(DestinationTestStep):
             warehouse=self.warehouse,
         )
 
-        with connection.cursor() as cursor:
-            try:
-                _ = cursor.execute(f'USE DATABASE "{self.database}"')
-            except ProgrammingError as err:
-                if err.msg is not None and "Object does not exist" in err.msg:
-                    return DestinationTestStepResult(
-                        status=Status.FAILED,
-                        message=f"The configured database '{self.database}' does not exist or we are missing 'USAGE' permissions on it.",
-                    )
-                else:
-                    return DestinationTestStepResult(
-                        status=Status.FAILED,
-                        message=f"Could not use Snowflake database '{self.database}'. Received error: {err}.",
-                    )
+        with connection:
+            with connection.cursor() as cursor:
+                try:
+                    _ = cursor.execute(f'USE DATABASE "{self.database}"')
+                except ProgrammingError as err:
+                    if err.msg is not None and "Object does not exist" in err.msg:
+                        return DestinationTestStepResult(
+                            status=Status.FAILED,
+                            message=f"The configured database '{self.database}' does not exist or we are missing 'USAGE' permissions on it.",
+                        )
+                    else:
+                        return DestinationTestStepResult(
+                            status=Status.FAILED,
+                            message=f"Could not use Snowflake database '{self.database}'. Received error: {err}.",
+                        )
 
         return DestinationTestStepResult(
             status=Status.PASSED,
@@ -886,22 +887,23 @@ class SnowflakeSchemaTestStep(DestinationTestStep):
             warehouse=self.warehouse,
         )
 
-        with connection.cursor() as cursor:
-            _ = cursor.execute(f'USE DATABASE "{self.database}"')
+        with connection:
+            with connection.cursor() as cursor:
+                _ = cursor.execute(f'USE DATABASE "{self.database}"')
 
-            try:
-                _ = cursor.execute(f'USE SCHEMA "{self.schema}"')
-            except ProgrammingError as err:
-                if err.msg is not None and "Object does not exist" in err.msg:
-                    return DestinationTestStepResult(
-                        status=Status.FAILED,
-                        message=f"The configured schema '{self.schema}' does not exist or we are missing 'USAGE' permissions on it.",
-                    )
-                else:
-                    return DestinationTestStepResult(
-                        status=Status.FAILED,
-                        message=f"Could not use Snowflake schema '{self.schema}'. Received error: {err}.",
-                    )
+                try:
+                    _ = cursor.execute(f'USE SCHEMA "{self.schema}"')
+                except ProgrammingError as err:
+                    if err.msg is not None and "Object does not exist" in err.msg:
+                        return DestinationTestStepResult(
+                            status=Status.FAILED,
+                            message=f"The configured schema '{self.schema}' does not exist or we are missing 'USAGE' permissions on it.",
+                        )
+                    else:
+                        return DestinationTestStepResult(
+                            status=Status.FAILED,
+                            message=f"Could not use Snowflake schema '{self.schema}'. Received error: {err}.",
+                        )
 
         return DestinationTestStepResult(
             status=Status.PASSED,
