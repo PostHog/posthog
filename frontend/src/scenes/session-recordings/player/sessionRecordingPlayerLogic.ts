@@ -103,6 +103,32 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLo
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
     !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
 
+/**
+ * returns the relative second in the recording
+ * e.g. if the player starts at 1000ms and the snapshot is at 2000ms or 1500ms, the relative second is 1
+ */
+function toRelativeSecondInRecording(timestamp: number, playerStartTime: number): number {
+    return Math.trunc((timestamp - playerStartTime) / 1000)
+}
+
+const INCREMENTAL_SNAPSHOT_EVENT_TYPE = 3
+const ACTIVE_SOURCES = [
+    IncrementalSource.MouseMove,
+    IncrementalSource.MouseInteraction,
+    IncrementalSource.Scroll,
+    IncrementalSource.ViewportResize,
+    IncrementalSource.Input,
+    IncrementalSource.TouchMove,
+    IncrementalSource.MediaInteraction,
+    IncrementalSource.Drag,
+]
+function isUserActivity(snapshot: eventWithTime): boolean {
+    return (
+        snapshot.type === INCREMENTAL_SNAPSHOT_EVENT_TYPE &&
+        ACTIVE_SOURCES.indexOf(snapshot.data?.source as IncrementalSource) !== -1
+    )
+}
+
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -460,6 +486,30 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         sessionRecordingId: [() => [(_, props) => props], (props): string => props.sessionRecordingId],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
         playlistLogic: [() => [(_, props) => props], (props) => props.playlistLogic],
+
+        activityPerSecond: [
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData: SessionPlayerData) => {
+                const start = sessionPlayerData.start
+                if (start === null) {
+                    return {}
+                }
+
+                const activityPerSecond: Record<number, number> = {}
+                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([_, snapshots]) => {
+                    snapshots.forEach((snapshot) => {
+                        const timestamp = toRelativeSecondInRecording(snapshot.timestamp, start.valueOf())
+                        const activity = isUserActivity(snapshot) ? 1 : 0
+                        if (!activityPerSecond[timestamp]) {
+                            activityPerSecond[timestamp] = 0
+                        }
+                        activityPerSecond[timestamp] += activity
+                    })
+                })
+
+                return activityPerSecond
+            },
+        ],
 
         roughAnimationFPS: [(s) => [s.playerSpeed], (playerSpeed) => playerSpeed * (1000 / 60)],
         currentPlayerState: [

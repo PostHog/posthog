@@ -1,10 +1,13 @@
 import './Seekbar.scss'
 
+import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { cn } from 'lib/utils/css-classes'
+import { MutableRefObject, useEffect, useRef } from 'react'
 import React from 'react'
 
+import useIsHovering from '~/lib/hooks/useIsHovering'
 import { RecordingSegment } from '~/types'
 
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
@@ -54,6 +57,58 @@ function SeekbarSegments(): JSX.Element {
     )
 }
 
+export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivElement | null> }): JSX.Element {
+    const { activityPerSecond, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { endTimeMs: durationMs } = useValues(seekbarLogic(logicProps))
+
+    const seekBarRef = useRef<HTMLDivElement | null>(null)
+    const [width, height] = useSize(seekBarRef)
+    const durationInSeconds = durationMs / 1000
+    const maximumActivity = Math.max(...Object.values(activityPerSecond))
+
+    const isHovering = useIsHovering(hoverRef)
+
+    // Create points array with logarithmic scaling
+    const points = Object.entries(activityPerSecond).map(([secondInRecording, activity]) => {
+        const logScale = activity > 0 ? Math.log(activity + 1) : 0
+        const maxLogScale = Math.log(maximumActivity + 1)
+        return {
+            second: parseInt(secondInRecording),
+            x: (parseInt(secondInRecording) / durationInSeconds) * width,
+            y: height - (logScale / maxLogScale) * height,
+            activity,
+        }
+    })
+
+    return (
+        <div
+            className={cn('absolute bottom-0 w-full bg-surface-primary transition-opacity duration-300', {
+                'opacity-0': !isHovering,
+            })}
+            ref={seekBarRef}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ height: '3rem' }}
+        >
+            <svg width="100%" height="100%" preserveAspectRatio="none">
+                <path
+                    d={
+                        points.length
+                            ? `
+                        M 0,${height}
+                        ${points.map((point) => `L ${point.x},${point.y}`).join(' ')}
+                        L ${width},${height}
+                        Z
+                    `
+                            : ''
+                    }
+                    fill="var(--bg-fill-highlight-200)"
+                    stroke="none"
+                />
+            </svg>
+        </div>
+    )
+}
+
 export function Seekbar(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
@@ -79,7 +134,12 @@ export function Seekbar(): JSX.Element {
 
     return (
         <div className="flex flex-col items-end h-8 mx-4 mt-2" data-attr="rrweb-controller">
-            <PlayerSeekbarTicks seekbarItems={seekbarItems} endTimeMs={endTimeMs} seekToTime={seekToTime} />
+            <PlayerSeekbarTicks
+                seekbarItems={seekbarItems}
+                endTimeMs={endTimeMs}
+                seekToTime={seekToTime}
+                hoverRef={seekBarRef}
+            />
 
             <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>
                 <div
