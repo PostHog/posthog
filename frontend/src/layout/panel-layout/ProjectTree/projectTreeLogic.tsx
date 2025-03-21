@@ -1,8 +1,7 @@
-import { IconBook, IconPlus } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -35,7 +34,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             panelLayoutLogic,
-            ['searchTerm', 'isLayoutPanelPinned'],
+            ['searchTerm'],
         ],
         actions: [panelLayoutLogic, ['setSearchTerm']],
     }),
@@ -353,23 +352,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (_featureFlags, groupNodes: FileSystemImport[], folderStates) =>
                 // .filter(f => !f.flag || featureFlags[f.flag])
                 convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes), folderStates, 'root'),
-        ],
-        projectRow: [
-            (s) => [s.isLayoutPanelPinned],
-            (isLayoutPanelPinned): TreeDataItem[] => [
-                {
-                    id: 'project',
-                    name: 'Default Project',
-                    icon: <IconBook />,
-                    record: { type: 'project', id: 'project' },
-                    onClick: () => {
-                        if (!isLayoutPanelPinned) {
-                            panelLayoutLogic.actions.showLayoutPanel(false)
-                        }
-                        router.actions.push(urls.projectHomepage())
-                    },
-                },
-            ],
         ],
         searchedTreeItems: [
             (s) => [s.searchResults, s.searchResultsLoading],
