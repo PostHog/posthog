@@ -398,7 +398,6 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
             max_record_batch_size_bytes=1024 * 1024 * 2,  # 2MB
-            query_id=activity.info().workflow_id,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)

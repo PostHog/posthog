@@ -407,13 +407,13 @@ class ClickHouseClient:
             yield response
 
     async def kill_query(self, query_id: str, wait_for_cancellation: bool = True) -> None:
-        """Kill the query with given query ID in ClickHouse."""
+        """Kill queries with given query ID in ClickHouse."""
         if self.cluster:
             on_cluster_clause = f"ON CLUSTER {self.cluster}"
         else:
             on_cluster_clause = ""
 
-        query = "KILL QUERY" + on_cluster_clause + f"WHERE query_id = {query_id}"
+        query = "KILL QUERY" + on_cluster_clause + f"WHERE query_id LIKE '{query_id}'"
 
         if wait_for_cancellation:
             query += " SYNC"
