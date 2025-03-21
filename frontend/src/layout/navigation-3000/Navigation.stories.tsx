@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
@@ -45,11 +46,12 @@ export function NavigationBase(): JSX.Element {
 }
 
 export function Navigation3000(): JSX.Element {
+    const { openAccountPopover } = useActions(navigationLogic)
     setFeatureFlags([FEATURE_FLAGS.POSTHOG_3000_NAV])
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
-        navigationLogic.actions.openAccountPopover()
-    }, [])
+        openAccountPopover()
+    }, [openAccountPopover])
 
     return <App />
 }
