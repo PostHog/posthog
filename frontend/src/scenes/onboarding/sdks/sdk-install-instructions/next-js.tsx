@@ -179,10 +179,10 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
                 <>
                     <h2>Automated Installation</h2>
                     <LemonBanner type="info" hideIcon={true}>
+                        <h3 className="flex items-center gap-2 pb-1">
+                            <LemonTag type="completion">ALPHA</LemonTag> AI setup wizard
+                        </h3>
                         <div className="flex flex-col p-2">
-                            <h3 className="flex items-center gap-2 pb-1">
-                                <LemonTag type="completion">ALPHA</LemonTag> AI setup wizard
-                            </h3>
                             <p className="font-normal pb-1">
                                 Try using the AI setup wizard to automatically install PostHog.
                             </p>
