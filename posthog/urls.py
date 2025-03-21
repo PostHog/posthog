@@ -57,7 +57,6 @@ from .views import (
     security_txt,
     stats,
 )
-from .year_in_posthog import year_in_posthog
 from posthog.api.query import query_awaited
 
 from posthog.api.slack import slack_interactivity_callback
@@ -237,12 +236,6 @@ urlpatterns = [
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
-    path("year_in_posthog/2022/<str:user_uuid>", year_in_posthog.render_2022),
-    path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
-    path("year_in_posthog/2023/<str:user_uuid>", year_in_posthog.render_2023),
-    path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
-    path("year_in_posthog/2024/<str:user_uuid>", year_in_posthog.render_2024),
-    path("year_in_posthog/2024/<str:user_uuid>/", year_in_posthog.render_2024),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
 ]
 
