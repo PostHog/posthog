@@ -25,6 +25,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { useEffect, useState } from 'react'
+import { useRef } from 'react'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
@@ -123,6 +124,7 @@ export function HogFunctionConfiguration({
         deleteHogFunction,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
+    const sourceCodeRef = useRef<HTMLDivElement>(null)
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -450,6 +452,7 @@ export function HogFunctionConfiguration({
 
                             {canEditSource && (
                                 <div
+                                    ref={sourceCodeRef}
                                     className={clsx(
                                         'border rounded p-3 deprecated-space-y-2',
                                         showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
@@ -464,7 +467,15 @@ export function HogFunctionConfiguration({
                                         {!showSource ? (
                                             <LemonButton
                                                 type="secondary"
-                                                onClick={() => setShowSource(true)}
+                                                onClick={() => {
+                                                    setShowSource(true)
+                                                    setTimeout(() => {
+                                                        sourceCodeRef.current?.scrollIntoView({
+                                                            behavior: 'smooth',
+                                                            block: 'start',
+                                                        })
+                                                    }, 100)
+                                                }}
                                                 disabledReason={
                                                     !hasAddon
                                                         ? 'Editing the source code requires the Data Pipelines addon'
