@@ -168,8 +168,8 @@ export const urls = {
     messagingAutomationNew: (): string => '/messaging/automations/new',
     messagingAutomation: (id: string): string => `/messaging/automations/${id}`,
     messagingLibrary: (): string => '/messaging/library',
-    messagingLibraryNew: (): string => '/messaging/library/new',
     messagingLibraryTemplate: (id: string): string => `/messaging/library/template/${id}`,
+    messagingLibraryTemplateNew: (): string => '/messaging/library/template/new',
     messagingLibraryMessage: (id: string): string => `/messaging/library/message/${id}`,
     messagingLibraryMessageNew: (): string => '/messaging/library/message/new',
 }
