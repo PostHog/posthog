@@ -1,6 +1,6 @@
 import json
 from temporalio import activity, workflow, common
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 import dataclasses
 import structlog
@@ -72,7 +72,6 @@ async def query_usage_reports(
             capture_message(f"Usage reports are disabled for {inputs.at}")
             return QueryUsageReportsResult(
                 org_reports={},
-                period=(datetime.now(), datetime.now()),  # Empty period
             )
 
         at_date = parser.parse(inputs.at) if inputs.at else None
@@ -139,7 +138,7 @@ async def send_usage_reports(
                 full_report_dict = _get_full_org_usage_report_as_dict(full_report)
 
                 @sync_to_async
-                def async_capture_report(p, oid, frd, ad) -> bool:
+                def async_capture_report(p, oid, frd, ad) -> None:
                     try:
                         at_date_str = ad.isoformat() if ad else None
                         capture_report(
