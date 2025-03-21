@@ -34,6 +34,7 @@ export type UniversalFiltersLogicProps = {
     group: UniversalFiltersGroup | null
     onChange: (group: UniversalFiltersGroup) => void
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
+    overrideFilters?: (filters: Record<string, any>) => void
 }
 
 export const universalFiltersLogic = kea<universalFiltersLogicType>([
@@ -67,6 +68,8 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
             propertyKey,
             item,
         }),
+
+        overrideFilters: (filters: Record<string, any>) => ({ filters }),
     }),
 
     reducers(({ props }) => ({
@@ -114,6 +117,8 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
     }),
 
     listeners(({ props, values, actions }) => ({
+        overrideFilters: ({ filters }) => props.overrideFilters?.(filters),
+
         setGroupType: () => props.onChange(values.filterGroup),
         setGroupValues: () => props.onChange(values.filterGroup),
         replaceGroupValue: () => props.onChange(values.filterGroup),

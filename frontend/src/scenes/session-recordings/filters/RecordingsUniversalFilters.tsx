@@ -89,6 +89,7 @@ export const RecordingsUniversalFilters = ({
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
+        TaxonomicFilterGroupType.ReplaySavedFilters,
         TaxonomicFilterGroupType.Events,
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.Actions,
@@ -231,7 +232,12 @@ export const RecordingsUniversalFilters = ({
                             rootKey="session-recordings"
                             group={filters.filter_group}
                             taxonomicGroupTypes={taxonomicGroupTypes}
-                            onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
+                            onChange={(filterGroup) => {
+                                return setFilters({ filter_group: filterGroup })
+                            }}
+                            overrideFilters={(filters) => {
+                                return setFilters(filters)
+                            }}
                         >
                             <RecordingsUniversalFilterGroup size="xsmall" />
                         </UniversalFilters>
@@ -283,7 +289,7 @@ export const RecordingsUniversalFilters = ({
 
 const RecordingsUniversalFilterGroup = ({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
-    const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    const { replaceGroupValue, removeGroupValue, overrideFilters } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState(false)
 
     useEffect(() => {
@@ -296,7 +302,13 @@ const RecordingsUniversalFilterGroup = ({ size = 'small' }: { size?: LemonButton
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
                         <RecordingsUniversalFilterGroup size={size} />
-                        <UniversalFilters.AddFilterButton size={size} type="secondary" />
+                        <UniversalFilters.AddFilterButton
+                            size={size}
+                            type="secondary"
+                            onSavedFilters={(f) => {
+                                overrideFilters?.(f)
+                            }}
+                        />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
@@ -304,7 +316,9 @@ const RecordingsUniversalFilterGroup = ({ size = 'small' }: { size?: LemonButton
                         index={index}
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
-                        onChange={(value) => replaceGroupValue(index, value)}
+                        onChange={(value) => {
+                            return replaceGroupValue(index, value)
+                        }}
                         initiallyOpen={allowInitiallyOpen}
                         metadataSource={{ kind: NodeKind.RecordingsQuery }}
                     />
