@@ -2,7 +2,6 @@ import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BurningMoneyHog } from 'lib/components/hedgehogs'
-import useResizeObserver from 'use-resize-observer'
 
 import { billingLogic } from './billingLogic'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
@@ -10,7 +9,6 @@ import { PurchaseCreditsModal } from './PurchaseCreditsModal'
 export const DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD = 500
 
 export const CreditCTAHero = (): JSX.Element | null => {
-    const { width, ref: heroRef } = useResizeObserver()
     const {
         creditOverview,
         isPurchaseCreditsModalOpen,
@@ -46,10 +44,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
     const estimatedMonthlyCreditAmountUsd =
         creditOverview?.estimated_monthly_credit_amount_usd || DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
     return (
-        <div
-            className="flex relative justify-between items-start rounded-lg bg-surface-primary border mb-2 gap-2"
-            ref={heroRef}
-        >
+        <div className="relative rounded-lg bg-surface-primary border mb-2">
             <div className="absolute top-2 right-2 z-10">
                 <LemonButton
                     icon={<IconX className="w-4 h-4" />}
@@ -58,73 +53,69 @@ export const CreditCTAHero = (): JSX.Element | null => {
                     aria-label="Close"
                 />
             </div>
-            {width && width > 500 && (
-                <div className="shrink-0 relative pt-4 overflow-hidden">
-                    <BurningMoneyHog className="w-40 h-40" />
-                </div>
-            )}
-            <div className="p-4 flex-1">
-                {creditOverview.status === 'pending' && (
-                    <>
-                        <h1 className="mb-0">We're applying your credits</h1>
-                        <p className="mt-2 mb-0 max-w-xl">
-                            Your credits will be ready within 24 hours of payment.{' '}
-                            {creditOverview.collection_method === 'send_invoice'
-                                ? "You'll receive an email with a link to pay the invoice. Please make sure to pay that as soon as possible so we can apply the credits to your account."
-                                : "We'll will charge your card on file and we'll email you if there are any issues!"}
-                        </p>
-                        {creditOverview.invoice_url && (
+            <div className="@container p-4 relative">
+                <BurningMoneyHog className="float-right w-[33cqw] min-w-32 max-w-48 ml-6 mb-4" />
+                <div className="flex-1">
+                    {creditOverview.status === 'pending' && (
+                        <>
+                            <h1 className="mb-0">We're applying your credits</h1>
+                            <p className="mt-2 mb-0 max-w-xl">
+                                Your credits will be ready within 24 hours of payment.{' '}
+                                {creditOverview.collection_method === 'send_invoice'
+                                    ? "You'll receive an email with a link to pay the invoice. Please make sure to pay that as soon as possible so we can apply the credits to your account."
+                                    : "We'll will charge your card on file and we'll email you if there are any issues!"}
+                            </p>
+                            {creditOverview.invoice_url && (
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() =>
+                                        creditOverview.invoice_url && window.open(creditOverview.invoice_url, '_blank')
+                                    }
+                                    className="mt-4"
+                                >
+                                    View invoice
+                                </LemonButton>
+                            )}
+                        </>
+                    )}
+                    {creditOverview.status === 'none' && (
+                        <>
+                            <h2 className="mb-0">
+                                Stop burning money.{' '}
+                                <span className="text-success-light">Prepay and save {computedDiscount * 100}%</span>{' '}
+                                over the next 12 months.
+                            </h2>
+                            <p className="mt-2 mb-0 max-w-xl">
+                                Based on your usage, your monthly bill is forecasted to be an average of{' '}
+                                <strong>${estimatedMonthlyCreditAmountUsd.toFixed(0)}/month</strong> over the next year.
+                            </p>
+                            <p className="mt-2 mb-0 max-w-xl">
+                                This qualifies you for a <strong>{computedDiscount * 100}% discount</strong> by
+                                pre-purchasing usage credits. Which gives you a net savings of{' '}
+                                <strong>
+                                    $
+                                    {Math.round(estimatedMonthlyCreditAmountUsd * computedDiscount * 12).toLocaleString(
+                                        'en-US',
+                                        {
+                                            minimumFractionDigits: 0,
+                                            maximumFractionDigits: 0,
+                                        }
+                                    )}
+                                </strong>{' '}
+                                over the next year.
+                            </p>
                             <LemonButton
                                 type="primary"
-                                onClick={() =>
-                                    creditOverview.invoice_url && window.open(creditOverview.invoice_url, '_blank')
-                                }
+                                status="alt"
+                                onClick={() => showPurchaseCreditsModal(true)}
                                 className="mt-4"
                             >
-                                View invoice
+                                Learn more
                             </LemonButton>
-                        )}
-                    </>
-                )}
-                {(!creditOverview || creditOverview.status === 'none') && (
-                    <>
-                        <h2 className="mb-0">
-                            Stop burning money.{' '}
-                            <span className="text-success-light">Prepay and save {computedDiscount * 100}%</span> over
-                            the next 12 months.
-                        </h2>
-                        <p className="mt-2 mb-0 max-w-xl">
-                            Based on your usage, your monthly bill is forecasted to be an average of{' '}
-                            <strong>${estimatedMonthlyCreditAmountUsd.toFixed(0)}/month</strong> over the next year.
-                        </p>
-                        <p className="mt-2 mb-0 max-w-xl">
-                            This qualifies you for a <strong>{computedDiscount * 100}% discount</strong> by
-                            pre-purchasing usage credits. Which gives you a net savings of{' '}
-                            <strong>
-                                $
-                                {Math.round(estimatedMonthlyCreditAmountUsd * computedDiscount * 12).toLocaleString(
-                                    'en-US',
-                                    {
-                                        minimumFractionDigits: 0,
-                                        maximumFractionDigits: 0,
-                                    }
-                                )}
-                            </strong>{' '}
-                            over the next year.
-                        </p>
-                        <LemonButton
-                            type="primary"
-                            status="alt"
-                            onClick={() => showPurchaseCreditsModal(true)}
-                            className="mt-4"
-                        >
-                            Learn more
-                        </LemonButton>
-                        {creditOverview.estimated_monthly_credit_amount_usd > 1 && (
                             <>
                                 <LemonDivider className="my-4" />
-                                <div className="mt-2 flex justify-between items-center gap-2 w-full">
-                                    <p className="mb-2 flex-1">
+                                <div className="mt-2 flex flex-col items-start">
+                                    <p className="mb-2">
                                         <strong>Also available:</strong> Our Enterprise tier offers dedicated support in
                                         a private Slack channel, personalized training, and most importantly, free
                                         merch.
@@ -132,14 +123,15 @@ export const CreditCTAHero = (): JSX.Element | null => {
                                     <LemonButton
                                         type="primary"
                                         to="mailto:sales@posthog.com?subject=Let's talk enterprise!"
+                                        className="mt-2"
                                     >
                                         Talk to sales
                                     </LemonButton>
                                 </div>
                             </>
-                        )}
-                    </>
-                )}
+                        </>
+                    )}
+                </div>
             </div>
             {isPurchaseCreditsModalOpen && <PurchaseCreditsModal />}
         </div>
