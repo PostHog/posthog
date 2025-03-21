@@ -151,6 +151,28 @@ export class HogTransformerService {
                 for (const hogFunction of teamHogFunctions) {
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
 
+                    // Check if the function would be disabled via hogWatcher - but don't actually disable yet
+                    if (this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
+                        const functionState = states[hogFunction.id]
+                        if (functionState?.state >= HogWatcherState.disabledForPeriod) {
+                            // Just log that we would have disabled this transformation but we're letting it run
+                            logger.info(
+                                '🧪',
+                                '[MONITORING MODE] Transformation would be disabled but is allowed to run for testing',
+                                {
+                                    function_id: hogFunction.id,
+                                    function_name: hogFunction.name,
+                                    team_id: event.team_id,
+                                    state: functionState.state,
+                                    state_name:
+                                        functionState.state === HogWatcherState.disabledForPeriod
+                                            ? 'disabled_temporarily'
+                                            : 'disabled_permanently',
+                                }
+                            )
+                        }
+                    }
+
                     // Check if we should apply this transformation based on its filters
                     if (this.hub.FILTER_TRANSFORMATIONS_ENABLED) {
                         const globals = this.createInvocationGlobals(event)
@@ -184,67 +206,6 @@ export class HogTransformerService {
                             }
                         }
                     }
-
-                    // Check if the function would be disabled via hogWatcher - but don't actually disable yet
-                    if (this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
-                        const functionState = states[hogFunction.id]
-                        if (functionState?.state >= HogWatcherState.disabledForPeriod) {
-                            // Just log that we would have disabled this transformation but we're letting it run
-                            logger.info(
-                                '🧪',
-                                '[MONITORING MODE] Transformation would be disabled but is allowed to run for testing',
-                                {
-                                    function_id: hogFunction.id,
-                                    function_name: hogFunction.name,
-                                    team_id: event.team_id,
-                                    state: functionState.state,
-                                    state_name:
-                                        functionState.state === HogWatcherState.disabledForPeriod
-                                            ? 'disabled_temporarily'
-                                            : 'disabled_permanently',
-                                }
-                            )
-                        }
-                    }
-
-                    // Check if we should apply this transformation based on its filters
-                    if (this.hub.FILTER_TRANSFORMATIONS_ENABLED) {
-                        const globals = this.createInvocationGlobals(event)
-                        const filterGlobals = convertToHogFunctionFilterGlobal(globals)
-
-                        // Check if function has filters - if not, always apply
-                        if (hogFunction.filters?.bytecode) {
-                            try {
-                                const filterResults = checkHogFunctionFilters({
-                                    hogFunction,
-                                    filterGlobals,
-                                    eventUuid: globals.event?.uuid,
-                                })
-
-                                // If filter didn't pass and there was no error, skip this transformation
-                                if (!filterResults.match && !filterResults.error) {
-                                    transformationsSkipped.push(transformationIdentifier)
-                                    results.push({
-                                        invocation: createInvocation(
-                                            {
-                                                ...globals,
-                                                inputs: {}, // Not needed as this is only for a valid return type
-                                            },
-                                            hogFunction
-                                        ),
-                                        metrics: filterResults.metrics,
-                                        logs: filterResults.logs,
-                                        error: null,
-                                        finished: true,
-                                    })
-                                    continue
-                                }
-                            } catch (error) {
-                                // Already logged in the utility, continue with transformation for backward compatibility
-                            }
-                        }
-                    }
-
                     const result = await this.executeHogFunction(hogFunction, this.createInvocationGlobals(event))
 
                     results.push(result)
