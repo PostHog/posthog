@@ -69,6 +69,7 @@ export function Sparkline({
             // X axis not needed in line charts without indicators
             display: type === 'bar' || maximumIndicator,
             bounds: 'data',
+            type: 'linear',
             stacked: true,
             ticks: {
                 display: false,
