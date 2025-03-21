@@ -2,6 +2,7 @@ import asyncio
 import datetime as dt
 import random
 import typing
+from collections.abc import Collection
 
 import pyarrow as pa
 import pytest
@@ -146,7 +147,8 @@ def test_slice_record_batch_into_single_record_slices():
     """Test we slice a record batch into slices with a single record."""
     n_legs = pa.array([2, 2, 4, 4, 5, 100])
     animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
-    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])  # type: ignore
+    arrays: Collection[pa.Array[typing.Any]] = [n_legs, animals]
+    batch = pa.RecordBatch.from_arrays(arrays, names=["n_legs", "animals"])
 
     slices = list(slice_record_batch(batch, max_record_batch_size_bytes=1, min_records_per_batch=1))
     assert len(slices) == 6

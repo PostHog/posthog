@@ -6,7 +6,9 @@ import io
 import json
 import os
 import re
+import typing as t
 import uuid
+from collections.abc import Collection
 from dataclasses import asdict
 from unittest import mock
 from unittest.mock import patch
@@ -2348,7 +2350,7 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
             )
 
             now = dt.datetime.now(dt.UTC)
-            arrays = [
+            arrays: Collection[pa.Array[t.Any]] = [
                 pa.array([1]),  # team_id
                 pa.array([now]),  # timestamp
                 pa.array(["test_event"]),  # event
@@ -2363,7 +2365,7 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
                 pa.array([json.dumps({"set1": "value1"})]),  # set
                 pa.array([json.dumps({"set_once1": "value1"})]),  # set_once
             ]
-            return pa.RecordBatch.from_arrays(arrays, schema=schema)  # type: ignore
+            return pa.RecordBatch.from_arrays(arrays, schema=schema)
 
         async def _create_record_batch_iterator(self):
             """Create an async iterator that yields a single record batch with test data."""
