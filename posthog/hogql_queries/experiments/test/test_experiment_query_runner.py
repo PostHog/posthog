@@ -1307,7 +1307,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_invalid_feature_flag_property(self):
+    def test_query_runner_without_feature_flag_property(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag, end_date=datetime(2020, 2, 1, 12, 0, 0))
         experiment.stats_config = {"version": 2}
