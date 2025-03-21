@@ -4,7 +4,7 @@ import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { cn } from 'lib/utils/css-classes'
-import { MutableRefObject, useEffect, useRef } from 'react'
+import { MutableRefObject, useEffect, useMemo, useRef } from 'react'
 import React from 'react'
 
 import useIsHovering from '~/lib/hooks/useIsHovering'
@@ -57,6 +57,15 @@ function SeekbarSegments(): JSX.Element {
     )
 }
 
+interface ActivityPoint {
+    second: number
+    x: number
+    y: {
+        user: number
+        mutation: number
+    }
+}
+
 export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivElement | null> }): JSX.Element {
     const { activityPerSecond, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { endTimeMs: durationMs } = useValues(seekbarLogic(logicProps))
@@ -64,21 +73,19 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
     const seekBarRef = useRef<HTMLDivElement | null>(null)
     const [width, height] = useSize(seekBarRef)
     const durationInSeconds = durationMs / 1000
-    const maximumActivity = Math.max(...Object.values(activityPerSecond))
 
     const isHovering = useIsHovering(hoverRef)
 
-    // Create points array with logarithmic scaling
-    const points = Object.entries(activityPerSecond).map(([secondInRecording, activity]) => {
-        const logScale = activity > 0 ? Math.log(activity + 1) : 0
-        const maxLogScale = Math.log(maximumActivity + 1)
-        return {
+    const points: ActivityPoint[] = useMemo(() => {
+        return Object.entries(activityPerSecond).map(([secondInRecording, activity]) => ({
             second: parseInt(secondInRecording),
             x: (parseInt(secondInRecording) / durationInSeconds) * width,
-            y: height - (logScale / maxLogScale) * height,
-            activity,
-        }
-    })
+            y: {
+                user: height - activity.user * height,
+                mutation: height - activity.mutation * height,
+            },
+        }))
+    }, [activityPerSecond, durationInSeconds, width, height])
 
     return (
         <div
@@ -90,12 +97,28 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
             style={{ height: '3rem' }}
         >
             <svg width="100%" height="100%" preserveAspectRatio="none">
+                {/* DOM Mutations - Medium opacity */}
                 <path
                     d={
                         points.length
                             ? `
                         M 0,${height}
-                        ${points.map((point) => `L ${point.x},${point.y}`).join(' ')}
+                        ${points.map((point) => `L ${point.x},${point.y.mutation}`).join(' ')}
+                        L ${width},${height}
+                        Z
+                    `
+                            : ''
+                    }
+                    fill="var(--bg-fill-highlight-100)"
+                    stroke="none"
+                />
+                {/* User Activity - Highest opacity */}
+                <path
+                    d={
+                        points.length
+                            ? `
+                        M 0,${height}
+                        ${points.map((point) => `L ${point.x},${point.y.user}`).join(' ')}
                         L ${width},${height}
                         Z
                     `
