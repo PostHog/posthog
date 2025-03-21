@@ -382,6 +382,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner = EventsQueryRunner(query=query, team=self.team)
         response = runner.run()
-
+        assert isinstance(response, CachedEventsQueryResponse)
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0]["properties"]["attr"], "no div")
