@@ -86,6 +86,14 @@ class TrendsQueryRunner(QueryRunner):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
     ):
+        from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
+
+        if isinstance(query, dict):
+            query = TrendsQuery.model_validate(query)
+
+        # Use the new function to handle WAU/MAU conversions
+        query = convert_active_user_math_based_on_interval(query)
+
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.update_hogql_modifiers()
         self.series = self.setup_series()

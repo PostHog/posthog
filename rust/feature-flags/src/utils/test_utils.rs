@@ -359,7 +359,7 @@ pub async fn insert_cohort_for_team_in_pg(
 ) -> Result<Cohort, Error> {
     let cohort = Cohort {
         id: 0, // Placeholder, will be updated after insertion
-        name: name.unwrap_or("Test Cohort".to_string()),
+        name,
         description: Some("Description for cohort".to_string()),
         team_id,
         deleted: false,
