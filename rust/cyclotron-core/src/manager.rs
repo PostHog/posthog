@@ -105,7 +105,7 @@ impl QueueManager {
             .next_shard
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let shards = self.shards.read().await;
-        shards[next % shards.len()].bulk_create_jobs(&inits).await
+        shards[next % shards.len()].bulk_create_jobs(inits).await
     }
 
     pub async fn bulk_create_jobs_blocking(
@@ -118,7 +118,7 @@ impl QueueManager {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let shards = self.shards.read().await;
         shards[next % shards.len()]
-            .bulk_create_jobs_blocking(&inits, timeout)
+            .bulk_create_jobs_blocking(inits, timeout)
             .await
     }
 }
@@ -150,7 +150,7 @@ impl Shard {
     // Inserts a vec of jobs, failing if the shard is at capacity. Note "capacity" here just
     // means "it isn't totally full" - if there's "capacity" for 1 job, and this is a vec of
     // 1000, we still insert all 1000.
-    pub async fn bulk_create_jobs(&self, inits: &[JobInit]) -> Result<Vec<Uuid>, QueueError> {
+    pub async fn bulk_create_jobs(&self, inits: Vec<JobInit>) -> Result<Vec<Uuid>, QueueError> {
         self.insert_guard().await?;
         if self.should_use_bulk_job_copy {
             bulk_create_jobs_copy(&self.pool, inits, self.should_compress_vm_state).await
@@ -181,7 +181,7 @@ impl Shard {
     // As above, with the same caveats about what "capacity" means
     pub async fn bulk_create_jobs_blocking(
         &self,
-        inits: &[JobInit],
+        inits: Vec<JobInit>,
         timeout: Option<Duration>,
     ) -> Result<Vec<Uuid>, QueueError> {
         let start = Utc::now();

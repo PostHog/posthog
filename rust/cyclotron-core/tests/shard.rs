@@ -62,7 +62,7 @@ pub async fn test_shard_allows_bulk_inserts_beyond_capacity(db: PgPool) {
 
     // And then we should be able to bulk insert 1000
     let inits = (0..1000).map(|_| create_new_job()).collect::<Vec<_>>();
-    shard.bulk_create_jobs(&inits).await.unwrap();
+    shard.bulk_create_jobs(inits).await.unwrap();
 
     // And the next insert should fail
     let result = shard.create_job(create_new_job()).await;
