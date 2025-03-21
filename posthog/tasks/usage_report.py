@@ -317,17 +317,13 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     from ee.billing.billing_types import BillingStatus
     from ee.settings import BILLING_SERVICE_URL
 
-    logger.info(f"[Send Usage Report To Billing] Sending Usage Report to billing for organization: {org_id}")
-
     try:
         license = get_cached_instance_license()
         if not license or not license.is_v2_license:
-            logger.info(f"[Send Usage Report To Billing] No license found for organization: {org_id}")
             return
 
         organization = Organization.objects.get(id=org_id)
         if not organization:
-            logger.info(f"[Send Usage Report To Billing] No organization found for organization: {org_id}")
             return
 
         token = build_billing_token(license, organization)
@@ -336,13 +332,10 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
             headers["Authorization"] = f"Bearer {token}"
 
         response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers, timeout=30)
-        logger.info(f"[Send Usage Report To Billing] Usage response: {response.status_code}")
         if response.status_code != 200:
             raise Exception(
                 f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
             )
-
-        logger.info(f"[Send Usage Report To Billing] Usage Report sent to Billing for organization: {org_id}")
 
         response_data: BillingStatus = response.json()
         BillingManager(license).update_org_details(organization, response_data)
@@ -865,7 +858,6 @@ def capture_report(
             properties=full_report_dict,
             timestamp=at_date,
         )
-        logger.info(f"UsageReport sent to PostHog for organization {organization_id}")
     except Exception as err:
         logger.exception(
             f"UsageReport sent to PostHog for organization {organization_id} failed: {str(err)}",
@@ -1233,27 +1225,16 @@ def _add_team_report_to_org_reports(
 
 
 def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[str, OrgReport]:
-    logger.info("Getting all usage data...")  # noqa T201
-    time_now = datetime.now()
     all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
 
-    logger.debug(f"Getting all usage data took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
-
-    logger.info("Getting teams for usage reports...")  # noqa T201
-    time_now = datetime.now()
     teams = _get_teams_for_usage_reports()
-    logger.debug(f"Getting teams for usage reports took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
 
     org_reports: dict[str, OrgReport] = {}
 
-    logger.info("Generating reports for teams...")  # noqa T201
-    time_now = datetime.now()
     for team in teams:
         team_report = _get_team_report(all_data, team)
         _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
 
-    time_since = datetime.now() - time_now
-    logger.debug(f"Generating reports for teams took {time_since.total_seconds()} seconds.")  # noqa T201
     return org_reports
 
 
@@ -1269,8 +1250,6 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
 
 
 def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[str, Any]) -> None:
-    logger.info(f"Sending usage report for organization {organization_id}")  # noqa T201
-
     json_data = json.dumps(
         {"organization_id": organization_id, "usage_report": full_report_dict}, separators=(",", ":")
     )
@@ -1285,7 +1264,7 @@ def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[st
     response = producer.send_message(message_body=compressed_b64, message_attributes=message_attributes)
 
     if not response:
-        logger.error(f"Failed to send usage report for organization {organization_id}")
+        logger.exception(f"Failed to send usage report for organization {organization_id}")
 
     return
 
@@ -1388,6 +1367,8 @@ def send_all_org_usage_reports(
         "usage reports complete",
         {
             "total_orgs": total_orgs,
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
             "total_orgs_sent": total_orgs_sent,
             "query_time": query_time_duration,
             "queue_time": queue_time_duration,
