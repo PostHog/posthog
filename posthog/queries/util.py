@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from enum import Enum, auto
 from typing import Any, Optional, Union, overload
 
@@ -161,7 +161,7 @@ def deep_dump_object(params: dict[str, Any]) -> dict[str, Any]:
 
 def convert_to_datetime_aware(date_obj):
     if date_obj.tzinfo is None:
-        date_obj = date_obj.replace(tzinfo=timezone.utc)
+        date_obj = date_obj.replace(tzinfo=UTC)
     return date_obj
 
 

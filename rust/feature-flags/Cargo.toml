@@ -48,6 +48,7 @@ petgraph = "0.6.5"
 moka = { workspace = true }
 serde_urlencoded = { workspace = true }
 urlencoding = "2.1.3"
+dateparser = "0.2.1"
 
 [lints]
 workspace = true
@@ -56,3 +57,4 @@ workspace = true
 assert-json-diff = { workspace = true }
 reqwest = { workspace = true }
 futures = "0.3.30"
+rstest = "0.25.0"

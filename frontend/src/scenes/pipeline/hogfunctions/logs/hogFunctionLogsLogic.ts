@@ -55,7 +55,7 @@ const loadClickhouseEvents = async (
         `,
     }
 
-    const response = await api.query(query, undefined, undefined, true, {
+    const response = await api.query(query, undefined, undefined, 'force_blocking', {
         date_from: date_from,
         date_to: date_to,
     })

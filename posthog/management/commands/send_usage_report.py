@@ -19,11 +19,6 @@ class Command(BaseCommand):
             type=str,
             help="Skip the posthog capture events - for retrying to billing service",
         )
-        parser.add_argument(
-            "--organization-id",
-            type=str,
-            help="Only send the report for this organization ID",
-        )
         parser.add_argument("--async", type=bool, help="Run the task asynchronously")
 
     def handle(self, *args, **options):
@@ -31,7 +26,6 @@ class Command(BaseCommand):
         date = options["date"]
         event_name = options["event_name"]
         skip_capture_event = options["skip_capture_event"]
-        organization_id = options["organization_id"]
         run_async = options["async"]
 
         if run_async:
@@ -40,7 +34,6 @@ class Command(BaseCommand):
                 at=date,
                 capture_event_name=event_name,
                 skip_capture_event=skip_capture_event,
-                only_organization_id=organization_id,
             )
         else:
             send_all_org_usage_reports(
@@ -48,7 +41,6 @@ class Command(BaseCommand):
                 at=date,
                 capture_event_name=event_name,
                 skip_capture_event=skip_capture_event,
-                only_organization_id=organization_id,
             )
 
             if dry_run:

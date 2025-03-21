@@ -18,6 +18,7 @@ import {
     EventsQuery,
     FunnelsQuery,
     GoalLine,
+    GroupsQuery,
     HogQLASTQuery,
     HogQLMetadata,
     HogQLQuery,
@@ -29,6 +30,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
+    MathType,
     Node,
     NodeKind,
     PathsQuery,
@@ -50,7 +52,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { ChartDisplayType, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
@@ -229,7 +231,7 @@ export function isInsightQueryWithDisplay(node?: Record<string, any> | null): no
 }
 
 export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): node is TrendsQuery | FunnelsQuery {
-    return isTrendsQuery(node) || isFunnelsQuery(node)
+    return isTrendsQuery(node) || isFunnelsQuery(node) || isRetentionQuery(node)
 }
 
 export function isInsightQueryWithCompare(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
@@ -251,6 +253,15 @@ export function isQueryForGroup(query: PersonsNode | ActorsQuery): boolean {
 
 export function isAsyncResponse(response: NonNullable<QuerySchema['response']>): response is QueryStatusResponse {
     return 'query_status' in response && response.query_status
+}
+
+export function shouldQueryBeAsync(query: Node): boolean {
+    return (
+        isInsightQueryNode(query) ||
+        isHogQLQuery(query) ||
+        (isDataTableNode(query) && isInsightQueryNode(query.source)) ||
+        (isDataVisualizationNode(query) && isInsightQueryNode(query.source))
+    )
 }
 
 export function isInsightQueryWithSeries(
@@ -487,6 +498,16 @@ export function taxonomicPersonFilterToHogQL(
     return null
 }
 
+export function taxonomicGroupFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    return null
+}
+
 export function isHogQlAggregation(hogQl: string): boolean {
     return (
         hogQl.includes('count(') ||
@@ -556,4 +577,38 @@ export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): brea
 
 export function isValidQueryForExperiment(query: Node): boolean {
     return isNodeWithSource(query) && isFunnelsQuery(query.source) && query.source.series.length >= 2
+}
+
+export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {
+    return node?.kind === NodeKind.GroupsQuery
+}
+
+export const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
+
+/**
+ * Determines if a math type should display a warning based on the trends query interval and display category
+ */
+export function getMathTypeWarning(
+    key: MathType,
+    query: Record<string, any>,
+    isTotalValue: boolean
+): null | 'total' | 'monthly' | 'weekly' {
+    let warning: null | 'total' | 'monthly' | 'weekly' = null
+
+    if (isInsightVizNode(query) && isTrendsQuery(query.source) && TRAILING_MATH_TYPES.has(key)) {
+        const trendsQuery = query.source
+        const interval = trendsQuery?.interval || 'day'
+        const isWeekOrLongerInterval = interval === 'week' || interval === 'month'
+        const isMonthOrLongerInterval = interval === 'month'
+
+        if (key === BaseMathType.MonthlyActiveUsers && isMonthOrLongerInterval) {
+            warning = 'monthly'
+        } else if (key === BaseMathType.WeeklyActiveUsers && isWeekOrLongerInterval) {
+            warning = 'weekly'
+        } else if (isTotalValue) {
+            warning = 'total'
+        }
+    }
+
+    return warning
 }

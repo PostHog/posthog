@@ -3,6 +3,7 @@ import { Spinner } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
+import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { iconForType } from './defaultTree'
@@ -103,7 +104,7 @@ export function convertFileSystemEntryToTreeDataItem(
             if (b.id.startsWith(`${root}-load-more/`) || b.id.startsWith(`${root}-loading/`)) {
                 return -1
             }
-            return a.name.localeCompare(b.name)
+            return String(a.name).localeCompare(String(b.name))
         })
         for (const node of nodes) {
             if (node.children) {
@@ -112,6 +113,46 @@ export function convertFileSystemEntryToTreeDataItem(
         }
     }
     sortNodes(rootNodes)
+    return rootNodes
+}
+
+export function convertFileSystemEntryToFlatTreeDataItem(
+    imports: (FileSystemImport | FileSystemEntry)[],
+    root = 'project',
+    searchTerm = ''
+): TreeDataItem[] {
+    // The top-level nodes for our project tree
+    const rootNodes: TreeDataItem[] = []
+
+    for (const item of imports) {
+        const pathSplit = splitPath(item.path)
+        const itemName = pathSplit.pop()!
+        const folderPath = joinPath(pathSplit)
+
+        // Create the actual item node.
+        const node: TreeDataItem = {
+            id: `${root}/${item.id || item.path}`,
+            name: itemName,
+            displayName: (
+                <div className="flex flex-col gap-1">
+                    <SearchHighlightMultiple string={itemName} substring={searchTerm} />
+                    <div className="text-xxs font-normal">
+                        <SearchHighlightMultiple string={folderPath} substring={searchTerm} />
+                    </div>
+                </div>
+            ),
+            icon: ('icon' in item && item.icon) || iconForType(item.type),
+            record: item,
+            onClick: () => {
+                if (item.href) {
+                    router.actions.push(typeof item.href === 'function' ? item.href(item.ref) : item.href)
+                }
+            },
+        }
+        // Place the item in the current (deepest) folder.
+        rootNodes.push(node)
+    }
+
     return rootNodes
 }
 
