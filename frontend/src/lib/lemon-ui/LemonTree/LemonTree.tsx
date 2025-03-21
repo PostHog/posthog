@@ -235,6 +235,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 tooltipPlacement="right"
                                                 style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
                                                 truncate
+                                                to={item.record?.href ? item.record.href : undefined}
                                                 sideAction={itemSideAction ? itemSideAction(item) : undefined}
                                                 buttonWrapper={
                                                     enableDragAndDrop && isItemDraggable?.(item) && item.record?.path

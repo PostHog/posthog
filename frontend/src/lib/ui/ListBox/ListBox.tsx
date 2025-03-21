@@ -51,6 +51,10 @@ export const ListBox = ({
             e.preventDefault()
             nextIndex = (currentIndex + (e.key === 'ArrowDown' ? 1 : -1) + elements.length) % elements.length
             elements[nextIndex]?.focus()
+        } else if (e.key === 'Home' || e.key === 'End') {
+            e.preventDefault()
+            nextIndex = e.key === 'Home' ? 0 : elements.length - 1
+            elements[nextIndex]?.focus()
         }
 
         if (e.key === 'Enter') {
@@ -81,6 +85,7 @@ export const ListBox = ({
             tabIndex={0}
             onKeyDown={handleKeyDown}
             className={cn(className)}
+            aria-orientation="vertical"
             {...props}
         >
             {children}
@@ -126,6 +131,7 @@ ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
             'data-listbox-item': 'true',
             'data-focused': 'false',
             'aria-current': false,
+            'aria-selected': false,
             tabIndex: -1,
             role: 'option',
             onClick: handleItemClick,

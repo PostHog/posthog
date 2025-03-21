@@ -40,6 +40,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 <ListBox.Item asChild>
                     <LemonButton
                         to="https://www.google.com"
+                        targetBlank
                         fullWidth
                         className="data-[focused=true]:bg-fill-highlight-50 aria-[current=true]:bg-fill-highlight-100"
                     >
