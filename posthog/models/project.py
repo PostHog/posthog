@@ -62,4 +62,7 @@ class Project(models.Model):
 
     @cached_property
     def passthrough_team(self) -> "Team":
-        return self.teams.get(pk=self.pk)
+        passthrough_team = self.teams.first()
+        if passthrough_team is None:
+            raise ValueError(f"Project {self.pk} has no environments, which should not be possible")
+        return passthrough_team

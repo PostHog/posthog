@@ -25,6 +25,7 @@ from posthog.models.user import User
 from posthog.permissions import (
     APIScopePermission,
     AccessControlPermission,
+    AnyTeamInProjectMemberAccessPermission,
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
@@ -105,8 +106,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         # override the entire method.
         permission_classes: list = [IsAuthenticated, APIScopePermission, AccessControlPermission]
 
-        if self._is_team_view or self._is_project_view:
+        if self._is_team_view:
             permission_classes.append(TeamMemberAccessPermission)
+        elif self._is_project_view:
+            permission_classes.append(AnyTeamInProjectMemberAccessPermission)
         else:
             permission_classes.append(OrganizationMemberPermissions)
 
@@ -443,7 +446,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     @cached_property
     def user_permissions(self) -> "UserPermissions":
-        return UserPermissions(user=cast(User, self.request.user), team=self.team)
+        return UserPermissions(
+            user=cast(User, self.request.user),
+            team=self.project.passthrough_team if self._is_project_view else self.team,
+        )
 
     @cached_property
     def user_access_control(self) -> "UserAccessControl":

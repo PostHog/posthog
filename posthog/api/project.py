@@ -423,12 +423,11 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
     def safely_get_queryset(self, queryset):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
-        visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
-        queryset = queryset.filter(id__in=visible_teams_ids)
+        visible_project_ids = UserPermissions(cast(User, self.request.user)).project_ids_visible_for_user
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
                 queryset = queryset.filter(organization_id__in=scoped_organizations)
-        return queryset.filter(id__in=visible_teams_ids)
+        return queryset.filter(id__in=visible_project_ids)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
@@ -551,10 +550,11 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             team=teams[0],
         )
 
+    # The reset_token action is for backwards compatibility, as /projects/ previously represented the Team model
     @action(
         methods=["PATCH"],
         detail=True,
-        # Only ADMIN or higher users are allowed to access this project
+        # Only ADMIN or higher users are allowed to access this environment
         permission_classes=[TeamMemberStrictManagementPermission],
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
@@ -564,6 +564,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
+    # The reset_token is_generating_demo_data is for backwards compatibility, as /projects/ previously represented the Team model
     @action(
         methods=["GET"],
         detail=True,

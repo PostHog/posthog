@@ -19,6 +19,7 @@ from posthog.auth import (
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.project import Project
 from posthog.models.scopes import APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.utils import get_can_create_org
@@ -159,9 +160,9 @@ class OrganizationAdminWritePermissions(BasePermission):
 
 
 class TeamMemberAccessPermission(BasePermission):
-    """Require effective project membership for any access at all."""
+    """Require effective membership in the environment for any access at all."""
 
-    message = "You don't have access to the project."
+    message = "You don't have access to this environment."
 
     def has_permission(self, request, view) -> bool:
         try:
@@ -173,6 +174,20 @@ class TeamMemberAccessPermission(BasePermission):
         # - not the "current_team" property of the user
         requesting_level = view.user_permissions.current_team.effective_membership_level
         return requesting_level is not None
+
+
+class AnyTeamInProjectMemberAccessPermission(BasePermission):
+    """Require effective membership in any environment of the project for any access at all."""
+
+    message = "You don't have access to this project."
+
+    def has_permission(self, request, view) -> bool:
+        try:
+            view.project  # noqa: B018
+        except Project.DoesNotExist:
+            return True  # This will be handled as a 404 in the viewset
+
+        return view.project_id in view.user_permissions.project_ids_visible_for_user
 
 
 class TeamMemberLightManagementPermission(BasePermission):
