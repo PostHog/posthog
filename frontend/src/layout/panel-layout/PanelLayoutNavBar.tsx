@@ -1,12 +1,4 @@
-import {
-    IconChevronRight,
-    IconClock,
-    IconFolderOpen,
-    IconGear,
-    IconPlusSmall,
-    IconSearch,
-    IconToolbar,
-} from '@posthog/icons'
+import { IconChevronRight, IconClock, IconFolderOpen, IconGear, IconSearch, IconToolbar } from '@posthog/icons'
 import { cva } from 'class-variance-authority'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -99,10 +91,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     )}
                     ref={containerRef}
                 >
-                    <div className="flex justify-between pt-1 pl-1 pr-2 pb-1">
+                    <div className="flex justify-between p-1">
                         <OrganizationDropdownMenu />
 
-                        <LemonButton
+                        {/* <LemonButton
                             size="small"
                             type="tertiary"
                             tooltip="Create new"
@@ -115,88 +107,95 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     <IconPlusSmall />
                                 </IconWrapper>
                             }
-                        />
+                        /> */}
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
-                        <ScrollableShadows innerClassName="overflow-y-auto px-2 " direction="vertical">
-                            <ListBox>
-                                <ListBox.Item
-                                    asChild
-                                    onClick={() => handlePanelTriggerClick('project')}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                                            handlePanelTriggerClick('project')
-                                        }
-                                    }}
-                                >
-                                    <LemonButton
-                                        className={cn(
-                                            'hover:bg-fill-highlight-50 data-[focused=true]:bg-fill-highlight-50',
-                                            activePanelIdentifier === 'project' && 'bg-fill-highlight-100'
-                                        )}
-                                        icon={
-                                            <IconWrapper>
-                                                <IconFolderOpen className="stroke-[1.2]" />
-                                            </IconWrapper>
-                                        }
-                                        fullWidth
-                                        size="small"
-                                        sideIcon={
-                                            <IconWrapper size="sm">
-                                                <IconChevronRight />
-                                            </IconWrapper>
-                                        }
+                        <ScrollableShadows
+                            className="flex-1"
+                            innerClassName="overflow-y-auto"
+                            direction="vertical"
+                            styledScrollbars
+                        >
+                            <ListBox className="flex flex-col gap-px">
+                                <div className="px-1">
+                                    <ListBox.Item
+                                        asChild
+                                        onClick={() => handlePanelTriggerClick('project')}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                                                handlePanelTriggerClick('project')
+                                            }
+                                        }}
                                     >
-                                        <span>Project</span>
-                                    </LemonButton>
-                                </ListBox.Item>
-                                <ListBox.Item asChild onClick={toggleSearchBar}>
-                                    <LemonButton
-                                        className="hover:bg-fill-highlight-50 data-[focused=true]:bg-fill-highlight-50"
-                                        fullWidth
-                                        size="small"
-                                        icon={
-                                            <IconWrapper>
-                                                <IconSearch />
-                                            </IconWrapper>
-                                        }
+                                        <LemonButton
+                                            className={cn(
+                                                'hover:bg-fill-highlight-50 data-[focused=true]:bg-fill-highlight-50',
+                                                activePanelIdentifier === 'project' && 'bg-fill-highlight-100'
+                                            )}
+                                            icon={
+                                                <IconWrapper>
+                                                    <IconFolderOpen className="stroke-[1.2]" />
+                                                </IconWrapper>
+                                            }
+                                            fullWidth
+                                            size="small"
+                                            sideIcon={
+                                                <IconWrapper size="sm">
+                                                    <IconChevronRight />
+                                                </IconWrapper>
+                                            }
+                                        >
+                                            <span>Project</span>
+                                        </LemonButton>
+                                    </ListBox.Item>
+                                    <ListBox.Item asChild onClick={toggleSearchBar}>
+                                        <LemonButton
+                                            className="hover:bg-fill-highlight-50 data-[focused=true]:bg-fill-highlight-50"
+                                            fullWidth
+                                            size="small"
+                                            icon={
+                                                <IconWrapper>
+                                                    <IconSearch />
+                                                </IconWrapper>
+                                            }
+                                        >
+                                            <span>Search</span>
+                                        </LemonButton>
+                                    </ListBox.Item>
+                                    <ListBox.Item
+                                        asChild
+                                        onClick={() => {
+                                            handleStaticNavbarItemClick(urls.activity(), false)
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                handleStaticNavbarItemClick(urls.activity(), true)
+                                            }
+                                        }}
                                     >
-                                        <span>Search</span>
-                                    </LemonButton>
-                                </ListBox.Item>
-                                <ListBox.Item
-                                    asChild
-                                    onClick={() => {
-                                        handleStaticNavbarItemClick(urls.activity(), false)
-                                    }}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                            handleStaticNavbarItemClick(urls.activity(), true)
-                                        }
-                                    }}
-                                >
-                                    <LemonButton
-                                        className={cn(
-                                            'hover:bg-fill-highlight-50 data-[focused=true]:bg-fill-highlight-50',
-                                            activePanelIdentifier === 'activity' && 'bg-fill-highlight-100'
-                                        )}
-                                        fullWidth
-                                        icon={
-                                            <IconWrapper>
-                                                <IconClock />
-                                            </IconWrapper>
-                                        }
-                                        size="small"
-                                        to={urls.activity()}
-                                    >
-                                        <span>Activity</span>
-                                    </LemonButton>
-                                </ListBox.Item>
+                                        <LemonButton
+                                            className={cn(
+                                                'hover:bg-fill-highlight-50 data-[focused=true]:bg-fill-highlight-50',
+                                                activePanelIdentifier === 'activity' && 'bg-fill-highlight-100'
+                                            )}
+                                            fullWidth
+                                            icon={
+                                                <IconWrapper>
+                                                    <IconClock />
+                                                </IconWrapper>
+                                            }
+                                            size="small"
+                                            to={urls.activity()}
+                                        >
+                                            <span>Activity</span>
+                                        </LemonButton>
+                                    </ListBox.Item>
+                                </div>
 
-                                <div className="border-b border-secondary h-px -mx-2 my-1" />
+                                <div className="border-b border-secondary h-px my-1" />
 
-                                <div className="pt-1">
+                                <div className="pt-1 px-1">
                                     <div className="flex justify-between items-center pl-2 pr-0 pb-2">
                                         <span className="text-xs font-bold text-tertiary">Products</span>
                                     </div>
@@ -280,9 +279,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </ListBox>
                         </ScrollableShadows>
 
-                        <div className="border-b border-secondary h-px" />
+                        <div className="border-b border-secondary h-px " />
 
-                        <div className="pt-1 px-2">
+                        <div className="pt-1 px-1">
                             <LemonButton
                                 className={cn(
                                     'hover:bg-fill-highlight-50',
