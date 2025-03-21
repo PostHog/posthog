@@ -107,6 +107,7 @@ export const BillingPurchaseCreditsModal = (): JSX.Element => {
         get: {
             '/api/billing/': {
                 ...billingJson,
+                account_owner: null,
             },
             '/api/billing/credits/overview': {
                 status: 'none',
