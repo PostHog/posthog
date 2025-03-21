@@ -153,19 +153,6 @@ export function convertFileSystemEntryToFlatTreeDataItem(
         rootNodes.push(node)
     }
 
-    // // Helper function to sort nodes (and their children) alphabetically by name.
-    // const sortNodes = (nodes: TreeDataItem[]): void => {
-    //     nodes.sort((a, b) => {
-    //         if (a.id.startsWith(`${root}-load-more/`) || a.id.startsWith(`${root}-loading/`)) {
-    //             return 1
-    //         }
-    //         if (b.id.startsWith(`${root}-load-more/`) || b.id.startsWith(`${root}-loading/`)) {
-    //             return -1
-    //         }
-    //         return a.name.localeCompare(b.name)
-    //     })
-    // }
-    // sortNodes(rootNodes)
     return rootNodes
 }
 

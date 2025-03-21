@@ -176,7 +176,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             <ul className={cn('list-none m-0 p-0', className)} role="group">
                 {data.map((item) => {
                     // Clean up display name by replacing escaped characters
-                    const displayName = item.displayName ?? item.name //.replace(/\\\//g, '/').replace(/\\/g, '')
+                    const displayName = item.displayName ?? item.name
 
                     if (item.type === 'separator') {
                         return (
