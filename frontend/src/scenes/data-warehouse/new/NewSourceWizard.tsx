@@ -183,7 +183,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                             const isConnected = disableConnectedSources && sourceConfig.existingSource
 
                             return (
-                                <div className="flex flex-row justify-end">
+                                <div className="flex flex-row justify-end p-1">
                                     {isConnected && (
                                         <LemonTag type="success" className="my-4" size="medium">
                                             <IconCheck />
@@ -238,7 +238,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         key: 'actions',
                         width: 0,
                         render: (_, sourceConfig) => (
-                            <div className="flex flex-row justify-end">
+                            <div className="flex flex-row justify-end p-1">
                                 <LemonButton
                                     onClick={() => onManualLinkClick(sourceConfig.type)}
                                     className="my-2"

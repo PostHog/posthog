@@ -87,6 +87,9 @@ export interface SidebarCategory extends SidebarCategoryBase {
         /** The "page" size. @default 100 */
         minimumBatchSize?: number
     }
+
+    /** Optional component to render when the category is empty. */
+    emptyComponent?: JSX.Element
 }
 
 export interface SearchMatch {

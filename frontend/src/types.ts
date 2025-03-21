@@ -1822,6 +1822,10 @@ export interface BillingType {
         target: 'paid' | 'teams' | 'enterprise'
         expires_at: string
     }
+    account_owner?: {
+        email?: string
+        name?: string
+    }
 }
 
 export interface BillingPlanType {
@@ -4986,7 +4990,7 @@ export type HogFunctionInvocationGlobals = {
 }
 
 export type HogFunctionTestInvocationResult = {
-    status: 'success' | 'error'
+    status: 'success' | 'error' | 'skipped'
     logs: LogEntry[]
     result: any
     errors?: string[]
