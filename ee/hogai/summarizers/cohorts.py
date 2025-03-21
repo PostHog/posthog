@@ -350,6 +350,11 @@ class CohortPropertyGroupSummarizer(Summarizer):
 
 class CohortSummarizer(Summarizer):
     _cohort: Cohort
+    _inline_conditions: bool
+    """
+    For cohort summaries, use the multiline format.
+    For property summaries, use the inline format.
+    """
 
     def __init__(self, team: Team, cohort: Cohort, inline_conditions: bool = False):
         super().__init__(team)
@@ -366,9 +371,6 @@ class CohortSummarizer(Summarizer):
 
     def _summarize_multiline(self) -> str:
         cohort = self._cohort
-        if not cohort or cohort.deleted:
-            return "This cohort has been deleted."
-
         summary_parts = []
 
         # Add cohort name and description
@@ -388,16 +390,13 @@ class CohortSummarizer(Summarizer):
 
         # Add property filters
         if properties_summary := self._summarize_property_filters():
-            summary_parts.append("\nFilters:")
+            summary_parts.append("Filters:")
             summary_parts.append(properties_summary)
 
         return "\n".join(summary_parts)
 
     def _summarize_inline(self) -> str:
         cohort = self._cohort
-        if not cohort or cohort.deleted:
-            return "deleted cohort"
-
         summary_parts = []
 
         # Add cohort name and description

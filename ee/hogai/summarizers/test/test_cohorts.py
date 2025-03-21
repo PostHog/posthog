@@ -1,4 +1,6 @@
-from ee.hogai.summarizers.cohorts import CohortPropertyGroupSummarizer, CohortPropertySummarizer
+from textwrap import dedent
+
+from ee.hogai.summarizers.cohorts import CohortPropertyGroupSummarizer, CohortPropertySummarizer, CohortSummarizer
 from posthog.constants import PropertyOperatorType
 from posthog.models import Action, Cohort
 from posthog.models.property.property import Property, PropertyGroup
@@ -477,7 +479,7 @@ class TestCohortPropertyGroupDescriber(BaseTest):
         )
         assert (
             CohortPropertyGroupSummarizer(self.team, prop_group, inline_conditions=True).summary
-            == f"({self.summary_1}) OR ({self.summary_2})"
+            == f"({self.summary_1} OR {self.summary_2})"
         )
 
         prop_group = PropertyGroup(
@@ -486,7 +488,7 @@ class TestCohortPropertyGroupDescriber(BaseTest):
         )
         assert (
             CohortPropertyGroupSummarizer(self.team, prop_group, inline_conditions=True).summary
-            == f"({self.summary_1}) AND ({self.summary_2})"
+            == f"({self.summary_1} AND {self.summary_2})"
         )
 
     def test_cohort_property_group_describer_multiline(self):
@@ -531,3 +533,60 @@ class TestCohortPropertyGroupDescriber(BaseTest):
             CohortPropertyGroupSummarizer(self.team, prop_group_3, inline_conditions=False).summary
             == f"({self.summary_1} OR {self.summary_2})\n\nAND\n\n({self.summary_1} AND {self.summary_2})"
         )
+
+
+class TestCohortSummarizer(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.cond_1 = Property(
+            key="$pageview",
+            type="behavioral",
+            value="performed_event",
+            negation=True,
+            event_type="events",
+            explicit_datetime="2025-03-10",
+        )
+        self.summary_1 = "people who did not complete the event `$pageview` on 2025-03-10"
+        self.cond_2 = Property(
+            key="$pageview",
+            type="event",
+            value="Homepage",
+            operator="icontains",
+        )
+        self.summary_2 = "people who have the event property `$pageview` that contains `Homepage`"
+
+        self.cohort = Cohort.objects.create(
+            team=self.team,
+            name="Visited homepage",
+            description="The launch date of the product",
+            filters={
+                "properties": PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[self.cond_1, self.cond_2],
+                ).to_dict(),
+            },
+        )
+
+    def test_inline_cohort_summarizer(self):
+        summarizer = CohortSummarizer(self.team, self.cohort, inline_conditions=True)
+        assert (
+            summarizer.summary
+            == f"dynamic cohort `Visited homepage` with ID `{self.cohort.id}` described as `The launch date of the product` having the following filters ({self.summary_1} AND {self.summary_2})"
+        )
+
+    def test_multiline_cohort_summarizer(self):
+        summarizer = CohortSummarizer(self.team, self.cohort, inline_conditions=False)
+        summary = dedent(
+            f"""
+            Name: Visited homepage
+            Description: The launch date of the product
+            Type: Dynamic (based on filters)
+            Filters:
+            {self.summary_1}
+
+            AND
+
+            {self.summary_2}
+            """
+        )
+        assert summarizer.summary == dedent(summary.strip())
