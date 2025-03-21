@@ -106,7 +106,7 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
         getAvailableColorTokens: [
             (s) => [s.getTheme],
             (getTheme: (themeId: string | number | null | undefined) => DataColorTheme | null) =>
-                (themeId: string | number | null | undefined) => {
+                (themeId: string | number | null | undefined): DataColorToken[] => {
                     const theme = getTheme(themeId)
                     if (!theme) {
                         return null

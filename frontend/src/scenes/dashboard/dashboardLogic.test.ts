@@ -324,6 +324,7 @@ describe('dashboardLogic', () => {
                         layouts: {},
                     },
                 ],
+                breakdown_colors: {},
                 filters: {
                     date_from: null,
                     date_to: null,

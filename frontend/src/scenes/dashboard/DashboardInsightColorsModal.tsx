@@ -2,6 +2,7 @@ import { LemonModal } from '@posthog/lemon-ui'
 import { LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
+import { DataColorToken } from 'lib/colors'
 import { Animation } from 'lib/components/Animation/Animation'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -23,14 +24,14 @@ export function DashboardInsightColorsModal(): JSX.Element {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { cohorts } = useValues(cohortsModel)
 
-    const columns: LemonTableColumns<string> = [
+    const columns: LemonTableColumns<{ breakdownValue: string; colorToken: DataColorToken | null }> = [
         {
             title: 'Color',
             key: 'color',
-            render: (_, breakdownValue) => {
+            render: (_, { breakdownValue, colorToken }) => {
                 return (
                     <LemonColorPicker
-                        selectedColorToken={temporaryBreakdownColors[breakdownValue] || null}
+                        selectedColorToken={colorToken}
                         onSelectColorToken={(colorToken) => {
                             if (dashboardMode !== DashboardMode.Edit) {
                                 setDashboardMode(DashboardMode.Edit, null)
@@ -46,7 +47,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
             title: 'Breakdown',
             key: 'breakdown_value',
             // width: 0,
-            render: (_, breakdownValue) => {
+            render: (_, { breakdownValue }) => {
                 // TODO: support for cohorts and nested breakdowns
                 const breakdownFilter = {}
                 const breakdownLabel = formatBreakdownLabel(
@@ -72,7 +73,14 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 </div>
             ) : (
                 <>
-                    <LemonTable columns={columns} dataSource={breakdownValues} loading={insightTilesLoading} />
+                    <LemonTable
+                        columns={columns}
+                        dataSource={breakdownValues.map((breakdownValue) => ({
+                            breakdownValue,
+                            colorToken: temporaryBreakdownColors[breakdownValue] || null,
+                        }))}
+                        loading={insightTilesLoading || undefined}
+                    />
                 </>
             )}
         </LemonModal>
