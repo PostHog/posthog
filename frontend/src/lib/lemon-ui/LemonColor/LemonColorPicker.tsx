@@ -73,7 +73,7 @@ export const LemonColorPickerOverlay = ({
             ) : (
                 <LemonColorList
                     themeId={themeId}
-                    colorTokens={colorTokens || getAvailableColorTokens(themeId)}
+                    colorTokens={colorTokens || getAvailableColorTokens(themeId) || []}
                     selectedColorToken={selectedColorToken}
                     onSelectColorToken={onSelectColorToken}
                 />
