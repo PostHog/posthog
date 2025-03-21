@@ -6,10 +6,6 @@ from posthog.models import Action, Cohort
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.test.base import BaseTest
 
-"""
-1. cohort tests
-"""
-
 
 class TestPropertySummarizer(BaseTest):
     def setUp(self):

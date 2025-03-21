@@ -187,14 +187,16 @@ class PropertyFilterSummarizer(Summarizer):
             formatted_value = str(value)
         val = f"`{key}`"
         if operator is not None:
-            pronoun = "that " if self._use_relative_pronoun else ""
-            if isinstance(value, list) and operator in ARRAY_PROPERTY_FILTER_VERBOSE_NAME:
-                val += f" {pronoun}{ARRAY_PROPERTY_FILTER_VERBOSE_NAME[operator]}"
-            else:
-                val += f" {pronoun}{PROPERTY_FILTER_VERBOSE_NAME[operator]}"
+            val += f" {self._describe_operator(operator, value)}"
         if formatted_value is not None:
             return f"{val} `{formatted_value}`"
         return val
+
+    def _describe_operator(self, operator: PropertyOperator, value: Any) -> str:
+        pronoun = "that " if self._use_relative_pronoun else ""
+        if isinstance(value, list) and operator in ARRAY_PROPERTY_FILTER_VERBOSE_NAME:
+            return f"{pronoun}{ARRAY_PROPERTY_FILTER_VERBOSE_NAME[operator]}"
+        return f"{pronoun}{PROPERTY_FILTER_VERBOSE_NAME[operator]}"
 
     def _describe_cohort(self, filter: CohortPropertyFilter) -> str:
         # Lazy import to avoid circular dependency
@@ -203,10 +205,17 @@ class PropertyFilterSummarizer(Summarizer):
         cohort_id = filter.value
         try:
             cohort = Cohort.objects.get(pk=cohort_id, team__project_id=self._team.project_id)
-            describer = CohortSummarizer(self._team, cohort, inline_conditions=True)
-            return describer.summary
         except Cohort.DoesNotExist:
-            return f"people in cohort with ID {cohort_id}"
+            return f"people in the cohort with ID {cohort_id}"
+
+        describer = CohortSummarizer(self._team, cohort, inline_conditions=True)
+
+        # If we're using a relative pronoun, the grammar differs, so we don't need
+        # to add the verbose name.
+        if self._use_relative_pronoun:
+            return describer.summary
+        operator = "a part" if filter.operator == PropertyOperator.IN_ else "not a part"
+        return f"people who are {operator} of the the {describer.summary}"
 
 
 class PropertyFilterCollectionValidator(BaseModel):

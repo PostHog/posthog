@@ -3,7 +3,11 @@ from ee.hogai.summarizers.property_filters import (
     PropertyFilterSummarizer,
     retrieve_hardcoded_taxonomy,
 )
+from posthog.constants import PropertyOperatorType
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.property.property import Property, PropertyGroup
 from posthog.schema import (
+    CohortPropertyFilter,
     DataWarehousePropertyFilter,
     ElementPropertyFilter,
     EventPropertyFilter,
@@ -135,6 +139,41 @@ class TestPropertyFilterDescriber(BaseTest):
         descriptor = PropertyFilterSummarizer(self.team, filter)
         self.assertEqual(descriptor.summary, "event property `prop` matches exactly `test`")
         self.assertFalse(descriptor.taxonomy)
+
+    def test_cohort_property_filter(self):
+        cond_1 = Property(
+            key="$pageview",
+            type="behavioral",
+            value="performed_event",
+            negation=True,
+            event_type="events",
+            explicit_datetime="2025-03-10",
+        )
+        summary_1 = "people who did not complete the event `$pageview` on 2025-03-10"
+        cond_2 = Property(
+            key="$pageview",
+            type="event",
+            value="Homepage",
+            operator="icontains",
+        )
+        summary_2 = "people who have the event property `$pageview` that contains `Homepage`"
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Visited homepage",
+            description="The launch date of the product",
+            filters={
+                "properties": PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[cond_1, cond_2],
+                ).to_dict(),
+            },
+        )
+        schema = CohortPropertyFilter(value=cohort.id)
+        summarizer = PropertyFilterSummarizer(self.team, schema)
+        self.assertEqual(
+            summarizer.summary,
+            f"people who are a part of the the dynamic cohort `Visited homepage` with ID `{cohort.id}` described as `The launch date of the product` having the following filters ({summary_1} AND {summary_2})",
+        )
 
 
 class TestPropertyFilterCollectionDescriber(BaseTest):
