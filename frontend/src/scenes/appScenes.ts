@@ -89,4 +89,8 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
+    [Scene.PaymentsOverview]: () => import('./payments/scenes/overview/PaymentsOverviewScene'),
+    [Scene.PaymentsProducts]: () => import('./payments/scenes/products/PaymentsProductsScene'),
+    [Scene.PaymentsTransactions]: () => import('./payments/scenes/transactions/PaymentsTransactionsScene'),
+    [Scene.PaymentsSettings]: () => import('./payments/scenes/settings/PaymentsSettingsScene'),
 }

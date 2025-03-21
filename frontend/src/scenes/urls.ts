@@ -161,4 +161,8 @@ export const urls = {
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
+    paymentsOverview: (): string => '/payments',
+    paymentsProducts: (): string => '/payments/products',
+    paymentsTransactions: (): string => '/payments/transactions',
+    paymentsSettings: (): string => '/payments/settings',
 }

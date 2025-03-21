@@ -13,6 +13,7 @@ import {
     IconRocket,
     IconTestTube,
     IconToggle,
+    IconHandMoney,
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
@@ -159,6 +160,10 @@ export const productUrls = {
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
+    overview: (): string => `/payments`,
+    products: (): string => `/payments/products`,
+    transactions: (): string => `/payments/transactions`,
+    settings: (): string => `/payments/settings`,
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>
@@ -279,4 +284,8 @@ export const treeItems = [
         icon: <IconRewindPlay />,
     },
     { path: 'Explore/Web Analytics', icon: <IconPieChart />, href: () => urls.webAnalytics() },
+    { path: 'Payments/Overview', href: () => urls.paymentsOverview(), icon: <IconHandMoney /> },
+    { path: 'Payments/Products', href: () => urls.paymentsProducts(), icon: <IconHandMoney /> },
+    { path: 'Payments/Settings', href: () => urls.paymentsSettings(), icon: <IconHandMoney /> },
+    { path: 'Payments/Transactions', href: () => urls.paymentsTransactions(), icon: <IconHandMoney /> },
 ]

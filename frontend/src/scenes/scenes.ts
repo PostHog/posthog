@@ -457,6 +457,22 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Wizard',
         layout: 'plain',
     },
+    [Scene.PaymentsOverview]: {
+        projectBased: true,
+        name: 'Payments overview',
+    },
+    [Scene.PaymentsProducts]: {
+        projectBased: true,
+        name: 'Payments products',
+    },
+    [Scene.PaymentsTransactions]: {
+        projectBased: true,
+        name: 'Payments transactions',
+    },
+    [Scene.PaymentsSettings]: {
+        projectBased: true,
+        name: 'Payments settings',
+    },
     ...productConfiguration,
 }
 
@@ -660,5 +676,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
+    [urls.paymentsOverview()]: [Scene.PaymentsOverview, 'paymentsOverview'],
+    [urls.paymentsProducts()]: [Scene.PaymentsProducts, 'paymentsProducts'],
+    [urls.paymentsTransactions()]: [Scene.PaymentsTransactions, 'paymentsTransactions'],
+    [urls.paymentsSettings()]: [Scene.PaymentsSettings, 'paymentsSettings'],
     ...productRoutes,
 }

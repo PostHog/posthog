@@ -6,6 +6,7 @@ import {
     IconDatabase,
     IconFeatures,
     IconGraph,
+    IconHandMoney,
     IconHome,
     IconLive,
     IconLogomark,
@@ -600,6 +601,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconServer />,
                             to: urls.sqlEditor(),
                             logic: editorSidebarLogic,
+                        },
+                        {
+                            identifier: Scene.PaymentsOverview,
+                            label: 'Payments',
+                            icon: <IconHandMoney />,
+                            to: urls.paymentsOverview(),
                         },
                         hasOnboardedAnyProduct
                             ? {
