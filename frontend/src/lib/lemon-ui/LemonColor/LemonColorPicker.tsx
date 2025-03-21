@@ -1,11 +1,11 @@
 import { LemonColorGlyph, LemonInput, LemonLabel, Popover } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { DataColorToken } from 'lib/colors'
 import { useState } from 'react'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { LemonColorButton } from './LemonColorButton'
 import { LemonColorList } from './LemonColorList'
-import { useValues } from 'kea'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 type LemonColorPickerBaseProps = {
     showCustomColor?: boolean
@@ -24,7 +24,7 @@ type LemonColorPickerColorProps = LemonColorPickerBaseProps & {
 }
 
 type LemonColorPickerTokenProps = LemonColorPickerBaseProps & {
-    colorTokens: DataColorToken[]
+    colorTokens?: DataColorToken[]
     selectedColorToken?: DataColorToken | null
     onSelectColorToken: (colorToken: DataColorToken) => void
     themeId?: number | null

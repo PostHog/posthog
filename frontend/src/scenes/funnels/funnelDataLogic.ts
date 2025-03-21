@@ -3,9 +3,10 @@ import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
+import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
+import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -67,6 +68,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             ['aggregationLabel'],
             featureFlagLogic,
             ['featureFlags'],
+            dashboardInsightColorsModalLogic,
+            ['breakdownColors'],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),
@@ -412,12 +415,22 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
         ],
         getFunnelsColorToken: [
-            (s) => [s.resultCustomizations, s.theme],
-            (resultCustomizations, theme) => {
+            (s) => [s.resultCustomizations, s.theme, s.breakdownColors],
+            (resultCustomizations, theme, breakdownColors) => {
                 return (dataset) => {
                     if (theme == null) {
                         return null
                     }
+
+                    // dashboard color overrides
+                    const key = getFunnelDatasetKey(dataset)
+                    const breakdownValue = JSON.parse(key)['breakdown_value']
+
+                    if (breakdownColors?.[breakdownValue]) {
+                        return breakdownColors[breakdownValue]
+                    }
+
+                    // insight color overrides
                     return getFunnelResultCustomizationColorToken(
                         resultCustomizations,
                         theme,

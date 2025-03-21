@@ -1,4 +1,5 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
+import { DataColorToken } from 'lib/colors'
 import { getFunnelDatasetKey, getTrendDatasetKey } from 'scenes/insights/utils'
 
 import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
@@ -41,6 +42,7 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
     actions({
         showInsightColorsModal: (id: number) => ({ id }),
         hideInsightColorsModal: true,
+        setBreakdownColor: (breakdownValue: string, colorToken: DataColorToken) => ({ breakdownValue, colorToken }),
     }),
     reducers({
         dashboardId: [
@@ -48,6 +50,14 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
             {
                 showInsightColorsModal: (_, { id }) => id,
                 hideInsightColorsModal: () => null,
+            },
+        ],
+        breakdownColors: [
+            {},
+            {
+                setBreakdownColor: (state, { breakdownValue, colorToken }) => {
+                    return { ...state, [breakdownValue]: colorToken }
+                },
             },
         ],
     }),

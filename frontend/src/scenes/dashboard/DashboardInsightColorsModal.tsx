@@ -12,18 +12,25 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 
 export function DashboardInsightColorsModal(): JSX.Element {
-    const { isOpen, insightTilesLoading, breakdownValues } = useValues(dashboardInsightColorsModalLogic)
-    const { hideInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
+    const { isOpen, insightTilesLoading, breakdownValues, breakdownColors } = useValues(
+        dashboardInsightColorsModalLogic
+    )
+    const { hideInsightColorsModal, setBreakdownColor } = useActions(dashboardInsightColorsModalLogic)
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { cohorts } = useValues(cohortsModel)
 
-    const columns: LemonTableColumns<string[]> = [
+    const columns: LemonTableColumns<string> = [
         {
             title: 'Color',
             key: 'color',
             render: (_, breakdownValue) => {
-                return <LemonColorPicker onSelectColorToken={(colorToken) => alert(colorToken)} colorToken={null} />
+                return (
+                    <LemonColorPicker
+                        selectedColorToken={breakdownColors[breakdownValue] || null}
+                        onSelectColorToken={(colorToken) => setBreakdownColor(breakdownValue, colorToken)}
+                    />
+                )
             },
         },
         {
