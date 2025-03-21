@@ -1,6 +1,7 @@
 use crate::client::database::CustomDatabaseError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use common_cookieless::CookielessManagerError;
 use common_redis::CustomRedisError;
 use thiserror::Error;
 
@@ -220,5 +221,11 @@ impl From<sqlx::Error> for FlagError {
             sqlx::Error::RowNotFound => FlagError::RowNotFound,
             _ => FlagError::DatabaseError(e.to_string()),
         }
+    }
+}
+
+impl From<CookielessManagerError> for FlagError {
+    fn from(error: CookielessManagerError) -> Self {
+        FlagError::ClientFacing(ClientFacingError::BadRequest(error.to_string()))
     }
 }

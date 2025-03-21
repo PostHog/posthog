@@ -14,6 +14,8 @@ use axum::{extract::State, http::HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use common_geoip::GeoIpClient;
+use chrono;
+use common_cookieless::EventData;
 use flate2::read::GzDecoder;
 use limiters::redis::ServiceName;
 use serde::{Deserialize, Serialize};
@@ -100,7 +102,7 @@ pub type RequestPropertyOverrides = (
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
 
-    let (distinct_id, verified_token, request) =
+    let (_distinct_id, verified_token, request) =
         parse_and_authenticate_request(&context, &flag_service).await?;
 
     // Once we've verified the token, check if the token is billing limited (this will save us from hitting the DB if we have a quota-limited token)
@@ -126,6 +128,39 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         .await?;
     let team_id = team.id;
     let project_id = team.project_id;
+
+    let distinct_id = if team.cookieless_server_hash_mode > 0 {
+        let event_data = EventData {
+            ip: &context.ip.to_string(),
+            timestamp_ms: context
+                .meta
+                .sent_at
+                .unwrap_or_else(|| chrono::Utc::now().timestamp_millis())
+                as u64,
+            host: context
+                .headers
+                .get("host")
+                .map(|h| h.to_str().unwrap_or(""))
+                .unwrap_or(""),
+            user_agent: context
+                .headers
+                .get("user-agent")
+                .map(|h| h.to_str().unwrap_or(""))
+                .unwrap_or(""),
+            event_time_zone: None,
+            hash_extra: None,
+            team_id: team_id as u64,
+            team_time_zone: None,
+        };
+
+        context
+            .state
+            .cookieless_manager
+            .compute_cookieless_distinct_id(event_data)
+            .await?
+    } else {
+        _distinct_id
+    };
 
     let filtered_flags = fetch_and_filter_flags(&flag_service, project_id, &request).await?;
 
