@@ -108,18 +108,32 @@ const checkOrLoadPropertyDefinition = (
     propertyName: BreakdownKeyType | undefined,
     definitionType: PropertyDefinitionType,
     propertyDefinitionStorage: PropertyDefinitionStorage,
+    eventMetadataPropertyDefinitions: PropertyDefinition[],
     groupTypeIndex?: number | null
 ): PropertyDefinition | null => {
     // first time we see this, schedule a fetch
     const key = getPropertyKey(definitionType, propertyName, groupTypeIndex)
     if (typeof propertyName === 'string' && !(key in propertyDefinitionStorage)) {
-        window.setTimeout(
-            () =>
-                propertyDefinitionsModel
-                    .findMounted()
-                    ?.actions.loadPropertyDefinitions([propertyName], definitionType, groupTypeIndex),
-            0
-        )
+        if (definitionType === PropertyDefinitionType.EventMetadata) {
+            propertyDefinitionsModel
+                .findMounted()
+                ?.actions.updatePropertyDefinitions(
+                    Object.fromEntries(
+                        eventMetadataPropertyDefinitions.map((definition) => [
+                            `${PropertyDefinitionType.EventMetadata}/${definition.id}`,
+                            definition,
+                        ])
+                    )
+                )
+        } else {
+            window.setTimeout(
+                () =>
+                    propertyDefinitionsModel
+                        .findMounted()
+                        ?.actions.loadPropertyDefinitions([propertyName], definitionType, groupTypeIndex),
+                0
+            )
+        }
     }
     const cachedResponse = propertyDefinitionStorage[key]
     if (typeof cachedResponse === 'object') {
@@ -221,18 +235,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     listeners(({ actions, values, cache }) => ({
         loadPropertyDefinitions: async ({ propertyKeys, type, groupTypeIndex }) => {
             const { propertyDefinitionStorage } = values
-
-            if (type === PropertyDefinitionType.EventMetadata) {
-                actions.updatePropertyDefinitions(
-                    Object.fromEntries(
-                        values.eventMetadataPropertyDefinitions.map((definition) => [
-                            `${PropertyDefinitionType.EventMetadata}/${definition.id}`,
-                            definition,
-                        ])
-                    )
-                )
-                return
-            }
 
             const pendingStateUpdate: PropertyDefinitionStorage = {}
             for (const propertyKey of propertyKeys) {
@@ -441,7 +443,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         getPropertyDefinition: [
             (s) => [s.propertyDefinitionStorage],
             (
-                    propertyDefinitionStorage
+                    propertyDefinitionStorage,
+                    eventMetadataPropertyDefinitions
                 ): ((
                     s: TaxonomicFilterValue,
                     type: PropertyDefinitionType,
@@ -459,13 +462,20 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     ) {
                         return null
                     }
-                    return checkOrLoadPropertyDefinition(propertyName, type, propertyDefinitionStorage, groupTypeIndex)
+                    return checkOrLoadPropertyDefinition(
+                        propertyName,
+                        type,
+                        propertyDefinitionStorage,
+                        eventMetadataPropertyDefinitions,
+                        groupTypeIndex
+                    )
                 },
         ],
         describeProperty: [
-            (s) => [s.propertyDefinitionStorage],
+            (s) => [s.propertyDefinitionStorage, s.eventMetadataPropertyDefinitions],
             (
-                    propertyDefinitionStorage
+                    propertyDefinitionStorage,
+                    eventMetadataPropertyDefinitions
                 ): ((
                     s: TaxonomicFilterValue,
                     type: PropertyDefinitionType,
@@ -480,14 +490,19 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                         return null
                     }
                     return (
-                        checkOrLoadPropertyDefinition(propertyName, type, propertyDefinitionStorage, groupTypeIndex)
-                            ?.property_type ?? null
+                        checkOrLoadPropertyDefinition(
+                            propertyName,
+                            type,
+                            propertyDefinitionStorage,
+                            eventMetadataPropertyDefinitions,
+                            groupTypeIndex
+                        )?.property_type ?? null
                     )
                 },
         ],
         formatPropertyValueForDisplay: [
-            (s) => [s.propertyDefinitionStorage],
-            (propertyDefinitionStorage): FormatPropertyValueForDisplayFunction => {
+            (s) => [s.propertyDefinitionStorage, s.eventMetadataPropertyDefinitions],
+            (propertyDefinitionStorage, eventMetadataPropertyDefinitions): FormatPropertyValueForDisplayFunction => {
                 return (
                     propertyName?: BreakdownKeyType,
                     valueToFormat?: PropertyFilterValue | undefined,
@@ -506,6 +521,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                         propertyName,
                         type ?? PropertyDefinitionType.Event,
                         propertyDefinitionStorage,
+                        eventMetadataPropertyDefinitions,
                         groupTypeIndex
                     )
                     const arrayOfPropertyValues = Array.isArray(valueToFormat) ? valueToFormat : [valueToFormat]
