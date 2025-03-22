@@ -35,6 +35,7 @@ from posthog.hogql.escape_sql import (
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
+    SURVEY_FUNCTIONS,
     find_hogql_aggregation,
     find_hogql_function,
     find_hogql_posthog_function,
@@ -49,6 +50,7 @@ from posthog.hogql.transforms.property_types import PropertySwapper, build_prope
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
+from posthog.models.surveys.util import get_survey_response_clickhouse_query
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
@@ -1099,6 +1101,17 @@ class _Printer(Visitor):
             if self.dialect == "clickhouse":
                 args_count = len(node.args) - func_meta.passthrough_suffix_args_count
                 node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
+
+                if node.name in SURVEY_FUNCTIONS:
+                    if node.name == "getSurveyResponse":
+                        if (
+                            not isinstance(node_args[0].value, int | str)
+                            or not str(node_args[0].value).lstrip("-").isdigit()
+                        ):
+                            raise QueryError("getSurveyResponse first argument must be a valid integer")
+                        question_index = int(node_args[0].value)
+                        question_id = str(node_args[1].value) if len(node_args) > 1 else None
+                        return get_survey_response_clickhouse_query(question_index, question_id)
 
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []
