@@ -38,7 +38,6 @@ export interface MultitabEditorLogicProps {
 
 export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
 export const activeModelStateKey = (key: string | number): string => `${key}/activeModelUri`
-export const activeModelVariablesStateKey = (key: string | number): string => `${key}/activeModelVariables`
 
 export const NEW_QUERY = 'Untitled'
 
@@ -407,8 +406,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         initialize: () => {
             // TODO: replace with queryTabState
-            const allModelQueries = localStorage.getItem(editorModelsStateKey(props.key))
-            const activeModelUri = localStorage.getItem(activeModelStateKey(props.key))
+            const remoteModelQueries = values.queryTabState?.state.editorModelsStateKey
+            const remoteActiveModelUri = values.queryTabState?.state.activeModelStateKey
+            const remoteSourceQuery = values.queryTabState?.state.sourceQuery
+
+            if (remoteSourceQuery) {
+                actions.setSourceQuery(JSON.parse(remoteSourceQuery))
+            }
+
+            const allModelQueries = remoteModelQueries || localStorage.getItem(editorModelsStateKey(props.key))
+            const activeModelUri = remoteActiveModelUri || localStorage.getItem(activeModelStateKey(props.key))
 
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
@@ -700,6 +707,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (activeTab && activeTab.uri.path != values.activeModelUri?.uri.path) {
                 actions.selectTab(activeTab)
             }
+        },
+        queryTabState: () => {
+            actions.initialize()
         },
     })),
     selectors({
