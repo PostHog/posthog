@@ -853,3 +853,30 @@ class TestProperty(BaseTest):
         self.assertIsInstance(compare_op_2.left, ast.Field)
         self.assertEqual(compare_op_2.left.chain, ["foobars", "properties", "$feature/test"])
         self.assertEqual(compare_op_2.right.value, "test")
+
+    def test_property_to_expr_event_metadata(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "distinct_id", "value": "p3", "operator": "exact"},
+                scope="event",
+            ),
+            self._parse_expr("distinct_id = 'p3'"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "distinct_id", "value": ["p3", "p4"], "operator": "exact"},
+                scope="event",
+            ),
+            self._parse_expr("distinct_id = 'p3' OR distinct_id = 'p4'"),
+        )
+
+    def test_property_to_expr_event_metadata_invalid_scope(self):
+        with self.assertRaises(Exception) as e:
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "distinct_id", "value": "p3", "operator": "exact"},
+                scope="person",
+            )
+        self.assertEqual(
+            str(e.exception),
+            "The 'event_metadata' property filter does not work in 'person' scope",
+        )

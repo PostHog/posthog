@@ -43,6 +43,7 @@ from posthog.schema import (
     CompareItem,
     CountPerActorMathType,
     DayItem,
+    EventMetadataPropertyFilter,
     EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
@@ -3133,6 +3134,50 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1]["count"] == 6
         assert response.results[2]["count"] == 2
         assert response.results[3]["count"] == 1
+
+    def test_trends_event_metadata_filter_group(self):
+        self._create_test_groups()
+        self._create_test_events_for_groups()
+        flush_persons_and_events()
+
+        # Equals
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        EventMetadataPropertyFilter(
+                            type="event_metadata", operator="exact", key="$group_0", value="org:5"
+                        )
+                    ],
+                )
+            ],
+            None,
+        )
+        assert response.results[0]["count"] == 6
+
+        # Not Equals
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        EventMetadataPropertyFilter(
+                            type="event_metadata", operator="is_not", key="$group_0", value="org:5"
+                        )
+                    ],
+                )
+            ],
+            None,
+        )
+
+        assert response.results[0]["count"] == 4
 
     def test_trends_event_multiple_breakdowns_normalizes_url(self):
         self._create_events(

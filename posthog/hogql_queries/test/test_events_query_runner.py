@@ -9,6 +9,7 @@ from posthog.models import Person, Team, Element
 from posthog.models.organization import Organization
 from posthog.schema import (
     CachedEventsQueryResponse,
+    EventMetadataPropertyFilter,
     EventsQuery,
     EventPropertyFilter,
     PropertyOperator,
@@ -300,6 +301,63 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             datetime(2020, 1, 12, 12, 0, 0, tzinfo=self.team.timezone_info),
             datetime(2020, 1, 12, 23, 0, 0, tzinfo=self.team.timezone_info),
         ]
+
+    def test_event_metadata_filter(self):
+        self._create_events(
+            data=[
+                (
+                    "p17",
+                    "2020-01-11T22:00:00",
+                    {},
+                ),
+                (
+                    "p2",
+                    "2020-01-12T01:00:00",
+                    {},
+                ),
+                (
+                    "p3",
+                    "2020-01-12T12:00:00",
+                    {},
+                ),
+                (
+                    "p1",
+                    "2020-01-12T23:00:00",
+                    {},
+                ),
+                (
+                    "p3",
+                    "2020-01-13T02:00:00",
+                    {},
+                ),
+            ]
+        )
+
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-11T12:01:00"):
+            query = EventsQuery(
+                after="2020-01-11",
+                before="2020-01-15",
+                event="$pageview",
+                kind="EventsQuery",
+                orderBy=["timestamp ASC"],
+                select=["*"],
+                properties=[
+                    EventMetadataPropertyFilter(
+                        type="event_metadata", operator="exact", key="distinct_id", value=["p3"]
+                    )
+                ],
+            )
+
+            runner = EventsQueryRunner(query=query, team=self.team)
+
+            response = runner.run()
+            assert isinstance(response, CachedEventsQueryResponse)
+            assert [row[0]["timestamp"] for row in response.results] == [
+                datetime(2020, 1, 12, 12, 0, 0, tzinfo=self.team.timezone_info),
+                datetime(2020, 1, 13, 2, 0, 0, tzinfo=self.team.timezone_info),
+            ]
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")

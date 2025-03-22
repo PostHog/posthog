@@ -27,6 +27,7 @@ class BehavioralPropertyType(StrEnum):
 ValueT = Union[str, int, list[str]]
 PropertyType = Literal[
     "event",
+    "event_metadata",
     "feature",
     "person",
     "cohort",
@@ -85,6 +86,7 @@ CLICKHOUSE_ONLY_PROPERTY_TYPES = [
 
 VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
+    "event_metadata": ["key", "value"],
     "person": ["key", "value"],
     "data_warehouse": ["key", "value"],
     "data_warehouse_person_property": ["key", "value"],
