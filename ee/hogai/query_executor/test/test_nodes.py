@@ -147,7 +147,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
         node = QueryExecutorNode(self.team)
 
         with self.assertRaisesMessage(
-            ValueError, "Can only run summarization with a visualization message as the last one in the state"
+            ValueError, "Expected a visualization message, found <class 'posthog.schema.HumanMessage'>"
         ):
             node.run(
                 AssistantState(
