@@ -11,3 +11,11 @@ uuid = { version = "1.10.0", features = ["v4", "serde"] }
 
 [profile.release]
 lto = true
+
+[[bin]]
+name = "aggregate_funnel"
+path = "src/aggregate_funnel/main.rs"
+
+[[bin]]
+name = "hello_world"
+path = "src/hello_world/main.rs"
