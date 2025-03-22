@@ -231,7 +231,7 @@ impl KafkaSink {
                     None => false,
                     Some(partition) => {
                         partition.is_limited(&event_key) || partition.is_limited(&token)
-                    },
+                    }
                 };
                 if is_limited {
                     (&self.main_topic, None) // Analytics overflow goes to the main topic without locality
