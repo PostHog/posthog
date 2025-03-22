@@ -1282,6 +1282,8 @@ export interface StickinessQuery
     stickinessFilter?: StickinessFilter
     /** Compare to date range */
     compareFilter?: CompareFilter
+    /** Breakdown properties */
+    breakdownFilter?: BreakdownFilter
 }
 
 /** `LifecycleFilterType` minus everything inherited from `FilterType` */

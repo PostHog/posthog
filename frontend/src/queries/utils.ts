@@ -230,8 +230,10 @@ export function isInsightQueryWithDisplay(node?: Record<string, any> | null): no
     return isTrendsQuery(node) || isStickinessQuery(node)
 }
 
-export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): node is TrendsQuery | FunnelsQuery {
-    return isTrendsQuery(node) || isFunnelsQuery(node) || isRetentionQuery(node)
+export function isInsightQueryWithBreakdown(
+    node?: Record<string, any> | null
+): node is TrendsQuery | FunnelsQuery | RetentionQuery | StickinessQuery {
+    return isTrendsQuery(node) || isFunnelsQuery(node) || isRetentionQuery(node) || isStickinessQuery(node)
 }
 
 export function isInsightQueryWithCompare(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
@@ -437,7 +439,7 @@ export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty
 
 export function filterForQuery(node: InsightQueryNode): InsightFilter | undefined {
     const filterProperty = nodeKindToFilterProperty[node.kind]
-    return node[filterProperty]
+    return node[filterProperty as keyof typeof node] as InsightFilter | undefined
 }
 
 export function isQuoted(identifier: string): boolean {
