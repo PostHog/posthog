@@ -11,6 +11,12 @@ use common_metrics::inc;
 
 const ESTIMATED_RECORD_SIZE: usize = 1024;
 
+const COPY_IN_STMT: &str = r#"COPY cyclotron_jobs
+    (id, team_id, function_id, created, lock_id, last_heartbeat, janitor_touch_count,
+     transition_count, last_transition, queue_name, state, scheduled, priority, vm_state,
+     metadata, parameters, blob)
+    FROM STDIN WITH (FORMAT CSV, ENCODING 'UTF8')"#;
+
 pub async fn create_job<'c, E>(
     executor: E,
     mut data: JobInit,
@@ -217,7 +223,6 @@ pub async fn bulk_create_jobs_copy(
     jobs: Vec<JobInit>,
     should_compress_vm_state: bool,
 ) -> Result<Vec<Uuid>, QueueError> {
-    let copy_in_stmt = "COPY cyclotron_jobs (id, team_id, function_id, created, lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition, queue_name, state, scheduled, priority, vm_state, metadata, parameters, blob) FROM STDIN WITH (FORMAT CSV, ENCODING 'UTF8')";
     let mut ids = Vec::with_capacity(jobs.len());
     let now = Utc::now();
 
@@ -268,7 +273,7 @@ pub async fn bulk_create_jobs_copy(
         .flush()
         .map_err(|e| QueueError::CSVError("csv_flush", e.into()))?;
 
-    let mut stream = pool.copy_in_raw(copy_in_stmt).await?;
+    let mut stream = pool.copy_in_raw(COPY_IN_STMT).await?;
     let _ = stream.send(&csv_writer.get_ref()[..]).await?;
     let rows_affected = stream.finish().await?;
     inc("bulk_create_jobs_copy_rows_affected", &[], rows_affected);
