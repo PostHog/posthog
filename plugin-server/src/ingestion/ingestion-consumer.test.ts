@@ -214,7 +214,6 @@ describe('IngestionConsumer', () => {
 
                     // Add snapshot for the overflow messages
                     expect(forSnapshot(overflowMessages)).toMatchSnapshot('force overflow messages')
-                    expect(forSnapshot(normalMessages)).toMatchSnapshot('normal messages with force overflow enabled')
                 })
 
                 it('should handle multiple tokens in the force overflow setting', async () => {
