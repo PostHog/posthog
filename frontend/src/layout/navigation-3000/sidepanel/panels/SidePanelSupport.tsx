@@ -30,7 +30,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
+import { AvailableFeature, BillingPlanType, ProductKey, SidePanelTab } from '~/types'
 
 import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
@@ -169,7 +169,7 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                         </div>
                     </div>
                     {/* If placing a support message, comment out (don't remove) the section below */}
-                    {supportPlans?.map((plan) => {
+                    {supportPlans?.map((plan: BillingPlanType) => {
                         // If they have an addon plan, only show the addon plan
                         const currentPlan =
                             plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))

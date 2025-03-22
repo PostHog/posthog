@@ -19,6 +19,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { BillingPlanType, BillingProductV2Type, ProductKey } from '~/types'
+
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
@@ -110,7 +112,7 @@ export function Billing(): JSX.Element {
     }
 
     const products = billing?.products
-    const platformAndSupportProduct = products?.find((product) => product.type === 'platform_and_support')
+    const platformAndSupportProduct = products?.find((product) => product.type === ProductKey.PLATFORM_AND_SUPPORT)
     return (
         <div ref={ref}>
             {showLicenseDirectInput && (
@@ -193,8 +195,11 @@ export function Billing(): JSX.Element {
             </div>
 
             {products
-                ?.filter((product) => !product.inclusion_only || product.plans.some((plan) => !plan.included_if))
-                ?.map((x) => (
+                ?.filter(
+                    (product: BillingProductV2Type) =>
+                        !product.inclusion_only || product.plans.some((plan: BillingPlanType) => !plan.included_if)
+                )
+                ?.map((x: BillingProductV2Type) => (
                     <div key={x.type}>
                         <BillingProduct product={x} />
                     </div>
