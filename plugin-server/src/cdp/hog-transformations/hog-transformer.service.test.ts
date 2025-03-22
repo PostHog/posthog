@@ -915,7 +915,7 @@ describe('HogTransformer', () => {
     describe('filter-based transformations', () => {
         beforeEach(() => {
             // Enable filter transformations for these tests
-            hub.FILTER_TRANSFORMATIONS_ENABLED = true
+            hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS = [1, 2]
         })
 
         it('should skip transformation when filter does not match', async () => {
@@ -1137,7 +1137,7 @@ describe('HogTransformer', () => {
 
         it('should not check filters when FILTER_TRANSFORMATIONS_ENABLED is false', async () => {
             // Disable filter transformations
-            hub.FILTER_TRANSFORMATIONS_ENABLED = false
+            hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS = [1, 2]
 
             const filterTemplate = {
                 free: true,
