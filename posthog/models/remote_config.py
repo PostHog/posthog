@@ -7,7 +7,6 @@ from django.http import HttpRequest
 from django.utils import timezone
 from prometheus_client import Counter
 import requests
-from posthog.api.survey import get_surveys_opt_in
 from posthog.exceptions_capture import capture_exception
 import structlog
 
@@ -108,7 +107,7 @@ class RemoteConfig(UUIDModel):
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
-        from posthog.api.survey import get_surveys_response
+        from posthog.api.survey import get_surveys_response, get_surveys_opt_in
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
