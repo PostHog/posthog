@@ -93,8 +93,6 @@ yalc.lock
 .flox/env/manifest.lock
 
 playwright/.auth/
-playwright-report/
-test-results/
 playwright/playwright-report/
 playwright/test-results/
 

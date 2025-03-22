@@ -3,6 +3,7 @@ import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
+import { heatmapsSettingsLogic } from 'lib/components/heatmaps/heatmapsSettingsLogic'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -77,25 +78,17 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         matchLinksByHref,
         countedElements,
         clickCount,
-        commonFilters,
         heatmapFilters,
         canLoadMoreElementStats,
-        viewportRange,
         rawHeatmapLoading,
         elementStatsLoading,
         clickmapsEnabled,
-        heatmapFixedPositionMode,
-        heatmapColorPalette,
+        heatmapSectionEnabled,
     } = useValues(heatmapLogic)
-    const {
-        setCommonFilters,
-        patchHeatmapFilters,
-        loadMoreElementStats,
-        setMatchLinksByHref,
-        toggleClickmapsEnabled,
-        setHeatmapFixedPositionMode,
-        setHeatmapColorPalette,
-    } = useActions(heatmapLogic)
+    const { loadMoreElementStats, setMatchLinksByHref, toggleClickmapsEnabled, enableHeatmapSection } =
+        useActions(heatmapLogic)
+    const { setCommonFilters } = useActions(heatmapsSettingsLogic)
+    const { commonFilters } = useActions(heatmapsSettingsLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     return (
@@ -134,13 +127,9 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
             <ToolbarMenu.Body>
                 <div className="border-b p-2">
                     <SectionButton
-                        onChange={(e) =>
-                            patchHeatmapFilters({
-                                enabled: e,
-                            })
-                        }
+                        onChange={(e) => enableHeatmapSection(e)}
                         loading={rawHeatmapLoading}
-                        checked={!!heatmapFilters.enabled}
+                        checked={heatmapSectionEnabled}
                     >
                         Heatmaps
                     </SectionButton>
@@ -154,15 +143,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 are viewing.
                             </p>
 
-                            <HeatmapsSettings
-                                heatmapFilters={heatmapFilters}
-                                patchHeatmapFilters={patchHeatmapFilters}
-                                viewportRange={viewportRange}
-                                heatmapColorPalette={heatmapColorPalette}
-                                setHeatmapColorPalette={setHeatmapColorPalette}
-                                heatmapFixedPositionMode={heatmapFixedPositionMode}
-                                setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
-                            />
+                            <HeatmapsSettings />
                         </>
                     )}
                 </div>
