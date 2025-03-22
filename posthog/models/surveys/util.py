@@ -17,7 +17,7 @@ def get_survey_response_clickhouse_query(question_index: int, question_id: str |
 
 def _build_id_based_key(question_index: int, question_id: str | None = None) -> str:
     if question_id:
-        return f"$survey_response_{question_id}"
+        return f"'$survey_response_{question_id}'"
 
     # Extract the ID from the question at the given index in the questions array
     return f"CONCAT('$survey_response_', JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[{question_index + 1}], 'id'))"
@@ -31,6 +31,6 @@ def _build_index_based_key(question_index: int) -> str:
 
 def _build_coalesce_query(id_based_key: str, index_based_key: str) -> str:
     return f"""COALESCE(
-        NULLIF(JSONExtractString(properties, '{id_based_key}'), ''),
+        NULLIF(JSONExtractString(properties, {id_based_key}), ''),
         NULLIF(JSONExtractString(properties, '{index_based_key}'), '')
     )"""
