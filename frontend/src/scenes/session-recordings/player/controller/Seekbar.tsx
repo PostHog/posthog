@@ -55,7 +55,7 @@ function SeekbarSegments(): JSX.Element {
 }
 
 export function Seekbar(): JSX.Element {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, logicProps, hasSnapshots } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { seekbarItems } = useValues(playerInspectorLogic(logicProps))
     const { endTimeMs, thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic(logicProps))
@@ -79,7 +79,12 @@ export function Seekbar(): JSX.Element {
 
     return (
         <div className="flex flex-col items-end h-8 mx-4 mt-2" data-attr="rrweb-controller">
-            <PlayerSeekbarTicks seekbarItems={seekbarItems} endTimeMs={endTimeMs} seekToTime={seekToTime} />
+            <PlayerSeekbarTicks
+                seekbarItems={seekbarItems}
+                endTimeMs={endTimeMs}
+                seekToTime={seekToTime}
+                hoverRef={seekBarRef}
+            />
 
             <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>
                 <div
@@ -104,16 +109,20 @@ export function Seekbar(): JSX.Element {
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
                     />
 
-                    <PlayerSeekbarPreview
-                        minMs={0}
-                        maxMs={sessionPlayerData.durationMs}
-                        seekBarRef={seekBarRef}
-                        activeMs={
-                            sessionPlayerMetaData?.active_seconds ? sessionPlayerMetaData.active_seconds * 1000 : null
-                        }
-                        timestampFormat={timestampFormat}
-                        startTime={sessionPlayerData.start}
-                    />
+                    {hasSnapshots ? (
+                        <PlayerSeekbarPreview
+                            minMs={0}
+                            maxMs={sessionPlayerData.durationMs}
+                            seekBarRef={seekBarRef}
+                            activeMs={
+                                sessionPlayerMetaData?.active_seconds
+                                    ? sessionPlayerMetaData.active_seconds * 1000
+                                    : null
+                            }
+                            timestampFormat={timestampFormat}
+                            startTime={sessionPlayerData.start}
+                        />
+                    ) : null}
                 </div>
             </div>
         </div>
