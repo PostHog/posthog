@@ -2,7 +2,7 @@
 #    uv pip compile requirements.in -o requirements.txt --no-cache
 aioboto3==12.0.0
     # via -r requirements.in
-aiobotocore==2.7.0
+aiobotocore[boto3]==2.7.0
     # via
     #   aioboto3
     #   s3fs
@@ -304,7 +304,7 @@ gitpython==3.1.40
     # via dlt
 giturlparse==0.12.0
     # via dlt
-google-api-core==2.11.1
+google-api-core[grpc]==2.11.1
     # via
     #   google-cloud-bigquery
     #   google-cloud-bigquery-storage
@@ -333,7 +333,7 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-gql==3.5.0
+gql[requests]==3.5.0
     # via dagster-graphql
 graphene==3.4.3
     # via dagster-graphql
@@ -344,6 +344,8 @@ graphql-core==3.2.5
     #   graphql-relay
 graphql-relay==3.2.0
     # via graphene
+greenlet==3.1.1
+    # via sqlalchemy
 grpcio==1.67.1
     # via
     #   -r requirements.in
@@ -356,7 +358,7 @@ grpcio-health-checking==1.62.3
     # via dagster
 grpcio-status==1.57.0
     # via google-api-core
-gunicorn==20.1.0
+gunicorn==23.0.0
     # via -r requirements.in
 h11==0.13.0
     # via
@@ -551,6 +553,7 @@ packaging==24.1
     #   dagster-aws
     #   dlt
     #   google-cloud-bigquery
+    #   gunicorn
     #   huggingface-hub
     #   langchain-core
     #   marshmallow
@@ -605,7 +608,7 @@ protobuf==4.22.1
     #   temporalio
 psutil==6.0.0
     # via -r requirements.in
-psycopg==3.2.4
+psycopg[binary]==3.2.4
     # via -r requirements.in
 psycopg-binary==3.2.4
     # via psycopg
@@ -647,7 +650,7 @@ pydantic-settings==2.7.0
     # via langchain-community
 pygments==2.19.1
     # via rich
-pyjwt==2.4.0
+pyjwt[crypto]==2.4.0
     # via
     #   -r requirements.in
     #   simple-salesforce
@@ -792,14 +795,8 @@ semantic-version==2.8.5
     # via -r requirements.in
 semver==3.0.2
     # via dlt
-sentry-sdk==1.44.1
+sentry-sdk[celery,clickhouse-driver,django,openai]==1.44.1
     # via -r requirements.in
-setuptools==75.8.2
-    # via
-    #   dagster
-    #   dlt
-    #   gunicorn
-    #   infi-clickhouse-orm
 simple-salesforce==1.12.6
     # via -r requirements.in
 simplejson==3.19.2
@@ -853,7 +850,7 @@ sqlalchemy==2.0.38
     #   langchain-community
     #   snowflake-sqlalchemy
     #   sqlalchemy-bigquery
-sqlalchemy-bigquery==1.12.1
+sqlalchemy-bigquery[bqstorage]==1.12.1
     # via -r requirements.in
 sqlparse==0.4.4
     # via
@@ -967,7 +964,7 @@ universal-pathlib==0.2.6
     # via dagster
 uritemplate==4.1.1
     # via drf-spectacular
-urllib3==1.26.18
+urllib3[socks]==1.26.18
     # via
     #   botocore
     #   clickhouse-connect
@@ -977,7 +974,7 @@ urllib3==1.26.18
     #   requests
     #   selenium
     #   sentry-sdk
-uvicorn==0.34.0
+uvicorn[standard]==0.34.0
     # via dagster-webserver
 uvloop==0.21.0
     # via uvicorn
