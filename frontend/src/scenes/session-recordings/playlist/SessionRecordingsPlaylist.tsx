@@ -189,7 +189,7 @@ const ListEmptyState = (): JSX.Element => {
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
-                <div className="flex flex-col items-center deprecated-space-y-2">
+                <div className="flex flex-col gap-2">
                     {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
                         <>
                             <span>No matching recordings found</span>
