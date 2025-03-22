@@ -330,18 +330,17 @@ pub async fn test_bulk_insert_copy_from_with_binary_blobs(db: PgPool) {
     let payload = VM_STATE_PAYLOAD.clone().to_vec();
 
     for result in results {
-        println!("<ELI DEBUG> {:?}", result);
-
         assert!(result.function_id.is_some());
         let fid = result.function_id.unwrap().to_string();
         assert!(Uuid::parse_str(&fid).is_ok());
 
-        assert!(result.vm_state.is_some());
+        // dequeue_jobs always returns vm_state as NULL
+        assert!(result.vm_state.is_none());
+
+        // other binary blobs columns should be returned and hydrated properly
         assert!(result.metadata.is_some());
         assert!(result.parameters.is_some());
         assert!(result.blob.is_some());
-
-        assert_eq!(result.vm_state.unwrap(), payload);
         assert_eq!(result.metadata.unwrap(), payload);
         assert_eq!(result.parameters.unwrap(), payload);
         assert_eq!(result.blob.unwrap(), payload);
