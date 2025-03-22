@@ -2,7 +2,7 @@ import { IconGear } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -2290,7 +2290,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
     actionToUrl(({ values }) => {
         const stateToUrl = (): string => {
-            const urlParams = new URLSearchParams()
+            const searchParams = { ...router.values.searchParams }
+            const urlParams = new URLSearchParams(searchParams)
 
             const {
                 rawWebAnalyticsFilters,
