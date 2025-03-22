@@ -78,6 +78,7 @@ def maybe_log_decide_data(request_body: Optional[dict] = None, response_body: Op
     except:
         logger.warn("Failed to log decide data", team_id=team_id_as_string)
 
+
 def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict[str, Any]:
     use_remote_config = False
 
