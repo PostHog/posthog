@@ -2,6 +2,7 @@ import {
     IconAI,
     IconBook,
     IconChevronDown,
+    IconConfetti,
     IconDatabase,
     IconFeatures,
     IconGraph,
@@ -365,6 +366,19 @@ export const SidePanelSupport = (): JSX.Element => {
                                             targetBlank
                                         >
                                             Request a feature
+                                        </LemonButton>
+                                    </li>
+                                    <li>
+                                        <LemonButton
+                                            type="secondary"
+                                            status="alt"
+                                            to={`https://github.com/PostHog/posthog/issues/new?template=bug_report.yml&debug-info=${encodeURIComponent(
+                                                getPublicSupportSnippet(region, currentOrganization, currentTeam)
+                                            )}`}
+                                            icon={<IconConfetti />}
+                                            targetBlank
+                                        >
+                                            Report a bug
                                         </LemonButton>
                                     </li>
                                 </ul>
