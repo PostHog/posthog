@@ -40,7 +40,8 @@ pub struct ManagerConfig {
     pub shards: Vec<PoolConfig>,
     pub shard_depth_limit: Option<u64>, // Defaults to 10_000 available jobs per shard
     pub shard_depth_check_interval_seconds: Option<u64>, // Defaults to 10 seconds - checking shard capacity
-    pub should_compress_vm_state: Option<bool>,          // Defaults to "false" (for now!)
+    pub should_compress_vm_state: Option<bool>,          // Defaults to "false" for now
+    pub should_use_bulk_job_copy: Option<bool>,          // Defaults to "false" for now
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -57,6 +58,8 @@ pub struct WorkerConfig {
     pub flush_loop_interval_ms: Option<u64>, // Defaults to 10
     #[serde(alias = "shouldCompressVmState")]
     pub should_compress_vm_state: Option<bool>, // Defaults to "false"
+    #[serde(alias = "shouldUseBulkJobCopy")]
+    pub should_use_bulk_job_copy: Option<bool>, // Defaults to "false"
 }
 
 impl WorkerConfig {
@@ -82,5 +85,9 @@ impl WorkerConfig {
 
     pub fn should_compress_vm_state(&self) -> bool {
         self.should_compress_vm_state.unwrap_or(false)
+    }
+
+    pub fn should_use_bulk_job_copy(&self) -> bool {
+        self.should_use_bulk_job_copy.unwrap_or(false)
     }
 }
