@@ -196,8 +196,10 @@ FROM UNNEST(
     Ok(ids)
 }
 
+// wraps CSV rows to be encoded and batch written
+// to Postgres as part of a COPY FROM STDIN stmt
 #[derive(Debug, serde::Serialize)]
-struct CyclotronJobInit {
+struct CopyFromJobInit {
     id: Uuid,
     team_id: i32,
     function_id: Option<Uuid>,
@@ -211,13 +213,12 @@ struct CyclotronJobInit {
     job_state: JobState,
     scheduled: DateTime<Utc>,
     priority: i16,
-    vm_state: Option<Bytes>,
-    metadata: Option<Bytes>,
-    parameters: Option<Bytes>,
-    blob: Option<Bytes>,
+    vm_state: Option<String>,
+    metadata: Option<String>,
+    parameters: Option<String>,
+    blob: Option<String>,
 }
 
-// experimental variant of bulk_create_jobs_upsert using Postgres COPY for batch writes
 pub async fn bulk_create_jobs_copy(
     pool: &Pool<Postgres>,
     jobs: Vec<JobInit>,
@@ -244,7 +245,7 @@ pub async fn bulk_create_jobs_copy(
             vm_state = compress_vm_state(vm_state)?;
         }
 
-        let cj = CyclotronJobInit {
+        let cj = CopyFromJobInit {
             id: new_id,
             team_id: j.team_id,
             function_id: j.function_id,
@@ -258,10 +259,10 @@ pub async fn bulk_create_jobs_copy(
             job_state: JobState::Available,
             scheduled: j.scheduled,
             priority: j.priority,
-            vm_state,
-            metadata: j.metadata,
-            parameters: j.parameters,
-            blob: j.blob,
+            vm_state: encode_pg_bytea(vm_state),
+            metadata: encode_pg_bytea(j.metadata),
+            parameters: encode_pg_bytea(j.parameters),
+            blob: encode_pg_bytea(j.blob),
         };
 
         csv_writer
@@ -279,4 +280,11 @@ pub async fn bulk_create_jobs_copy(
     inc("bulk_create_jobs_copy_rows_affected", &[], rows_affected);
 
     Ok(ids)
+}
+
+// COPY FROM STDIN with CSV input method must encode BYTEA binary blobs
+// as specially-formatted UTF-8 Strings. When the Option is None,
+// the CSV field will be empty and the DB column will record a NULL value
+fn encode_pg_bytea(buffer: Option<Bytes>) -> Option<String> {
+    buffer.map(|bs| format!("\\x{}", hex::encode(bs)))
 }
