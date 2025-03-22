@@ -1,5 +1,5 @@
 import { Message, MessageHeader } from 'node-rdkafka'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
@@ -38,6 +38,11 @@ const histogramKafkaBatchSizeKb = new Histogram({
     buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
 })
 
+const forcedOverflowEventsCounter = new Counter({
+    name: 'ingestion_forced_overflow_events_total',
+    help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
+})
+
 type IncomingEvent = { message: Message; event: PipelineEvent }
 
 type IncomingEventsByDistinctId = {
@@ -71,6 +76,7 @@ export class IngestionConsumer {
     private ingestionWarningLimiter: MemoryRateLimiter
     private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
+    private tokensToForceOverflow: string[] = []
 
     constructor(
         private hub: Hub,
@@ -92,6 +98,7 @@ export class IngestionConsumer {
         this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? hub.INGESTION_CONSUMER_DLQ_TOPIC
         this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',').filter((x) => !!x)
         this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
+        this.tokensToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_TOKENS.split(',').filter((x) => !!x)
         this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
         this.name = `ingestion-consumer-${this.topic}`
@@ -213,19 +220,26 @@ export class IngestionConsumer {
                 }
 
                 const eventKey = `${event.token}:${event.distinct_id}`
+                // Check if this token is in the force overflow list
+                const shouldForceOverflow = event.token && this.tokensToForceOverflow.includes(event.token)
+
                 // Check the rate limiter and emit to overflow if necessary
                 const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
 
-                if (this.overflowEnabled() && !isBelowRateLimit) {
+                if (this.overflowEnabled() && (shouldForceOverflow || !isBelowRateLimit)) {
                     logger.debug('🔁', `Sending to overflow`, {
                         event,
+                        reason: shouldForceOverflow ? 'force_overflow_token' : 'rate_limit',
                     })
                     ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
-                    if (this.ingestionWarningLimiter.consume(eventKey, 1)) {
+
+                    if (shouldForceOverflow) {
+                        forcedOverflowEventsCounter.inc()
+                    } else if (this.ingestionWarningLimiter.consume(eventKey, 1)) {
                         logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
                     }
 
-                    void this.scheduleWork(this.emitToOverflow([message]))
+                    void this.scheduleWork(this.emitToOverflow([message], shouldForceOverflow ? true : undefined))
                     continue
                 }
 
@@ -434,7 +448,7 @@ export class IngestionConsumer {
         )
     }
 
-    private async emitToOverflow(kafkaMessages: Message[]) {
+    private async emitToOverflow(kafkaMessages: Message[], preservePartitionLocalityOverride?: boolean) {
         const overflowTopic = this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
         if (!overflowTopic) {
             throw new Error('No overflow topic configured')
@@ -442,7 +456,11 @@ export class IngestionConsumer {
 
         ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
 
-        const overflowMode = this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
+        const preservePartitionLocality =
+            preservePartitionLocalityOverride !== undefined
+                ? preservePartitionLocalityOverride
+                : this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
+        const overflowMode = preservePartitionLocality
             ? IngestionOverflowMode.Reroute
             : IngestionOverflowMode.RerouteRandomly
 
