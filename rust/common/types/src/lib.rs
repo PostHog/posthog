@@ -10,6 +10,8 @@ pub use event::RawEvent;
 
 // Teams
 pub use team::Team;
+pub use team::TeamId;
+pub use team::ProjectId;
 
 // Utils
 pub mod util;

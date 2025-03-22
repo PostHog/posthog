@@ -13,6 +13,7 @@ use crate::client::geoip::GeoIpClient;
 use crate::cohort::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
 use crate::router;
+use common_cookieless::CookielessManager;
 
 pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
@@ -101,15 +102,21 @@ where
     };
 
     // You can decide which client to pass to the router, or pass both if needed
+    let cookieless_manager = Arc::new(CookielessManager::new(
+        config.get_cookieless_config(),
+        redis_client.clone(),
+    ));
+
     let app = router::router(
-        redis_client,
-        reader,
-        writer,
+        redis_client.clone(),
+        reader.clone(),
+        writer.clone(),
         cohort_cache,
         geoip_service,
         health,
         billing_limiter,
-        config,
+        cookieless_manager,
+        config.clone(),
     );
 
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());

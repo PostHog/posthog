@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+pub type TeamId = i32;
+pub type ProjectId = i64;
+
 #[derive(Clone, Debug, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Team {
-    pub id: i32,
+    pub id: TeamId,
     pub name: String,
     pub api_token: String,
 }
@@ -26,7 +29,7 @@ impl Team {
         .await
     }
 
-    pub async fn by_id<'c, E>(executor: E, id: i32) -> Result<Option<Self>, sqlx::Error>
+    pub async fn by_id<'c, E>(executor: E, id: TeamId) -> Result<Option<Self>, sqlx::Error>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {

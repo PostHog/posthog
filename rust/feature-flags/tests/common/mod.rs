@@ -56,9 +56,11 @@ impl ServerHandle {
             // Create a minimal valid Team object
             let team = Team {
                 id: team_id,
+                project_id: team_id as i64,
                 name: "Test Team".to_string(),
                 api_token: token.clone(),
-                project_id: team_id as i64,
+                cookieless_server_hash_mode: 0,
+                timezone: "UTC".to_string(),
             };
 
             // Serialize to JSON
@@ -128,6 +130,11 @@ impl ServerHandle {
             )
             .unwrap();
 
+            let cookieless_manager = Arc::new(common_cookieless::CookielessManager::new(
+                config.get_cookieless_config(),
+                redis_client.clone(),
+            ));
+
             let app = feature_flags::router::router(
                 redis_client,
                 reader,
@@ -136,6 +143,7 @@ impl ServerHandle {
                 geoip_service,
                 health,
                 billing_limiter,
+                cookieless_manager,
                 config,
             );
 

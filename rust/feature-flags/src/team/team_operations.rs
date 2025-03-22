@@ -62,7 +62,7 @@ impl Team {
     ) -> Result<Team, FlagError> {
         let mut conn = client.get_connection().await?;
 
-        let query = "SELECT id, name, api_token, project_id FROM posthog_team WHERE api_token = $1";
+        let query = "SELECT id, name, api_token, project_id, cookieless_server_hash_mode, timezone FROM posthog_team WHERE api_token = $1";
         let row = sqlx::query_as::<_, Team>(query)
             .bind(token)
             .fetch_one(&mut *conn)
@@ -130,6 +130,8 @@ mod tests {
             project_id: i64::from(id) - 1,
             name: "team".to_string(),
             api_token: token,
+            cookieless_server_hash_mode: 0,
+            timezone: "UTC".to_string(),
         };
         let serialized_team = serde_json::to_string(&team).expect("Failed to serialise team");
 
@@ -163,7 +165,7 @@ mod tests {
         let target_token = "phc_123456789012".to_string();
         // A payload form before December 2025, it's missing `project_id`
         let serialized_team = format!(
-            "{{\"id\":343,\"name\":\"team\",\"api_token\":\"{}\"}}",
+            "{{\"id\":343,\"name\":\"team\",\"api_token\":\"{}\",\"cookieless_server_hash_mode\":0}}",
             target_token
         );
         client
@@ -181,6 +183,7 @@ mod tests {
         assert_eq!(team_from_redis.api_token, target_token);
         assert_eq!(team_from_redis.id, 343);
         assert_eq!(team_from_redis.project_id, 343); // Same as `id`
+        assert_eq!(team_from_redis.cookieless_server_hash_mode, 0);
     }
 
     #[tokio::test]

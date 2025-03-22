@@ -1,3 +1,4 @@
+use common_cookieless::CookielessConfig;
 use envconfig::Envconfig;
 use once_cell::sync::Lazy;
 use std::net::SocketAddr;
@@ -104,6 +105,24 @@ pub struct Config {
 
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
+
+    #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
+    pub cookieless_disabled: bool,
+
+    #[envconfig(from = "COOKIELESS_FORCE_STATELESS", default = "false")]
+    pub cookieless_force_stateless: bool,
+
+    #[envconfig(from = "COOKIELESS_IDENTIFIES_TTL_SECONDS", default = "7200")]
+    pub cookieless_identifies_ttl_seconds: u64,
+
+    #[envconfig(from = "COOKIELESS_SESSION_TTL_SECONDS", default = "1800")]
+    pub cookieless_session_ttl_seconds: u64,
+
+    #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "86400")]
+    pub cookieless_salt_ttl_seconds: u64,
+
+    #[envconfig(from = "COOKIELESS_SESSION_INACTIVITY_MS", default = "1800000")]
+    pub cookieless_session_inactivity_ms: u64,
 }
 
 impl Config {
@@ -122,6 +141,12 @@ impl Config {
             team_ids_to_track: TeamIdsToTrack::All,
             cache_max_cohort_entries: 100_000,
             cache_ttl_seconds: 300,
+            cookieless_disabled: false,
+            cookieless_force_stateless: false,
+            cookieless_identifies_ttl_seconds: 7200,
+            cookieless_session_ttl_seconds: 1800,
+            cookieless_salt_ttl_seconds: 86400,
+            cookieless_session_inactivity_ms: 1800000,
         }
     }
 
@@ -136,6 +161,17 @@ impl Config {
                 .join("GeoLite2-City.mmdb")
         } else {
             PathBuf::from(&self.maxmind_db_path)
+        }
+    }
+
+    pub fn get_cookieless_config(&self) -> CookielessConfig {
+        CookielessConfig {
+            disabled: self.cookieless_disabled,
+            force_stateless_mode: self.cookieless_force_stateless,
+            identifies_ttl_seconds: self.cookieless_identifies_ttl_seconds,
+            session_ttl_seconds: self.cookieless_session_ttl_seconds,
+            salt_ttl_seconds: self.cookieless_salt_ttl_seconds,
+            session_inactivity_ms: self.cookieless_session_inactivity_ms,
         }
     }
 }
