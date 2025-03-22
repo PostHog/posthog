@@ -7715,6 +7715,7 @@ class StickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown properties")
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")

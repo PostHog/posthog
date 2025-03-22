@@ -77,7 +77,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
         isStepsFunnel ||
         isTrendsFunnel ||
-        isRetention
+        isRetention ||
+        isStickiness
     const hasPathsAdvanced = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel || isTrendsFunnel
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)

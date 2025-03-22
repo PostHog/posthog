@@ -15775,6 +15775,10 @@
         "StickinessQuery": {
             "additionalProperties": false,
             "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter",
+                    "description": "Breakdown properties"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range"
