@@ -11,7 +11,7 @@ from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from typing import Optional
 
-from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
+from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX, get_surveys_opt_in
 from posthog.api.utils import (
     get_project_id,
     get_token,
@@ -78,7 +78,6 @@ def maybe_log_decide_data(request_body: Optional[dict] = None, response_body: Op
     except:
         logger.warn("Failed to log decide data", team_id=team_id_as_string)
 
-
 def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict[str, Any]:
     use_remote_config = False
 
@@ -92,7 +91,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
             use_remote_config = True
 
     REMOTE_CONFIG_CACHE_COUNTER.labels(result=use_remote_config).inc()
-    surveys_opt_in = True if team.surveys_opt_in else False
+    surveys_opt_in = get_surveys_opt_in(team)
 
     if use_remote_config:
         response = RemoteConfig.get_config_via_token(token, request=request)

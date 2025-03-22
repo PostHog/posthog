@@ -7,6 +7,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 from prometheus_client import Counter
 import requests
+from posthog.api.survey import get_surveys_opt_in
 from posthog.exceptions_capture import capture_exception
 import structlog
 
@@ -229,7 +230,9 @@ class RemoteConfig(UUIDModel):
 
         config["heatmaps"] = True if team.heatmaps_opt_in else False
 
-        if team.surveys_opt_in:
+        surveys_opt_in = get_surveys_opt_in(team)
+
+        if surveys_opt_in:
             surveys_response = get_surveys_response(team)
             config["surveys"] = surveys_response["surveys"]
 
