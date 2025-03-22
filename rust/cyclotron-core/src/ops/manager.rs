@@ -267,16 +267,24 @@ pub async fn bulk_create_jobs_copy(
 
         csv_writer
             .serialize(cj)
-            .map_err(|e| QueueError::CSVError("csv_serialize", e))?;
+            .map_err(|e| QueueError::CsvError("csv_serialize", e))?;
     }
 
     csv_writer
         .flush()
-        .map_err(|e| QueueError::CSVError("csv_flush", e.into()))?;
+        .map_err(|e| QueueError::CsvError("csv_flush", e.into()))?;
 
     let mut stream = pool.copy_in_raw(COPY_IN_STMT).await?;
-    let _ = stream.send(&csv_writer.get_ref()[..]).await?;
-    let rows_affected = stream.finish().await?;
+    let result = stream.send(&csv_writer.get_ref()[..]).await;
+    if let Err(e) = result {
+        let _unused = stream
+            .abort(format!("failed to send COPY IN record: {}", e))
+            .await;
+        return Err(QueueError::SqlxError(e));
+    }
+
+    let _unused = result.unwrap();
+    let rows_affected = stream.finish().await.map_err(QueueError::SqlxError)?;
     inc("bulk_create_jobs_copy_rows_affected", &[], rows_affected);
 
     Ok(ids)
