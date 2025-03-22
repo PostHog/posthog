@@ -152,7 +152,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
 export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { showPaymentEntryModal } = useActions(paymentEntryLogic)
-    const { redirectPath, billingPlan, startupProgramLabel } = useValues(billingLogic)
+    const { redirectPath, billingPlan, startupProgramLabel, isManagedAccount } = useValues(billingLogic)
     const { scrollToProduct } = useActions(billingLogic)
     const { isPlanComparisonModalOpen, billingProductLoading } = useValues(billingProductLogic({ product }))
     const { toggleIsPlanComparisonModalOpen, setBillingProductLoading } = useActions(billingProductLogic({ product }))
@@ -161,7 +161,7 @@ export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX
         return null
     }
 
-    const showUpgradeOptions = billingPlan === BillingPlan.Free
+    const showUpgradeOptions = billingPlan === BillingPlan.Free && !isManagedAccount
     const copyVariation = startupProgramLabel ? BADGE_CONFIG[startupProgramLabel] : BADGE_CONFIG[billingPlan]
 
     return (

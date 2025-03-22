@@ -176,7 +176,9 @@ export function Billing(): JSX.Element {
                     {(showCreditCTAHero || showBillingHero) && (
                         <div className={clsx('flex-1', { 'flex-grow-1': showCreditCTAHero })}>
                             {showCreditCTAHero && <CreditCTAHero />}
-                            {showBillingHero && <BillingHero product={platformAndSupportProduct} />}
+                            {showBillingHero && platformAndSupportProduct && (
+                                <BillingHero product={platformAndSupportProduct} />
+                            )}
                         </div>
                     )}
                 </div>

@@ -482,6 +482,12 @@ export const billingLogic = kea<billingLogicType>([
                 return !!billingPlan && !billing?.trial && !!platformAndSupportProduct && !showCreditCTAHero
             },
         ],
+        isManagedAccount: [
+            (s) => [s.billing],
+            (billing: BillingType): boolean => {
+                return !!(billing?.account_owner?.name || billing?.account_owner?.email)
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         activateLicense: {
