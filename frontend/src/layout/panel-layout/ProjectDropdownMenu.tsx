@@ -105,51 +105,53 @@ export function ProjectDropdownMenu(): JSX.Element | null {
             <DropdownMenuContent loop align="start">
                 <DropdownMenuLabel>Projects</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <LemonButton
-                    active
-                    sideAction={{
-                        icon: (
-                            <IconWrapper size="sm">
-                                <IconGear />
-                            </IconWrapper>
-                        ),
-                        tooltip: `Go to ${currentTeam.name} settings`,
-                        onClick: () => {
-                            push(urls.settings('project'))
-                        },
-                    }}
-                    title={`Switch to project ${currentTeam.name}`}
-                    fullWidth
-                >
-                    <ProjectName team={currentTeam} />
-                </LemonButton>
-                {currentOrganization?.teams &&
-                    currentOrganization.teams
-                        .filter((team) => team.id !== currentTeam?.id)
-                        .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
-                        .map((team) => <OtherProjectButton key={team.id} team={team} />)}
-                {preflight?.can_create_org && (
-                    <DropdownMenuItem asChild>
-                        <LemonButton
-                            icon={
-                                <IconWrapper>
-                                    <IconPlusSmall />
+                <div className="flex flex-col gap-px">
+                    <LemonButton
+                        active
+                        sideAction={{
+                            icon: (
+                                <IconWrapper size="sm">
+                                    <IconGear />
                                 </IconWrapper>
-                            }
-                            onClick={() =>
-                                guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {
-                                    closeAccountPopover()
-                                    showCreateProjectModal()
-                                })
-                            }
-                            fullWidth
-                            size="small"
-                            data-attr="new-organization-button"
-                        >
-                            New project
-                        </LemonButton>
-                    </DropdownMenuItem>
-                )}
+                            ),
+                            tooltip: `Go to ${currentTeam.name} settings`,
+                            onClick: () => {
+                                push(urls.settings('project'))
+                            },
+                        }}
+                        title={`Switch to project ${currentTeam.name}`}
+                        fullWidth
+                    >
+                        <ProjectName team={currentTeam} />
+                    </LemonButton>
+                    {currentOrganization?.teams &&
+                        currentOrganization.teams
+                            .filter((team) => team.id !== currentTeam?.id)
+                            .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                            .map((team) => <OtherProjectButton key={team.id} team={team} />)}
+                    {preflight?.can_create_org && (
+                        <DropdownMenuItem asChild>
+                            <LemonButton
+                                icon={
+                                    <IconWrapper>
+                                        <IconPlusSmall />
+                                    </IconWrapper>
+                                }
+                                onClick={() =>
+                                    guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {
+                                        closeAccountPopover()
+                                        showCreateProjectModal()
+                                    })
+                                }
+                                fullWidth
+                                size="small"
+                                data-attr="new-organization-button"
+                            >
+                                New project
+                            </LemonButton>
+                        </DropdownMenuItem>
+                    )}
+                </div>
             </DropdownMenuContent>
         </DropdownMenu>
     ) : null

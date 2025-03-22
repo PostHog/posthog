@@ -75,74 +75,76 @@ export function OrganizationDropdownMenu(): JSX.Element {
             <DropdownMenuContent loop align="start">
                 <DropdownMenuLabel>Organizations</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {currentOrganization && (
-                    <DropdownMenuItem asChild>
-                        <LemonButton
-                            icon={
-                                <UploadedLogo
-                                    name={currentOrganization.name}
-                                    entityId={currentOrganization.id}
-                                    mediaId={currentOrganization.logo_media_id}
-                                />
-                            }
-                            title={`Switch to organization ${currentOrganization.name}`}
-                            active
-                            fullWidth
-                            size="small"
-                        >
-                            <span>{currentOrganization.name}</span>
-                            <AccessLevelIndicator organization={currentOrganization} />
-                        </LemonButton>
-                    </DropdownMenuItem>
-                )}
-                {otherOrganizations.map((otherOrganization) => (
-                    <DropdownMenuItem key={otherOrganization.id} asChild>
-                        <LemonButton
-                            onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                            icon={
-                                <UploadedLogo
-                                    name={otherOrganization.name}
-                                    entityId={otherOrganization.id}
-                                    mediaId={otherOrganization.logo_media_id}
-                                />
-                            }
-                            title={`Switch to organization ${otherOrganization.name}`}
-                            fullWidth
-                            size="small"
-                        >
-                            <span>{otherOrganization.name}</span>
-                            <AccessLevelIndicator organization={otherOrganization} />
-                        </LemonButton>
-                    </DropdownMenuItem>
-                ))}
-                {preflight?.can_create_org && (
-                    <DropdownMenuItem asChild>
-                        <LemonButton
-                            icon={
-                                <IconWrapper>
-                                    <IconPlusSmall />
-                                </IconWrapper>
-                            }
-                            onClick={() =>
-                                guardAvailableFeature(
-                                    AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                    () => {
-                                        closeAccountPopover()
-                                        showCreateOrganizationModal()
-                                    },
-                                    {
-                                        guardOnCloud: false,
-                                    }
-                                )
-                            }
-                            fullWidth
-                            size="small"
-                            data-attr="new-organization-button"
-                        >
-                            New organization
-                        </LemonButton>
-                    </DropdownMenuItem>
-                )}
+                <div className="flex flex-col gap-px">
+                    {currentOrganization && (
+                        <DropdownMenuItem asChild>
+                            <LemonButton
+                                icon={
+                                    <UploadedLogo
+                                        name={currentOrganization.name}
+                                        entityId={currentOrganization.id}
+                                        mediaId={currentOrganization.logo_media_id}
+                                    />
+                                }
+                                title={`Switch to organization ${currentOrganization.name}`}
+                                active
+                                fullWidth
+                                size="small"
+                            >
+                                <span>{currentOrganization.name}</span>
+                                <AccessLevelIndicator organization={currentOrganization} />
+                            </LemonButton>
+                        </DropdownMenuItem>
+                    )}
+                    {otherOrganizations.map((otherOrganization) => (
+                        <DropdownMenuItem key={otherOrganization.id} asChild>
+                            <LemonButton
+                                onClick={() => updateCurrentOrganization(otherOrganization.id)}
+                                icon={
+                                    <UploadedLogo
+                                        name={otherOrganization.name}
+                                        entityId={otherOrganization.id}
+                                        mediaId={otherOrganization.logo_media_id}
+                                    />
+                                }
+                                title={`Switch to organization ${otherOrganization.name}`}
+                                fullWidth
+                                size="small"
+                            >
+                                <span>{otherOrganization.name}</span>
+                                <AccessLevelIndicator organization={otherOrganization} />
+                            </LemonButton>
+                        </DropdownMenuItem>
+                    ))}
+                    {preflight?.can_create_org && (
+                        <DropdownMenuItem asChild>
+                            <LemonButton
+                                icon={
+                                    <IconWrapper>
+                                        <IconPlusSmall />
+                                    </IconWrapper>
+                                }
+                                onClick={() =>
+                                    guardAvailableFeature(
+                                        AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                        () => {
+                                            closeAccountPopover()
+                                            showCreateOrganizationModal()
+                                        },
+                                        {
+                                            guardOnCloud: false,
+                                        }
+                                    )
+                                }
+                                fullWidth
+                                size="small"
+                                data-attr="new-organization-button"
+                            >
+                                New organization
+                            </LemonButton>
+                        </DropdownMenuItem>
+                    )}
+                </div>
             </DropdownMenuContent>
         </DropdownMenu>
     )

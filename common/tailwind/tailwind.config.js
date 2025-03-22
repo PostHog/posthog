@@ -659,6 +659,7 @@ const config = {
                 'fill-input': 'var(--bg-fill-input)',
                 'fill-switch': 'var(--bg-fill-switch)',
                 'fill-slider-rail': 'var(--bg-fill-slider-rail)',
+                'fill-scroll-thumb': 'var(--bg-fill-scroll-thumb)',
             },
             textColor: {
                 ...commonColors,
