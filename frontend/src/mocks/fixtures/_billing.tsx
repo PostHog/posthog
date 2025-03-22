@@ -3644,4 +3644,8 @@ export const billingJson: BillingType = {
     stripe_portal_url:
         'https://billing.stripe.com/p/session/test_YWNjdF8xSElNRERFdUlhdFJYU2R6LF9QaEVJR3VyemlvMDZzRzdiQXZrc1AxSjNXZk1BellP0100ZsforDQG',
     subscription_level: 'paid',
+    account_owner: {
+        name: 'Simon Fisher',
+        email: 'simon@posthog.com',
+    },
 }

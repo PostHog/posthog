@@ -1,12 +1,11 @@
-import { IconSort } from '@posthog/icons'
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall, IconSort } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
-import { useEffect, useRef } from 'react'
+import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -15,8 +14,8 @@ import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
-export function ProjectTree({ mainRef }: { mainRef: React.RefObject<HTMLElement> }): JSX.Element {
-    const { treeData, loadingPaths, expandedFolders, lastViewedId, viableItems } = useValues(projectTreeLogic)
+export function ProjectTree(): JSX.Element {
+    const { treeData, lastViewedId, viableItems, pendingActions } = useValues(projectTreeLogic)
 
     const {
         createFolder,
@@ -27,10 +26,12 @@ export function ProjectTree({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         setLastViewedId,
         setExpandedFolders,
         loadFolder,
+        applyPendingActions,
+        cancelPendingActions,
     } = useActions(projectTreeLogic)
 
-    const { showLayoutPanel, setPanelTreeRef } = useActions(panelLayoutLogic)
-    const { isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
 
     const handleCopyPath = (path?: string): void => {
@@ -48,47 +49,83 @@ export function ProjectTree({ mainRef }: { mainRef: React.RefObject<HTMLElement>
             searchPlaceholder="Search your project"
             panelActions={
                 <>
-                    <LemonButton
-                        size="small"
-                        type="tertiary"
-                        tooltip="Sort by name"
-                        onClick={() => alert('Sort by name')}
-                        className="hover:bg-fill-highlight-100 shrink-0"
-                        icon={
-                            <IconWrapper>
-                                <IconSort />
-                            </IconWrapper>
-                        }
-                    />
-                    <LemonButton
-                        size="small"
-                        type="tertiary"
-                        tooltip="Create new root folder"
-                        onClick={() => createFolder('')}
-                        className="hover:bg-fill-highlight-100 shrink-0"
-                        icon={
-                            <IconWrapper>
-                                <IconPlusSmall />
-                            </IconWrapper>
-                        }
-                    />
+                    {pendingActions.length > 0 ? (
+                        <div className="flex gap-1">
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={cancelPendingActions}
+                                tooltip={`Cancel ${pendingActions.length} ${
+                                    pendingActions.length === 1 ? 'change' : 'changes'
+                                }`}
+                                tooltipPlacement="bottom"
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                size="xsmall"
+                                type="primary"
+                                status="danger"
+                                onClick={applyPendingActions}
+                                tooltip={`Save ${pendingActions.length} ${
+                                    pendingActions.length === 1 ? 'change' : 'changes'
+                                }`}
+                                tooltipPlacement="bottom"
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    ) : (
+                        <>
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                tooltip="Sort by name"
+                                onClick={() => alert('Sort by name')}
+                                className="hover:bg-fill-highlight-100 shrink-0"
+                                icon={
+                                    <IconWrapper>
+                                        <IconSort />
+                                    </IconWrapper>
+                                }
+                            />
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                tooltip="Create new root folder"
+                                onClick={() => createFolder('')}
+                                className="hover:bg-fill-highlight-100 shrink-0"
+                                icon={
+                                    <IconWrapper>
+                                        <IconPlusSmall />
+                                    </IconWrapper>
+                                }
+                            />
+                        </>
+                    )}
                 </>
             }
         >
             <LemonTree
                 ref={treeRef}
-                contentRef={mainRef}
+                contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
                 data={treeData}
-                expandedItemIds={expandedFolders}
-                isFinishedBuildingTreeData={Object.keys(loadingPaths).length === 0}
                 defaultSelectedFolderOrNodeId={lastViewedId || undefined}
+                isItemActive={(item) => {
+                    if (!item.record?.href) {
+                        return false
+                    }
+                    return window.location.href.includes(item.record?.href) ? true : false
+                }}
                 onNodeClick={(node) => {
+                    if (!isLayoutPanelPinned) {
+                        clearActivePanelIdentifier()
+                        showLayoutPanel(false)
+                    }
+
                     if (node?.record?.path) {
                         setLastViewedId(node?.id || '')
-                        if (!isLayoutPanelPinned) {
-                            showLayoutPanel(false)
-                        }
                     }
                     if (node?.id.startsWith('project-load-more/')) {
                         const path = node.id.split('/').slice(1).join('/')
