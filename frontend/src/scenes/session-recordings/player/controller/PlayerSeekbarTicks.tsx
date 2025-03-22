@@ -8,7 +8,7 @@ import {
     InspectorListItemEvent,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { UserActivity } from './Seekbar'
+import { UserActivity } from './UserActivity'
 
 export interface SeekBarItem {
     timeInRecording: number
