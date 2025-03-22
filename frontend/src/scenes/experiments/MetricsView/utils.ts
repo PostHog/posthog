@@ -9,3 +9,12 @@ export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | 
     }
     return 'Trend'
 }
+
+export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
+    if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
+        return metric.metric_config.event
+    } else if (metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
+        return metric.metric_config.name || `Action ${metric.metric_config.action}`
+    }
+    return 'Untitled metric'
+}
