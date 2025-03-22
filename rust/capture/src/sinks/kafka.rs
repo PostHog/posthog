@@ -229,9 +229,7 @@ impl KafkaSink {
                 // TODO: deprecate capture-led overflow or move logic in handler
                 let is_limited = match &self.partition {
                     None => false,
-                    Some(partition) => {
-                        partition.is_limited(&event_key) || partition.is_limited(&token)
-                    },
+                    Some(partition) => partition.is_limited(&event_key) || partition.is_limited(&token),
                 };
                 if is_limited {
                     (&self.main_topic, None) // Analytics overflow goes to the main topic without locality
