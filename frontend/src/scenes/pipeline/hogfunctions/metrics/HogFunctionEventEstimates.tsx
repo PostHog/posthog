@@ -48,15 +48,13 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
             <LemonLabel>Matching events</LemonLabel>
             {sparkline && !sparklineLoading ? (
                 <>
-                    {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
+                    {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL && type !== 'transformation' ? (
                         <LemonBanner type="warning">
-                            <b>Warning:</b> This {type === 'transformation' ? 'transformation' : 'destination'} would
-                            have triggered{' '}
+                            <b>Warning:</b> This destination would have triggered{' '}
                             <strong>
                                 {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
                             </strong>{' '}
-                            in the last 7 days. Consider the impact of this function on your{' '}
-                            {type === 'transformation' ? 'data pipeline' : 'destination'}.
+                            in the last 7 days. Consider the impact of this function on your destination.
                         </LemonBanner>
                     ) : (
                         <p>
