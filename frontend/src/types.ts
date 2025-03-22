@@ -213,6 +213,18 @@ export enum LicensePlan {
     Cloud = 'cloud',
 }
 
+export enum BillingPlan {
+    Free = 'free',
+    Paid = 'paid',
+    Teams = 'teams',
+    Enterprise = 'enterprise',
+}
+
+export enum StartupProgramLabel {
+    YC = 'YC',
+    Startup = 'Startup',
+}
+
 export enum Realm {
     Cloud = 'cloud',
     Demo = 'demo',
@@ -1815,6 +1827,8 @@ export interface BillingType {
         target: 'paid' | 'teams' | 'enterprise'
         expires_at: string
     }
+    billing_plan: BillingPlan | null
+    startup_program_label?: StartupProgramLabel | null
     account_owner?: {
         email?: string
         name?: string

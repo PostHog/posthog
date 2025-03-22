@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { BillingType } from '~/types'
+import { BillingPlan, BillingType } from '~/types'
 
 export const billingJson: BillingType = {
     customer_id: 'cus_Pg7PIL8MsKi6bx',
@@ -11,6 +11,7 @@ export const billingJson: BillingType = {
         current_period_end: dayjs('2024-04-07T22:54:32Z'),
         interval: 'month',
     },
+    billing_plan: BillingPlan.Paid,
     current_total_amount_usd: '403.07',
     current_total_amount_usd_after_discount: '403.07',
     products: [
