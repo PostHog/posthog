@@ -88,5 +88,8 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
+    [Scene.MessagingBroadcasts]: () => import('products/messaging/frontend/Broadcasts'),
+    [Scene.MessagingAutomations]: () => import('products/messaging/frontend/Automations'),
+    [Scene.MessagingLibrary]: () => import('products/messaging/frontend/Library'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
 }
