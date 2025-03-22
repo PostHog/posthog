@@ -50,6 +50,9 @@ def create_default_modifiers_for_team(
     else:
         modifiers = modifiers.model_copy()
 
+    if modifiers.useMaterializedViews is None:
+        modifiers.useMaterializedViews = True
+
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
             if getattr(modifiers, key) is None:
