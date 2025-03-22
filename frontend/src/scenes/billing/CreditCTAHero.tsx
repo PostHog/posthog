@@ -54,84 +54,103 @@ export const CreditCTAHero = (): JSX.Element | null => {
                 />
             </div>
             <div className="@container p-4 relative">
-                <BurningMoneyHog className="float-right w-[33cqw] min-w-32 max-w-48 ml-6 mb-4" />
-                <div className="flex-1">
-                    {creditOverview.status === 'pending' && (
-                        <>
-                            <h1 className="mb-0">We're applying your credits</h1>
-                            <p className="mt-2 mb-0 max-w-xl">
-                                Your credits will be ready within 24 hours of payment.{' '}
-                                {creditOverview.collection_method === 'send_invoice'
-                                    ? "You'll receive an email with a link to pay the invoice. Please make sure to pay that as soon as possible so we can apply the credits to your account."
-                                    : "We'll will charge your card on file and we'll email you if there are any issues!"}
-                            </p>
-                            {creditOverview.invoice_url && (
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() =>
-                                        creditOverview.invoice_url && window.open(creditOverview.invoice_url, '_blank')
-                                    }
-                                    className="mt-4"
-                                >
-                                    View invoice
-                                </LemonButton>
-                            )}
-                        </>
-                    )}
-                    {creditOverview.status === 'none' && (
-                        <>
-                            <h2 className="mb-0">
-                                Stop burning money.{' '}
-                                <span className="text-success-light">Prepay and save {computedDiscount * 100}%</span>{' '}
-                                over the next 12 months.
-                            </h2>
-                            <p className="mt-2 mb-0 max-w-xl">
-                                Based on your usage, your monthly bill is forecasted to be an average of{' '}
-                                <strong>${estimatedMonthlyCreditAmountUsd.toFixed(0)}/month</strong> over the next year.
-                            </p>
-                            <p className="mt-2 mb-0 max-w-xl">
-                                This qualifies you for a <strong>{computedDiscount * 100}% discount</strong> by
-                                pre-purchasing usage credits. Which gives you a net savings of{' '}
-                                <strong>
-                                    $
-                                    {Math.round(estimatedMonthlyCreditAmountUsd * computedDiscount * 12).toLocaleString(
-                                        'en-US',
-                                        {
+                <div className="flex gap-6 mb-4">
+                    <div className="flex-1">
+                        {creditOverview.status === 'pending' && (
+                            <>
+                                <h1 className="mb-0">We're applying your credits</h1>
+                                <p className="mt-2 mb-0">
+                                    Your credits will be ready within 24 hours of payment.{' '}
+                                    {creditOverview.collection_method === 'send_invoice' ? (
+                                        <>
+                                            You'll receive an email with a link to pay the invoice. Please make sure to
+                                            pay that as soon as possible so we can apply the credits to your account.
+                                        </>
+                                    ) : (
+                                        <>
+                                            We'll will charge your card on file and we'll email you if there are any
+                                            issues!"
+                                        </>
+                                    )}
+                                </p>
+                            </>
+                        )}
+                        {creditOverview.status === 'none' && (
+                            <>
+                                <h2 className="mb-0">
+                                    Stop burning money.{' '}
+                                    <span className="text-success-light">
+                                        Prepay and save {computedDiscount * 100}%
+                                    </span>{' '}
+                                    over the next 12 months.
+                                </h2>
+                                <p className="mt-2 mb-0">
+                                    Based on your usage, your monthly bill is forecasted to be an average of{' '}
+                                    <strong>${estimatedMonthlyCreditAmountUsd.toFixed(0)}/month</strong> over the next
+                                    year.
+                                </p>
+                                <p className="mt-2 mb-0">
+                                    This qualifies you for a <strong>{computedDiscount * 100}% discount</strong> by
+                                    pre-purchasing usage credits. Which gives you a net savings of{' '}
+                                    <strong>
+                                        $
+                                        {Math.round(
+                                            estimatedMonthlyCreditAmountUsd * computedDiscount * 12
+                                        ).toLocaleString('en-US', {
                                             minimumFractionDigits: 0,
                                             maximumFractionDigits: 0,
-                                        }
-                                    )}
-                                </strong>{' '}
-                                over the next year.
-                            </p>
+                                        })}
+                                    </strong>{' '}
+                                    over the next year.
+                                </p>
+                                <p className="mt-2 mb-0">Ready to save money on your PostHog usage?</p>
+                            </>
+                        )}
+                    </div>
+                    <div className="flex flex-col justify-center items-end w-25">
+                        <BurningMoneyHog className="w-full h-auto" />
+                        {creditOverview.status === 'pending' && creditOverview.invoice_url && (
+                            <LemonButton
+                                type="primary"
+                                onClick={() =>
+                                    creditOverview.invoice_url && window.open(creditOverview.invoice_url, '_blank')
+                                }
+                                className="w-25 mt-4"
+                            >
+                                View invoice
+                            </LemonButton>
+                        )}
+                        {creditOverview.status === 'none' && (
                             <LemonButton
                                 type="primary"
                                 status="alt"
                                 onClick={() => showPurchaseCreditsModal(true)}
-                                className="mt-4"
+                                className="w-25 mt-4"
                             >
                                 Learn more
                             </LemonButton>
-                            <>
-                                <LemonDivider className="my-4" />
-                                <div className="mt-2 flex flex-col items-start">
-                                    <p className="mb-2">
-                                        <strong>Also available:</strong> Our Enterprise tier offers dedicated support in
-                                        a private Slack channel, personalized training, and most importantly, free
-                                        merch.
-                                    </p>
-                                    <LemonButton
-                                        type="primary"
-                                        to="mailto:sales@posthog.com?subject=Let's talk enterprise!"
-                                        className="mt-2"
-                                    >
-                                        Talk to sales
-                                    </LemonButton>
-                                </div>
-                            </>
-                        </>
-                    )}
+                        )}
+                    </div>
                 </div>
+
+                {creditOverview.status === 'none' && (
+                    <>
+                        <LemonDivider className="my-3" />
+                        <div className="flex items-center justify-between gap-6">
+                            <p className="mb-0 flex-1">
+                                <strong>Also available:</strong> Our Enterprise tier offers dedicated support in a
+                                private Slack channel, personalized training, and most importantly, free merch.
+                            </p>
+                            <LemonButton
+                                type="primary"
+                                to="mailto:sales@posthog.com?subject=Let's talk enterprise!"
+                                className="w-25"
+                            >
+                                Talk to sales
+                            </LemonButton>
+                        </div>
+                    </>
+                )}
             </div>
             {isPurchaseCreditsModalOpen && <PurchaseCreditsModal />}
         </div>
