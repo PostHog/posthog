@@ -1,0 +1,37 @@
+FROM golang:1.24 AS builder
+WORKDIR /app
+
+# Install build dependencies including librdkafka
+RUN apt-get update && apt-get install -y --no-install-recommends git gcc g++ make pkg-config librdkafka-dev ca-certificates curl brotli && rm -rf /var/lib/apt/lists/*
+
+# Copy go.mod files first for better caching
+COPY services/capture/go.mod services/capture/go.sum services/capture/
+COPY pkg/common/go.mod pkg/common/
+
+# Download dependencies
+RUN cd services/capture && go mod download
+
+# Copy source code
+COPY pkg/common/ pkg/common/
+COPY services/capture/ services/capture/
+
+# Build the binary
+RUN cd services/capture && CGO_ENABLED=1 GOOS=linux go build -o /capture
+
+FROM ubuntu:24.04
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates librdkafka1 && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the binary, configs, and GeoIP database from builder
+COPY --from=builder /capture /app/
+COPY --from=builder /etc/ssl/certs /etc/ssl/certs
+COPY --from=builder /usr/share/ca-certificates /usr/share/ca-certificates
+COPY --from=builder /app/services/capture/configs /app/configs
+
+ENV POSTHOG_HOST=https://app.posthog.com
+EXPOSE 8000
+
+CMD ["/app/capture"]
