@@ -4,6 +4,7 @@ import { range } from 'lib/utils'
 
 import { ErrorTrackingIssue, ErrorTrackingSparklineConfig } from '~/queries/schema/schema-general'
 
+export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
 const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
 const volumePeriods: ('customVolume' | 'volumeDay' | 'volumeMonth')[] = ['customVolume', 'volumeDay', 'volumeMonth']
