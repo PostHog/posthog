@@ -24,13 +24,15 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { useEffect, useState } from 'react'
+import { useRef } from 'react'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
 
 import { DestinationTag } from '../destinations/DestinationTag'
 import { HogFunctionFilters } from './filters/HogFunctionFilters'
-import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic, mightDropEvents } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
@@ -87,6 +89,30 @@ export function HogFunctionConfiguration({
         usesGroups,
         hasGroupsAddon,
     } = useValues(logic)
+
+    // State for debounced mightDropEvents check
+    const [mightDrop, setMightDrop] = useState(false)
+    const [debouncedCode, setDebouncedCode] = useState('')
+
+    // Debounce the code check
+    useEffect(() => {
+        if (type !== 'transformation' || !configuration?.hog) {
+            setMightDrop(false)
+            return
+        }
+
+        const hogCode = configuration.hog || ''
+
+        const timeoutId = setTimeout(() => {
+            if (debouncedCode !== hogCode) {
+                setDebouncedCode(hogCode)
+                setMightDrop(mightDropEvents(hogCode))
+            }
+        }, 500)
+
+        return () => clearTimeout(timeoutId)
+    }, [configuration?.hog, type, debouncedCode])
+
     const {
         submitConfiguration,
         resetForm,
@@ -98,6 +124,7 @@ export function HogFunctionConfiguration({
         deleteHogFunction,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
+    const sourceCodeRef = useRef<HTMLDivElement>(null)
     const showTransformationFilters = useFeatureFlag('HOG_TRANSFORMATIONS_WITH_FILTERS')
 
     if (loading && !loaded) {
@@ -429,6 +456,7 @@ export function HogFunctionConfiguration({
 
                             {canEditSource && (
                                 <div
+                                    ref={sourceCodeRef}
                                     className={clsx(
                                         'border rounded p-3 deprecated-space-y-2',
                                         showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
@@ -443,7 +471,15 @@ export function HogFunctionConfiguration({
                                         {!showSource ? (
                                             <LemonButton
                                                 type="secondary"
-                                                onClick={() => setShowSource(true)}
+                                                onClick={() => {
+                                                    setShowSource(true)
+                                                    setTimeout(() => {
+                                                        sourceCodeRef.current?.scrollIntoView({
+                                                            behavior: 'smooth',
+                                                            block: 'start',
+                                                        })
+                                                    }, 100)
+                                                }}
                                                 disabledReason={
                                                     !hasAddon
                                                         ? 'Editing the source code requires the Data Pipelines addon'
@@ -475,6 +511,13 @@ export function HogFunctionConfiguration({
                                                             for more info
                                                         </span>
                                                     ) : null}
+                                                    {type === 'transformation' && mightDrop && (
+                                                        <LemonBanner type="warning" className="mt-2">
+                                                            <b>Warning:</b> Returning null or undefined will drop the
+                                                            event. If this is unintentional, return the event object
+                                                            instead.
+                                                        </LemonBanner>
+                                                    )}
                                                     <CodeEditorResizeable
                                                         language={type.startsWith('site_') ? 'typescript' : 'hog'}
                                                         value={value ?? ''}
