@@ -3,6 +3,7 @@ import { urls } from 'scenes/urls'
 
 import { AppContext } from '~/types'
 
+import { mockFeatureFlags } from './mockApi'
 import { Identifier, Navigation } from './navigation'
 
 export const LOGIN_USERNAME = process.env.LOGIN_USERNAME || 'test@posthog.com'
@@ -29,7 +30,11 @@ declare module '@playwright/test' {
 /**
  * we override the base playwright test to add things useful to us
  * */
-export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
+export const test = base.extend<{
+    loginBeforeTests: void
+    page: Page
+    featureFlags: (overrides: Record<string, any>) => Promise<void>
+}>({
     page: async ({ page }, use) => {
         // Add custom methods to the page object
         page.setAppContext = async function <K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void> {
@@ -75,6 +80,12 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
 
         // Pass the extended page to the test
         await use(page)
+    },
+    featureFlags: async ({ page }, use) => {
+        const setFeatureFlags = async (overrides: Record<string, any> = {}): Promise<void> => {
+            await mockFeatureFlags(page, overrides)
+        }
+        await use(setFeatureFlags)
     },
     // this auto fixture makes sure we log in before every test
     loginBeforeTests: [
