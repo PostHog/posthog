@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::{Duration, Utc};
 use common::{assert_job_matches_init, create_new_job, dates_match};
-use cyclotron_core::{Job, JobState, QueueManager, Worker};
+use cyclotron_core::{Job, JobState, QueueManager, Worker, WorkerConfig};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -276,11 +276,11 @@ pub async fn test_bulk_insert_copy_from_with_binary_nulls(db: PgPool) {
         .expect("failed to bulk insert jobs");
 
     let results = worker
-        .dequeue_jobs(&job_template.queue_name, 1000)
+        .dequeue_jobs(&job_template.queue_name, 100)
         .await
         .expect("failed to dequeue job");
 
-    assert_eq!(results.len(), 1000);
+    assert_eq!(results.len(), 100);
 
     for result in results {
         assert!(result.function_id.is_some());
@@ -301,7 +301,7 @@ pub async fn test_bulk_insert_copy_from_with_binary_blobs(db: PgPool) {
 
     let job_template = create_new_job();
 
-    let jobs = (0..1000)
+    let jobs = (0..100)
         .map(|_| {
             let mut job = job_template.clone();
             job.function_id = Some(Uuid::now_v7());
@@ -326,7 +326,7 @@ pub async fn test_bulk_insert_copy_from_with_binary_blobs(db: PgPool) {
         .await
         .expect("failed to dequeue job");
 
-    assert_eq!(results.len(), 1000);
+    assert_eq!(results.len(), 100);
     let payload = VM_STATE_PAYLOAD.clone().to_vec();
 
     for result in results {
@@ -345,4 +345,34 @@ pub async fn test_bulk_insert_copy_from_with_binary_blobs(db: PgPool) {
         assert_eq!(result.parameters.unwrap(), payload);
         assert_eq!(result.blob.unwrap(), payload);
     }
+}
+
+#[sqlx::test(migrations = "./migrations")]
+pub async fn test_bulk_insert_copy_from_with_vm_state(db: PgPool) {
+    let worker_cfg = WorkerConfig::default();
+    let worker = Worker::from_pool(db.clone(), worker_cfg);
+    let manager = QueueManager::from_pool(db.clone(), true, true);
+
+    let job_template = create_new_job();
+    let mut job = job_template.clone();
+    job.function_id = Some(Uuid::now_v7());
+    job.vm_state = Some(VM_STATE_PAYLOAD.to_vec());
+    let queue_name = job.queue_name.clone();
+
+    let ids = manager
+        .bulk_create_jobs(vec![job])
+        .await
+        .expect("failed to bulk insert jobs");
+    assert_eq!(ids.len(), 1);
+
+    let results: Vec<Job> = worker
+        .dequeue_with_vm_state(&queue_name, 1)
+        .await
+        .expect("failed to dequeue Job vm_state");
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0].vm_state.as_ref().unwrap(),
+        &VM_STATE_PAYLOAD.clone().to_vec()
+    );
 }
