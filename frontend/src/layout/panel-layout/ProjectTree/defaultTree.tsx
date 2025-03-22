@@ -11,7 +11,6 @@ import {
     IconNotification,
     IconPeople,
     IconPlug,
-    IconRocket,
     IconServer,
     IconSparkles,
     IconTarget,
@@ -108,12 +107,6 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
             icon: <IconDatabase />,
             href: () => urls.eventDefinitions(),
         },
-        {
-            path: 'Explore/Data management/Actions',
-            icon: <IconRocket />,
-            href: () => urls.actions(),
-        },
-
         {
             path: 'Explore/Data management/Property Definitions',
             icon: <IconDatabase />,

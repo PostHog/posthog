@@ -3,16 +3,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
-import {
-    ActionType,
-    ActivityTab,
-    AnnotationType,
-    PipelineNodeTab,
-    PipelineStage,
-    PipelineTab,
-    ProductKey,
-    SDKKey,
-} from '~/types'
+import { ActivityTab, AnnotationType, PipelineNodeTab, PipelineStage, PipelineTab, ProductKey, SDKKey } from '~/types'
 
 import { BillingSectionId } from './billing/types'
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
@@ -36,13 +27,6 @@ export const urls = {
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
-    createAction: (): string => `/data-management/actions/new`,
-    duplicateAction: (action: ActionType | null): string => {
-        const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
-        return `/data-management/actions/new/${queryParams}`
-    },
-    action: (id: string | number): string => `/data-management/actions/${id}`,
-    actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
