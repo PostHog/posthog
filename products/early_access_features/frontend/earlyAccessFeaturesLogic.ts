@@ -17,6 +17,13 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
                 return response.results
             },
         },
+        featureEnrollmentCounts: {
+            __default: {} as Record<string, number>,
+            loadFeatureEnrollmentCounts: async () => {
+                const response = await api.get('api/projects/@current/early_access_feature/enrollment_counts/')
+                return response
+            },
+        },
     }),
     selectors({
         breadcrumbs: [
@@ -29,8 +36,17 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
                 },
             ],
         ],
+        featuresWithCounts: [
+            (s) => [s.earlyAccessFeatures, s.featureEnrollmentCounts],
+            (features, counts): EarlyAccessFeatureType[] =>
+                features.map((feature) => ({
+                    ...feature,
+                    opt_in_count: counts[`$feature_enrollment/${feature.feature_flag.key}`] || 0,
+                })),
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadEarlyAccessFeatures()
+        actions.loadFeatureEnrollmentCounts()
     }),
 ])

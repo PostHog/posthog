@@ -3161,13 +3161,14 @@ export enum EarlyAccessFeatureTabs {
 export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
-    feature_flag: FeatureFlagBasicType
+    feature_flag: FeatureFlagType
     name: string
     description: string
     stage: EarlyAccessFeatureStage
     /** Documentation URL. Can be empty. */
     documentation_url: string
     created_at: string
+    opt_in_count?: number
 }
 
 export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
@@ -5115,4 +5116,5 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItems?: FileSystemImport[]
+}
 }
