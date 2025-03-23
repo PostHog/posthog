@@ -107,7 +107,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                             </>
                         )}
                     </div>
-                    <div className="flex flex-col justify-center items-end w-25">
+                    <div className="flex flex-col justify-center items-end w-30">
                         <BurningMoneyHog className="w-full h-auto" />
                         {creditOverview.status === 'pending' && creditOverview.invoice_url && (
                             <LemonButton
@@ -115,7 +115,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                                 onClick={() =>
                                     creditOverview.invoice_url && window.open(creditOverview.invoice_url, '_blank')
                                 }
-                                className="w-25 mt-4"
+                                className="w-30 mt-4"
                             >
                                 View invoice
                             </LemonButton>
@@ -125,7 +125,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                                 type="primary"
                                 status="alt"
                                 onClick={() => showPurchaseCreditsModal(true)}
-                                className="w-25 mt-4"
+                                className="w-30 mt-4"
                             >
                                 Learn more
                             </LemonButton>
@@ -144,7 +144,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                             <LemonButton
                                 type="primary"
                                 to="mailto:sales@posthog.com?subject=Let's talk enterprise!"
-                                className="w-25"
+                                className="w-30"
                             >
                                 Talk to sales
                             </LemonButton>
