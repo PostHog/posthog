@@ -1,6 +1,7 @@
 import collections.abc
 import contextlib
 import typing
+from datetime import datetime, date
 
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -131,6 +132,12 @@ def bigquery_source(
                     last_value = incremental_type_to_initial_value(incremental_field_type)
                 else:
                     last_value = db_incremental_field_last_value
+
+                # If the last value is a date or datetime, we need to quote it
+                # to avoid syntax errors in the query. See
+                # https://github.com/PostHog/posthog/issues/30326
+                if isinstance(last_value, date | datetime):
+                    last_value = f"'{last_value}'"
 
                 query = f"""
                 SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
