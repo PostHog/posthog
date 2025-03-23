@@ -348,8 +348,11 @@ pub async fn test_bulk_insert_copy_from_with_binary_blobs(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-pub async fn test_bulk_insert_copy_from_with_vm_state(db: PgPool) {
-    let worker_cfg = WorkerConfig::default();
+pub async fn test_bulk_insert_copy_from_with_compressed_vm_state(db: PgPool) {
+    let worker_cfg = WorkerConfig {
+        should_compress_vm_state: Some(true),
+        ..Default::default()
+    };
     let worker = Worker::from_pool(db.clone(), worker_cfg);
     let manager = QueueManager::from_pool(db.clone(), true, true);
 
