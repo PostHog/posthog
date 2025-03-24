@@ -119,6 +119,8 @@ def _convert_property_to_property_filter(prop: Property) -> PropertyFilterUnion:
         case _:
             keys = ["key", "label", "operator", "value"]
             kwargs = {key: getattr(prop, key, None) for key in keys if hasattr(prop, key)}
+            if not kwargs.get("operator") and not prop.type == "cohort":
+                kwargs["operator"] = "exact"
             schema = property_type_to_schema[prop.type].model_validate(kwargs)
 
     return schema
@@ -246,10 +248,13 @@ class CohortPropertySummarizer(Summarizer):
         verb = "did not complete" if prop.negation else "completed"
 
         if prop.event_filters:
-            conditions: list[str] = [
-                PropertyFilterSummarizer(self._team, _convert_property_to_property_filter(prop)).summary
-                for prop in prop.event_filters
-            ]
+            conditions: list[str] = []
+            for filter_prop in prop.event_filters:
+                if isinstance(filter_prop, dict):
+                    filter_prop = Property(**filter_prop)
+                conditions.append(
+                    PropertyFilterSummarizer(self._team, _convert_property_to_property_filter(filter_prop)).summary
+                )
             conditions_str = self.join_conditions(conditions, " AND the ")
             return f"{cohort_name} {verb} {verbose_name} where the {conditions_str}{frequency} {time_period}"
         return f"{cohort_name} {verb} {verbose_name}{frequency} {time_period}"
@@ -285,7 +290,7 @@ class CohortPropertySummarizer(Summarizer):
         verb = "did not perform" if prop.negation else "performed"
         time_period = self._format_time_period(prop.time_value, prop.time_interval)
         frequency = self._frequency
-        quantifier = " any of" if (prop.min_periods or 0) > 1 else ""
+        quantifier = " any of" if (int(prop.min_periods) or 0) > 1 else ""
 
         return f"{cohort_name} {verb} {verbose_name} {frequency} per {time_period} for at least {self._format_times_value(prop.min_periods)} in{quantifier} the last {self._format_periods_value(prop.total_periods)}"
 
