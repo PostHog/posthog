@@ -9,7 +9,6 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { TimeUnit } from 'chart.js'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
