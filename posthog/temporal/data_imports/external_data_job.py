@@ -79,7 +79,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "404 Not Found",
         "Your free trial has ended",
     ],
-    ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url"],
+    ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
     ExternalDataSource.Type.HUBSPOT: ["missing or invalid refresh token"],
 }
 
