@@ -54,12 +54,12 @@ runs:
         - name: Check for syntax errors, import sort, and code style violations
           shell: bash
           run: |
-              ruff check {{ inputs.base-directory }}
+              ruff check ${{ inputs.base-directory }}
 
         - name: Check formatting
           shell: bash
           run: |
-              ruff format --check --diff {{ inputs.base-directory }}
+              ruff format --check --diff ${{ inputs.base-directory }}
 
         - name: Add Problem Matcher
           shell: bash
