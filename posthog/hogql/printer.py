@@ -1112,11 +1112,8 @@ class _Printer(Visitor):
                             or not str(question_index_obj.value).lstrip("-").isdigit()
                         ):
                             raise QueryError("getSurveyResponse first argument must be a valid integer")
-                        question_id = (
-                            str(node_args[1].value)
-                            if len(node_args) > 1 and isinstance(node_args[1], ast.Constant)
-                            else None
-                        )
+                        second_arg = node_args[1] if len(node_args) > 1 else None
+                        question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
                         return get_survey_response_clickhouse_query(int(question_index_obj.value), question_id)
 
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
