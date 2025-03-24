@@ -90,6 +90,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.loadDataWarehouseSavedQueries()
             }, REFRESH_INTERVAL)
         },
+        beforeUnmount: () => {
+            clearTimeout(cache.jobsRefreshTimeout)
+        },
         updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
             // in the case where we are scheduling a materialized view, send an event
             if (payload && payload.lifecycle && payload.sync_frequency) {
