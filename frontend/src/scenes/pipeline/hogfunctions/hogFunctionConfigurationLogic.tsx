@@ -65,6 +65,7 @@ export interface HogFunctionConfigurationLogicProps {
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
 const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
+export const HOG_CODE_SIZE_LIMIT = 100 * 1024 // 100KB to match backend limit
 
 const VALIDATION_RULES = {
     SITE_DESTINATION_REQUIRES_MAPPINGS: (data: HogFunctionConfigurationType) =>
@@ -220,6 +221,43 @@ export type SparklineData = {
     count: number
     labels: string[]
     warning?: string
+}
+
+// Helper function to check if code might return null/undefined
+export function mightDropEvents(code: string): boolean {
+    if (!code) {
+        return false
+    }
+    // Direct null/undefined returns
+    if (
+        code.includes('return null') ||
+        code.includes('return undefined') ||
+        /\breturn\b\s*;/.test(code) ||
+        /\breturn\b\s*$/.test(code) ||
+        /\bif\s*\([^)]*\)\s*\{\s*\breturn\s+(null|undefined)\b/.test(code)
+    ) {
+        return true
+    }
+
+    // Check for variables set to null/undefined that are also returned
+    const nullVarMatch = code.match(/\blet\s+(\w+)\s*:?=\s*(null|undefined)/g)
+    if (nullVarMatch) {
+        // Extract variable names
+        const nullVars = nullVarMatch
+            .map((match) => {
+                return match.match(/\blet\s+(\w+)/)?.[1]
+            })
+            .filter(Boolean)
+
+        // Check if any of these variables are returned
+        for (const varName of nullVars) {
+            if (new RegExp(`\\breturn\\s+${varName}\\b`).test(code)) {
+                return true
+            }
+        }
+    }
+
+    return false
 }
 
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
@@ -507,6 +545,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             },
             submit: async (data) => {
+                // Check HOG code size immediately before submission
+                if (data.hog) {
+                    const hogSize = new Blob([data.hog]).size
+                    if (hogSize > HOG_CODE_SIZE_LIMIT) {
+                        lemonToast.error(
+                            `Hog code exceeds maximum size of ${
+                                HOG_CODE_SIZE_LIMIT / 1024
+                            }KB. Please simplify your code or contact support to increase the limit.`
+                        )
+                        return
+                    }
+                }
+
                 const payload: Record<string, any> = sanitizeConfiguration(data)
                 // Only sent on create
                 payload.template_id = props.templateId || values.hogFunction?.template?.id
