@@ -66,6 +66,8 @@ jobs:
         runs-on: depot-ubuntu-latest
         steps:
             - uses: ./.github/actions/python-code-quality
+              with:
+                  python-version: 3.11.9
 
     dagster:
         name: Dagster tests
