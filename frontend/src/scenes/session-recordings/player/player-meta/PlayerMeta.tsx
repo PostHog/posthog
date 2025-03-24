@@ -161,7 +161,7 @@ export function PlayerMeta(): JSX.Element {
             label: <IconWindow value={index + 1} className="text-secondary" />,
             labelInMenu: (
                 <div className="flex flex-row deprecated-space-x-1 space-between items-center">
-                    Follow window: <IconWindow value={index + 1} className="text-secondary" />
+                    Follow window:{" "}<IconWindow value={index + 1} className="text-secondary" />
                 </div>
             ),
             value: windowId,
