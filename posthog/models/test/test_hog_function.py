@@ -221,8 +221,8 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
                 ],
             }
         ]
-        # 1 update action, 1 load action, 1 load hog functions, 1 load all related actions, 1 bulk update hog functions
-        with self.assertNumQueries(5):
+        # 1 update action, 1 load action, 1 load hog functions, 1 load all related actions, 1 bulk update hog functions, 3 filesystem
+        with self.assertNumQueries(8):
             self.action.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()
