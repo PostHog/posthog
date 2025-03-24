@@ -11,8 +11,11 @@ version = 1
 [install]
 # Python
 python3 = { pkg-path = "python3", version = "3.11.9", pkg-group = "python" } # Same as in Dockerfile
-uv = { pkg-path = "uv", pkg-group = "python" }
 libtool = { pkg-path = "libtool", pkg-group = "python" }
+# uv (separate group to avoid commong deps with Python forcing an old version of uv)
+uv = { pkg-path = "uv", pkg-group = "uv", version = "0.6.9" }
+# setuptools (we must enforce a version before 77, as 77+ breaks installation of this docx2txt requirement)
+setuptools = { pkg-path = "python311Packages.setuptools", pkg-group = "setuptools", version = "75.1.1" }
 # Node
 nodejs = { pkg-path = "nodejs_18", pkg-group = "nodejs", version = "18.19.1" } # Same as in Dockerfile
 corepack = { pkg-path = "corepack_18", pkg-group = "nodejs" }
