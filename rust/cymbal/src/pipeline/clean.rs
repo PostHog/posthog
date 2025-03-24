@@ -6,6 +6,9 @@ use serde_json::Value;
 
 use crate::error::PipelineResult;
 
+const SET_ON_EXCEPTION_WARNING_TYPE: &str = "set_on_exception";
+const EXCEPTION_INGESTION_SOURCE: &str = "exception_ingestion";
+
 pub fn clean_set_props(
     mut buffer: Vec<PipelineResult>,
 ) -> (Vec<PipelineResult>, Vec<IngestionWarning>) {
@@ -50,8 +53,8 @@ pub fn clean_set_props(
 
             warnings.push(IngestionWarning::new(
                 event.team_id,
-                "exception_ingestion".to_string(),
-                "set_on_exception".to_string(),
+                EXCEPTION_INGESTION_SOURCE.to_string(),
+                SET_ON_EXCEPTION_WARNING_TYPE.to_string(),
                 warning_details,
                 None,
             ));
