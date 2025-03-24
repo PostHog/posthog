@@ -84,14 +84,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             actions.loadDatabase()
         },
         loadDataWarehouseSavedQueriesSuccess: () => {
-            clearTimeout(cache.jobsRefreshTimeout)
+            clearTimeout(cache.savedQueriesRefreshTimeout)
 
-            cache.jobsRefreshTimeout = setTimeout(() => {
+            cache.savedQueriesRefreshTimeout = setTimeout(() => {
                 actions.loadDataWarehouseSavedQueries()
             }, REFRESH_INTERVAL)
-        },
-        beforeUnmount: () => {
-            clearTimeout(cache.jobsRefreshTimeout)
         },
         updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
             // in the case where we are scheduling a materialized view, send an event
@@ -147,9 +144,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             },
         ],
     }),
-    events(({ actions }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
             actions.loadDataWarehouseSavedQueries()
+        },
+        beforeUnmount: () => {
+            clearTimeout(cache.savedQueriesRefreshTimeout)
         },
     })),
 ])
