@@ -738,9 +738,9 @@ export enum SavedInsightsTabs {
 }
 
 export enum ReplayTabs {
-    Templates = 'templates',
     Home = 'home',
     Playlists = 'playlists',
+    Templates = 'templates',
     Settings = 'settings',
 }
 
@@ -1807,6 +1807,10 @@ export interface BillingType {
         status: 'active' | 'expired' | 'cancelled' | 'converted'
         target: 'paid' | 'teams' | 'enterprise'
         expires_at: string
+    }
+    account_owner?: {
+        email?: string
+        name?: string
     }
 }
 
@@ -3401,6 +3405,7 @@ export interface GroupType {
     group_type_index: GroupTypeIndex
     name_singular?: string | null
     name_plural?: string | null
+    detail_dashboard?: number | null
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
@@ -4971,7 +4976,7 @@ export type HogFunctionInvocationGlobals = {
 }
 
 export type HogFunctionTestInvocationResult = {
-    status: 'success' | 'error'
+    status: 'success' | 'error' | 'skipped'
     logs: LogEntry[]
     result: any
     errors?: string[]

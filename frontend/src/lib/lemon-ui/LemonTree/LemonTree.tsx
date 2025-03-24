@@ -197,7 +197,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             key={item.id}
                             disabled={!!item.disabledReason}
                         >
-                            <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full">
+                            <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full gap-y-px">
                                 <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
                                     <ContextMenu
                                         onOpenChange={(open) => {
@@ -224,7 +224,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 tabIndex={-1}
                                                 size="small"
                                                 fullWidth
-                                                to={item.record?.href ? item.record.href : undefined}
                                                 data-id={item.id}
                                                 active={getItemActiveState(item)}
                                                 icon={getIcon({
@@ -236,6 +235,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 tooltipPlacement="right"
                                                 style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
                                                 truncate
+                                                to={item.record?.href ? item.record.href : undefined}
                                                 sideAction={itemSideAction ? itemSideAction(item) : undefined}
                                                 buttonWrapper={
                                                     enableDragAndDrop && isItemDraggable?.(item) && item.record?.path
@@ -904,7 +904,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         setFocusedId(undefined)
                     }}
                     className="flex-1"
-                    innerClassName="p-2"
+                    innerClassName="p-1"
+                    styledScrollbars
                 >
                     <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} className="h-full">
                         <LemonTreeNode
