@@ -424,7 +424,12 @@ def property_to_expr(
         else:
             chain = ["properties"]
 
-        field = ast.Field(chain=[*chain, property.key])
+        # We pretend elements chain is a property, but it is actually a column on the events table
+        if chain == ["properties"] and property.key == "$elements_chain":
+            field = ast.Field(chain=["elements_chain"])
+        else:
+            field = ast.Field(chain=[*chain, property.key])
+
         expr: ast.Expr = field
 
         if property.type == "recording" and property.key == "snapshot_source":

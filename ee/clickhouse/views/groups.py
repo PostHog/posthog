@@ -5,7 +5,7 @@ from typing import cast
 from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from rest_framework import mixins, request, response, serializers, viewsets
+from rest_framework import mixins, request, response, serializers, viewsets, status
 from posthog.api.capture import capture_internal
 from posthog.api.utils import action
 from rest_framework.exceptions import NotFound, ValidationError
@@ -16,6 +16,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.client import sync_execute
+from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.group import Group
@@ -29,7 +30,7 @@ from posthog.models.user import User
 class GroupTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupTypeMapping
-        fields = ["group_type", "group_type_index", "name_singular", "name_plural"]
+        fields = ["group_type", "group_type_index", "name_singular", "name_plural", "detail_dashboard"]
         read_only_fields = ["group_type", "group_type_index"]
 
 
@@ -51,6 +52,26 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets
             serializer.save()
 
         return self.list(request, *args, **kwargs)
+
+    @action(methods=["PUT"], detail=False)
+    def create_detail_dashboard(self, request: request.Request, **kw):
+        try:
+            group_type_mapping = GroupTypeMapping.objects.get(
+                team=self.team, project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
+            )
+        except GroupTypeMapping.DoesNotExist:
+            raise NotFound()
+
+        if group_type_mapping.detail_dashboard:
+            return response.Response(
+                {"detail": "Dashboard already exists for this group type."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
+        group_type_mapping.detail_dashboard = dashboard
+        group_type_mapping.save()
+        return response.Response(self.get_serializer(group_type_mapping).data)
 
 
 class GroupCursorPagination(CursorPagination):

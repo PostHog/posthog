@@ -554,6 +554,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
         reportBillingCTAShown: true,
         reportSDKSelected: (sdk: SDK) => ({ sdk }),
+        reportAccountOwnerClicked: ({ name, email }: { name: string; email: string }) => ({ name, email }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1339,6 +1340,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportCommandBarActionResultExecuted: ({ resultDisplay }) => {
             posthog.capture('command bar search result executed', { resultDisplay })
+        },
+        reportAccountOwnerClicked: ({ name, email }) => {
+            posthog.capture('account owner clicked', { name, email })
         },
     })),
 ])

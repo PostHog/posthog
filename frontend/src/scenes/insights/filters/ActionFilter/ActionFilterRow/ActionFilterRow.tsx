@@ -444,7 +444,10 @@ export function ActionFilterRow({
                                             MathCategory.PropertyValue && (
                                             <div className="flex-auto overflow-hidden">
                                                 <TaxonomicStringPopover
-                                                    groupType={TaxonomicFilterGroupType.NumericalEventProperties}
+                                                    groupType={
+                                                        mathPropertyType ||
+                                                        TaxonomicFilterGroupType.NumericalEventProperties
+                                                    }
                                                     groupTypes={[
                                                         TaxonomicFilterGroupType.DataWarehouseProperties,
                                                         TaxonomicFilterGroupType.NumericalEventProperties,
