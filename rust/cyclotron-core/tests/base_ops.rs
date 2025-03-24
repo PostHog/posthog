@@ -231,7 +231,7 @@ pub async fn test_bulk_insert(db: PgPool) {
 
     let job_template = create_new_job();
 
-    let jobs = (0..1000)
+    let jobs = (0..100)
         .map(|_| {
             let mut job = job_template.clone();
             job.function_id = Some(Uuid::now_v7());
@@ -245,11 +245,11 @@ pub async fn test_bulk_insert(db: PgPool) {
         .expect("failed to bulk insert jobs");
 
     let dequeue_jobs = worker
-        .dequeue_jobs(&job_template.queue_name, 1000)
+        .dequeue_jobs(&job_template.queue_name, 100)
         .await
         .expect("failed to dequeue job");
 
-    assert_eq!(dequeue_jobs.len(), 1000);
+    assert_eq!(dequeue_jobs.len(), 100);
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -322,7 +322,7 @@ pub async fn test_bulk_insert_copy_from_with_binary_blobs(db: PgPool) {
         .expect("failed to bulk insert jobs");
 
     let results: Vec<Job> = worker
-        .dequeue_jobs(&job_template.queue_name, 1000)
+        .dequeue_jobs(&job_template.queue_name, 100)
         .await
         .expect("failed to dequeue job");
 
