@@ -320,8 +320,6 @@ services:
         image: temporalio/ui:2.36.0
         ports:
             - 8081:8080
-        expose:
-            - 8081
     temporal-django-worker:
         <<: *worker
         command: ./bin/temporal-django-worker
