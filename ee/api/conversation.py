@@ -16,6 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.schema import HumanMessage
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from ee.hogai.hogql_graph import HogQLGraph
 
 
@@ -53,7 +54,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         return queryset.filter(user=self.request.user)
 
     def get_throttles(self):
-        return []
+        return [AIBurstRateThrottle(), AISustainedRateThrottle()]
 
     def get_renderers(self):
         if self.action == "create":
