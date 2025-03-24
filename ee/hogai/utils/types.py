@@ -119,6 +119,7 @@ class AssistantNodeName(StrEnum):
     MEMORY_INITIALIZER_INTERRUPT = "memory_initializer_interrupt"
     ROOT = "root"
     ROOT_TOOLS = "root_tools"
+    THINKING = "thinking"
     TRENDS_PLANNER = "trends_planner"
     TRENDS_PLANNER_TOOLS = "trends_planner_tools"
     TRENDS_GENERATOR = "trends_generator"
