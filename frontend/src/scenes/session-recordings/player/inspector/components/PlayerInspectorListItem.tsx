@@ -21,6 +21,7 @@ import useIsHovering from 'lib/hooks/useIsHovering'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player/inspector/components/ItemComment'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
@@ -115,7 +116,15 @@ export function eventToIcon(event: string | undefined | null) {
     return BaseIcon
 }
 
-function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
+export function ItemTimeDisplay({
+    timestamp,
+    timeInRecording,
+    className,
+}: {
+    timestamp: Dayjs
+    timeInRecording: number
+    className?: string
+}): JSX.Element {
     const { timestampFormat } = useValues(playerSettingsLogic)
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { durationMs } = useValues(playerInspectorLogic(logicProps))
@@ -123,14 +132,12 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
     const fixedUnits = durationMs / 1000 > 3600 ? 3 : 2
 
     return (
-        <span className="px-2 py-1 text-xs min-w-18 text-center">
+        <div className={cn('px-2 py-1 text-xs min-w-18 text-center', className)}>
             {timestampFormat != TimestampFormat.Relative ? (
-                (timestampFormat === TimestampFormat.UTC ? item.timestamp.tz('UTC') : item.timestamp).format(
-                    'DD, MMM HH:mm:ss'
-                )
+                (timestampFormat === TimestampFormat.UTC ? timestamp.tz('UTC') : timestamp).format('DD, MMM HH:mm:ss')
             ) : (
                 <>
-                    {item.timeInRecording < 0 ? (
+                    {timeInRecording < 0 ? (
                         <Tooltip
                             title="This event occured before the recording started, likely as the page was loading."
                             placement="left"
@@ -138,11 +145,11 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
                             <span className="text-secondary">load</span>
                         </Tooltip>
                     ) : (
-                        colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)
+                        colonDelimitedDuration(timeInRecording / 1000, fixedUnits)
                     )}
                 </>
             )}
-        </span>
+        </div>
     )
 }
 
@@ -320,7 +327,9 @@ export function PlayerInspectorListItem({
                         </Tooltip>
                     ) : null}
 
-                    {item.type !== 'inspector-summary' && item.type !== 'inactivity' && <ItemTimeDisplay item={item} />}
+                    {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
+                        <ItemTimeDisplay timestamp={item.timestamp} timeInRecording={item.timeInRecording} />
+                    )}
 
                     {TypeIcon ? <TypeIcon /> : <BaseIcon className="min-w-4" />}
 
