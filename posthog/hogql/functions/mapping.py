@@ -83,6 +83,8 @@ class HogQLFunctionMeta:
     """Signatures allow for specifying the types of the arguments and the return type of the function."""
     suffix_args: Optional[list[ast.Constant]] = None
     """Additional arguments that are added to the end of the arguments provided by the caller"""
+    using_placeholder_arguments: bool = False
+    using_positional_arguments: bool = False
 
 
 def compare_types(arg_types: list[ConstantType], sig_arg_types: tuple[ConstantType, ...]):
@@ -409,12 +411,15 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         suffix_args=[ast.Constant(value="Decimal64({0})")],  # Scale for Decimal64 is customizable
     ),
     "_toDate": HogQLFunctionMeta("toDate", 1, 1),
-    "toDate": HogQLFunctionMeta(
-        "toDateOrNull",
-        1,
-        1,
-        overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
-    ),
+    **{
+        name: HogQLFunctionMeta(
+            "toDateOrNull",
+            1,
+            1,
+            overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
+        )
+        for name in ["toDate", "to_date"]
+    },
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
         1,
@@ -532,8 +537,6 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toWeek": HogQLFunctionMeta("toWeek", 1, 3),
     "toYearWeek": HogQLFunctionMeta("toYearWeek", 1, 3),
     "age": HogQLFunctionMeta("age", 3, 3),
-    "dateDiff": HogQLFunctionMeta("dateDiff", 3, 3),
-    "dateTrunc": HogQLFunctionMeta("dateTrunc", 2, 2),
     "dateAdd": HogQLFunctionMeta(
         "dateAdd",
         2,
@@ -554,21 +557,9 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "timeStampAdd": HogQLFunctionMeta("timeStampAdd", 2, 2),
     "timeStampSub": HogQLFunctionMeta("timeStampSub", 2, 2),
-    "now": HogQLFunctionMeta(
-        "now64",
-        0,
-        1,
-        tz_aware=True,
-        case_sensitive=False,
-        signatures=[
-            ((), DateTimeType()),
-            ((UnknownType(),), DateTimeType()),
-        ],
-    ),
     "nowInBlock": HogQLFunctionMeta("nowInBlock", 1, 1),
     "rowNumberInBlock": HogQLFunctionMeta("rowNumberInBlock", 0, 0),
     "rowNumberInAllBlocks": HogQLFunctionMeta("rowNumberInAllBlocks", 0, 0),
-    "today": HogQLFunctionMeta("today"),
     "yesterday": HogQLFunctionMeta("yesterday"),
     "timeSlot": HogQLFunctionMeta("timeSlot", 1, 1),
     "toYYYYMM": HogQLFunctionMeta("toYYYYMM", 1, 1),
@@ -698,9 +689,6 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "tryBase64Decode": HogQLFunctionMeta("tryBase64Decode", 1, 1),
     "endsWith": HogQLFunctionMeta("endsWith", 2, 2),
     "startsWith": HogQLFunctionMeta("startsWith", 2, 2),
-    "trim": HogQLFunctionMeta("trim", 1, 2, case_sensitive=False),
-    "trimLeft": HogQLFunctionMeta("trimLeft", 1, 2),
-    "trimRight": HogQLFunctionMeta("trimRight", 1, 2),
     "encodeXMLComponent": HogQLFunctionMeta("encodeXMLComponent", 1, 1),
     "decodeXMLComponent": HogQLFunctionMeta("decodeXMLComponent", 1, 1),
     "extractTextFromHTML": HogQLFunctionMeta("extractTextFromHTML", 1, 1),
@@ -1003,17 +991,21 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((StringType(), DateTimeType()), IntegerType()),
             ((StringType(), DateType()), IntegerType()),
         ],
+        using_placeholder_arguments=True,
     ),
-    "date_trunc": HogQLFunctionMeta(
-        "dateTrunc",
-        2,
-        3,  # Allow optional timezone parameter
-        tz_aware=True,
-        signatures=[
-            ((StringType(), DateTimeType()), DateTimeType()),
-            ((StringType(), DateTimeType(), StringType()), DateTimeType()),
-        ],
-    ),
+    **{
+        name: HogQLFunctionMeta(
+            "dateTrunc",
+            2,
+            3,  # Allow optional timezone parameter
+            tz_aware=True,
+            signatures=[
+                ((StringType(), DateTimeType()), DateTimeType()),
+                ((StringType(), DateTimeType(), StringType()), DateTimeType()),
+            ],
+        )
+        for name in ["date_trunc", "dateTrunc"]
+    },
     "to_timestamp": HogQLFunctionMeta(
         "toDateTime(fromUnixTimestamp({}))",
         1,
@@ -1023,6 +1015,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((IntegerType(),), DateTimeType()),
             ((FloatType(),), DateTimeType()),
         ],
+        using_placeholder_arguments=True,
     ),
     "to_char": HogQLFunctionMeta(
         "formatDateTime",
@@ -1055,15 +1048,6 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((IntegerType(), IntegerType(), IntegerType()), DateType()),
         ],
     ),
-    "timezone": HogQLFunctionMeta(
-        "toTimeZone",
-        2,
-        2,
-        tz_aware=True,
-        signatures=[
-            ((StringType(), DateTimeType()), DateTimeType()),
-        ],
-    ),
     "now": HogQLFunctionMeta(
         "now64",
         0,
@@ -1084,14 +1068,17 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((), DateTimeType()),
         ],
     ),
-    "current_date": HogQLFunctionMeta(
-        "today",
-        0,
-        0,
-        signatures=[
-            ((), DateType()),
-        ],
-    ),
+    **{
+        name: HogQLFunctionMeta(
+            "today",
+            0,
+            0,
+            signatures=[
+                ((), DateType()),
+            ],
+        )
+        for name in ["today", "current_date"]
+    },
     #  This doesn't work yet but will in a new version of Clickhouse: https://github.com/ClickHouse/ClickHouse/pull/56738
     # "date_bin": HogQLFunctionMeta(
     #     "toSTartOfInterval({1}, {0}, {2})",
@@ -1120,50 +1107,28 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((DateTimeType(), IntervalType()), DateTimeType()),
         ],
     ),
-    "date_diff": HogQLFunctionMeta(
-        "dateDiff",
-        3,
-        3,
-        signatures=[
-            ((StringType(), DateTimeType(), DateTimeType()), IntegerType()),
-        ],
-    ),
-    "to_date": HogQLFunctionMeta(
-        "toDate",
-        1,
-        2,
-        signatures=[
-            ((StringType(),), DateType()),
-            ((StringType(), StringType()), DateType()),
-        ],
-    ),
+    **{
+        name: HogQLFunctionMeta(
+            "dateDiff",
+            3,
+            3,
+            signatures=[
+                ((StringType(), DateTimeType(), DateTimeType()), IntegerType()),
+            ],
+        )
+        for name in ["date_diff", "dateDiff"]
+    },
     "make_interval": HogQLFunctionMeta(
         "toIntervalYear({}) + toIntervalMonth({}) + toIntervalDay({}) + toIntervalHour({}) + toIntervalMinute({}) + toIntervalSecond({})",  # Changed from makeInterval to addInterval
-        1,
-        7,
+        6,
+        6,
         signatures=[
-            ((IntegerType(),), DateTimeType()),
-            ((IntegerType(), IntegerType()), DateTimeType()),
-            ((IntegerType(), IntegerType(), IntegerType()), DateTimeType()),
-            ((IntegerType(), IntegerType(), IntegerType(), IntegerType()), DateTimeType()),
-            ((IntegerType(), IntegerType(), IntegerType(), IntegerType(), IntegerType()), DateTimeType()),
             (
                 (IntegerType(), IntegerType(), IntegerType(), IntegerType(), IntegerType(), IntegerType()),
                 DateTimeType(),
             ),
-            (
-                (
-                    IntegerType(),
-                    IntegerType(),
-                    IntegerType(),
-                    IntegerType(),
-                    IntegerType(),
-                    IntegerType(),
-                    IntegerType(),
-                ),
-                DateTimeType(),
-            ),
         ],
+        using_placeholder_arguments=True,
     ),
     # Clickhouse doesn't have a TIME type, so this would be the alternative
     # "make_time": HogQLFunctionMeta(
@@ -1173,7 +1138,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     #     signatures=[((IntegerType(), IntegerType(), FloatType()), DateTimeType())],
     # ),
     "make_timestamptz": HogQLFunctionMeta(
-        "toTimezone(makeDateTime({}, {}, {}, {}, {}, {}), {})",
+        "toTimeZone(makeDateTime({}, {}, {}, {}, {}, {}), {})",
         7,
         7,
         signatures=[
@@ -1183,6 +1148,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ),
         ],
         tz_aware=True,
+        using_placeholder_arguments=True,
     ),
     "timezone": HogQLFunctionMeta(
         "toTimeZone({1}, {0})",
@@ -1190,6 +1156,17 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         signatures=[((StringType(), DateTimeType()), DateTimeType())],
         tz_aware=True,
+        using_placeholder_arguments=True,
+        using_positional_arguments=True,
+    ),
+    "toTimeZone": HogQLFunctionMeta(
+        "toTimeZone",
+        1,
+        2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(), StringType()), DateTimeType()),
+        ],
     ),
     # Window functions in PostgreSQL style
     "lag": HogQLFunctionMeta(
@@ -1237,39 +1214,51 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         3,
         signatures=[((StringType(), IntegerType(), StringType()), StringType())],
     ),
-    "ltrim": HogQLFunctionMeta(
-        "trimLeft",
-        1,
-        2,
-        signatures=[
-            ((StringType(),), StringType()),
-            ((StringType(), StringType()), StringType()),
-        ],
-    ),
-    "rtrim": HogQLFunctionMeta(
-        "trimRight",
-        1,
-        2,
-        signatures=[
-            ((StringType(),), StringType()),
-            ((StringType(), StringType()), StringType()),
-        ],
-    ),
-    "btrim": HogQLFunctionMeta(
-        "trim",
-        1,
-        2,
-        signatures=[
-            ((StringType(),), StringType()),
-            ((StringType(), StringType()), StringType()),
-        ],
-    ),
+    **{
+        name: HogQLFunctionMeta(
+            "trimLeft",
+            1,
+            2,
+            signatures=[
+                ((StringType(),), StringType()),
+                ((StringType(), StringType()), StringType()),
+            ],
+        )
+        for name in ["ltrim", "trimLeft"]
+    },
+    **{
+        name: HogQLFunctionMeta(
+            "trimRight",
+            1,
+            2,
+            signatures=[
+                ((StringType(),), StringType()),
+                ((StringType(), StringType()), StringType()),
+            ],
+        )
+        for name in ["rtrim", "trimRight"]
+    },
+    **{
+        name: HogQLFunctionMeta(
+            "trim",
+            1,
+            2,
+            signatures=[
+                ((StringType(),), StringType()),
+                ((StringType(), StringType()), StringType()),
+            ],
+            case_sensitive=False,
+        )
+        for name in ["btrim", "trim"]
+    },
     "split_part": HogQLFunctionMeta(
         # We need to repeat each argument in the format string since we use each one multiple times
         "if(empty(splitByString({1}, {0})), '', if(length(splitByString({1}, {0})) >= {2}, arrayElement(splitByString({1}, {0}), {2}), ''))",
         3,
         3,
         signatures=[((StringType(), StringType(), IntegerType()), StringType())],
+        using_placeholder_arguments=True,
+        using_positional_arguments=True,
     ),
 }
 
@@ -1304,19 +1293,23 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "covarSampIf": HogQLFunctionMeta("covarSampIf", 3, 3, aggregate=True),
     "corr": HogQLFunctionMeta("corr", 2, 2, aggregate=True),
     # PostgreSQL-style aggregate functions
-    "array_agg": HogQLFunctionMeta(
-        "groupArray",
-        1,
-        1,
-        aggregate=True,
-        signatures=[((UnknownType(),), ArrayType(item_type=UnknownType()))],
-    ),
+    **{
+        name: HogQLFunctionMeta(
+            "groupArray",
+            1,
+            1,
+            aggregate=True,
+            signatures=[((UnknownType(),), ArrayType(item_type=UnknownType()))],
+        )
+        for name in ["array_agg", "groupArray"]
+    },
     "json_agg": HogQLFunctionMeta(
         "toJSONString(groupArray({}))",
         1,
         1,
         aggregate=True,
         signatures=[((UnknownType(),), StringType())],
+        using_placeholder_arguments=True,
     ),
     "string_agg": HogQLFunctionMeta(
         "arrayStringConcat(groupArray({}), {})",
@@ -1324,8 +1317,16 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
         2,
         aggregate=True,
         signatures=[((StringType(), StringType()), StringType())],
+        using_placeholder_arguments=True,
     ),
-    "every": HogQLFunctionMeta("toBool(min({}))", 1, 1, aggregate=True, signatures=[((UnknownType(),), BooleanType())]),
+    "every": HogQLFunctionMeta(
+        "toBool(min({}))",
+        1,
+        1,
+        aggregate=True,
+        signatures=[((UnknownType(),), BooleanType())],
+        using_placeholder_arguments=True,
+    ),
     # ClickHouse-specific aggregate functions
     "anyHeavy": HogQLFunctionMeta("anyHeavy", 1, 1, aggregate=True),
     "anyHeavyIf": HogQLFunctionMeta("anyHeavyIf", 2, 2, aggregate=True),
@@ -1347,7 +1348,6 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # "topKIf": HogQLFunctionMeta("topKIf", 2, 2, aggregate=True),
     # "topKWeighted": HogQLFunctionMeta("topKWeighted", 1, 1, aggregate=True),
     # "topKWeightedIf": HogQLFunctionMeta("topKWeightedIf", 2, 2, aggregate=True),
-    "groupArray": HogQLFunctionMeta("groupArray", 1, 1, aggregate=True),
     "groupArrayIf": HogQLFunctionMeta("groupArrayIf", 2, 2, aggregate=True),
     # "groupArrayLast": HogQLFunctionMeta("groupArrayLast", 1, 1, aggregate=True),
     # "groupArrayLastIf": HogQLFunctionMeta("groupArrayLastIf", 2, 2, aggregate=True),

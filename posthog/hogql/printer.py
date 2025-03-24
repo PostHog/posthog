@@ -1034,11 +1034,9 @@ class _Printer(Visitor):
             or find_hogql_function(node.name)
             or find_hogql_posthog_function(node.name)
         ):
-            if "{" in func_meta.clickhouse_name:
+            if func_meta.using_placeholder_arguments:
                 # Check if using positional arguments (e.g. {0}, {1})
-                if any(f"{{{i}}}" in func_meta.clickhouse_name for i in range(10)):  # Check common positions 0-9
-                    # if "splitByString" in func_meta.clickhouse_name:
-                    #     import ipdb; ipdb.set_trace()
+                if func_meta.using_positional_arguments:
                     # For positional arguments, pass the args as a dictionary
                     arg_arr = [self.visit(arg) for arg in node.args]
                     try:
@@ -1050,7 +1048,7 @@ class _Printer(Visitor):
                     placeholder_count = func_meta.clickhouse_name.count("{}")
                     if len(node.args) != placeholder_count:
                         raise QueryError(
-                            f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''} when using a format string"
+                            f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
                         )
                     return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])
 
@@ -1281,9 +1279,7 @@ class _Printer(Visitor):
 
                 if "{}" in relevant_clickhouse_name:
                     if len(args) != 1:
-                        raise QueryError(
-                            f"Function '{node.name}' requires exactly one argument when using a format string"
-                        )
+                        raise QueryError(f"Function '{node.name}' requires exactly one argument")
                     return relevant_clickhouse_name.format(args[0])
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
