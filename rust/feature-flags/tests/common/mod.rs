@@ -97,7 +97,7 @@ impl ServerHandle {
                     return;
                 }
             };
-            let geoip_service = match feature_flags::client::geoip::GeoIpClient::new(&config) {
+            let geoip_service = match common_geoip::GeoIpClient::new(config.get_maxmind_db_path()) {
                 Ok(service) => Arc::new(service),
                 Err(e) => {
                     tracing::error!("Failed to create GeoIP service: {}", e);

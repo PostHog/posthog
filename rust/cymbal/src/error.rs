@@ -138,6 +138,8 @@ pub enum EventError {
     NoTeamForToken(String),
     #[error("Failed to sanitize event: {0}, {1}")]
     FailedToSanitize(Uuid, String),
+    #[error("Suppressed issue: {0}")]
+    Suppressed(Uuid),
 }
 
 impl From<JsResolveErr> for Error {

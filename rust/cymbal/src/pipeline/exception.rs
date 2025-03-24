@@ -5,32 +5,33 @@ use std::{
 
 use chrono::Utc;
 use common_types::ClickHouseEvent;
+use metrics::counter;
 use serde_json::Value;
 use tracing::{error, warn};
 
 use crate::{
     app_context::AppContext,
-    error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
+    error::{EventError, PipelineResult, UnhandledError},
     fingerprinting::generate_fingerprint,
-    issue_resolution::resolve_issue,
-    metric_consts::FRAME_RESOLUTION,
+    issue_resolution::{resolve_issue, IssueStatus},
+    metric_consts::{FRAME_RESOLUTION, SUPPRESSED_ISSUE_DROPPED_EVENTS},
     recursively_sanitize_properties,
     types::{FingerprintedErrProps, RawErrProps, Stacktrace},
 };
 
 use super::parse_ts_assuming_utc;
 
-pub async fn do_exception_processing(
+pub async fn do_exception_handling(
     mut events: Vec<PipelineResult>,
     context: Arc<AppContext>,
-) -> Result<Vec<PipelineResult>, PipelineFailure> {
+) -> Result<Vec<PipelineResult>, (usize, UnhandledError)> {
     // First pass through the event list, to get all the exception property sets
     // we'll process. Events we don't get exception properties from will be skipped
     // in all the following passes
     let mut indexed_props = Vec::new();
     for (index, event) in events.iter_mut().enumerate() {
         let Ok(event) = event else {
-            continue; // Events dropped due to an earlier processing stage are ignored
+            continue; // some earlier stage already caused this event to be dropped, so we don't need to process it further.
         };
         match get_props(event) {
             Ok(r) => indexed_props.push((index, r)),
@@ -48,17 +49,17 @@ pub async fn do_exception_processing(
     }
 
     // Freeze the events list as immutable until the final stage, to ensure we don't
-    // accidentally mutate or drop an event during processing.
+    // accidentally mutate or drop an event during processing - this ensures tha validity
+    // of the indexes in indexed_props.
     let events = events;
 
     // Second pass, to spawn the relevant tokio tasks to resolve the frames
     let mut frame_resolve_handles = HashMap::new();
     for (index, props) in indexed_props.iter_mut() {
-        let Ok(event) = &events[*index] else {
-            unreachable!("No index in the indexed props vector can point to a event error");
-        };
-
-        let team_id = event.team_id;
+        let team_id = events[*index]
+            .as_ref()
+            .expect("no events have been dropped since indexed-property gathering")
+            .team_id;
         for exception in props.exception_list.iter_mut() {
             let frames = match exception.stack.take() {
                 Some(Stacktrace::Raw { frames }) => {
@@ -114,7 +115,7 @@ pub async fn do_exception_processing(
             Ok(r) => r,
             Err(e) => {
                 let index = find_index_with_matching_frame_id(&id, &indexed_props);
-                return Err((index, e).into());
+                return Err((index, e));
             }
         };
         frame_lookup_table.insert(id, res);
@@ -127,7 +128,8 @@ pub async fn do_exception_processing(
     let mut issue_handles = HashMap::new();
     for (index, mut props) in indexed_props.into_iter() {
         let Ok(event) = &events[index] else {
-            unreachable!("No index in the indexed props vector can point to a event error");
+            // NOTE: we could "safely" continue here, but it'd be a correctness error I think.
+            panic!("Event list modified since indexed property gathering");
         };
         let team_id = event.team_id;
         for exception in props.exception_list.iter_mut() {
@@ -151,10 +153,10 @@ pub async fn do_exception_processing(
         if let Entry::Vacant(e) = issue_handles.entry(to_resolve.clone()) {
             let name = fingerprinted.exception_list[0].exception_type.clone();
             let description = fingerprinted.exception_list[0].exception_message.clone();
-            let event_timestamp = parse_ts_assuming_utc(&event.timestamp).unwrap_or_else(|err| {
+            let event_timestamp = parse_ts_assuming_utc(&event.timestamp).unwrap_or_else(|e| {
                 warn!(
                     event = event.uuid.to_string(),
-                    "Failed to get event timestamp: {}, using current time", err
+                    "Failed to get event timestamp, using current time, error: {:?}", e
                 );
                 Utc::now()
             });
@@ -181,30 +183,44 @@ pub async fn do_exception_processing(
     // Collect the results of issue resolution
     let mut resolved_issues = HashMap::new();
     for (fingerprint, handle) in issue_handles.into_iter() {
-        let issue_id = match handle.await.expect("issue resolution task did not panic") {
-            Ok(id) => id,
+        let issue = match handle.await.expect("issue resolution task did not panic") {
+            Ok(i) => i,
             Err(e) => {
                 let index =
                     find_index_with_matching_fingerprint(&fingerprint, &indexed_fingerprinted);
-                return Err((index, e).into());
+                return Err((index, e));
             }
         };
-        resolved_issues.insert(fingerprint, issue_id);
+        resolved_issues.insert(fingerprint, issue);
     }
 
     // Fourth pass, to update the events with the resolved issues
     // Unfreeze the events list, since now we have to modify the events we processed
     let mut events = events;
+    let mut to_drop = Vec::new();
     for (index, fingerprinted) in indexed_fingerprinted.into_iter() {
         let Ok(event) = &mut events[index] else {
-            unreachable!("No index in the indexed props vector can point to a event error");
+            panic!("Event list modified since indexed property gathering");
         };
-        let issue_id = resolved_issues
+        let issue = resolved_issues
             .get(&fingerprinted.fingerprint)
             .cloned()
             .expect("Issue was resolved");
-        let output = fingerprinted.to_output(issue_id);
+
+        let output = fingerprinted.to_output(issue.id);
+
+        if matches!(issue.status, IssueStatus::Suppressed) {
+            to_drop.push((index, issue.id));
+        }
+
         event.properties = Some(serde_json::to_string(&output).map_err(|e| (index, e.into()))?);
+    }
+
+    // Drop the suppressed events, replacing their entries in the event buffer with EventErrors
+    // that indicate they were dropped due to being suppressed
+    for (index, issue_id) in to_drop.into_iter() {
+        counter!(SUPPRESSED_ISSUE_DROPPED_EVENTS).increment(1);
+        events[index] = Err(EventError::Suppressed(issue_id));
     }
 
     Ok(events)

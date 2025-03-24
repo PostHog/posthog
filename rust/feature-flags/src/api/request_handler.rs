@@ -14,7 +14,6 @@ use axum::{extract::State, http::HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use common_geoip::GeoIpClient;
-use derive_builder::Builder;
 use flate2::read::GzDecoder;
 use limiters::redis::ServiceName;
 use serde::{Deserialize, Serialize};

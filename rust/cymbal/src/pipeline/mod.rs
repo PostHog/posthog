@@ -5,7 +5,8 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use clean::clean_set_props;
 use common_kafka::kafka_producer::send_iter_to_kafka;
 use common_types::{CapturedEvent, ClickHouseEvent};
-use exception::do_exception_processing;
+
+use exception::do_exception_handling;
 use geoip::add_geoip;
 use person::add_person_properties;
 use prep::prepare_events;
@@ -70,7 +71,7 @@ pub async fn handle_batch(
 
     // We do exception processing before anything else so we can drop based on issue
     // suppression
-    let buffer = do_exception_processing(buffer, context.clone()).await?;
+    let buffer = do_exception_handling(buffer, context.clone()).await?;
     assert_eq!(start_count, buffer.len());
 
     let buffer = add_person_properties(buffer, context.clone()).await?;

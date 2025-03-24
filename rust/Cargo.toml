@@ -23,7 +23,6 @@ members = [
     "cyclotron-janitor",
     "cyclotron-fetch",
     "cymbal",
-    "e2e-lag-exporter",
     "common/geoip",
 ]
 
