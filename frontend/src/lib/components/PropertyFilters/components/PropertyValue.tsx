@@ -132,7 +132,7 @@ export function PropertyValue({
     }
 
     const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-        (label) => String(formatPropertyValueForDisplay(propertyKey, label))
+        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType))
     )
 
     return (
@@ -161,7 +161,11 @@ export function PropertyValue({
                     label: name,
                     labelComponent: (
                         <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
-                            {name === '' ? <i>(empty string)</i> : formatPropertyValueForDisplay(propertyKey, name)}
+                            {name === '' ? (
+                                <i>(empty string)</i>
+                            ) : (
+                                formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType)
+                            )}
                         </span>
                     ),
                 }
