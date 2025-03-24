@@ -404,7 +404,7 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
         incremental=incremental,
     )
     return dagster.RunRequest(
-        run_key=timestamp,
+        run_key=f"{timestamp}-{table}",
         run_config={
             "ops": {
                 "get_latest_backup": {"config": config.model_dump()},
