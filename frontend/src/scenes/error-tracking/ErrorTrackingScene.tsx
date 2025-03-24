@@ -93,7 +93,7 @@ export function ErrorTrackingScene(): JSX.Element {
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
-    const [values, unit, interval]: [number[], TimeUnit, number] = useSparklineData(record.aggregations)
+    const [values, unit, interval] = useSparklineData(record.aggregations)
     return (
         <div className="flex justify-end">
             <OccurrenceSparkline className="h-8" unit={unit} interval={interval} displayXAxis={false} values={values} />
