@@ -12,6 +12,14 @@ inputs:
     token:
         required: false
         description: GitHub token
+    check-schema:
+        required: false
+        description: Whether to check if "schema.py" is up to date
+        default: 'true'
+    base-directory:
+        required: false
+        description: Base directory of the project
+        default: '.'
 
 runs:
     using: 'composite'
@@ -46,12 +54,12 @@ runs:
         - name: Check for syntax errors, import sort, and code style violations
           shell: bash
           run: |
-              ruff check .
+              ruff check {{ inputs.base_directory }}
 
         - name: Check formatting
           shell: bash
           run: |
-              ruff format --check --diff .
+              ruff format --check --diff {{ inputs.base_directory }}
 
         - name: Add Problem Matcher
           shell: bash
@@ -63,6 +71,7 @@ runs:
               mypy --version && mypy -p posthog | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
 
         - name: Check if "schema.py" is up to date
+          if: ${{ inputs.check-schema == 'true' }}
           shell: bash
           run: |
               npm run schema:build:python && git diff --exit-code
