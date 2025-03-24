@@ -332,9 +332,12 @@
     }
 
     &.LemonButton--tertiary {
-        &:not([aria-disabled='true']):hover,
+        &:not([aria-disabled='true']):hover {
+            background-color: var(--bg-fill-button-tertiary-hover);
+        }
+
         &.LemonButton--active {
-            background-color: var(--border-primary);
+            background-color: var(--bg-fill-button-tertiary-active);
         }
 
         &.LemonButton--status-danger {

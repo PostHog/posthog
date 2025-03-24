@@ -56,7 +56,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                         )
                     }
                     size="small"
-                    className="hover:bg-fill-highlight-100 w-fit"
+                    className="w-fit"
                     tooltip="Open organization dropdown"
                     sideIcon={
                         <IconWrapper size="sm">

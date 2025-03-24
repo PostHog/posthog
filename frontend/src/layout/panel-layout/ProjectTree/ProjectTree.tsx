@@ -82,7 +82,7 @@ export function ProjectTree(): JSX.Element {
                                 type="tertiary"
                                 tooltip="Sort by name"
                                 onClick={() => alert('Sort by name')}
-                                className="hover:bg-fill-highlight-100 shrink-0"
+                                className="shrink-0"
                                 icon={
                                     <IconWrapper>
                                         <IconSort />
@@ -94,7 +94,7 @@ export function ProjectTree(): JSX.Element {
                                 type="tertiary"
                                 tooltip="Create new root folder"
                                 onClick={() => createFolder('')}
-                                className="hover:bg-fill-highlight-100 shrink-0"
+                                className="shrink-0"
                                 icon={
                                     <IconWrapper>
                                         <IconPlusSmall />

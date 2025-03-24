@@ -37,7 +37,7 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                                 type="tertiary"
                                 tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
                                 onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
-                                className="hover:bg-fill-highlight-100 shrink-0"
+                                className="shrink-0"
                                 icon={
                                     isLayoutPanelPinned ? (
                                         <IconWrapper>

@@ -86,7 +86,6 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                         </IconWrapper>
                     }
                     size="small"
-                    className="hover:bg-fill-highlight-100"
                     sideIcon={
                         <IconWrapper
                             size="sm"
