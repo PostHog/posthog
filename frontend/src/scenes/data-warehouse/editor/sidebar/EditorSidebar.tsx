@@ -1,4 +1,4 @@
-import { IconBrackets, IconInfo, IconServer } from '@posthog/icons'
+import { IconBrackets, IconInfo, IconMagicWand, IconServer } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -10,6 +10,7 @@ import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Var
 
 import { editorSceneLogic } from '../editorSceneLogic'
 import { editorSizingLogic } from '../editorSizingLogic'
+import { QueryAI } from './QueryAI'
 import { QueryDatabase } from './QueryDatabase'
 import { QueryInfo } from './QueryInfo'
 import { QueryVariables } from './QueryVariables'
@@ -71,6 +72,16 @@ export const EditorSidebar = ({
                 </Tooltip>
             ),
         },
+        {
+            key: 'query_ai',
+            label: (
+                <Tooltip title="AI">
+                    <div className="flex justify-center px-2">
+                        <IconMagicWand className="text-xl" />
+                    </div>
+                </Tooltip>
+            ),
+        },
     ]
 
     // Render the corresponding component based on active tab
@@ -82,6 +93,8 @@ export const EditorSidebar = ({
                 return <QueryVariables />
             case 'query_info':
                 return <QueryInfo codeEditorKey={codeEditorKey} />
+            case 'query_ai':
+                return <QueryAI />
             default:
                 return <QueryDatabase isOpen={sidebarOverlayOpen} />
         }

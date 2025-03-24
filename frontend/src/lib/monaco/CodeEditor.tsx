@@ -276,7 +276,12 @@ export function CodeEditor({
                 loading={<Spinner />}
                 original={originalValue}
                 modified={value}
-                options={editorOptions}
+                options={{
+                    ...editorOptions,
+                    renderSideBySide: false,
+                    acceptSuggestionOnEnter: 'on',
+                    renderGutterMenu: false,
+                }}
                 {...editorProps}
             />
         )

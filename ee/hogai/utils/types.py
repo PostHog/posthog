@@ -141,3 +141,4 @@ class AssistantNodeName(StrEnum):
     MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"
     INKEEP_DOCS = "inkeep_docs"
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
+    HOGQL = "hogql"
