@@ -604,7 +604,7 @@ mod tests {
         let today = Utc::now().format("%Y-%m-%d").to_string();
         let redis_key = format!("cookieless_salt:{}", today);
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
-        let redis_client = Arc::new(mock_redis);
+        let redis_client = Arc::new(mock_redis.clone());
 
         // Create a CookielessManager
         let config = CookielessConfig::default();
@@ -618,7 +618,7 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: Some("extra1"),
-            distinct_id: "original_distinct_id",
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
 
         // Create another event with different hash_extra
@@ -629,7 +629,7 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: Some("extra2"),
-            distinct_id: "original_distinct_id",
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
 
         // Process the events
@@ -658,6 +658,8 @@ mod tests {
 
         // Check that we got different distinct IDs
         assert_ne!(result1, result2);
+        assert!(result1.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
+        assert!(result2.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
     }
 
     #[tokio::test]
@@ -743,7 +745,7 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            distinct_id: "original_distinct_id",
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
         let result = manager
             .compute_cookieless_distinct_id(
@@ -768,7 +770,7 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            distinct_id: "original_distinct_id",
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
         let result = manager
             .compute_cookieless_distinct_id(
@@ -793,7 +795,7 @@ mod tests {
             user_agent: "",
             event_time_zone: None,
             hash_extra: None,
-            distinct_id: "original_distinct_id",
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
         let result = manager
             .compute_cookieless_distinct_id(
@@ -888,7 +890,7 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            distinct_id: "original_distinct_id",
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
 
         // Compute the base hash
@@ -976,7 +978,7 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            distinct_id: "original_distinct_id",
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
 
         // Process the event
@@ -1053,7 +1055,7 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            distinct_id: "original_distinct_id",
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
 
         // Process the event - this should use the TIMEZONE_FALLBACK

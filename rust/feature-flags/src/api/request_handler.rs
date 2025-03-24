@@ -103,7 +103,7 @@ pub type RequestPropertyOverrides = (
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
 
-    let (_distinct_id, verified_token, request) =
+    let (original_distinct_id, verified_token, request) =
         parse_and_authenticate_request(&context, &flag_service).await?;
 
     // Once we've verified the token, check if the token is billing limited (this will save us from hitting the DB if we have a quota-limited token)
@@ -130,7 +130,8 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let team_id = team.id;
     let project_id = team.project_id;
 
-    let distinct_id = handle_cookieless_distinct_id(&context, team_id, &team, _distinct_id).await?;
+    let distinct_id =
+        handle_cookieless_distinct_id(&context, team_id, &team, original_distinct_id).await?;
 
     let filtered_flags = fetch_and_filter_flags(&flag_service, project_id, &request).await?;
 
@@ -480,8 +481,8 @@ async fn handle_cookieless_distinct_id(
         distinct_id: &distinct_id,
     };
 
-    let team_info = TeamData {
-        team_id: team_id,
+    let team_data = TeamData {
+        team_id,
         timezone: team.timezone.clone(),
         cookieless_server_hash_mode: team.cookieless_server_hash_mode,
     };
@@ -489,7 +490,7 @@ async fn handle_cookieless_distinct_id(
     context
         .state
         .cookieless_manager
-        .compute_cookieless_distinct_id(event_data, team_info)
+        .compute_cookieless_distinct_id(event_data, team_data)
         .await
         .map_err(|e| FlagError::CookielessError(e.to_string()))
 }
