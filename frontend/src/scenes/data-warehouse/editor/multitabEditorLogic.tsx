@@ -119,11 +119,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
         updateQueryTabState: true,
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
-        setPrompt: (prompt: string) => ({ prompt }),
-        draftFromPrompt: true,
-        draftFromPromptComplete: true,
-        setPromptError: (error: string | null) => ({ error }),
         setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
+        _setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
         onAcceptSuggestedQueryInput: true,
         onRejectSuggestedQueryInput: true,
     }),
@@ -252,39 +249,19 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         editorKey: [props.key],
-        prompt: ['', { setPrompt: (_, { prompt }) => prompt }],
-        promptError: [
-            null as string | null,
-            { setPromptError: (_, { error }) => error, draftFromPrompt: () => null, saveQuery: () => null },
-        ],
-        promptLoading: [false, { draftFromPrompt: () => true, draftFromPromptComplete: () => false }],
         suggestedQueryInput: [
             '',
             {
-                setSuggestedQueryInput: (_, { suggestedQueryInput }) => suggestedQueryInput,
+                _setSuggestedQueryInput: (_, { suggestedQueryInput }) => suggestedQueryInput,
             },
         ],
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
-        draftFromPrompt: async () => {
-            try {
-                // const result = await api.get(
-                //     combineUrl(`api/projects/@current/query/draft_sql/`, {
-                //         prompt: values.prompt,
-                //         current_query: values.queryInput,
-                //     }).url
-                // )
-                // const { sql } = result
-
-                if (values.queryInput) {
-                    actions.setSuggestedQueryInput('SELECT * FROM events LIMIT 10')
-                } else {
-                    actions.setQueryInput('SELECT * FROM events LIMIT 10')
-                }
-            } catch (e) {
-                actions.setPromptError((e as { code: string; detail: string }).detail)
-            } finally {
-                actions.draftFromPromptComplete()
+        setSuggestedQueryInput: ({ suggestedQueryInput }) => {
+            if (values.queryInput) {
+                actions._setSuggestedQueryInput(suggestedQueryInput)
+            } else {
+                actions.setQueryInput(suggestedQueryInput)
             }
         },
         onAcceptSuggestedQueryInput: () => {

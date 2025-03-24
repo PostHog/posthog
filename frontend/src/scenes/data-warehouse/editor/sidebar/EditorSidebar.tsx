@@ -94,7 +94,7 @@ export const EditorSidebar = ({
             case 'query_info':
                 return <QueryInfo codeEditorKey={codeEditorKey} />
             case 'query_ai':
-                return <QueryAI />
+                return <QueryAI codeEditorKey={codeEditorKey} />
             default:
                 return <QueryDatabase isOpen={sidebarOverlayOpen} />
         }

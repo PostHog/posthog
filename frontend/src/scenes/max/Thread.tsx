@@ -42,13 +42,28 @@ import {
     isVisualizationMessage,
 } from './utils'
 
-export function Thread(): JSX.Element | null {
-    const { threadGrouped } = useValues(maxLogic)
+interface ThreadProps {
+    threadGrouped: ThreadMessage[][]
+    onlySummary?: boolean
+    animationId?: string
+}
 
+export function Thread({ threadGrouped, onlySummary, animationId }: ThreadProps): JSX.Element | null {
     return (
-        <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
+        <div
+            className={clsx(
+                'flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3',
+                animationId ? `@container/${animationId}` : `@container/thread`
+            )}
+        >
             {threadGrouped.map((group, index) => (
-                <MessageGroup key={index} messages={group} index={index} isFinal={index === threadGrouped.length - 1} />
+                <MessageGroup
+                    key={index}
+                    messages={group}
+                    index={index}
+                    isFinal={index === threadGrouped.length - 1}
+                    onlySummary={onlySummary}
+                />
             ))}
         </div>
     )
@@ -58,9 +73,10 @@ interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
     index: number
+    onlySummary?: boolean
 }
 
-function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
+function MessageGroup({ messages, isFinal: isFinalGroup, onlySummary }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
@@ -112,7 +128,14 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                             />
                         )
                     } else if (isVisualizationMessage(message)) {
-                        return <VisualizationAnswer key={messageIndex} message={message} status={message.status} />
+                        return (
+                            <VisualizationAnswer
+                                key={messageIndex}
+                                message={message}
+                                status={message.status}
+                                onlySummary={onlySummary}
+                            />
+                        )
                     } else if (isReasoningMessage(message)) {
                         return (
                             <MessageTemplate key={key} type="ai">
@@ -152,10 +175,11 @@ interface MessageTemplateProps {
     className?: string
     boxClassName?: string
     children: React.ReactNode
+    onClick?: () => void
 }
 
 const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, action },
+    { type, children, className, boxClassName, action, onClick },
     ref
 ) {
     return (
@@ -166,6 +190,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
                 className
             )}
             ref={ref}
+            onClick={onClick}
         >
             <div
                 className={twMerge(
@@ -263,11 +288,13 @@ function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element 
 function VisualizationAnswer({
     message,
     status,
+    onlySummary,
 }: {
     message: VisualizationMessage
     status?: MessageStatus
+    onlySummary?: boolean
 }): JSX.Element | null {
-    const [isSummaryShown, setIsSummaryShown] = useState(false)
+    const [isSummaryShown, setIsSummaryShown] = useState(onlySummary ?? false)
 
     const query = useMemo<InsightVizNode | DataVisualizationNode | null>(() => {
         if (message.answer) {
@@ -281,47 +308,65 @@ function VisualizationAnswer({
         return null
     }, [message])
 
-    return status !== 'completed'
-        ? null
-        : query && (
-              <>
-                  <MessageTemplate type="ai" className="w-full" boxClassName="flex flex-col min-h-60 w-full">
-                      <Query query={query} readOnly embedded />
-                      <div className="flex items-center justify-between mt-2">
-                          <LemonButton
-                              sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
-                              onClick={() => setIsSummaryShown(!isSummaryShown)}
-                              size="xsmall"
-                              className="-m-1 shrink"
-                              tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
-                          >
-                              <h5 className="m-0 leading-none">
-                                  <TopHeading query={query} />
-                              </h5>
-                          </LemonButton>
-                          <LemonButton
-                              to={urls.insightNew({ query })}
-                              sideIcon={<IconOpenInNew />}
-                              size="xsmall"
-                              targetBlank
-                          >
-                              Open as new insight
-                          </LemonButton>
-                      </div>
-                      {isSummaryShown && (
-                          <>
-                              <SeriesSummary query={query.source} heading={null} />
-                              {!isHogQLQuery(query.source) && (
-                                  <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                                      <PropertiesSummary properties={query.source.properties} />
-                                      <BreakdownSummary query={query.source} />
-                                  </div>
-                              )}
-                          </>
-                      )}
-                  </MessageTemplate>
-              </>
-          )
+    if (status !== 'completed' || !query) {
+        return null
+    }
+
+    if (onlySummary) {
+        return (
+            <MessageTemplate
+                type="ai"
+                className="w-full cursor-pointer"
+                boxClassName="flex flex-col w-full"
+                onClick={() => window.open(urls.insightNew({ query }), '_blank')}
+            >
+                <div className="flex flex-wrap gap-4 *:grow overflow-scroll">
+                    <SeriesSummary query={query.source} heading={null} />
+                    {!isHogQLQuery(query.source) && (
+                        <>
+                            <PropertiesSummary properties={query.source.properties} />
+                            <BreakdownSummary query={query.source} />
+                        </>
+                    )}
+                </div>
+            </MessageTemplate>
+        )
+    }
+
+    return (
+        <>
+            <MessageTemplate type="ai" className="w-full" boxClassName="flex flex-col min-h-60 w-full">
+                <Query query={query} readOnly embedded />
+                <div className="flex items-center justify-between mt-2">
+                    <LemonButton
+                        sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
+                        onClick={() => setIsSummaryShown(!isSummaryShown)}
+                        size="xsmall"
+                        className="-m-1 shrink"
+                        tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
+                    >
+                        <h5 className="m-0 leading-none">
+                            <TopHeading query={query} />
+                        </h5>
+                    </LemonButton>
+                    <LemonButton to={urls.insightNew({ query })} sideIcon={<IconOpenInNew />} size="xsmall" targetBlank>
+                        Open as new insight
+                    </LemonButton>
+                </div>
+                {isSummaryShown && (
+                    <>
+                        <SeriesSummary query={query.source} heading={null} />
+                        {!isHogQLQuery(query.source) && (
+                            <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                                <PropertiesSummary properties={query.source.properties} />
+                                <BreakdownSummary query={query.source} />
+                            </div>
+                        )}
+                    </>
+                )}
+            </MessageTemplate>
+        </>
+    )
 }
 
 function RetriableFailureActions(): JSX.Element {

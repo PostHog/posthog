@@ -123,7 +123,7 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                 </div>
             ) : (
                 <>
-                    <Thread />
+                    <Thread threadGrouped={threadGrouped} />
                     <QuestionInput />
                 </>
             )}
