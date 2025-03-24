@@ -145,7 +145,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 }
                                 fullWidth
                                 size="small"
-                                data-attr="new-organization-button"
+                                data-attr="new-project-button"
                             >
                                 New project
                             </LemonButton>
