@@ -1,4 +1,5 @@
 import collections.abc
+import datetime as dt
 import json
 import os
 import uuid
@@ -77,7 +78,7 @@ def bigquery_dataset(bigquery_config, bigquery_client) -> collections.abc.Genera
 
 
 @pytest.fixture
-def bigquery_table(
+def bigquery_table_integer(
     bigquery_config, bigquery_client, bigquery_dataset
 ) -> collections.abc.Generator[bigquery.Table, None, None]:
     """Manage a bigquery table for testing.
@@ -111,15 +112,50 @@ def bigquery_table(
 
 
 @pytest.fixture
-def bigquery_view(
-    bigquery_config, bigquery_client, bigquery_dataset, bigquery_table
+def bigquery_table_timestamp(
+    bigquery_config, bigquery_client, bigquery_dataset
+) -> collections.abc.Generator[bigquery.Table, None, None]:
+    """Manage a bigquery table for testing.
+
+    We clean up the table after every test. Could be quite time expensive, but guarantees a clean slate.
+    """
+    table_id = f"{bigquery_config['project_id']}.{bigquery_dataset.dataset_id}.test_bigquery_source"
+
+    table = bigquery.Table(
+        table_id,
+        schema=[
+            bigquery.SchemaField(name="id", field_type="TIMESTAMP"),
+            bigquery.SchemaField("value", field_type="STRING"),
+        ],
+    )
+    table = bigquery_client.create_table(table)
+
+    first, second = dt.datetime(2025, 1, 1, tzinfo=dt.UTC), dt.datetime(2025, 1, 2, tzinfo=dt.UTC)
+    job = bigquery_client.query(
+        f"INSERT INTO {table.dataset_id}.{table.table_id} (id, value) VALUES ('{first.isoformat()}', 'a'), ('{second.isoformat()}', 'b')"
+    )
+    job.result()
+
+    yield table
+
+    try:
+        bigquery_client.delete_table(table, not_found_ok=True)
+    except Exception as exc:
+        warnings.warn(
+            f"Failed to clean up table: {table_id} due to '{exc.__class__.__name__}': {str(exc)}", stacklevel=1
+        )
+
+
+@pytest.fixture
+def bigquery_view_integer(
+    bigquery_config, bigquery_client, bigquery_dataset, bigquery_table_integer
 ) -> collections.abc.Generator[bigquery.Table, None, None]:
     """Manage a BigQuery view for testing.
 
     We clean up the view after every test. Could be quite time expensive, but guarantees a clean slate.
     """
     view_id = f"{bigquery_config['project_id']}.{bigquery_dataset.dataset_id}.test_bigquery_source_view"
-    source_id = f"{bigquery_config['project_id']}.{bigquery_table.dataset_id}.{bigquery_table.table_id}"
+    source_id = f"{bigquery_config['project_id']}.{bigquery_table_integer.dataset_id}.{bigquery_table_integer.table_id}"
 
     table = bigquery.Table(view_id)
     table.view_query = f"SELECT * FROM `{source_id}`"
@@ -197,6 +233,18 @@ def setup_bigquery(
         access_secret=str(settings.OBJECT_STORAGE_SECRET_ACCESS_KEY),
         team=team,
     )
+
+    id_field = next(field for field in bigquery_table.schema if field.name == "id")
+
+    if id_field.field_type == "INTEGER":
+        clickhouse_type = "Nullable(Int64)"
+        incremental_field_type = IncrementalFieldType.Integer
+    elif id_field.field_type == "TIMESTAMP":
+        clickhouse_type = "Nullable(DateTime64(6))"
+        incremental_field_type = IncrementalFieldType.Timestamp
+    else:
+        raise ValueError(f"Invalid id field: {id_field}")
+
     warehouse_table = DataWarehouseTable.objects.create(
         name=bigquery_table.table_id,
         format="Parquet",
@@ -206,7 +254,7 @@ def setup_bigquery(
         credential=credentials,
         url_pattern="https://bucket.s3/data/*",
         columns={
-            "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Nullable(Int64)", "schema_valid": True},
+            "id": {"hogql": "IntegerDatabaseField", "clickhouse": clickhouse_type, "schema_valid": True},
             "value": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
         },
     )
@@ -223,7 +271,7 @@ def setup_bigquery(
         else ExternalDataSchema.SyncType.FULL_REFRESH,
         sync_type_config={
             "incremental_field": "id",
-            "incremental_field_type": IncrementalFieldType.Integer,
+            "incremental_field_type": incremental_field_type,
             "incremental_field_last_value": None,
         }
         if ExternalDataSchema.SyncType.INCREMENTAL
@@ -250,7 +298,7 @@ def test_bigquery_source_full_refresh_table(
     bigquery_client,
     bigquery_config,
     bigquery_dataset,
-    bigquery_table,
+    bigquery_table_integer,
     bucket_name,
     minio_client,
 ):
@@ -263,7 +311,7 @@ def test_bigquery_source_full_refresh_table(
     Finally, we assert the values correspond to the ones we have inserted in
     BigQuery.
     """
-    inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_table, is_incremental=False)
+    inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_table_integer, is_incremental=False)
 
     with override_settings(
         NEW_BIGQUERY_SOURCE_TEAM_IDS=[str(team.pk)],
@@ -279,7 +327,7 @@ def test_bigquery_source_full_refresh_table(
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
 
-    table = DataWarehouseTable.objects.get(name=bigquery_table.table_id)
+    table = DataWarehouseTable.objects.get(name=bigquery_table_integer.table_id)
     columns = table.get_columns()
     assert "id" in columns
     assert "value" in columns
@@ -310,7 +358,7 @@ def test_bigquery_source_full_refresh_view(
     bigquery_client,
     bigquery_config,
     bigquery_dataset,
-    bigquery_view,
+    bigquery_view_integer,
     bucket_name,
     minio_client,
 ):
@@ -323,7 +371,7 @@ def test_bigquery_source_full_refresh_view(
     Finally, we assert the values correspond to the ones we have inserted in
     BigQuery.
     """
-    inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_view, is_incremental=False)
+    inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_view_integer, is_incremental=False)
 
     with override_settings(
         NEW_BIGQUERY_SOURCE_TEAM_IDS=[str(team.pk)],
@@ -339,7 +387,7 @@ def test_bigquery_source_full_refresh_view(
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
 
-    table = DataWarehouseTable.objects.get(name=bigquery_view.table_id)
+    table = DataWarehouseTable.objects.get(name=bigquery_view_integer.table_id)
     columns = table.get_columns()
     assert "id" in columns
     assert "value" in columns
@@ -364,13 +412,13 @@ def test_bigquery_source_full_refresh_view(
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
 @pytest.mark.django_db(transaction=True)
-def test_bigquery_source_incremental(
+def test_bigquery_source_incremental_integer(
     activity_environment,
     team,
     bigquery_client,
     bigquery_config,
     bigquery_dataset,
-    bigquery_table,
+    bigquery_table_integer,
     bucket_name,
     minio_client,
 ):
@@ -387,7 +435,7 @@ def test_bigquery_source_incremental(
     have inserted in BigQuery, and we verify the incremental configuration
     is updated accordingly.
     """
-    inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_table, is_incremental=True)
+    inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_table_integer, is_incremental=True)
 
     with override_settings(
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -402,7 +450,7 @@ def test_bigquery_source_incremental(
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
 
-    table = DataWarehouseTable.objects.get(name=bigquery_table.table_id)
+    table = DataWarehouseTable.objects.get(name=bigquery_table_integer.table_id)
     columns = table.get_columns()
     assert "id" in columns
     assert "value" in columns
@@ -424,11 +472,11 @@ def test_bigquery_source_incremental(
     assert all(id in ids for id in [0, 1])
     assert all(value in values for value in ["a", "b"])
 
-    schema = ExternalDataSchema.objects.get(name=bigquery_table.table_id)
+    schema = ExternalDataSchema.objects.get(name=bigquery_table_integer.table_id)
     assert schema.sync_type_config["incremental_field_last_value"] == 1
 
     job = bigquery_client.query(
-        f"INSERT INTO {bigquery_table.dataset_id}.{bigquery_table.table_id} (id, value) VALUES (2, 'c')"
+        f"INSERT INTO {bigquery_table_integer.dataset_id}.{bigquery_table_integer.table_id} (id, value) VALUES (2, 'c')"
     )
     _ = job.result()
 
@@ -445,7 +493,7 @@ def test_bigquery_source_incremental(
     objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
     assert objects.get("KeyCount", 0) > 0
 
-    table = DataWarehouseTable.objects.get(name=bigquery_table.table_id)
+    table = DataWarehouseTable.objects.get(name=bigquery_table_integer.table_id)
     columns = table.get_columns()
     assert "id" in columns
     assert "value" in columns
@@ -467,5 +515,118 @@ def test_bigquery_source_incremental(
     assert all(id in ids for id in [0, 1, 2])
     assert all(value in values for value in ["a", "b", "c"])
 
-    schema = ExternalDataSchema.objects.get(name=bigquery_table.table_id)
+    schema = ExternalDataSchema.objects.get(name=bigquery_table_integer.table_id)
     assert schema.sync_type_config["incremental_field_last_value"] == 2
+
+
+@SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
+@pytest.mark.django_db(transaction=True)
+def test_bigquery_source_incremental_timestamp(
+    activity_environment,
+    team,
+    bigquery_client,
+    bigquery_config,
+    bigquery_dataset,
+    bigquery_table_timestamp,
+    bucket_name,
+    minio_client,
+):
+    """Test an incremental sync job with BigQuery source.
+
+    We generate some data and ensure that running `import_data_activity_sync`
+    results in the data loaded in S3, and query-able using ClickHouse table
+    function.
+
+    Afterwards, we generate a new incremental value in BigQuery and run
+    `import_data_activity_sync` again to ensure that is exported.
+
+    After each activity run, we assert the values correspond to the ones we
+    have inserted in BigQuery, and we verify the incremental configuration
+    is updated accordingly.
+    """
+    inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_table_timestamp, is_incremental=True)
+
+    with override_settings(
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        BUCKET_URL=f"s3://{bucket_name}",
+        BUCKET=bucket_name,
+    ):
+        activity_environment.run(import_data_activity_sync, inputs)
+
+    objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
+    assert objects.get("KeyCount", 0) > 0
+
+    table = DataWarehouseTable.objects.get(name=bigquery_table_timestamp.table_id)
+    columns = table.get_columns()
+    assert "id" in columns
+    assert "value" in columns
+    assert columns["id"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
+    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+
+    function_call, context = table.get_function_call()
+    query = f"SELECT * FROM {function_call}"
+    result = sync_execute(query, args=context.values)
+    assert result is not None
+    assert len(result) == 2
+
+    ids = []
+    values = []
+    for row in result:
+        ids.append(row[0])
+        values.append(row[1])
+
+    assert all(id in ids for id in [dt.datetime(2025, 1, 1, 0, 0), dt.datetime(2025, 1, 2, 0, 0)])
+    assert all(value in values for value in ["a", "b"])
+
+    schema = ExternalDataSchema.objects.get(name=bigquery_table_timestamp.table_id)
+    assert schema.sync_type_config["incremental_field_last_value"] == "2025-01-02T00:00:00"
+
+    now = dt.datetime(2025, 1, 3, tzinfo=dt.UTC)
+    job = bigquery_client.query(
+        f"INSERT INTO {bigquery_table_timestamp.dataset_id}.{bigquery_table_timestamp.table_id} (id, value) VALUES ('{now.isoformat()}', 'c')"
+    )
+    _ = job.result()
+
+    with override_settings(
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        BUCKET_URL=f"s3://{bucket_name}",
+        BUCKET=bucket_name,
+    ):
+        activity_environment.run(import_data_activity_sync, inputs)
+
+    objects = minio_client.list_objects_v2(Bucket=bucket_name, Prefix="")
+    assert objects.get("KeyCount", 0) > 0
+
+    table = DataWarehouseTable.objects.get(name=bigquery_table_timestamp.table_id)
+    columns = table.get_columns()
+    assert "id" in columns
+    assert "value" in columns
+    assert columns["id"]["clickhouse"] == "Nullable(DateTime64(6))"  # type: ignore
+    assert columns["value"]["clickhouse"] == "Nullable(String)"  # type: ignore
+
+    function_call, context = table.get_function_call()
+    query = f"SELECT * FROM {function_call}"
+    result = sync_execute(query, args=context.values)
+    assert result is not None
+    assert len(result) == 3
+
+    ids = []
+    values = []
+    for row in result:
+        ids.append(row[0])
+        values.append(row[1])
+
+    assert all(
+        id in ids
+        for id in [dt.datetime(2025, 1, 1, 0, 0), dt.datetime(2025, 1, 2, 0, 0), dt.datetime(2025, 1, 3, 0, 0)]
+    )
+    assert all(value in values for value in ["a", "b", "c"])
+
+    schema = ExternalDataSchema.objects.get(name=bigquery_table_timestamp.table_id)
+    assert schema.sync_type_config["incremental_field_last_value"] == "2025-01-03T00:00:00"

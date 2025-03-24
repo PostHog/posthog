@@ -15,6 +15,7 @@ from posthog.constants import (
     DATA_WAREHOUSE_TASK_QUEUE,
     GENERAL_PURPOSE_TASK_QUEUE,
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
+    TEST_TASK_QUEUE,
 )
 from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
 from posthog.temporal.batch_exports import (
@@ -29,6 +30,7 @@ from posthog.temporal.delete_persons import (
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
 )
 from posthog.temporal.proxy_service import ACTIVITIES as PROXY_SERVICE_ACTIVITIES, WORKFLOWS as PROXY_SERVICE_WORKFLOWS
+from posthog.temporal.tests.utils.workflow import ACTIVITIES as TEST_ACTIVITIES, WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import ACTIVITIES as USAGE_REPORTS_ACTIVITIES, WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 
 WORKFLOWS_DICT = {
@@ -40,6 +42,7 @@ WORKFLOWS_DICT = {
     + DELETE_PERSONS_WORKFLOWS
     + AI_WORKFLOWS
     + USAGE_REPORTS_WORKFLOWS,
+    TEST_TASK_QUEUE: TEST_WORKFLOWS,
 }
 ACTIVITIES_DICT = {
     SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
@@ -50,6 +53,7 @@ ACTIVITIES_DICT = {
     + DELETE_PERSONS_ACTIVITIES
     + AI_ACTIVITIES
     + USAGE_REPORTS_ACTIVITIES,
+    TEST_TASK_QUEUE: TEST_ACTIVITIES,
 }
 
 
@@ -148,7 +152,7 @@ class Command(BaseCommand):
                 server_root_ca_cert=server_root_ca_cert,
                 client_cert=client_cert,
                 client_key=client_key,
-                workflows=workflows,
+                workflows=workflows,  # type: ignore
                 activities=activities,
                 graceful_shutdown_timeout=dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
                 if graceful_shutdown_timeout_seconds is not None

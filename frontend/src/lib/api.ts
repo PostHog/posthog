@@ -1604,6 +1604,7 @@ const api = {
         }: {
             event_names?: string[]
             excluded_properties?: string[]
+            exclude_core_properties?: boolean
             properties?: string[]
             filter_by_event_names?: boolean
             type?: PropertyDefinitionType
@@ -1630,6 +1631,7 @@ const api = {
         }: {
             event_names?: string[]
             excluded_properties?: string[]
+            exclude_core_properties?: boolean
             filter_by_event_names?: boolean
             is_feature_flag?: boolean
             limit?: number
