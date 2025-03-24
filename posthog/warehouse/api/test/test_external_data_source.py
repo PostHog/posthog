@@ -969,3 +969,64 @@ class TestExternalDataSource(APIBaseTest):
 
         assert source.job_inputs["stripe_secret_key"] == "sk_test_123"
         assert source.job_inputs["stripe_account_id"] == "blah"
+
+    def test_update_then_get_external_data_source_with_ssh_tunnel(self):
+        """Test that updating a source with SSH tunnel info properly normalizes the structure and
+        manipulates the flattened structure.
+        """
+        # First create a source without SSH tunnel
+        source = self._create_external_data_source()
+
+        # Update with SSH tunnel config
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/external_data_sources/{str(source.pk)}/",
+            data={
+                "job_inputs": {
+                    "ssh-tunnel": {
+                        "enabled": True,
+                        "host": "ssh.example.com",
+                        "port": 22,
+                        "auth_type": {
+                            "selection": "username_password",
+                            "username": "testuser",
+                            "password": "testpass",
+                            "passphrase": "testphrase",
+                            "private_key": "testkey",
+                        },
+                    }
+                },
+            },
+        )
+
+        assert response.status_code == 200
+
+        # Verify the SSH tunnel config was normalized correctly
+        source.refresh_from_db()
+        assert source.job_inputs["ssh_tunnel_enabled"] == "True"
+        assert source.job_inputs["ssh_tunnel_host"] == "ssh.example.com"
+        assert source.job_inputs["ssh_tunnel_port"] == "22"
+        assert source.job_inputs["ssh_tunnel_auth_type"] == "username_password"
+        assert source.job_inputs["ssh_tunnel_auth_type_username"] == "testuser"
+        assert source.job_inputs["ssh_tunnel_auth_type_password"] == "testpass"
+        assert source.job_inputs["ssh_tunnel_auth_type_passphrase"] == "testphrase"
+        assert source.job_inputs["ssh_tunnel_auth_type_private_key"] == "testkey"
+
+        # Test the to_representation from flattened to nested structure
+        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert "job_inputs" in data
+        assert "ssh-tunnel" in data["job_inputs"]
+        ssh_tunnel = data["job_inputs"]["ssh-tunnel"]
+
+        assert ssh_tunnel["enabled"] == "True"
+        assert ssh_tunnel["host"] == "ssh.example.com"
+        assert ssh_tunnel["port"] == "22"
+        assert "auth_type" in ssh_tunnel
+        assert ssh_tunnel["auth_type"]["selection"] == "username_password"
+        assert ssh_tunnel["auth_type"]["username"] == "testuser"
+        assert ssh_tunnel["auth_type"]["password"] == "testpass"
+        assert ssh_tunnel["auth_type"]["passphrase"] == "testphrase"
+        assert ssh_tunnel["auth_type"]["private_key"] == "testkey"
