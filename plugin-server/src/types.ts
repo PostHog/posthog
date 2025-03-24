@@ -27,14 +27,12 @@ import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { ObjectStorage } from './utils/object_storage'
-import { TeamManagerLazy } from './utils/team-manager-lazy'
+import { TeamManager } from './utils/team-manager'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
-import { OrganizationManager } from './worker/ingestion/organization-manager'
-import { TeamManager } from './worker/ingestion/team-manager'
 import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
@@ -368,8 +366,6 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigSecretLookup: Map<string, PluginConfigId>
     // tools
     teamManager: TeamManager
-    teamManagerLazy: TeamManagerLazy
-    organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
     actionManager: ActionManager
@@ -667,9 +663,8 @@ export interface Team {
         | null
     cookieless_server_hash_mode: CookielessServerHashMode | null
     timezone: string
-
-    // NOTE: Currently only created on the lazy loader
-    available_features?: string[]
+    // This is parsed as a join from the org table
+    available_features: string[]
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
