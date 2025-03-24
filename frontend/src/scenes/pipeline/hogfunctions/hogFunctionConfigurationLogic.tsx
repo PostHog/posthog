@@ -222,6 +222,43 @@ export type SparklineData = {
     warning?: string
 }
 
+// Helper function to check if code might return null/undefined
+export function mightDropEvents(code: string): boolean {
+    if (!code) {
+        return false
+    }
+    // Direct null/undefined returns
+    if (
+        code.includes('return null') ||
+        code.includes('return undefined') ||
+        /\breturn\b\s*;/.test(code) ||
+        /\breturn\b\s*$/.test(code) ||
+        /\bif\s*\([^)]*\)\s*\{\s*\breturn\s+(null|undefined)\b/.test(code)
+    ) {
+        return true
+    }
+
+    // Check for variables set to null/undefined that are also returned
+    const nullVarMatch = code.match(/\blet\s+(\w+)\s*:?=\s*(null|undefined)/g)
+    if (nullVarMatch) {
+        // Extract variable names
+        const nullVars = nullVarMatch
+            .map((match) => {
+                return match.match(/\blet\s+(\w+)/)?.[1]
+            })
+            .filter(Boolean)
+
+        // Check if any of these variables are returned
+        for (const varName of nullVars) {
+            if (new RegExp(`\\breturn\\s+${varName}\\b`).test(code)) {
+                return true
+            }
+        }
+    }
+
+    return false
+}
+
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
