@@ -36,6 +36,13 @@ export const groupsModel = kea<groupsModelType>([
                     }
                     return []
                 },
+                createDetailDashboard: async (groupTypeIndex: number) => {
+                    const groupType = await api.put(
+                        `/api/projects/${values.currentProjectId}/groups_types/create_detail_dashboard`,
+                        { group_type_index: groupTypeIndex }
+                    )
+                    return values.groupTypesRaw.map((gt) => (gt.group_type_index === groupTypeIndex ? groupType : gt))
+                },
             },
         ],
     })),

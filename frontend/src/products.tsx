@@ -28,7 +28,7 @@ import {
     Node,
 } from '~/queries/schema/schema-general'
 
-import { DashboardType, InsightShortId, InsightType, RecordingUniversalFilters, ReplayTabs } from './types'
+import { ActionType, DashboardType, InsightShortId, InsightType, RecordingUniversalFilters, ReplayTabs } from './types'
 
 /** This const is auto-generated, as is the whole file */
 export const productScenes: Record<string, () => Promise<any>> = {
@@ -107,6 +107,13 @@ export const productConfiguration: Record<string, any> = {
 
 /** This const is auto-generated, as is the whole file */
 export const productUrls = {
+    createAction: (): string => `/data-management/actions/new`,
+    duplicateAction: (action: ActionType | null): string => {
+        const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
+        return `/data-management/actions/new/${queryParams}`
+    },
+    action: (id: string | number): string => `/data-management/actions/${id}`,
+    actions: (): string => '/data-management/actions',
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
@@ -231,12 +238,14 @@ export const productUrls = {
 
 /** This const is auto-generated, as is the whole file */
 export const fileSystemTypes = {
+    action: { icon: <IconRocket />, href: (ref: string) => urls.action(ref) },
     broadcast: { icon: <IconMegaphone />, href: (ref: string) => urls.messagingBroadcast(ref) },
     dashboard: { icon: <IconDashboard />, href: (ref: string) => urls.dashboard(ref) },
     experiment: { icon: <IconTestTube />, href: (ref: string) => urls.experiment(ref) },
     feature_flag: { icon: <IconToggle />, href: (ref: string) => urls.featureFlag(ref) },
     insight: { icon: <IconGraph />, href: (ref: string) => urls.insightView(ref as InsightShortId) },
     notebook: { icon: <IconNotebook />, href: (ref: string) => urls.notebook(ref) },
+    replay_playlist: { icon: <IconRewindPlay />, href: (ref: string) => urls.replayPlaylist(ref) },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -268,6 +277,7 @@ export const treeItems = [
         href: () => urls.insightNew({ type: InsightType.PATHS }),
     },
     { path: `Create new/Notebook`, type: 'notebook', href: () => urls.notebook('new') },
+    { path: 'Explore/Data management/Actions', icon: <IconRocket />, href: () => urls.actions() },
     { path: 'Explore/Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
     { path: 'Explore/People and groups/People', icon: <IconPerson />, href: () => urls.persons() },
     { path: 'Explore/Recordings/Playlists', href: () => urls.replay(ReplayTabs.Playlists), icon: <IconRewindPlay /> },

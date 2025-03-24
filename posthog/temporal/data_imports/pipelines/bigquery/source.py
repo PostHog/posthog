@@ -1,5 +1,6 @@
 import collections.abc
 import contextlib
+from datetime import date, datetime
 import typing
 
 import pyarrow as pa
@@ -128,14 +129,37 @@ def bigquery_source(
                     raise ValueError("incremental_field and incremental_field_type can't be None")
 
                 if db_incremental_field_last_value is None:
-                    last_value = incremental_type_to_initial_value(incremental_field_type)
+                    last_value: int | datetime | date | str = incremental_type_to_initial_value(incremental_field_type)
                 else:
                     last_value = db_incremental_field_last_value
+
+                if (
+                    incremental_field_type == IncrementalFieldType.Date
+                    or incremental_field_type == IncrementalFieldType.DateTime
+                ):
+                    last_value = f"'{last_value}'"
 
                 query = f"""
                 SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
                 WHERE `{incremental_field}` >= {last_value}
                 ORDER BY `{incremental_field}` ASC
+                """
+
+                destination_table = bigquery.Table(bq_destination_table_id)
+                job_config = QueryJobConfig(destination=destination_table)
+                job = bq_client.query(query, job_config=job_config)
+                _ = job.result()
+
+                bq_table = bq_client.get_table(destination_table)
+
+            elif bq_table.table_type in ("VIEW", "MATERIALIZED_VIEW"):
+                # BigQuery storage API does not support reading directly from views or
+                # materialized views. So, similarly to incremental runs, we must copy the
+                # results to a temporary table first. In the case of an incremental sync,
+                # we already do this for all tables and views, so here we just handle the
+                # views or materialized views that are not incremental.
+                query = f"""
+                SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
                 """
 
                 destination_table = bigquery.Table(bq_destination_table_id)

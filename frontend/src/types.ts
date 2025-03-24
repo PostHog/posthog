@@ -43,9 +43,9 @@ import type {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
-    InsightVizNode,
     Node,
     NodeKind,
+    QuerySchema,
     QueryStatus,
     RecordingOrder,
     RecordingsQuery,
@@ -1815,6 +1815,10 @@ export interface BillingType {
         target: 'paid' | 'teams' | 'enterprise'
         expires_at: string
     }
+    account_owner?: {
+        email?: string
+        name?: string
+    }
 }
 
 export interface BillingPlanType {
@@ -2799,7 +2803,7 @@ export interface HistogramGraphDatum {
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
-export interface InsightLogicProps<T = InsightVizNode> {
+export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
@@ -2811,8 +2815,8 @@ export interface InsightLogicProps<T = InsightVizNode> {
     loadPriority?: number
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** query when used as ad-hoc insight */
-    query?: T
-    setQuery?: (node: T) => void
+    query?: Q
+    setQuery?: (node: Q) => void
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
@@ -3408,6 +3412,7 @@ export interface GroupType {
     group_type_index: GroupTypeIndex
     name_singular?: string | null
     name_plural?: string | null
+    detail_dashboard?: number | null
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
@@ -4978,7 +4983,7 @@ export type HogFunctionInvocationGlobals = {
 }
 
 export type HogFunctionTestInvocationResult = {
-    status: 'success' | 'error'
+    status: 'success' | 'error' | 'skipped'
     logs: LogEntry[]
     result: any
     errors?: string[]
