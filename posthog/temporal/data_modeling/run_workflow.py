@@ -409,8 +409,8 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
             execute_hogql_query,
             query,
             team,
-            settings=settings,
             modifiers=modifiers,
+            settings=settings,
             limit_context=LimitContext.SAVED_QUERY,
         )
 
