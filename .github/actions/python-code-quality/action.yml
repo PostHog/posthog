@@ -24,10 +24,6 @@ inputs:
 runs:
     using: 'composite'
     steps:
-        - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-          with:
-              fetch-depth: 1
-
         - name: Set up Python
           uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
           with:
@@ -61,10 +57,14 @@ runs:
           run: |
               ruff format --check --diff ${{ inputs.base-directory }}
 
-        - name: Check static typing
+        - name: Add Problem Matcher
           shell: bash
           run: |
               echo "::add-matcher::.github/mypy-problem-matcher.json"
+
+        - name: Check static typing
+          shell: bash
+          run: |
               mypy --version && mypy -p posthog | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
 
         - name: Check if "schema.py" is up to date
