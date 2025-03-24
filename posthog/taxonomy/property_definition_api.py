@@ -23,6 +23,11 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.taxonomy.taxonomy import PROPERTY_NAME_ALIASES, CORE_FILTER_DEFINITIONS_BY_GROUP
 
+# list of all event properties defined in the taxonomy, that don't start with $
+EXCLUDED_EVENT_CORE_PROPERTIES = [
+    prop for prop in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].keys() if not prop.startswith("$")
+]
+
 
 class SeenTogetherQuerySerializer(serializers.Serializer):
     event_names: serializers.ListField = serializers.ListField(child=serializers.CharField(), required=True)
@@ -248,21 +253,20 @@ class QueryContext:
         )
 
     def with_excluded_properties(self, excluded_properties: Optional[str]) -> Self:
+        excluded_list = []
         if excluded_properties:
-            excluded_properties = list(set(json.loads(excluded_properties)))
-        else:
-            excluded_properties = []
+            excluded_list = list(set(json.loads(excluded_properties)))
 
         return dataclasses.replace(
             self,
             excluded_properties_filter=(
                 f"AND NOT {self.property_definition_table}.name = ANY(%(excluded_properties)s)"
-                if len(excluded_properties) > 0
+                if len(excluded_list) > 0
                 else ""
             ),
             params={
                 **self.params,
-                "excluded_properties": excluded_properties,
+                "excluded_properties": excluded_list,
             },
         )
 
@@ -278,11 +282,6 @@ class QueryContext:
                 params={**self.params, "excluded_core_properties": list(ALWAYS_EXCLUDED_EVENT_PROPERTIES)},
             )
         elif type == "event" and exclude_core_properties:
-            # list of all event properties defined in the taxonomy, that don't start with $
-            excluded_core_properties = [
-                prop for prop in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].keys() if not prop.startswith("$")
-            ]
-
             # exclude all properties starting with $ and other event properties defined in the taxonomy
             return dataclasses.replace(
                 self,
@@ -292,7 +291,7 @@ class QueryContext:
                 ),
                 params={
                     **self.params,
-                    "excluded_core_properties": excluded_core_properties,
+                    "excluded_core_properties": EXCLUDED_EVENT_CORE_PROPERTIES,
                 },
             )
         return self
