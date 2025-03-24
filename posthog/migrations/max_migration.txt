@@ -1,1 +1,1 @@
-0691_action_embedding_version
+0692_grouptypemapping_detail_dashboard

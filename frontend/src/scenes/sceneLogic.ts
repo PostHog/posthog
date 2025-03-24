@@ -29,7 +29,7 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
     [ProductKey.SURVEYS]: [urls.surveys()],
     [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
-    [ProductKey.DATA_WAREHOUSE]: [urls.dataWarehouse()],
+    [ProductKey.DATA_WAREHOUSE]: [urls.dataWarehouse(), urls.sqlEditor()],
     [ProductKey.WEB_ANALYTICS]: [urls.webAnalytics()],
 }
 
@@ -301,7 +301,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                     )
                                 } else {
                                     router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
+                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
                                     )
                                 }
                                 return
