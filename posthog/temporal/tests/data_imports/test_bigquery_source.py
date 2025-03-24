@@ -255,7 +255,7 @@ def setup_bigquery(
         url_pattern="https://bucket.s3/data/*",
         columns={
             "id": {"hogql": "IntegerDatabaseField", "clickhouse": clickhouse_type, "schema_valid": True},
-            "value": {"hogql": "StringDatabaseField", "clickhouse": clickhouse_type, "schema_valid": True},
+            "value": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
         },
     )
     schema = ExternalDataSchema.objects.create(
