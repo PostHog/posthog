@@ -14,7 +14,7 @@ on:
 jobs:
     notify_sentry:
         name: Notify Sentry of a production release
-        runs-on: ubuntu-20.04
+        runs-on: ubuntu-latest
         if: github.repository == 'PostHog/posthog'
         steps:
             - name: Checkout master
