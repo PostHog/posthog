@@ -13,7 +13,7 @@ import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { inStorybookTestRunner } from 'lib/utils'
 import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
 import * as monaco from 'monaco-editor'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse } from '~/queries/schema/schema-general'
@@ -197,6 +197,17 @@ export function CodeEditor({
         })
     }, [monaco, schema])
 
+    const phTheme = useCallback((monaco: Monaco) => {
+        monaco.editor.defineTheme('ph-dark', {
+            base: 'vs-dark',
+            inherit: true,
+            rules: [],
+            colors: {
+                'editor.background': '#131316', // --primitive-neutral-cool-950 --> hsl(240deg 8% 8%)
+            },
+        })
+    }, [])
+
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
     useEffect(() => {
@@ -231,7 +242,12 @@ export function CodeEditor({
     }
 
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
+        phTheme(monaco)
         setMonacoAndEditor([monaco, editor])
+
+        const newTheme = isDarkModeOn ? 'ph-dark' : 'vs-light'
+        monaco.editor.setTheme(newTheme)
+
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
         if (onPressCmdEnter) {
             monacoDisposables.current.push(
@@ -272,7 +288,7 @@ export function CodeEditor({
         return (
             <MonacoDiffEditor
                 key={queryKey}
-                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
+                theme={isDarkModeOn ? 'ph-dark' : 'vs-light'}
                 loading={<Spinner />}
                 original={originalValue}
                 modified={value}
@@ -285,7 +301,7 @@ export function CodeEditor({
     return (
         <MonacoEditor // eslint-disable-line react/forbid-elements
             key={queryKey}
-            theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
+            theme={isDarkModeOn ? 'ph-dark' : 'vs-light'}
             loading={<Spinner />}
             value={value}
             options={editorOptions}
