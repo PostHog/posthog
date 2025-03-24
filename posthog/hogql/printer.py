@@ -1104,18 +1104,20 @@ class _Printer(Visitor):
 
                 if node.name in SURVEY_FUNCTIONS:
                     if node.name == "getSurveyResponse":
-                        if not isinstance(node_args[0], ast.Constant):
+                        question_index_obj = node_args[0]
+                        if not isinstance(question_index_obj, ast.Constant):
                             raise QueryError("getSurveyResponse first argument must be a constant")
-                        question_index = node_args[0].value
-                        if not isinstance(question_index, int | str) or not str(question_index).lstrip("-").isdigit():
+                        if (
+                            not isinstance(question_index_obj.value, int | str)
+                            or not str(question_index_obj.value).lstrip("-").isdigit()
+                        ):
                             raise QueryError("getSurveyResponse first argument must be a valid integer")
-                        question_index = int(question_index)
                         question_id = (
                             str(node_args[1].value)
                             if len(node_args) > 1 and isinstance(node_args[1], ast.Constant)
                             else None
                         )
-                        return get_survey_response_clickhouse_query(question_index, question_id)
+                        return get_survey_response_clickhouse_query(int(question_index_obj.value), question_id)
 
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []
