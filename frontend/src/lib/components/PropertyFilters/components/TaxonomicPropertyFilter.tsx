@@ -152,6 +152,7 @@ export function TaxonomicPropertyFilter({
                     onComplete()
                 }
             }}
+            groupTypeIndex={isGroupPropertyFilter(filter) ? filter?.group_type_index : undefined}
         />
     )
 
