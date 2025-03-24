@@ -61,13 +61,10 @@ runs:
           run: |
               ruff format --check --diff ${{ inputs.base-directory }}
 
-        - name: Add Problem Matcher
-          shell: bash
-          run: echo "::add-matcher::.github/mypy-problem-matcher.json"
-
         - name: Check static typing
           shell: bash
           run: |
+              echo "::add-matcher::.github/mypy-problem-matcher.json"
               mypy --version && mypy -p posthog | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
 
         - name: Check if "schema.py" is up to date
