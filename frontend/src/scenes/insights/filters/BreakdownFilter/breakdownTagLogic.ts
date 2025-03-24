@@ -101,10 +101,10 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 ),
         ],
         histogramBinsUsed: [
-            (s) => [s.isMultipleBreakdownsEnabled, s.localHistogramBinCount, s.globalHistogramBinsUsed],
-            (isMultipleBreakdownsEnabled, localHistogramBinCount, globalHistogramBinsUsed) => {
+            (s) => [s.isMultipleBreakdownsEnabled, s.multipleBreakdown, s.globalHistogramBinsUsed],
+            (isMultipleBreakdownsEnabled, multipleBreakdown, globalHistogramBinsUsed) => {
                 if (isMultipleBreakdownsEnabled) {
-                    return typeof localHistogramBinCount === 'number'
+                    return multipleBreakdown?.histogram_bin_count != null
                 }
 
                 return globalHistogramBinsUsed
