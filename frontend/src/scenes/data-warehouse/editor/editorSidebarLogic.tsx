@@ -65,7 +65,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             viewLinkLogic,
             ['selectSourceTable', 'toggleJoinTableModal'],
             teamLogic,
-            ['addProductIntentForCrossSell'],
+            ['addProductIntent'],
         ],
     }),
     selectors(({ actions }) => ({
@@ -135,10 +135,9 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                             <LemonButton
                                 type="primary"
                                 onClick={() => {
-                                    actions.addProductIntentForCrossSell({
-                                        from: ProductKey.DATA_WAREHOUSE,
-                                        to: ProductKey.DATA_WAREHOUSE,
-                                        intent_context: ProductIntentContext.SQL_EDITOR,
+                                    actions.addProductIntent({
+                                        product_type: ProductKey.DATA_WAREHOUSE,
+                                        intent_context: ProductIntentContext.SQL_EDITOR_EMPTY_STATE,
                                     })
                                     router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
                                 }}
