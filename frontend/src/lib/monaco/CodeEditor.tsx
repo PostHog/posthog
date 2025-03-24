@@ -245,8 +245,8 @@ export function CodeEditor({
         phTheme(monaco)
         setMonacoAndEditor([monaco, editor])
 
-        const newTheme = isDarkModeOn ? 'ph-dark' : 'vs-light'
-        monaco.editor.setTheme(newTheme)
+        const resolvedTheme = isDarkModeOn ? 'ph-dark' : 'vs-light'
+        monaco.editor.setTheme(resolvedTheme)
 
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
         if (onPressCmdEnter) {
