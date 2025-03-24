@@ -1851,6 +1851,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 team=self.team, type="transformation", deleted=False, enabled=True
             ).first()
 
+            assert enabled_transformation is not None, "No enabled transformation found to delete"
             self.client.patch(
                 f"/api/projects/{self.team.id}/hog_functions/{enabled_transformation.id}/",
                 data={"deleted": True},
@@ -1861,6 +1862,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 team=self.team, type="transformation", deleted=False, enabled=False
             ).first()
 
+            assert disabled_transformation is not None, "No disabled transformation found to enable"
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_functions/{disabled_transformation.id}/",
                 data={"enabled": True},

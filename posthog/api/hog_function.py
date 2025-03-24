@@ -244,7 +244,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # We allow unlimited creation of disabled transformations as they don't run during ingestion
         if hog_type == "transformation" and attrs.get("enabled", False):
             # Don't apply the limit for updates where the function was already enabled
-            apply_limit = is_create or (self.instance and not self.instance.enabled)
+            apply_limit = is_create or (isinstance(self.instance, HogFunction) and not self.instance.enabled)
 
             if apply_limit:
                 # Count enabled and non-deleted transformations
