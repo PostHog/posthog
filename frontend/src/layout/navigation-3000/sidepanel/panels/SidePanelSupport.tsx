@@ -198,7 +198,7 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
 
 export const SidePanelSupport = (): JSX.Element => {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { preflight, isCloud } = useValues(preflightLogic)
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { status } = useValues(sidePanelStatusLogic)
@@ -267,7 +267,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </Section>
                             ) : null}
 
-                            {isCloud ? (
+                            {isCloudOrDev ? (
                                 <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
                                     <Section title="Ask Max the Hedgehog">
                                         <>
@@ -295,7 +295,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </FlaggedFeature>
                             ) : null}
 
-                            {isCloud ? (
+                            {isCloudOrDev ? (
                                 <FlaggedFeature flag={FEATURE_FLAGS.INKEEP_MAX_SUPPORT_SIDEBAR} match={true}>
                                     <Section title="Ask Max the Hedgehog">
                                         <>
@@ -325,7 +325,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </FlaggedFeature>
                             ) : null}
 
-                            {isCloud ? (
+                            {isCloudOrDev ? (
                                 <Section title="Contact us">
                                     <p>Can't find what you need in the docs?</p>
                                     <LemonButton
