@@ -2,11 +2,13 @@ import clsx from 'clsx'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { autoCaptureEventToDescription } from 'lib/utils'
-import { memo } from 'react'
+import { memo, MutableRefObject } from 'react'
 import {
     InspectorListItemComment,
     InspectorListItemEvent,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+
+import { UserActivity } from './UserActivity'
 
 export interface SeekBarItem {
     timeInRecording: number
@@ -81,13 +83,16 @@ export const PlayerSeekbarTicks = memo(
         seekbarItems,
         endTimeMs,
         seekToTime,
+        hoverRef,
     }: {
         seekbarItems: (InspectorListItemEvent | InspectorListItemComment)[]
         endTimeMs: number
         seekToTime: (timeInMilliseconds: number) => void
+        hoverRef: MutableRefObject<HTMLDivElement | null>
     }): JSX.Element {
         return (
             <div className="PlayerSeekbarTicks">
+                <UserActivity hoverRef={hoverRef} />
                 {seekbarItems.map((item, i) => {
                     return (
                         <PlayerSeekbarTick
