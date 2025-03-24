@@ -366,7 +366,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 size="small"
                                 to={urls.toolbarLaunch()}
                                 onClick={() => {
-                                    clearActivePanelIdentifier()
+                                    handleStaticNavbarItemClick(urls.toolbarLaunch(), false)
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        handleStaticNavbarItemClick(urls.toolbarLaunch(), true)
+                                    }
                                 }}
                                 active={
                                     activeScene === Scene.ToolbarLaunch ||
@@ -386,12 +391,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         <IconGear />
                                     </IconWrapper>
                                 }
-                                fullWidth
-                                size="small"
                                 to={urls.settings('project')}
                                 onClick={() => {
-                                    clearActivePanelIdentifier()
+                                    handleStaticNavbarItemClick(urls.settings('project'), false)
                                 }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        handleStaticNavbarItemClick(urls.settings('project'), true)
+                                    }
+                                }}
+                                fullWidth
+                                size="small"
                                 active={activeScene === Scene.Settings || sceneBreadcrumbKeys.includes(Scene.Settings)}
                             >
                                 Settings
