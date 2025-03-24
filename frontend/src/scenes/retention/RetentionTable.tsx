@@ -146,8 +146,8 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                             'bg-slate-100': !isSingleBreakdown && !isDarkModeOn,
                                         })}
                                     >
-                                        {/* Only add padding if there is more than one breakdown value */}
-                                        <td className={clsx({ 'pl-6': !isSingleBreakdown })}>{row.label}</td>
+                                        {/* Only add extra padding if there is more than one breakdown value */}
+                                        <td className={clsx('pl-2', { 'pl-6': !isSingleBreakdown })}>{row.label}</td>
                                         {!hideSizeColumn && (
                                             <td>
                                                 <span className="RetentionTable__TextTab">{row.cohortSize}</span>
