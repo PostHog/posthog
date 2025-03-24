@@ -300,7 +300,7 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
                     op=ast.CompareOperationOp.LtEq,
                     left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
                     right=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperation.Add,
+                        op=ast.ArithmeticOperationOp.Add,
                         left=node.right,
                         right=self.time_buffer,
                     ),
