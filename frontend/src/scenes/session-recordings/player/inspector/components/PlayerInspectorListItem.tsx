@@ -20,9 +20,9 @@ import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
-import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
+import { ceilMsToClosestSecond } from 'lib/utils'
 import { useEffect, useRef } from 'react'
+import { ItemTimeDisplay } from 'scenes/session-recordings/components/ItemTimeDisplay'
 import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player/inspector/components/ItemComment'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
 import { ItemSummary } from 'scenes/session-recordings/player/inspector/components/ItemSummary'
@@ -33,7 +33,6 @@ import { FilterableInspectorListItemTypes } from '~/types'
 
 import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/playerInspector/ItemPerformanceEvent'
 import { IconWindow } from '../../icons'
-import { playerSettingsLogic, TimestampFormat } from '../../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
@@ -114,43 +113,6 @@ export function eventToIcon(event: string | undefined | null) {
     }
 
     return BaseIcon
-}
-
-export function ItemTimeDisplay({
-    timestamp,
-    timeInRecording,
-    className,
-}: {
-    timestamp: Dayjs
-    timeInRecording: number
-    className?: string
-}): JSX.Element {
-    const { timestampFormat } = useValues(playerSettingsLogic)
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { durationMs } = useValues(playerInspectorLogic(logicProps))
-
-    const fixedUnits = durationMs / 1000 > 3600 ? 3 : 2
-
-    return (
-        <div className={cn('px-2 py-1 text-xs min-w-18 text-center', className)}>
-            {timestampFormat != TimestampFormat.Relative ? (
-                (timestampFormat === TimestampFormat.UTC ? timestamp.tz('UTC') : timestamp).format('DD, MMM HH:mm:ss')
-            ) : (
-                <>
-                    {timeInRecording < 0 ? (
-                        <Tooltip
-                            title="This event occured before the recording started, likely as the page was loading."
-                            placement="left"
-                        >
-                            <span className="text-secondary">load</span>
-                        </Tooltip>
-                    ) : (
-                        colonDelimitedDuration(timeInRecording / 1000, fixedUnits)
-                    )}
-                </>
-            )}
-        </div>
-    )
 }
 
 function RowItemTitle({

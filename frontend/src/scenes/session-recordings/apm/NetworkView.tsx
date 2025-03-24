@@ -15,9 +15,10 @@ import { NetworkBar } from 'scenes/session-recordings/apm/waterfall/NetworkBar'
 
 import { PerformanceEvent } from '~/types'
 
-import { ItemTimeDisplay } from '../player/inspector/components/PlayerInspectorListItem'
+import { ItemTimeDisplay } from '../components/ItemTimeDisplay'
 import { sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
 import { networkViewLogic } from './networkViewLogic'
+
 function SimpleURL({ name, entryType }: { name: string | undefined; entryType: string | undefined }): JSX.Element {
     // TODO we should show hostname if it isn't the same as the navigation for the page(s) we're looking at
 
