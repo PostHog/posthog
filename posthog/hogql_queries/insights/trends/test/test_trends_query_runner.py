@@ -5371,3 +5371,34 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("previous", response.results[3]["compare_label"])
         self.assertEqual("Formula (A-B)", response.results[3]["label"])
         self.assertEqual([0, 1, 0, 0, 2], response.results[3]["data"])
+
+    def test_trends_aggregation_property_avg_person_property(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"score": 5},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"score": 6},  # Event property with same name but different value
+        )
+
+        response = self._run_trends_query(
+            date_from="2020-01-09",
+            date_to="2020-01-19",
+            interval=IntervalType.DAY,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=PropertyMathType.AVG,
+                    math_property="score",
+                    math_property_type="person_properties",  # Specify that we want to use the person property
+                )
+            ],
+        )
+
+        self.assertEqual(response.results[0]["count"], 5.0)  # Should use person property value
+        self.assertEqual(response.results[0]["data"], [0.0, 0.0, 5.0] + [0.0] * 8)
