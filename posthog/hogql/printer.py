@@ -1588,6 +1588,7 @@ class _Printer(Visitor):
     def visit_window_function(self, node: ast.WindowFunction):
         identifier = self._print_identifier(node.name)
         exprs = [self.visit(expr) for expr in node.exprs or []]
+        cloned_node = cast(ast.WindowFunction, clone_expr(node))
 
         # For compatibility with postgresql syntax, convert lag/lead to lagInFrame/leadInFrame and add default window frame if needed
         if identifier in ("lag", "lead"):
@@ -1597,16 +1598,16 @@ class _Printer(Visitor):
             if len(exprs) > 0:
                 exprs[0] = f"toNullable({exprs[0]})"  # value
             # If there's no window frame specified, add the default one
-            if not node.over_expr and not node.over_identifier:
-                node.over_expr = self._create_default_window_frame(node)
+            if not cloned_node.over_expr and not cloned_node.over_identifier:
+                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
             # If there's an over_identifier, we need to extract the new window expr just for this function
-            elif node.over_identifier:
+            elif cloned_node.over_identifier:
                 # Find the last select query to look up the window definition
                 last_select = self._last_select()
-                if last_select and last_select.window_exprs and node.over_identifier in last_select.window_exprs:
-                    base_window = last_select.window_exprs[node.over_identifier]
+                if last_select and last_select.window_exprs and cloned_node.over_identifier in last_select.window_exprs:
+                    base_window = last_select.window_exprs[cloned_node.over_identifier]
                     # Create a new window expr based on the referenced one
-                    node.over_expr = ast.WindowExpr(
+                    cloned_node.over_expr = ast.WindowExpr(
                         partition_by=base_window.partition_by,
                         order_by=base_window.order_by,
                         frame_method="ROWS" if not base_window.frame_method else base_window.frame_method,
@@ -1615,21 +1616,25 @@ class _Printer(Visitor):
                         frame_end=base_window.frame_end
                         or ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
                     )
-                    node.over_identifier = None
+                    cloned_node.over_identifier = None
             # If there's an ORDER BY but no frame, add the default frame
-            elif node.over_expr and node.over_expr.order_by and not node.over_expr.frame_method:
-                node.over_expr = self._create_default_window_frame(node)
+            elif cloned_node.over_expr and cloned_node.over_expr.order_by and not cloned_node.over_expr.frame_method:
+                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
 
         # Handle any additional function arguments
-        args = f"({', '.join(self.visit(arg) for arg in node.args)})" if node.args else ""
+        args = f"({', '.join(self.visit(arg) for arg in cloned_node.args)})" if cloned_node.args else ""
 
-        if node.over_expr or node.over_identifier:
-            over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
+        if cloned_node.over_expr or cloned_node.over_identifier:
+            over = (
+                f"({self.visit(cloned_node.over_expr)})"
+                if cloned_node.over_expr
+                else self._print_identifier(cloned_node.over_identifier)
+            )
         else:
             over = "()"
 
         # Handle the case where we have both regular expressions and function arguments
-        if node.args:
+        if cloned_node.args:
             return f"{identifier}({', '.join(exprs)}){args} OVER {over}"
         else:
             return f"{identifier}({', '.join(exprs)}) OVER {over}"
