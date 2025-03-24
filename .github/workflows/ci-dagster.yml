@@ -65,6 +65,7 @@ jobs:
         name: Python code quality checks
         runs-on: depot-ubuntu-latest
         steps:
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
             - uses: ./.github/actions/python-code-quality
               with:
                   python-version: 3.11.9
