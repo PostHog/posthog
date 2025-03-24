@@ -537,14 +537,22 @@ export class HogExecutorService {
                         }
                         case 'sendEmail': {
                             // Sanitize the args
-                            const [api_key, secret_key, email] = args as [
-                                string | undefined,
-                                string | undefined,
-                                Record<string, any> | undefined
-                            ]
+                            const [inputs] = args as [Record<string, any> | undefined]
 
-                            if (!email) {
-                                throw new Error('sendEmail: Invalid email object')
+                            const { provider, credentials, email } = inputs
+
+                            if (!provider || !credentials || !email) {
+                                throw new Error('sendEmail: Invalid inputs')
+                            }
+
+                            if (provider !== 'mailjet') {
+                                throw new Error('sendEmail: Invalid provider')
+                            }
+
+                            const { api_key, secret_key } = credentials
+
+                            if (!api_key || !secret_key) {
+                                throw new Error('sendEmail: Invalid credentials')
                             }
 
                             const url = 'https://api.mailjet.com/v3.1/send'
