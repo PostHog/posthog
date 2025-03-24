@@ -218,7 +218,7 @@ export function ResultsHeader(): JSX.Element {
     return (
         <div className="flex">
             <div className="w-1/2">
-                <div className="inline-flex items-center space-x-2 mb-2">
+                <div className="inline-flex items-center deprecated-space-x-2 mb-2">
                     <h2 className="m-0 font-semibold text-lg">Results</h2>
                     <ResultsTag />
                 </div>
@@ -459,7 +459,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
                 </div>
             }
         >
-            <div className="space-y-6">
+            <div className="deprecated-space-y-6">
                 <div className="text-sm">
                     This will roll out the selected variant to <b>100% of {aggregationTargetName}</b> and stop the
                     experiment.
@@ -477,7 +477,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
                                 experiment.parameters?.feature_flag_variants?.map(({ key }) => ({
                                     value: key,
                                     label: (
-                                        <div className="space-x-2 inline-flex">
+                                        <div className="deprecated-space-x-2 inline-flex">
                                             <VariantTag experimentId={experimentId} variantKey={key} />
                                         </div>
                                     ),
@@ -559,7 +559,7 @@ export function StatusTag({ experiment }: { experiment: ExperimentType }): JSX.E
 
 export function LoadingState(): JSX.Element {
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <LemonSkeleton className="w-1/3 h-4" />
             <LemonSkeleton />
             <LemonSkeleton />
@@ -583,7 +583,7 @@ export function MetricDisplayTrends({ query }: { query: TrendsQuery | undefined 
                         <InsightLabel action={event} showCountedByTag={true} hideIcon showEventName />
                     </b>
                 </div>
-                <div className="space-y-1">
+                <div className="deprecated-space-y-1">
                     {event.properties?.map((prop: AnyPropertyFilter) => (
                         <PropertyFilterButton key={prop.key} item={prop} />
                     ))}
@@ -610,7 +610,7 @@ export function MetricDisplayFunnels({ query }: { query: FunnelsQuery }): JSX.El
                             <InsightLabel action={event} hideIcon showEventName />
                         </b>
                     </div>
-                    <div className="space-y-1">
+                    <div className="deprecated-space-y-1">
                         {event.properties?.map((prop: AnyPropertyFilter) => (
                             <PropertyFilterButton key={prop.key} item={prop} />
                         ))}

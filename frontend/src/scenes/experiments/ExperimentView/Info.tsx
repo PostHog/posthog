@@ -53,7 +53,7 @@ export function Info(): JSX.Element {
     return (
         <div>
             <div className="flex flex-wrap justify-between gap-4">
-                <div className="inline-flex space-x-8">
+                <div className="inline-flex deprecated-space-x-8">
                     <div className="block" data-attr="experiment-status">
                         <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
                         <StatusTag experiment={experiment} />
@@ -123,11 +123,11 @@ export function Info(): JSX.Element {
                 </div>
 
                 <div className="flex flex-col">
-                    <div className="inline-flex space-x-8">
+                    <div className="inline-flex deprecated-space-x-8">
                         {experiment.start_date && (
                             <div className="block">
                                 <div className="text-xs font-semibold uppercase tracking-wide">Last refreshed</div>
-                                <div className="inline-flex space-x-2">
+                                <div className="inline-flex deprecated-space-x-2">
                                     <span
                                         className={`${
                                             lastRefresh

@@ -8,6 +8,7 @@ from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 
 from ee.hogai.assistant import AssistantGraph
+from ee.hogai.eval.metrics import time_and_interval_correctness
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.schema import HumanMessage
 
@@ -42,13 +43,18 @@ def call_node(team, runnable_config: RunnableConfig) -> Callable[[str], str]:
     graph: CompiledStateGraph = (
         AssistantGraph(team)
         .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
-        .add_trends_planner(AssistantNodeName.END)
+        .add_trends_planner(AssistantNodeName.END, AssistantNodeName.END)
         .compile()
     )
 
     def callable(query: str) -> str:
         state = graph.invoke(
-            AssistantState(messages=[HumanMessage(content=query)]),
+            AssistantState(
+                messages=[HumanMessage(content=query)],
+                root_tool_insight_plan=query,
+                root_tool_call_id="eval_test",
+                root_tool_insight_type="trends",
+            ),
             runnable_config,
         )
         return AssistantState.model_validate(state).plan or ""
@@ -182,15 +188,71 @@ def test_needle_in_a_haystack(metric, call_node):
     assert_test(test_case, [metric])
 
 
-def test_trends_does_not_include_timeframe(metric, call_node):
-    query = "what is the pageview trend for event time before 2024-01-01?"
+def test_trends_for_unique_sessions(metric, call_node):
+    query = "how many $pageviews with unique sessions did we have?"
+    plan = call_node(query)
+
     test_case = LLMTestCase(
         input=query,
         expected_output="""
         Events:
         - $pageview
-            - math operation: total count
+            - math operation: unique sessions
+
+        Time period: last month
+        Time interval: day
         """,
-        actual_output=call_node(query),
+        actual_output=plan,
+        comments=plan,
     )
     assert_test(test_case, [metric])
+
+
+@pytest.mark.parametrize(
+    "time_period, time_interval",
+    [
+        ("for yesterday", "hour"),
+        ("for the last 1 week", "day"),
+        ("for the last 1 month", "week"),
+        ("for the last 80 days", "week"),
+        ("for the last 6 months", "month"),
+        ("from 2020 to 2025", "month"),
+        ("for 2023 by a week", "week"),
+    ],
+)
+def test_trends_planner_handles_time_intervals(call_node, time_period, time_interval):
+    query = f"$pageview trends {time_period}"
+    plan = call_node(query)
+
+    test_case = LLMTestCase(
+        input=query,
+        expected_output=f"""
+        Events:
+        - $pageview
+            - math operation: total count
+
+        Time period: {time_period}
+        Time interval: {time_interval}
+        """,
+        actual_output=plan,
+    )
+    assert_test(test_case, [time_and_interval_correctness("trends")])
+
+
+def test_trends_planner_uses_default_time_period_and_interval(call_node):
+    query = "$pageview trends"
+    plan = call_node(query)
+
+    test_case = LLMTestCase(
+        input=query,
+        expected_output=f"""
+        Events:
+        - $pageview
+            - math operation: total count
+
+        Time period: last 30 days
+        Time interval: day
+        """,
+        actual_output=plan,
+    )
+    assert_test(test_case, [time_and_interval_correctness("trends")])

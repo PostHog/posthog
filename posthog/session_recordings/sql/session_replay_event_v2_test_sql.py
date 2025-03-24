@@ -72,6 +72,20 @@ SESSION_REPLAY_EVENTS_V2_TEST_KAFKA_TABLE_BASE_SQL = """
         first_timestamp DateTime64(6, 'UTC'),
         last_timestamp DateTime64(6, 'UTC'),
         block_url String,
+        first_url Nullable(VARCHAR),
+        urls Array(String),
+        click_count Int64,
+        keypress_count Int64,
+        mouse_activity_count Int64,
+        active_milliseconds Int64,
+        console_log_count Int64,
+        console_warn_count Int64,
+        console_error_count Int64,
+        size Int64,
+        event_count Int64,
+        message_count Int64,
+        snapshot_source LowCardinality(Nullable(String)),
+        snapshot_library Nullable(String),
     ) ENGINE = {engine}
 """
 
@@ -96,6 +110,21 @@ SESSION_REPLAY_EVENTS_V2_TEST_TABLE_BASE_SQL = """
         block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
         block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
         block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+        first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+        all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+        click_count SimpleAggregateFunction(sum, Int64),
+        keypress_count SimpleAggregateFunction(sum, Int64),
+        mouse_activity_count SimpleAggregateFunction(sum, Int64),
+        active_milliseconds SimpleAggregateFunction(sum, Int64),
+        console_log_count SimpleAggregateFunction(sum, Int64),
+        console_warn_count SimpleAggregateFunction(sum, Int64),
+        console_error_count SimpleAggregateFunction(sum, Int64),
+        size SimpleAggregateFunction(sum, Int64),
+        message_count SimpleAggregateFunction(sum, Int64),
+        event_count SimpleAggregateFunction(sum, Int64),
+        snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+        snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+        _timestamp SimpleAggregateFunction(max, DateTime)
     ) ENGINE = {engine}
 """
 
@@ -118,7 +147,21 @@ SESSION_REPLAY_EVENTS_V2_TEST_MV_BASE_SQL = """
         `block_first_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
         `block_last_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
         `block_urls` SimpleAggregateFunction(groupArrayArray, Array(String)),
-        `_timestamp` Nullable(DateTime)
+        `first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+        `all_urls` SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+        `click_count` SimpleAggregateFunction(sum, Int64),
+        `keypress_count` SimpleAggregateFunction(sum, Int64),
+        `mouse_activity_count` SimpleAggregateFunction(sum, Int64),
+        `active_milliseconds` SimpleAggregateFunction(sum, Int64),
+        `console_log_count` SimpleAggregateFunction(sum, Int64),
+        `console_warn_count` SimpleAggregateFunction(sum, Int64),
+        `console_error_count` SimpleAggregateFunction(sum, Int64),
+        `size` SimpleAggregateFunction(sum, Int64),
+        `message_count` SimpleAggregateFunction(sum, Int64),
+        `event_count` SimpleAggregateFunction(sum, Int64),
+        `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+        `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+        `_timestamp` SimpleAggregateFunction(max, DateTime)
     )
     AS SELECT
         session_id,
@@ -129,6 +172,20 @@ SESSION_REPLAY_EVENTS_V2_TEST_MV_BASE_SQL = """
         groupArray(first_timestamp) AS block_first_timestamps,
         groupArray(last_timestamp) AS block_last_timestamps,
         groupArray(block_url) AS block_urls,
+        argMinState(first_url, first_timestamp) as first_url,
+        groupUniqArrayArray(urls) AS all_urls,
+        sum(click_count) AS click_count,
+        sum(keypress_count) AS keypress_count,
+        sum(mouse_activity_count) AS mouse_activity_count,
+        sum(active_milliseconds) AS active_milliseconds,
+        sum(console_log_count) AS console_log_count,
+        sum(console_warn_count) AS console_warn_count,
+        sum(console_error_count) AS console_error_count,
+        sum(size) AS size,
+        sum(message_count) AS message_count,
+        sum(event_count) AS event_count,
+        argMinState(snapshot_source, first_timestamp) as snapshot_source,
+        argMinState(snapshot_library, first_timestamp) as snapshot_library,
         max(_timestamp) as _timestamp
     FROM {database}.kafka_session_replay_events_v2_test
     GROUP BY session_id, team_id, distinct_id

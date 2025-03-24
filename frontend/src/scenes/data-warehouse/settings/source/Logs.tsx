@@ -49,7 +49,7 @@ export const LogsView = ({ job }: LogsTableProps): JSX.Element => {
     const { revealBackground, loadSchemaLogsMore } = useActions(logic)
 
     return (
-        <div className="ph-no-capture space-y-2 flex-1">
+        <div className="ph-no-capture deprecated-space-y-2 flex-1">
             <LemonButton
                 onClick={revealBackground}
                 loading={logsLoading}

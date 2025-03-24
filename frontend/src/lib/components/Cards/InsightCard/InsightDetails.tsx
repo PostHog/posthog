@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import {
     convertPropertiesToPropertyGroup,
     formatPropertyLabel,
@@ -26,6 +27,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyEntityNode,
     FunnelsQuery,
+    HogQLQuery,
     InsightQueryNode,
     LifecycleQuery,
     Node,
@@ -37,8 +39,11 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
+    isDataTableNodeWithHogQLQuery,
+    isDataVisualizationNode,
     isEventsNode,
     isFunnelsQuery,
+    isHogQLQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
     isInsightVizNode,
@@ -316,42 +321,48 @@ export function SeriesSummary({
     query,
     heading,
 }: {
-    query: InsightQueryNode
+    query: InsightQueryNode | HogQLQuery
     heading?: JSX.Element | null
 }): JSX.Element {
     return (
         <section>
             {heading !== null && <h5>{heading || 'Query summary'}</h5>}
-            <div className="InsightDetails__query">
-                {isTrendsQuery(query) && query.trendsFilter?.formula && (
-                    <>
-                        <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
-                            <span>
-                                Formula:<code>{query.trendsFilter?.formula}</code>
-                            </span>
-                        </LemonRow>
-                        <LemonDivider />
-                    </>
-                )}
-                <div className="InsightDetails__series">
-                    {isPathsQuery(query) ? (
-                        <PathsSummary query={query} />
-                    ) : isRetentionQuery(query) ? (
-                        <RetentionSummary query={query} />
-                    ) : isInsightQueryWithSeries(query) ? (
+            {isHogQLQuery(query) ? (
+                <CodeSnippet language={Language.SQL} maxLinesWithoutExpansion={8} compact>
+                    {query.query}
+                </CodeSnippet>
+            ) : (
+                <div className="InsightDetails__query">
+                    {isTrendsQuery(query) && query.trendsFilter?.formula && (
                         <>
-                            {query.series.map((_entity, index) => (
-                                <React.Fragment key={index}>
-                                    {index !== 0 && <LemonDivider className="my-1" />}
-                                    <SeriesDisplay query={query} seriesIndex={index} />
-                                </React.Fragment>
-                            ))}
+                            <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
+                                <span>
+                                    Formula:<code>{query.trendsFilter?.formula}</code>
+                                </span>
+                            </LemonRow>
+                            <LemonDivider />
                         </>
-                    ) : (
-                        <i>Query summary is not available for {(query as Node).kind} yet</i>
                     )}
+                    <div className="InsightDetails__series">
+                        {isPathsQuery(query) ? (
+                            <PathsSummary query={query} />
+                        ) : isRetentionQuery(query) ? (
+                            <RetentionSummary query={query} />
+                        ) : isInsightQueryWithSeries(query) ? (
+                            <>
+                                {query.series.map((_entity, index) => (
+                                    <React.Fragment key={index}>
+                                        {index !== 0 && <LemonDivider className="my-1" />}
+                                        <SeriesDisplay query={query} seriesIndex={index} />
+                                    </React.Fragment>
+                                ))}
+                            </>
+                        ) : (
+                            <i>Query summary is not available for {(query as Node).kind} yet</i>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
         </section>
     )
 }
@@ -371,7 +382,7 @@ export function PropertiesSummary({
     )
 }
 
-export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.Element | null {
+export function BreakdownSummary({ query }: { query: InsightQueryNode | HogQLQuery }): JSX.Element | null {
     if (!isInsightQueryWithBreakdown(query) || !isValidBreakdown(query.breakdownFilter)) {
         return null
     }
@@ -416,13 +427,17 @@ export const InsightDetails = React.memo(
         // TODO: Implement summaries for HogQL query insights
         return (
             <div className="InsightDetails" ref={ref}>
-                {isInsightVizNode(query) && (
+                {isInsightVizNode(query) || isDataVisualizationNode(query) || isDataTableNodeWithHogQLQuery(query) ? (
                     <>
                         <SeriesSummary query={query.source} />
-                        <PropertiesSummary properties={query.source.properties} />
+                        <PropertiesSummary
+                            properties={
+                                isHogQLQuery(query.source) ? query.source.filters?.properties : query.source.properties
+                            }
+                        />
                         <BreakdownSummary query={query.source} />
                     </>
-                )}
+                ) : null}
                 {footerInfo && (
                     <div className="InsightDetails__footer">
                         <div>

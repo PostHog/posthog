@@ -20,7 +20,7 @@ export type SymbolSetUpload = SourceMapUpload
 
 export interface SourceMapUpload {
     minified: File
-    sourcemap: File
+    sourceMap: File
 }
 
 export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>([

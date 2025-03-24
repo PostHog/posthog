@@ -132,10 +132,10 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
 
     return (
         <div ref={ref} className="flex flex-col h-full">
-            <div className="flex-1 overflow-y-auto p-3 space-y-4 [overflow-anchor:none]">
+            <div className="flex-1 overflow-y-auto p-3 deprecated-space-y-4 [overflow-anchor:none]">
                 <div className="bg-surface-primary dark:bg-transparent rounded p-1">
                     <h4 className="mb-2">Tips for chatting with Max:</h4>
-                    <ul className="list-disc pl-4 space-y-2 text-secondary">
+                    <ul className="list-disc pl-4 deprecated-space-y-2 text-secondary">
                         <li>Max can't handle files or images (yet.)</li>
                         <li>
                             Max can't see what page you're on, or the contents. Copy/paste error messages or queries to
@@ -207,7 +207,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                                                                 </span>
                                                                             ),
                                                                             content: (
-                                                                                <div className="space-y-3 p-1">
+                                                                                <div className="deprecated-space-y-3 p-1">
                                                                                     {/* Thinking blocks */}
                                                                                     {extractThinkingBlock(
                                                                                         message.content

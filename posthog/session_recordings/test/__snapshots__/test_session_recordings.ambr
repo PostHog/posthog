@@ -804,7 +804,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -818,6 +819,7 @@
          "posthog_datawarehousesavedquery"."id",
          "posthog_datawarehousesavedquery"."name",
          "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
@@ -1877,7 +1879,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -1891,6 +1894,7 @@
          "posthog_datawarehousesavedquery"."id",
          "posthog_datawarehousesavedquery"."name",
          "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
@@ -2496,7 +2500,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -2510,6 +2515,7 @@
          "posthog_datawarehousesavedquery"."id",
          "posthog_datawarehousesavedquery"."name",
          "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
@@ -3114,7 +3120,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -3128,6 +3135,7 @@
          "posthog_datawarehousesavedquery"."id",
          "posthog_datawarehousesavedquery"."name",
          "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
@@ -3809,7 +3817,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -3823,6 +3832,7 @@
          "posthog_datawarehousesavedquery"."id",
          "posthog_datawarehousesavedquery"."name",
          "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
@@ -4481,7 +4491,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -4495,6 +4506,7 @@
          "posthog_datawarehousesavedquery"."id",
          "posthog_datawarehousesavedquery"."name",
          "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
@@ -4744,7 +4756,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -4793,6 +4806,7 @@
          "posthog_datawarehousesavedquery"."id",
          "posthog_datawarehousesavedquery"."name",
          "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
@@ -5386,7 +5400,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -5400,6 +5415,7 @@
          "posthog_datawarehousesavedquery"."id",
          "posthog_datawarehousesavedquery"."name",
          "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
@@ -6011,7 +6027,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -6025,6 +6042,7 @@
          "posthog_datawarehousesavedquery"."id",
          "posthog_datawarehousesavedquery"."name",
          "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
@@ -6194,7 +6212,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -6594,6 +6613,7 @@
          "posthog_datawarehousesavedquery"."id",
          "posthog_datawarehousesavedquery"."name",
          "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
@@ -6616,7 +6636,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -6630,6 +6651,7 @@
          "posthog_datawarehousesavedquery"."id",
          "posthog_datawarehousesavedquery"."name",
          "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
@@ -7263,7 +7285,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -7277,6 +7300,7 @@
          "posthog_datawarehousesavedquery"."id",
          "posthog_datawarehousesavedquery"."name",
          "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",

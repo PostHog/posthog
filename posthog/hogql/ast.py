@@ -190,15 +190,6 @@ class TableType(BaseTableType):
 
 
 @dataclass(kw_only=True)
-class TableAliasType(BaseTableType):
-    alias: str
-    table_type: TableType
-
-    def resolve_database_table(self, context: HogQLContext) -> Table:
-        return self.table_type.table
-
-
-@dataclass(kw_only=True)
 class LazyJoinType(BaseTableType):
     table_type: TableOrSelectType
     field: str
@@ -217,6 +208,15 @@ class LazyTableType(BaseTableType):
 
     def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.table
+
+
+@dataclass(kw_only=True)
+class TableAliasType(BaseTableType):
+    alias: str
+    table_type: TableType | LazyTableType
+
+    def resolve_database_table(self, context: HogQLContext) -> Table | LazyTable:
+        return self.table_type.table
 
 
 @dataclass(kw_only=True)
@@ -373,6 +373,14 @@ class IntegerType(ConstantType):
 
 
 @dataclass(kw_only=True)
+class DecimalType(ConstantType):
+    data_type: ConstantDataType = field(default="unknown", init=False)
+
+    def print_type(self) -> str:
+        return "Decimal"
+
+
+@dataclass(kw_only=True)
 class FloatType(ConstantType):
     data_type: ConstantDataType = field(default="float", init=False)
 
@@ -504,7 +512,7 @@ class FieldType(Type):
     def is_nullable(self, context: HogQLContext) -> bool:
         database_field = self.resolve_database_field(context)
         if isinstance(database_field, DatabaseField):
-            return database_field.nullable
+            return bool(database_field.nullable)
         return True
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
@@ -768,7 +776,7 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectSetQuery", Field]] = None
+    table: Optional[Union["SelectQuery", "SelectSetQuery", Placeholder, "HogQLXTag", Field]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
@@ -831,6 +839,15 @@ class SelectQuery(Expr):
     settings: Optional[HogQLQuerySettings] = None
     view_name: Optional[str] = None
 
+    @classmethod
+    def empty(cls) -> "SelectQuery":
+        """Returns an empty SelectQuery that evaluates to no rows.
+
+        Creates a query that selects constant 1 with a WHERE clause that is always false,
+        effectively returning zero rows while maintaining valid SQL syntax.
+        """
+        return SelectQuery(select=[Constant(value=1)], where=Constant(value=False))
+
 
 SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DISTINCT", "EXCEPT"]
 
@@ -889,6 +906,7 @@ class HogQLXAttribute(AST):
 class HogQLXTag(AST):
     kind: str
     attributes: list[HogQLXAttribute]
+    type: Optional[Type] = None
 
     def to_dict(self):
         return {

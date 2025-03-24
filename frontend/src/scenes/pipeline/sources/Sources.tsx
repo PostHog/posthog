@@ -15,7 +15,7 @@ export function Sources(): JSX.Element {
     return (
         <>
             <PageHeader buttons={<NewButton stage={PipelineStage.Source} />} />
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 {!dataWarehouseSourcesLoading && dataWarehouseSources?.results.length === 0 ? (
                     <ProductIntroduction
                         productName="Data Warehouse Source"

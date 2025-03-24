@@ -294,7 +294,7 @@ def property_to_expr(
         | DataWarehousePersonPropertyFilter
     ),
     team: Team,
-    scope: Literal["event", "person", "session", "replay", "replay_entity"] = "event",
+    scope: Literal["event", "person", "group", "session", "replay", "replay_entity"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -413,7 +413,7 @@ def property_to_expr(
                 property.key = key
             else:
                 raise QueryError("Data warehouse person property filter value must be a string")
-        elif property.type == "group":
+        elif property.type == "group" and scope != "group":
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type in ["recording", "data_warehouse", "log_entry"]:
             chain = []
@@ -424,7 +424,12 @@ def property_to_expr(
         else:
             chain = ["properties"]
 
-        field = ast.Field(chain=[*chain, property.key])
+        # We pretend elements chain is a property, but it is actually a column on the events table
+        if chain == ["properties"] and property.key == "$elements_chain":
+            field = ast.Field(chain=["elements_chain"])
+        else:
+            field = ast.Field(chain=[*chain, property.key])
+
         expr: ast.Expr = field
 
         if property.type == "recording" and property.key == "snapshot_source":

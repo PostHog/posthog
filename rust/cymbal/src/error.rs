@@ -1,11 +1,10 @@
 use aws_sdk_s3::primitives::ByteStreamError;
 use common_kafka::kafka_producer::KafkaProduceError;
+use posthog_symbol_data::SymbolDataError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
-
-use crate::hack::js_data::JsDataError;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -45,13 +44,17 @@ pub enum UnhandledError {
 pub enum FrameError {
     #[error(transparent)]
     JavaScript(#[from] JsResolveErr),
+    #[error("No symbol set for chunk id: {0}")]
+    MissingChunkIdData(String),
 }
 
 #[derive(Debug, Error, Serialize, Deserialize)]
 pub enum JsResolveErr {
+    #[error("This frame had no source url or chunk id")]
+    NoUrlOrChunkId,
     // The frame has no source url. This might indicate it needs no further processing, who knows
     #[error("No source url found")]
-    NoSourceUrl,
+    NoSourceUrl, // Deprecated, use NoUrlOrChunkId instead
     // We failed to parse a found source map
     #[error("Invalid source map: {0}")]
     InvalidSourceMap(String),
@@ -88,9 +91,13 @@ pub enum JsResolveErr {
     #[error("Redirect error while fetching: {0}")]
     RedirectError(String),
     #[error("JSDataError: {0}")]
-    JSDataError(#[from] JsDataError),
+    JSDataError(#[from] SymbolDataError),
+    #[error("Invalid Source and Map")]
+    InvalidSourceAndMap,
     #[error("Invalid data url found at {0}. {1}")]
     InvalidDataUrl(String, String),
+    #[error("No sourcemap uploaded for chunk id: {0}")]
+    NoSourcemapUploaded(String),
 }
 
 #[derive(Debug, Error)]

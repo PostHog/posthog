@@ -63,7 +63,7 @@ export function DataCollection(): JSX.Element {
 
     return (
         <div>
-            <div className="inline-flex items-center space-x-2">
+            <div className="inline-flex items-center deprecated-space-x-2">
                 <h2 className="font-semibold text-lg mb-0">Data collection</h2>
                 <Tooltip
                     title="Estimated target for the number of participants. Actual data may reveal significance earlier or later
@@ -105,7 +105,7 @@ export function DataCollection(): JSX.Element {
                     )}
                     {insightType === InsightType.FUNNELS && (
                         <div className="flex justify-between mt-0">
-                            <div className="space-x-1 flex items-center text-xs">
+                            <div className="deprecated-space-x-1 flex items-center text-xs">
                                 <span>
                                     Saw&nbsp;
                                     <b>
@@ -124,11 +124,11 @@ export function DataCollection(): JSX.Element {
                     <div className={`text-lg font-semibold ${experiment.end_date ? 'mt-4' : ''}`}>
                         {minimumDetectableEffect}%
                     </div>
-                    <div className="text-xs space-x-1 text-sm flex">
+                    <div className="text-xs deprecated-space-x-1 text-sm flex">
                         <span>Minimum detectable effect</span>
                         <Tooltip
                             title={
-                                <div className="space-y-2">
+                                <div className="deprecated-space-y-2">
                                     <div>
                                         The Minimum detectable effect represents the smallest change that you want to be
                                         able to detect in your experiment.

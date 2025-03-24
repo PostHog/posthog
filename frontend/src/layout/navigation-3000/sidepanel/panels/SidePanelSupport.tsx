@@ -217,7 +217,7 @@ export const SidePanelSupport = (): JSX.Element => {
                     {isEmailFormOpen ? (
                         <SupportFormBlock onCancel={() => closeEmailForm()} />
                     ) : isMaxChatInterfaceOpen ? (
-                        <div className="space-y-4">
+                        <div className="deprecated-space-y-4">
                             <MaxChatInterface />
                             <LemonButton
                                 type="secondary"

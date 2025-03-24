@@ -75,6 +75,10 @@ class _SharedAssistantState(BaseModel):
     """
     Tracks the number of tool calls made by the root node to terminate the loop.
     """
+    rag_context: Optional[str] = Field(default=None)
+    """
+    The context for taxonomy agent.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -103,6 +107,7 @@ class PartialAssistantState(_SharedAssistantState):
             root_tool_insight_type="",
             root_tool_calls_count=0,
             root_conversation_start_id="",
+            rag_context="",
         )
 
 
@@ -126,7 +131,12 @@ class AssistantNodeName(StrEnum):
     RETENTION_PLANNER_TOOLS = "retention_planner_tools"
     RETENTION_GENERATOR = "retention_generator"
     RETENTION_GENERATOR_TOOLS = "retention_generator_tools"
+    SQL_PLANNER = "sql_planner"
+    SQL_PLANNER_TOOLS = "sql_planner_tools"
+    SQL_GENERATOR = "sql_generator"
+    SQL_GENERATOR_TOOLS = "sql_generator_tools"
     QUERY_EXECUTOR = "query_executor"
     MEMORY_COLLECTOR = "memory_collector"
     MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"
     INKEEP_DOCS = "inkeep_docs"
+    INSIGHT_RAG_CONTEXT = "insight_rag_context"

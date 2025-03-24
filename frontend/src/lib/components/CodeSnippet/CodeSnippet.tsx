@@ -188,6 +188,7 @@ export function CodeSnippet({
                     }}
                     size={compact ? 'small' : 'medium'}
                     noPadding
+                    tooltip="Copy to clipboard"
                 />
             </div>
             <CodeLine text={displayedText} language={language} wrapLines={wrap} />
@@ -227,7 +228,7 @@ export function CodeLine({
             language={language}
             wrapLines={wrapLines}
             lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}
-            PreTag={({ children }) => <pre className="bg-transparent m-0">{children}</pre>}
+            PreTag={({ children }) => <pre className="m-0">{children}</pre>}
         >
             {text}
         </SyntaxHighlighter>

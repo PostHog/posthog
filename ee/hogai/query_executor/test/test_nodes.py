@@ -15,6 +15,7 @@ from posthog.api.services.query import process_query_dict
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantMessage,
+    AssistantRetentionEventsNode,
     AssistantRetentionFilter,
     AssistantRetentionQuery,
     AssistantTrendsEventsNode,
@@ -261,7 +262,12 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
 
         # Test Retention Query
         retention_message = VisualizationMessage(
-            answer=AssistantRetentionQuery(retentionFilter=AssistantRetentionFilter()),
+            answer=AssistantRetentionQuery(
+                retentionFilter=AssistantRetentionFilter(
+                    targetEntity=AssistantRetentionEventsNode(name="event"),
+                    returningEntity=AssistantRetentionEventsNode(name="event"),
+                )
+            ),
             plan="Plan",
             id="test",
             initiator="test",

@@ -16,7 +16,12 @@ export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.El
 
     return (
         <>
-            <Form logic={twoFactorLogic} formKey="token" enableFormOnSubmit className="flex flex-col space-y-4">
+            <Form
+                logic={twoFactorLogic}
+                formKey="token"
+                enableFormOnSubmit
+                className="flex flex-col deprecated-space-y-4"
+            >
                 <div className="bg-white ml-auto mr-auto mt-2">
                     <img src="/account/two_factor/qrcode/" className="Setup2FA__image" />
                 </div>

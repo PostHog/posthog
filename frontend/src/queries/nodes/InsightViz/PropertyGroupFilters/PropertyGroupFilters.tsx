@@ -52,7 +52,7 @@ export function PropertyGroupFilters({
         ? 'Cannot add filter groups to data warehouse series. Use individual series filters'
         : undefined
     return (
-        <div className="space-y-2 PropertyGroupFilters">
+        <div className="deprecated-space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
                     <div className="flex flex-1 gap-2 flex-row space-between">
@@ -107,7 +107,7 @@ export function PropertyGroupFilters({
                                                         value={group.type}
                                                     />
                                                     <LemonDivider className="flex-1 mx-2" />
-                                                    <div className="flex items-center space-x-2">
+                                                    <div className="flex items-center deprecated-space-x-2">
                                                         <LemonButton
                                                             icon={<IconCopy />}
                                                             onClick={() => duplicateFilterGroup(propertyGroupIndex)}

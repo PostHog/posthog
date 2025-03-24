@@ -76,7 +76,7 @@ const main = async () => {
     const allProviders = Array.from(providerModels.values()).flat()
 
     // Write everything as a json file
-    fs.writeFileSync(path.join(PATH_TO_PROVIDERS, 'providers.json'), JSON.stringify(allProviders, null, 2))
+    fs.writeFileSync(path.join(PATH_TO_PROVIDERS, 'generated-providers.json'), JSON.stringify(allProviders, null, 2))
 }
 
 ;(async () => {

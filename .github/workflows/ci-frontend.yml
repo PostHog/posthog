@@ -24,9 +24,9 @@ jobs:
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
-            - uses: dorny/paths-filter@v2
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
               with:
                   filters: |
@@ -39,6 +39,7 @@ jobs:
                         - 'common/esbuilder/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
+                        - 'playwright/**'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
@@ -60,15 +61,15 @@ jobs:
         runs-on: depot-ubuntu-24.04-4
         steps:
             # we need at least one thing to run to make sure we include everything for required jobs
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
               if: needs.changes.outputs.frontend == 'true'
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
                   node-version: 18.12.1
                   cache: 'pnpm'
@@ -78,7 +79,7 @@ jobs:
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@v4
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
               if: needs.changes.outputs.frontend == 'true'
               id: pnpm-cache
               with:
@@ -104,13 +105,13 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend typegen:write && pnpm --filter=@posthog/frontend typescript:check
               env:
-                  NODE_OPTIONS: --max-old-space-size=6144
+                  NODE_OPTIONS: --max-old-space-size=16384
 
             - name: Lint with ESLint
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend lint:js
               env:
-                  NODE_OPTIONS: --max-old-space-size=6144
+                  NODE_OPTIONS: --max-old-space-size=16384
 
             - name: Check if "schema.json" is up to date
               if: needs.changes.outputs.frontend == 'true'
@@ -122,7 +123,7 @@ jobs:
 
             - name: Check toolbar bundle size
               if: needs.changes.outputs.frontend == 'true'
-              uses: preactjs/compressed-size-action@v2
+              uses: preactjs/compressed-size-action@946a292cd35bd1088e0d7eb92b69d1a8d5b5d76a # v2
               with:
                   build-script: '--filter=@posthog/frontend build'
                   install-script: 'pnpm --filter=@posthog/frontend... install'
@@ -145,7 +146,7 @@ jobs:
 
         steps:
             # we need at least one thing to run to make sure we include everything for required jobs
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - name: Remove ee
               if: needs.changes.outputs.frontend == 'true' && matrix.segment == 'FOSS'
@@ -153,11 +154,11 @@ jobs:
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
               if: needs.changes.outputs.frontend == 'true'
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
                   node-version: 18.12.1
                   cache: pnpm
@@ -170,7 +171,7 @@ jobs:
               run: bin/turbo run test --filter=@posthog/frontend
               if: needs.changes.outputs.frontend == 'true'
               env:
-                  NODE_OPTIONS: --max-old-space-size=6144
+                  NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
                   SHARD_COUNT: 3
 

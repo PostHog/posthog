@@ -16,7 +16,7 @@ export function FeatureManagement(): JSX.Element {
 
     return (
         <div className="flex gap-4">
-            <ul className="w-1/6 space-y-px">
+            <ul className="w-1/6 deprecated-space-y-px">
                 {features.results.map((feature) => (
                     <li key={feature.id}>
                         <LemonButton

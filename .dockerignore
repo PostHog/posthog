@@ -7,6 +7,7 @@
 !common/eslint_rules
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
+!common/tailwind
 !dags
 !ee
 !frontend/@posthog

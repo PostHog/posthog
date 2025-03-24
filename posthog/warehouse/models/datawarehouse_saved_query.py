@@ -55,6 +55,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    latest_error = models.TextField(default=None, null=True, blank=True)
     columns = models.JSONField(
         default=dict,
         null=True,

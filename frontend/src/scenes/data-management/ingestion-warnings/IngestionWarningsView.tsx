@@ -4,7 +4,7 @@ import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -232,7 +232,7 @@ export function IngestionWarningsView(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <div className="flex flex-col space-y-2">
+            <div className="flex flex-col deprecated-space-y-2">
                 <div>Data ingestion related warnings from past 30 days.</div>
                 <LemonInput
                     fullWidth

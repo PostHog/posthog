@@ -30,7 +30,7 @@ export function Default(): JSX.Element {
 
 export function Presets(): JSX.Element {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <p>Skeletons have a bunch of presets to help with simulating other LemonUI Components</p>
 
             <div className="flex items-center gap-2">
@@ -53,7 +53,7 @@ export function Presets(): JSX.Element {
                     </>
                 }
             >
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton.Row repeat={3} />
                 </div>
@@ -64,7 +64,7 @@ export function Presets(): JSX.Element {
 
 export function Customisation(): JSX.Element {
     return (
-        <div className="space-y-2 mb-2">
+        <div className="deprecated-space-y-2 mb-2">
             <p>Skeletons are most easily styled with utility classNames</p>
 
             <LemonLabel>Default</LemonLabel>
@@ -77,7 +77,7 @@ export function Customisation(): JSX.Element {
 
 export function Repeat(): JSX.Element {
     return (
-        <div className="space-y-2 p-2 rounded">
+        <div className="deprecated-space-y-2 p-2 rounded">
             <p>
                 Skeletons can be easily repeated multiple times using the <b>repeat</b> property
             </p>

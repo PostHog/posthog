@@ -89,7 +89,7 @@ export function AnnotationModal({
                 formKey="annotationModal"
                 id="annotation-modal-form"
                 enableFormOnSubmit
-                className="space-y-4"
+                className="deprecated-space-y-4"
             >
                 <div className="flex gap-2">
                     <LemonField

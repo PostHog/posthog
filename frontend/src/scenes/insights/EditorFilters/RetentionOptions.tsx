@@ -1,11 +1,12 @@
 import { Link } from '@posthog/lemon-ui'
 
 import { RetentionCumulativeButton } from '../filters/RetentionCumulativeButton'
+import { RetentionMeanDropdown } from '../filters/RetentionMeanDropdown'
 import { RetentionReferencePicker } from '../filters/RetentionReferencePicker'
 
 export function RetentionOptions(): JSX.Element {
     return (
-        <div className="space-y-3" data-attr="retention-options">
+        <div className="deprecated-space-y-3" data-attr="retention-options">
             <div className="flex items-center gap-2">
                 <div>Retention relative to</div>
                 <RetentionReferencePicker />
@@ -14,6 +15,10 @@ export function RetentionOptions(): JSX.Element {
                 <div>When users return</div>
                 <RetentionCumulativeButton />
                 <div>the period</div>
+            </div>
+            <div className="flex items-center gap-2">
+                <div>Mean calculation logic</div>
+                <RetentionMeanDropdown />
             </div>
             <div>
                 <p className="text-secondary mt-4">

@@ -62,7 +62,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                 <Form
                     logic={timeSensitiveAuthenticationLogic}
                     formKey="reauthentication"
-                    className="space-y-4"
+                    className="deprecated-space-y-4"
                     enableFormOnSubmit
                 >
                     {!twoFactorRequired ? (
@@ -92,7 +92,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
             ) : null}
 
             {!ssoEnforcement ? (
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <SocialLoginButtons
                         className="mt-4"
                         caption={showPassword ? 'Or re-authenticate with' : undefined}
@@ -122,7 +122,7 @@ export function TimeSensitiveAuthenticationArea({ children }: { children: JSX.El
     }, [])
 
     return timeSensitiveAuthenticationRequired ? (
-        <div className="flex-1 bg-primary border border-border rounded flex flex-col items-center p-6 text-center w-full">
+        <div className="flex-1 bg-primary border border-primary rounded flex flex-col items-center p-6 text-center w-full">
             <h2>Re-authentication required</h2>
 
             <p>This area requires that you re-authenticate.</p>

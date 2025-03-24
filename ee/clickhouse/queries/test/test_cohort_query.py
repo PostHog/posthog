@@ -15,6 +15,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
 
 from posthog.models.property_definition import PropertyDefinition
+from posthog.schema import PersonsOnEventsMode
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -269,6 +270,59 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res, q, params = execute(filter, self.team)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    @snapshot_clickhouse_queries
+    def test_performed_event_poe_override(self):
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=9),
+        )
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "explicit_datetime": "-1w",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        }
+                    ],
+                }
+            }
+        )
+
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+
+        res, q, params = execute(filter, self.team)
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
+        assert "if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id" in q
 
     @snapshot_clickhouse_queries
     def test_performed_event_with_event_filters_and_explicit_date(self):

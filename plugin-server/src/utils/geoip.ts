@@ -3,27 +3,23 @@ import fs from 'fs/promises'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
-import { Hub, PluginsServerConfig } from '../types'
+import { runInstrumentedFunction } from '../main/utils'
+import { PluginsServerConfig } from '../types'
 import { isTestEnv } from './env-utils'
-import { status } from './status'
+import { parseJSON } from './json-parse'
+import { logger } from './logger'
 
 export type GeoIp = {
     city: (ip: string) => City | null
 }
 
-export const geoipCompareCounter = new Counter({
-    name: 'cdp_geoip_compare_count',
-    help: 'Number of times we compare the MMDB file to the local file',
-    labelNames: ['result'],
-})
-
-export const geoipLoadCounter = new Counter({
+const geoipLoadCounter = new Counter({
     name: 'cdp_geoip_load_count',
     help: 'Number of times we load the MMDB file',
     labelNames: ['reason'],
 })
 
-export const geoipBackgroundRefreshCounter = new Counter({
+const geoipBackgroundRefreshCounter = new Counter({
     name: 'cdp_geoip_background_refresh_count',
     help: 'Number of times we tried to refresh the MMDB file',
     labelNames: ['result'],
@@ -40,7 +36,7 @@ export class GeoIPService {
     private _mmdbMetadata?: MmdbMetadata
 
     constructor(private config: PluginsServerConfig) {
-        status.info('🌎', 'GeoIPService created')
+        logger.info('🌎', 'GeoIPService created')
         // NOTE: We typically clean these up in a shutdown task but this isn't necessary anymore as the server shutdown cancels all scheduled jobs
         // We should rely on that instead
         if (!isTestEnv()) {
@@ -65,15 +61,19 @@ export class GeoIPService {
     }
 
     private async loadMmdb(reason: string): Promise<ReaderModel> {
-        status.info('🌎', 'Loading MMDB from disk...', {
+        logger.info('🌎', 'Loading MMDB from disk...', {
             location: this.config.MMDB_FILE_LOCATION,
         })
 
         try {
             geoipLoadCounter.inc({ reason })
-            return await Reader.open(this.config.MMDB_FILE_LOCATION)
+            return await runInstrumentedFunction({
+                statsKey: 'geoip_load_mmdb',
+                logExecutionTime: true,
+                func: async () => await Reader.open(this.config.MMDB_FILE_LOCATION),
+            })
         } catch (e) {
-            status.warn('🌎', 'Loading MMDB from disk failed!', {
+            logger.warn('🌎', 'Loading MMDB from disk failed!', {
                 error: e.message,
                 location: this.config.MMDB_FILE_LOCATION,
             })
@@ -83,9 +83,9 @@ export class GeoIPService {
 
     private async loadMmdbMetadata(): Promise<MmdbMetadata | undefined> {
         try {
-            return JSON.parse(await fs.readFile(this.config.MMDB_FILE_LOCATION.replace('.mmdb', '.json'), 'utf8'))
+            return parseJSON(await fs.readFile(this.config.MMDB_FILE_LOCATION.replace('.mmdb', '.json'), 'utf8'))
         } catch (e) {
-            status.warn('🌎', 'Error loading MMDB metadata', {
+            logger.warn('🌎', 'Error loading MMDB metadata', {
                 error: e.message,
                 location: this.config.MMDB_FILE_LOCATION,
             })
@@ -99,10 +99,10 @@ export class GeoIPService {
      * To reduce load we check the metadata file first
      */
     private async backgroundRefreshMmdb(): Promise<void> {
-        status.debug('🌎', 'Checking if we need to refresh the MMDB')
+        logger.debug('🌎', 'Checking if we need to refresh the MMDB')
         if (!this._mmdbMetadata) {
             geoipBackgroundRefreshCounter.inc({ result: 'no_metadata' })
-            status.info(
+            logger.info(
                 '🌎',
                 'No MMDB metadata found, skipping refresh as this indicates we are not using the S3 MMDB file'
             )
@@ -113,11 +113,11 @@ export class GeoIPService {
 
         if (metadata?.date === this._mmdbMetadata.date) {
             geoipBackgroundRefreshCounter.inc({ result: 'up_to_date' })
-            status.debug('🌎', 'MMDB metadata is up to date, skipping refresh')
+            logger.debug('🌎', 'MMDB metadata is up to date, skipping refresh')
             return
         }
 
-        status.info('🌎', 'Refreshing MMDB from disk (s3)')
+        logger.info('🌎', 'Refreshing MMDB from disk (s3)')
 
         geoipBackgroundRefreshCounter.inc({ result: 'refreshing' })
         const mmdb = await this.loadMmdb('background refresh')
@@ -125,17 +125,8 @@ export class GeoIPService {
         this._mmdbMetadata = metadata
     }
 
-    async get(hub: Hub): Promise<GeoIp> {
-        // NOTE: There is a lot of code here just testing that the values are the same as before.
-        // Once released we don't need the Hub and can simplify this.
-        try {
-            await this.ensureMmdbLoaded()
-        } catch (e) {
-            if (!this.config.MMDB_COMPARE_MODE) {
-                // If we aren't comparing then we should fail hard
-                throw e
-            }
-        }
+    async get(): Promise<GeoIp> {
+        await this.ensureMmdbLoaded()
 
         return {
             city: (ip: string) => {
@@ -143,33 +134,11 @@ export class GeoIPService {
                     return null
                 }
 
-                let newGeoipResult: City | null = null
-                let oldGeoipResult: City | null = null
-
                 try {
-                    if (this.config.MMDB_COMPARE_MODE) {
-                        oldGeoipResult = hub.mmdb?.city(ip) ?? null
-                    }
-                } catch {}
-
-                try {
-                    newGeoipResult = this._mmdb?.city(ip) ?? null
-                } catch {}
-
-                if (this.config.MMDB_COMPARE_MODE) {
-                    if (oldGeoipResult?.city?.geonameId !== newGeoipResult?.city?.geonameId) {
-                        status.warn('🌎', 'New GeoIP result was different', {
-                            ip,
-                            oldGeoipResult: JSON.stringify(oldGeoipResult?.city),
-                            newGeoipResult: JSON.stringify(newGeoipResult?.city),
-                        })
-                        geoipCompareCounter.inc({ result: 'different' })
-                    } else {
-                        geoipCompareCounter.inc({ result: 'same' })
-                    }
+                    return this._mmdb?.city(ip) ?? null
+                } catch {
+                    return null
                 }
-
-                return oldGeoipResult ? oldGeoipResult : newGeoipResult
             },
         }
     }

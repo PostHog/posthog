@@ -54,7 +54,7 @@ const LibraryTemplate: StoryFn<{ letter?: string | null }> = ({ letter }) => {
             : allIcons.filter((icon) => !icon.name.replace('Icon', '').toLowerCase().match(/[a-z]/))
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <LemonCheckbox bordered checked={showBorder} onChange={setShowBorder} label="Show border" />
             <LemonTable
                 dataSource={filteredIcons}

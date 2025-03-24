@@ -133,7 +133,7 @@ export function PipelinePluginConfiguration({
     )
 
     return (
-        <div className="space-y-3">
+        <div className="deprecated-space-y-3">
             <PageHeader buttons={buttons} />
 
             {plugin?.hog_function_migration_available && (
@@ -168,11 +168,11 @@ export function PipelinePluginConfiguration({
                 logic={pipelinePluginConfigurationLogic}
                 props={logicProps}
                 formKey="configuration"
-                className="space-y-3"
+                className="deprecated-space-y-3"
             >
                 <div className="flex flex-wrap gap-4 items-start">
                     <div className="flex flex-col gap-4 flex-1 min-w-100">
-                        <div className="border bg-surface-primary rounded p-3 space-y-2">
+                        <div className="border bg-surface-primary rounded p-3 deprecated-space-y-2">
                             <div className="flex flex-row gap-2 min-h-16 items-center">
                                 <RenderApp plugin={plugin} imageSize="medium" />
                                 <div className="flex flex-col py-1 flex-1">
@@ -217,8 +217,8 @@ export function PipelinePluginConfiguration({
                         </div>{' '}
                     </div>
 
-                    <div className="flex-2 min-w-100 space-y-4">
-                        <div className="border bg-surface-primary rounded p-3  space-y-2">
+                    <div className="flex-2 min-w-100 deprecated-space-y-4">
+                        <div className="border bg-surface-primary rounded p-3  deprecated-space-y-2">
                             <>
                                 {fields.length ? (
                                     fields

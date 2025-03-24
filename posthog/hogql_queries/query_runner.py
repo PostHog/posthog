@@ -9,11 +9,11 @@ from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 from sentry_sdk import get_traceparent, push_scope, set_tag
 
-from posthog.clickhouse.client.limit import get_api_personal_rate_limiter
-from posthog.exceptions_capture import capture_exception
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.client.limit import get_api_personal_rate_limiter
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries, clear_tag
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
@@ -39,6 +39,7 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsQuery,
     GenericCachedQueryResponse,
+    GroupsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
@@ -60,6 +61,7 @@ from posthog.schema import (
     TeamTaxonomyQuery,
     TracesQuery,
     TrendsQuery,
+    VectorSearchQuery,
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -245,6 +247,18 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
+
+    if kind == "GroupsQuery":
+        from .groups.groups_query_runner import GroupsQueryRunner
+
+        return GroupsQueryRunner(
+            query=cast(GroupsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind in ("InsightActorsQuery", "FunnelsActorsQuery", "FunnelCorrelationActorsQuery", "StickinessActorsQuery"):
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
@@ -363,9 +377,22 @@ def get_query_runner(
         )
 
     if kind == "RevenueExampleEventsQuery":
-        from .web_analytics.revenue_example_events import RevenueExampleEventsQueryRunner
+        from .web_analytics.revenue_example_events_query_runner import RevenueExampleEventsQueryRunner
 
         return RevenueExampleEventsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueExampleDataWarehouseTablesQuery":
+        from .web_analytics.revenue_example_data_warehouse_tables_query_runner import (
+            RevenueExampleDataWarehouseTablesQueryRunner,
+        )
+
+        return RevenueExampleDataWarehouseTablesQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -478,6 +505,16 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
+    if kind == "VectorSearchQuery":
+        from .ai.vector_search_query_runner import VectorSearchQueryRunner
+
+        return VectorSearchQueryRunner(
+            query=cast(VectorSearchQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
@@ -518,6 +555,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
+    is_query_service: bool = False
 
     def __init__(
         self,
@@ -592,6 +630,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             refresh_requested=refresh_requested,
+            api_query_personal_key=self.query_endpoint_with_personal_key(),
         )
 
     def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
@@ -682,6 +721,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Nothing useful out of cache, nor async query status
         return None
 
+    def query_endpoint_with_personal_key(self):
+        return self.is_query_service and get_query_tag_value("access_method") == "personal_api_key"
+
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -736,8 +778,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
-        is_api = get_query_tag_value("access_method") == "personal_api_key"
-        with get_api_personal_rate_limiter().run(is_api=is_api, team_id=self.team.pk, task_id=self.query_id):
+        with get_api_personal_rate_limiter().run(
+            is_api=self.query_endpoint_with_personal_key(), team_id=self.team.pk, task_id=self.query_id
+        ):
+            if self.query_endpoint_with_personal_key():
+                tag_queries(qaas=True)
+            else:
+                clear_tag("qaas")
+
             fresh_response_dict = {
                 **self.calculate().model_dump(),
                 "is_cached": False,

@@ -55,6 +55,13 @@ class MogrifyDeleteQueriesActivityInputs:
     person_ids: list[int] = dataclasses.field(default_factory=list)
     batch_size: int = 1000
 
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "batch_size": self.batch_size,
+        }
+
 
 @temporalio.activity.defn
 async def mogrify_delete_queries_activity(inputs: MogrifyDeleteQueriesActivityInputs) -> None:
@@ -107,6 +114,15 @@ class DeletePersonsActivityInputs:
     batch_number: int = 1
     batches: int = 1
     batch_size: int = 1000
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "batch_size": self.batch_size,
+            "batch_number": self.batch_number,
+            "batches": self.batches,
+        }
 
 
 @temporalio.activity.defn
@@ -171,6 +187,14 @@ class DeletePersonsWorkflowInputs:
     batches: int = 1
     batch_size: int = 1000
 
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "batch_size": self.batch_size,
+            "batches": self.batches,
+        }
+
 
 @temporalio.workflow.defn(name="delete-persons")
 class DeletePersonsWorkflow(PostHogWorkflow):
@@ -207,11 +231,11 @@ class DeletePersonsWorkflow(PostHogWorkflow):
             mogrify_delete_queries_activity,
             mogrify_delete_queries_activity_inputs,
             heartbeat_timeout=dt.timedelta(seconds=30),
-            start_to_close_timeout=dt.timedelta(hours=2),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=1,
+                maximum_attempts=0,
                 non_retryable_error_types=[],
             ),
         )
@@ -235,8 +259,8 @@ class DeletePersonsWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(hours=2),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=1,
+                    maximum_interval=dt.timedelta(seconds=360),
+                    maximum_attempts=0,
                     non_retryable_error_types=[],
                 ),
             )

@@ -275,7 +275,7 @@
             WHERE person_id IN
                 (SELECT person.person_id AS id
                  FROM
-                   (SELECT pdi.person_id AS person_id,
+                   (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
                            countIf(timestamp > now() - INTERVAL 2 year
                                    AND timestamp < now()
                                    AND event = '$pageview'

@@ -11,8 +11,8 @@ import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (
-        <div className="border rounded p-10 h-full space-y-4 flex-1 flex flex-col justify-between">
-            <div className="space-y-4">
+        <div className="border rounded p-10 h-full deprecated-space-y-4 flex-1 flex flex-col justify-between">
+            <div className="deprecated-space-y-4">
                 <LemonSkeleton className="w-1/3 h-4" active={active} />
                 <LemonSkeleton className="w-1/2 h-4" active={active} />
             </div>
@@ -28,7 +28,7 @@ function SkeletonCardOne({ active }: { active: boolean }): JSX.Element {
                 {[100, 66, 33].map((height) => (
                     <div
                         key={height}
-                        className="border border-border-light rounded overflow-hidden flex flex-col justify-end w-[15%] h-[80%]"
+                        className="border border-primary rounded overflow-hidden flex flex-col justify-end w-[15%] h-[80%]"
                     >
                         {/* eslint-disable-next-line react/forbid-dom-props */}
                         <div style={{ height: `${height}%` }}>

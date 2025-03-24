@@ -11,7 +11,12 @@ export function MaxMemorySettings(): JSX.Element {
     const { isLoading, isUpdating } = useValues(maxSettingsLogic)
 
     return (
-        <Form logic={maxSettingsLogic} formKey="coreMemoryForm" enableFormOnSubmit className="w-full space-y-4">
+        <Form
+            logic={maxSettingsLogic}
+            formKey="coreMemoryForm"
+            enableFormOnSubmit
+            className="w-full deprecated-space-y-4"
+        >
             {currentProjectLoading || isLoading ? (
                 <div className="gap-2 flex flex-col">
                     <LemonSkeleton className="h-6 w-32" />

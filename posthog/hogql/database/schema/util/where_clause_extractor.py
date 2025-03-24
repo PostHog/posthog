@@ -480,9 +480,21 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
             if resolved_field and isinstance(resolved_field, DatabaseField) and resolved_field:
-                return resolved_field.name in ["$start_timestamp", "min_timestamp", "timestamp", "min_first_timestamp"]
+                return resolved_field.name in [
+                    "$start_timestamp",
+                    "$end_timestamp",
+                    "min_timestamp",
+                    "timestamp",
+                    "min_first_timestamp",
+                ]
         # no type information, so just use the name of the field
-        return node.chain[-1] in ["$start_timestamp", "min_timestamp", "timestamp", "min_first_timestamp"]
+        return node.chain[-1] in [
+            "$start_timestamp",
+            "$end_timestamp",
+            "min_timestamp",
+            "timestamp",
+            "min_first_timestamp",
+        ]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         # only allow the min_timestamp field to be used on one side of the arithmetic operation
@@ -561,12 +573,13 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
                 or (
                     isinstance(table_type, ast.LazyTableType)
                     and isinstance(table_type.table, SessionsTableV1)
-                    and resolved_field.name == "$start_timestamp"
+                    and resolved_field.name in ("$start_timestamp", "$end_timestamp")
                 )
                 or (
                     isinstance(table_type, ast.LazyTableType)
                     and isinstance(table_type.table, SessionsTableV2)
-                    and resolved_field.name == "$start_timestamp"
+                    # we guarantee that a session is < 24 hours, so with bufferDays being 3 above, we can use $end_timestamp too
+                    and resolved_field.name in ("$start_timestamp", "$end_timestamp")
                 )
                 or (
                     isinstance(table_type, ast.TableType)
@@ -600,6 +613,7 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
     def visit_field(self, node: ast.Field) -> ast.Expr:
         from posthog.hogql.database.schema.events import EventsTable
         from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
+        from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
         from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
 
         if node.type and isinstance(node.type, ast.FieldType):
@@ -611,12 +625,25 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
             if resolved_field and isinstance(resolved_field, DatabaseField):
                 if (
                     (isinstance(table, EventsTable) and resolved_field.name == "timestamp")
-                    or (isinstance(table, SessionsTableV1) and resolved_field.name == "$start_timestamp")
+                    or (
+                        isinstance(table, SessionsTableV1)
+                        and resolved_field.name in ("$start_timestamp", "$end_timestamp")
+                    )
+                    or (
+                        isinstance(table, SessionsTableV2)
+                        and resolved_field.name in ("$start_timestamp", "$end_timestamp")
+                    )
                     or (isinstance(table, RawSessionReplayEventsTable) and resolved_field.name == "min_first_timestamp")
                 ):
                     return self.timestamp_field
         # no type information, so just use the name of the field
-        if node.chain[-1] in ["$start_timestamp", "min_timestamp", "timestamp", "min_first_timestamp"]:
+        if node.chain[-1] in [
+            "$start_timestamp",
+            "$end_timestamp",
+            "min_timestamp",
+            "timestamp",
+            "min_first_timestamp",
+        ]:
             return self.timestamp_field
         return node
 

@@ -65,7 +65,7 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
                 formKey="backfillForm"
                 id="batch-export-backfill-form"
                 enableFormOnSubmit
-                className="space-y-2"
+                className="deprecated-space-y-2"
             >
                 {
                     // We will assume any dates selected are in the project's timezone and NOT in the user's local time.

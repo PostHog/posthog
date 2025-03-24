@@ -1,26 +1,24 @@
-from dagster import (
-    Config,
-    MaterializeResult,
-    asset,
-)
+import dagster
 
 from posthog.clickhouse.client import sync_execute  # noqa
 
 
-class ClickHouseConfig(Config):
+class ClickHouseConfig(dagster.Config):
     result_path: str = "/tmp/clickhouse_version.txt"
 
 
-@asset
-def get_clickhouse_version(config: ClickHouseConfig) -> MaterializeResult:
+@dagster.asset
+def get_clickhouse_version(config: ClickHouseConfig) -> dagster.MaterializeResult:
     version = sync_execute("SELECT version()")[0][0]
     with open(config.result_path, "w") as f:
         f.write(version)
-    return MaterializeResult(metadata={"version": version})
+
+    return dagster.MaterializeResult(metadata={"version": version})
 
 
-@asset(deps=[get_clickhouse_version])
+@dagster.asset(deps=[get_clickhouse_version])
 def print_clickhouse_version(config: ClickHouseConfig):
     with open(config.result_path) as f:
         print(f.read())  # noqa
-    return MaterializeResult(metadata={"version": config.result_path})
+
+    return dagster.MaterializeResult(metadata={"version": config.result_path})

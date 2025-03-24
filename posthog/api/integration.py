@@ -96,6 +96,14 @@ class IntegrationViewSet(
         slack = SlackIntegration(instance)
         authed_user = instance.config["authed_user"]["id"]
 
+        channel_id = request.query_params.get("channel_id")
+        if channel_id:
+            channel = slack.get_channel_by_id(channel_id)
+            if channel:
+                return Response({"channels": [channel]})
+            else:
+                return Response({"channels": []})
+
         channels = [
             {
                 "id": channel["id"],
@@ -114,8 +122,9 @@ class IntegrationViewSet(
         instance = self.get_object()
         google_ads = GoogleAdsIntegration(instance)
         customer_id = request.query_params.get("customerId")
+        parent_id = request.query_params.get("parentId")
 
-        conversion_actions = google_ads.list_google_ads_conversion_actions(customer_id)
+        conversion_actions = google_ads.list_google_ads_conversion_actions(customer_id, parent_id)
 
         if len(conversion_actions) == 0:
             return Response({"conversionActions": []})
@@ -126,7 +135,7 @@ class IntegrationViewSet(
                 "name": conversionAction["conversionAction"]["name"],
                 "resourceName": conversionAction["conversionAction"]["resourceName"],
             }
-            for conversionAction in google_ads.list_google_ads_conversion_actions(customer_id)[0]["results"]
+            for conversionAction in google_ads.list_google_ads_conversion_actions(customer_id, parent_id)[0]["results"]
         ]
 
         return Response({"conversionActions": conversion_actions})

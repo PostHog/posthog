@@ -445,8 +445,8 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000000'::uuid,
-                                         '00000000000040008000000000000001'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid,
+                                         '00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
@@ -524,7 +524,7 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000002'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
@@ -615,10 +615,10 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000000'::uuid,
-                                         '00000000000040008000000000000001'::uuid,
-                                         '00000000000040008000000000000002'::uuid,
-                                         '00000000000040008000000000000003'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid,
+                                         '00000000000000000000000000000000'::uuid,
+                                         '00000000000000000000000000000000'::uuid,
+                                         '00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
@@ -916,8 +916,8 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000000'::uuid,
-                                         '00000000000040008000000000000001'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid,
+                                         '00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
@@ -1021,7 +1021,7 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000000'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
@@ -1268,7 +1268,7 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000002'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
@@ -1499,7 +1499,7 @@
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000040008000000000000000'::uuid)
+         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
@@ -1917,6 +1917,19 @@
   LIMIT 21
   '''
 # ---
+# name: TestResiliency.test_feature_flags_v3_with_a_working_slow_db
+  '''
+  SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
+          AND "posthog_person"."properties" ? 'email'
+          AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
+         (true) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
+         AND "posthog_persondistinctid"."team_id" = 99999
+         AND "posthog_person"."team_id" = 99999)
+  '''
+# ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db
   '''
   WITH target_person_ids AS
@@ -2084,7 +2097,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -2097,7 +2111,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
@@ -2110,7 +2125,8 @@
          "posthog_grouptypemapping"."group_type",
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
-         "posthog_grouptypemapping"."name_plural"
+         "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''

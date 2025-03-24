@@ -27,7 +27,7 @@ from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
-RouteName = Literal["trends", "funnel", "retention", "root", "end", "docs"]
+RouteName = Literal["insights", "root", "end", "docs"]
 
 
 # Lower casing matters here. Do not change it.
@@ -37,10 +37,11 @@ class create_and_query_insight(BaseModel):
     This tool only retrieves data for a single insight at a time.
     The `trends` insight type is the only insight that can display multiple trends insights in one request.
     All other insight types strictly return data for a single insight.
+    This tool is also relevant if the user asks to write SQL.
     """
 
     query_description: str = Field(description="The description of the query being asked.")
-    query_kind: Literal["trends", "funnel", "retention"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
+    query_kind: Literal["trends", "funnel", "retention", "sql"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 
 class search_documentation(BaseModel):
@@ -114,7 +115,7 @@ class RootNode(AssistantNode):
     def _get_model(self, state: AssistantState):
         # Research suggests temperature is not _massively_ correlated with creativity, hence even in this very
         # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
-        base_model = ChatOpenAI(model="gpt-4", temperature=0.0, streaming=True, stream_usage=True)
+        base_model = ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True)
 
         # The agent can now be in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent doesn't have any other option but to exit.
@@ -278,7 +279,7 @@ class RootNodeTools(AssistantNode):
             return "root"
         if state.root_tool_call_id:
             if state.root_tool_insight_type:
-                return cast(RouteName, state.root_tool_insight_type)
+                return "insights"
             # If no insight type is set but we have a tool call ID, it must be a docs search
             return "docs"
         return "end"

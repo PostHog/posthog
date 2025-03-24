@@ -81,6 +81,7 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Map": StringJSONDatabaseField,
     "Bool": BooleanDatabaseField,
     "Decimal": FloatDatabaseField,
+    "FixedString": StringDatabaseField,
 }
 
 STR_TO_HOGQL_MAPPING = {

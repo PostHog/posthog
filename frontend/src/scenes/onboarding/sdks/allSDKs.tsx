@@ -6,7 +6,8 @@ export const allSDKs: SDK[] = [
     {
         name: 'Next.js',
         key: SDKKey.NEXT_JS,
-        tags: [SDKTag.WEB],
+        tags: [SDKTag.WEB, SDKTag.RECOMMENDED],
+        recommended: true,
         image: require('./logos/nextjs.svg'),
         docsLink: 'https://posthog.com/docs/libraries/next-js',
     },
@@ -37,7 +38,8 @@ export const allSDKs: SDK[] = [
     {
         name: 'React Native',
         key: SDKKey.REACT_NATIVE,
-        tags: [SDKTag.MOBILE],
+        tags: [SDKTag.MOBILE, SDKTag.RECOMMENDED],
+        recommended: true,
         image: require('./logos/react.svg'),
         docsLink: 'https://posthog.com/docs/libraries/react-native',
     },

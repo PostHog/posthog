@@ -36,7 +36,7 @@ export function AuthorizedUrlForm({
             props={{ actionId: actionId ?? null, experimentId: experimentId ?? null, type, allowWildCards }}
             formKey="proposedUrl"
             enableFormOnSubmit
-            className="w-full space-y-2"
+            className="w-full deprecated-space-y-2"
         >
             <LemonField name="url">
                 <LemonInput

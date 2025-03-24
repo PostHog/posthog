@@ -2,7 +2,7 @@ import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogF
 
 export function SidePanelActivitySubscriptions(): JSX.Element {
     return (
-        <div className="space-y-4 ">
+        <div className="deprecated-space-y-4 ">
             <p>Get notified of your team's activity</p>
 
             <LinkedHogFunctions

@@ -70,7 +70,7 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
     return (
         <div className="bg-primary p-4 rounded relative w-full max-w-160">
             <div className="flex flex-col justify-center">
-                <div className="space-y-2 text-left">
+                <div className="deprecated-space-y-2 text-left">
                     {checklist.map((item, index) => (
                         <LemonCheckbox
                             key={index}

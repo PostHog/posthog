@@ -11,8 +11,8 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <div className="space-y-4">
-            <div className="space-y-2">
+        <div className="deprecated-space-y-4">
+            <div className="deprecated-space-y-2">
                 <LemonSwitch
                     data-attr="default-flag-persistence-switch"
                     onChange={(checked) => {

@@ -19,6 +19,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
             {event.event === '$ai_generation' ? (
                 <ConversationMessagesDisplay
                     input={event.properties.$ai_input}
+                    tools={event.properties.$ai_tools}
                     output={
                         event.properties.$ai_is_error
                             ? event.properties.$ai_error

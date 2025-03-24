@@ -64,7 +64,7 @@ export function SessionRecordingFilePlaybackScene(): JSX.Element {
                         onChange={(files) => loadFromFile(files[0])}
                         alternativeDropTargetRef={dropRef}
                         callToAction={
-                            <div className="flex flex-col items-center justify-center space-y-2">
+                            <div className="flex flex-col items-center justify-center deprecated-space-y-2">
                                 <span className="flex items-center gap-2 font-semibold">
                                     <IconUploadFile className="text-2xl" /> Load recording
                                 </span>

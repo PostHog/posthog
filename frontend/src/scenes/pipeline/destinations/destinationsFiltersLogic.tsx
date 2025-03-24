@@ -72,7 +72,7 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
                 },
                 description: undefined,
                 content: (
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <LemonField name="destination_name" label={isTransformation ? 'Transformation' : 'Destination'}>
                             <LemonInput placeholder={`What ${itemType} would you like to see?`} autoFocus />
                         </LemonField>

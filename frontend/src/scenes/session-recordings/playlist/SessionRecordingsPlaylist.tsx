@@ -2,9 +2,7 @@ import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { Playlist, PlaylistSection } from 'scenes/session-recordings/playlist/Playlist'
 import { urls } from 'scenes/urls'
@@ -24,8 +22,20 @@ import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPla
 
 export function SessionRecordingsPlaylist({
     showContent = true,
+    canMixFiltersAndPinned = true,
     ...props
-}: SessionRecordingPlaylistLogicProps & { showContent?: boolean }): JSX.Element {
+}: SessionRecordingPlaylistLogicProps & {
+    showContent?: boolean
+    /**
+     * Historically we allowed playlists to mix filters and pinned recordings.
+     * But we don't want to... however, some users might use playlists with pinned recordings
+     * and filters.
+     *
+     * This prop allows us to allow that case or not.
+     * Eventually this will be removed and we'll only allow one or the other.
+     */
+    canMixFiltersAndPinned?: boolean
+}): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
@@ -45,11 +55,6 @@ export function SessionRecordingsPlaylist({
     } = useValues(logic)
     const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(logic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
-
-    const pinnedDescription = isTestingSaved ? 'Saved' : 'Pinned'
-
     const notebookNode = useNotebookNode()
 
     const sections: PlaylistSection[] = []
@@ -58,8 +63,8 @@ export function SessionRecordingsPlaylist({
         sections.push({
             key: 'pinned',
             title: (
-                <div className="flex flex-row space-x-1 items-center">
-                    <span>{pinnedDescription} recordings</span>
+                <div className="flex flex-row deprecated-space-x-1 items-center">
+                    <span>Pinned recordings</span>
                     <LemonBadge.Number count={pinnedRecordings.length} status="muted" size="small" />
                 </div>
             ),
@@ -71,37 +76,41 @@ export function SessionRecordingsPlaylist({
         })
     }
 
-    sections.push({
-        key: 'other',
-        title: (
-            <div className="flex flex-row space-x-1 items-center">
-                <span>Results</span>
-                <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
-            </div>
-        ),
-        items: otherRecordings,
-        initiallyOpen: !pinnedRecordings.length,
-        render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />,
-        footer: (
-            <div className="p-4">
-                <div className="h-10 flex items-center justify-center gap-2 text-secondary">
-                    {sessionRecordingsResponseLoading ? (
-                        <>
-                            <Spinner textColored /> Loading older recordings
-                        </>
-                    ) : hasNext ? (
-                        <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
-                    ) : (
-                        'No more results'
-                    )}
+    if ((pinnedRecordings.length > 0 && canMixFiltersAndPinned) || pinnedRecordings.length === 0) {
+        sections.push({
+            key: 'other',
+            title: (
+                <div className="flex flex-row deprecated-space-x-1 items-center">
+                    <span>Results</span>
+                    <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
                 </div>
-            </div>
-        ),
-    })
+            ),
+            items: otherRecordings,
+            initiallyOpen: !pinnedRecordings.length,
+            render: ({ item, isActive }) => (
+                <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />
+            ),
+            footer: (
+                <div className="p-4">
+                    <div className="h-10 flex items-center justify-center gap-2 text-secondary">
+                        {sessionRecordingsResponseLoading ? (
+                            <>
+                                <Spinner textColored /> Loading older recordings
+                            </>
+                        ) : hasNext ? (
+                            <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
+                        ) : (
+                            'No more results'
+                        )}
+                    </div>
+                </div>
+            ),
+        })
+    }
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div className="h-full space-y-2">
+            <div className="h-full deprecated-space-y-2">
                 <Playlist
                     data-attr="session-recordings-playlist"
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
@@ -109,7 +118,7 @@ export function SessionRecordingsPlaylist({
                     sections={sections}
                     headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
                     filterActions={
-                        notebookNode ? null : (
+                        notebookNode || (!canMixFiltersAndPinned && !!pinnedRecordings.length) ? null : (
                             <RecordingsUniversalFilters
                                 resetFilters={resetFilters}
                                 filters={filters}
@@ -180,7 +189,7 @@ const ListEmptyState = (): JSX.Element => {
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
-                <div className="flex flex-col items-center space-y-2">
+                <div className="flex flex-col items-center deprecated-space-y-2">
                     {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
                         <>
                             <span>No matching recordings found</span>

@@ -3,13 +3,12 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypeAlias, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from django.db.models import Q, Prefetch
+from django.db.models import Prefetch, Q
 from pydantic import BaseModel, ConfigDict
-from posthog.exceptions_capture import capture_exception
 
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -32,7 +31,13 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
+from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
+    ErrorTrackingIssueFingerprintOverridesTable,
+    RawErrorTrackingIssueFingerprintOverridesTable,
+    join_with_error_tracking_issue_fingerprint_overrides_table,
+)
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.log_entries import (
@@ -46,11 +51,6 @@ from posthog.hogql.database.schema.person_distinct_id_overrides import (
     RawPersonDistinctIdOverridesTable,
     join_with_person_distinct_id_overrides_table,
 )
-from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
-    ErrorTrackingIssueFingerprintOverridesTable,
-    RawErrorTrackingIssueFingerprintOverridesTable,
-    join_with_error_tracking_issue_fingerprint_overrides_table,
-)
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
@@ -60,6 +60,7 @@ from posthog.hogql.database.schema.persons import (
     RawPersonsTable,
     join_with_persons_table,
 )
+from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
 from posthog.hogql.database.schema.query_log import QueryLogTable, RawQueryLogTable
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
@@ -75,6 +76,7 @@ from posthog.hogql.database.schema.sessions_v2 import (
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.timings import HogQLTimings
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import (
@@ -123,6 +125,7 @@ class Database(BaseModel):
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
     sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
+    exchange_rate: ExchangeRateTable = ExchangeRateTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -135,6 +138,7 @@ class Database(BaseModel):
     )
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
     raw_query_log: RawQueryLogTable = RawQueryLogTable()
+    pg_embeddings: PgEmbeddingsTable = PgEmbeddingsTable()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -153,6 +157,7 @@ class Database(BaseModel):
         "sessions",
         "heatmaps",
         "query_log",
+        "exchange_rate",
     ]
 
     _warehouse_table_names: list[str] = []

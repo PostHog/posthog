@@ -8,6 +8,7 @@ from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 
 from ee.hogai.assistant import AssistantGraph
+from ee.hogai.eval.metrics import time_and_interval_correctness
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.schema import HumanMessage
 
@@ -42,13 +43,18 @@ def call_node(team, runnable_config: RunnableConfig) -> Callable[[str], str]:
     graph: CompiledStateGraph = (
         AssistantGraph(team)
         .add_edge(AssistantNodeName.START, AssistantNodeName.FUNNEL_PLANNER)
-        .add_funnel_planner(AssistantNodeName.END)
+        .add_funnel_planner(AssistantNodeName.END, AssistantNodeName.END)
         .compile()
     )
 
     def callable(query: str) -> str:
         state = graph.invoke(
-            AssistantState(messages=[HumanMessage(content=query)]),
+            AssistantState(
+                messages=[HumanMessage(content=query)],
+                root_tool_insight_plan=query,
+                root_tool_call_id="eval_test",
+                root_tool_insight_type="funnel",
+            ),
             runnable_config,
         )
         return AssistantState.model_validate(state).plan or ""
@@ -218,7 +224,60 @@ def test_funnel_does_not_include_timeframe(metric, call_node):
         Sequence:
         1. $pageview
         2. signed_up
+
+        Time period: before 2024-01-01
+        Granularity: day
         """,
         actual_output=call_node(query),
     )
     assert_test(test_case, [metric])
+
+
+@pytest.mark.parametrize(
+    "time_period",
+    [
+        "for yesterday",
+        "for the last 1 week",
+        "for the last 1 month",
+        "for the last 80 days",
+        "for the last 6 months",
+        "from 2020 to 2025",
+    ],
+)
+def test_funnel_planner_handles_time_intervals(call_node, time_period):
+    query = f"conversion from a page view to a sign up for {time_period}"
+    plan = call_node(query)
+
+    test_case = LLMTestCase(
+        input=query,
+        expected_output=f"""
+        Sequence:
+        1. $pageview
+        2. signed_up
+
+        Time period: {time_period}
+        """,
+        actual_output=plan,
+        comments=plan,
+    )
+    assert_test(test_case, [time_and_interval_correctness("funnel")])
+
+
+def test_trends_planner_uses_default_time_period_and_interval(call_node):
+    query = "conversion from a page view to a sign up"
+    plan = call_node(query)
+
+    test_case = LLMTestCase(
+        input=query,
+        expected_output=f"""
+        Events:
+        - $pageview
+            - math operation: total count
+
+        Time period: last 30 days
+        Time interval: day
+        """,
+        actual_output=plan,
+        comments=plan,
+    )
+    assert_test(test_case, [time_and_interval_correctness("funnel")])

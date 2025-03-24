@@ -19,7 +19,7 @@ from posthog.temporal.common.client import connect
 def organization():
     """A test organization."""
     name = f"BatchExportsTestOrg-{random.randint(1, 99999)}"
-    org = Organization.objects.create(name=name)
+    org = Organization.objects.create(name=name, is_ai_data_processing_approved=True)
     org.save()
 
     yield org
@@ -42,7 +42,7 @@ def team(organization):
 @pytest_asyncio.fixture
 async def aorganization():
     name = f"BatchExportsTestOrg-{random.randint(1, 99999)}"
-    org = await sync_to_async(Organization.objects.create)(name=name)
+    org = await sync_to_async(Organization.objects.create)(name=name, is_ai_data_processing_approved=True)
 
     yield org
 

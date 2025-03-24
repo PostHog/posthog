@@ -13,6 +13,7 @@ from posthog.schema import (
     PropertyGroupsMode,
     SessionTableVersion,
     CustomChannelRule,
+    SessionsV2JoinMode,
 )
 
 if TYPE_CHECKING:
@@ -89,6 +90,9 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
 
     if modifiers.sessionTableVersion is None:
         modifiers.sessionTableVersion = SessionTableVersion.AUTO
+
+    if modifiers.sessionsV2JoinMode is None:
+        modifiers.sessionsV2JoinMode = SessionsV2JoinMode.STRING
 
     if (
         modifiers.propertyGroupsMode is None

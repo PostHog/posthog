@@ -113,7 +113,7 @@ export const EventDebugMenu = (): JSX.Element => {
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
-                <div className="flex flex-col pb-2 space-y-1">
+                <div className="flex flex-col pb-2 deprecated-space-y-1">
                     <div className="flex justify-center flex-col">
                         <LemonInput
                             autoFocus={true}
@@ -127,7 +127,7 @@ export const EventDebugMenu = (): JSX.Element => {
                 </div>
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
-                <div className="flex flex-col space-y-1">
+                <div className="flex flex-col deprecated-space-y-1">
                     <div className="flex-1 text-sm pl-1">
                         View all events sent from this page as they are sent to PostHog.
                     </div>

@@ -57,7 +57,7 @@ export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
         <Form
             formKey="table"
             logic={dataWarehouseTableLogic}
-            className="space-y-4"
+            className="deprecated-space-y-4"
             enableFormOnSubmit
             autoComplete="off"
         >

@@ -1,4 +1,5 @@
 import { IconGear } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
@@ -9,7 +10,7 @@ import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
+import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -24,6 +25,7 @@ import {
     ActionConversionGoal,
     ActionsNode,
     AnyEntityNode,
+    BreakdownFilter,
     CompareFilter,
     CustomEventConversionGoal,
     EventsNode,
@@ -86,11 +88,33 @@ export enum TileId {
     GOALS = 'GOALS',
     WEB_VITALS = 'WEB_VITALS',
     WEB_VITALS_PATH_BREAKDOWN = 'WEB_VITALS_PATH_BREAKDOWN',
+
+    // Page Report Tiles to avoid conflicts with web analytics
+    PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION = 'PR_COMBINED_METRICS_CHART_SECTION',
+    PAGE_REPORTS_PATHS_SECTION = 'PR_PATHS_SECTION',
+    PAGE_REPORTS_DEVICE_INFORMATION_SECTION = 'PR_DEVICE_INFORMATION_SECTION',
+    PAGE_REPORTS_TRAFFIC_SECTION = 'PR_TRAFFIC_SECTION',
+    PAGE_REPORTS_GEOGRAPHY_SECTION = 'PR_GEOGRAPHY_SECTION',
+    PAGE_REPORTS_COMBINED_METRICS_CHART = 'PR_COMBINED_METRICS_CHART',
+    PAGE_REPORTS_ENTRY_PATHS = 'PR_ENTRY_PATHS',
+    PAGE_REPORTS_EXIT_PATHS = 'PR_EXIT_PATHS',
+    PAGE_REPORTS_OUTBOUND_CLICKS = 'PR_OUTBOUND_CLICKS',
+    PAGE_REPORTS_CHANNELS = 'PR_CHANNELS',
+    PAGE_REPORTS_REFERRERS = 'PR_REFERRERS',
+    PAGE_REPORTS_DEVICE_TYPES = 'PR_DEVICE_TYPES',
+    PAGE_REPORTS_BROWSERS = 'PR_BROWSERS',
+    PAGE_REPORTS_OPERATING_SYSTEMS = 'PR_OPERATING_SYSTEMS',
+    PAGE_REPORTS_COUNTRIES = 'PR_COUNTRIES',
+    PAGE_REPORTS_REGIONS = 'PR_REGIONS',
+    PAGE_REPORTS_CITIES = 'PR_CITIES',
+    PAGE_REPORTS_TIMEZONES = 'PR_TIMEZONES',
+    PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
 }
 
 export enum ProductTab {
     ANALYTICS = 'analytics',
     WEB_VITALS = 'web-vitals',
+    PAGE_REPORTS = 'page-reports',
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
 }
 
@@ -111,6 +135,29 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.GOALS]: 10,
     [TileId.WEB_VITALS]: 11,
     [TileId.WEB_VITALS_PATH_BREAKDOWN]: 12,
+
+    // Page Report Sections
+    [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION]: 1,
+    [TileId.PAGE_REPORTS_PATHS_SECTION]: 2,
+    [TileId.PAGE_REPORTS_DEVICE_INFORMATION_SECTION]: 3,
+    [TileId.PAGE_REPORTS_TRAFFIC_SECTION]: 4,
+    [TileId.PAGE_REPORTS_GEOGRAPHY_SECTION]: 5,
+
+    // Page Report Tiles
+    [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART]: 1,
+    [TileId.PAGE_REPORTS_ENTRY_PATHS]: 2,
+    [TileId.PAGE_REPORTS_EXIT_PATHS]: 3,
+    [TileId.PAGE_REPORTS_OUTBOUND_CLICKS]: 4,
+    [TileId.PAGE_REPORTS_CHANNELS]: 5,
+    [TileId.PAGE_REPORTS_REFERRERS]: 6,
+    [TileId.PAGE_REPORTS_DEVICE_TYPES]: 7,
+    [TileId.PAGE_REPORTS_BROWSERS]: 8,
+    [TileId.PAGE_REPORTS_OPERATING_SYSTEMS]: 9,
+    [TileId.PAGE_REPORTS_COUNTRIES]: 10,
+    [TileId.PAGE_REPORTS_REGIONS]: 11,
+    [TileId.PAGE_REPORTS_CITIES]: 12,
+    [TileId.PAGE_REPORTS_TIMEZONES]: 13,
+    [TileId.PAGE_REPORTS_LANGUAGES]: 14,
 }
 
 export interface BaseTile {
@@ -138,8 +185,8 @@ export interface QueryTile extends BaseTile {
 
 export interface TabsTileTab {
     id: string
-    title: string
-    linkText: string
+    title: string | JSX.Element
+    linkText: string | JSX.Element
     query: QuerySchema
     showIntervalSelect?: boolean
     control?: JSX.Element
@@ -165,12 +212,18 @@ export interface ErrorTrackingTile extends BaseTile {
     query: QuerySchema
 }
 
-export type WebAnalyticsTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
+export interface SectionTile extends BaseTile {
+    kind: 'section'
+    title: string
+    tiles: WebAnalyticsTile[]
+}
+
+export type WebAnalyticsTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile | SectionTile
 
 export interface WebAnalyticsModalQuery {
     tileId: TileId
     tabId?: string
-    title?: string
+    title?: string | JSX.Element
     query: QuerySchema
     insightProps: InsightLogicProps
     showIntervalSelect?: boolean
@@ -234,6 +287,76 @@ export interface WebAnalyticsStatusCheck {
     isSendingPageLeaves: boolean
     isSendingPageLeavesScroll: boolean
     hasAuthorizedUrls: boolean
+}
+
+export type TileVisualizationOption = 'table' | 'graph'
+
+export const webStatsBreakdownToPropertyName = (
+    breakdownBy: WebStatsBreakdown
+):
+    | { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event | PropertyFilterType.Session }
+    | undefined => {
+    switch (breakdownBy) {
+        case WebStatsBreakdown.Page:
+            return { key: '$pathname', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.InitialPage:
+            return { key: '$entry_pathname', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ExitPage:
+            return { key: '$end_pathname', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ExitClick:
+            return { key: '$last_external_click_url', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ScreenName:
+            return { key: '$screen_name', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.InitialChannelType:
+            return { key: '$channel_type', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialReferringDomain:
+            return { key: '$entry_referring_domain', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMSource:
+            return { key: '$entry_utm_source', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMCampaign:
+            return { key: '$entry_utm_campaign', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMMedium:
+            return { key: '$entry_utm_medium', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMContent:
+            return { key: '$entry_utm_content', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMTerm:
+            return { key: '$entry_utm_term', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.Browser:
+            return { key: '$browser', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.OS:
+            return { key: '$os', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Viewport:
+            return { key: '$viewport', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.DeviceType:
+            return { key: '$device_type', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Country:
+            return { key: '$geoip_country_code', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Region:
+            return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.City:
+            return { key: '$geoip_city_name', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Timezone:
+            return { key: '$timezone', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Language:
+            return { key: '$geoip_language', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+            return undefined
+        default:
+            throw new UnexpectedNeverError(breakdownBy)
+    }
+}
+
+export const getWebAnalyticsBreakdownFilter = (breakdown: WebStatsBreakdown): BreakdownFilter | undefined => {
+    const property = webStatsBreakdownToPropertyName(breakdown)
+
+    if (!property) {
+        return undefined
+    }
+
+    return {
+        breakdown_type: property.type,
+        breakdown: property.key,
+    }
 }
 
 const GEOIP_TEMPLATE_IDS = ['template-geoip', 'plugin-posthog-plugin-geoip']
@@ -313,6 +436,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setProductTab: (tab: ProductTab) => ({ tab }),
         setWebVitalsPercentile: (percentile: WebVitalsPercentile) => ({ percentile }),
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
+        setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
     }),
     reducers({
         rawWebAnalyticsFilters: [
@@ -586,6 +710,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setWebVitalsTab: (_, { tab }) => tab,
             },
         ],
+        tileVisualizations: [
+            {} as Record<TileId, TileVisualizationOption>,
+            {
+                setTileVisualization: (state, { tileId, visualization }) => ({
+                    ...state,
+                    [tileId]: visualization,
+                }),
+            },
+        ],
     }),
     selectors(({ actions, values }) => ({
         breadcrumbs: [
@@ -604,6 +737,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         key: Scene.WebAnalyticsWebVitals,
                         name: `Web vitals`,
                         path: urls.webAnalyticsWebVitals(),
+                    })
+                }
+
+                if (productTab === ProductTab.PAGE_REPORTS) {
+                    breadcrumbs.push({
+                        key: Scene.WebAnalyticsPageReports,
+                        name: `Page reports`,
+                        path: urls.webAnalyticsPageReports(),
                     })
                 }
 
@@ -749,6 +890,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.featureFlags,
                 () => values.isGreaterThanMd,
                 () => values.currentTeam,
+                () => values.tileVisualizations,
             ],
             (
                 productTab,
@@ -766,7 +908,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 featureFlags,
                 isGreaterThanMd,
-                currentTeam
+                currentTeam,
+                tileVisualizations
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
@@ -831,6 +974,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               kind: NodeKind.EventsNode,
                               custom_name: e.eventName,
                               math_property: e.revenueProperty,
+                              math_property_revenue_currency: e.revenueCurrencyProperty,
                           }))
                         : []
 
@@ -849,8 +993,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const createGraphsTrendsTab = (
                     id: GraphsTab,
-                    title: string,
-                    linkText: string,
+                    title: string | JSX.Element,
+                    linkText: string | JSX.Element,
                     series: AnyEntityNode[],
                     trendsFilter?: Partial<TrendsFilter>,
                     trendsQueryProperties?: Partial<TrendsQuery>
@@ -900,10 +1044,48 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         'cross_sell',
                     ].filter(isNotNil)
 
-                    return {
+                    // Check if this tile has a visualization preference
+                    const visualization = tileVisualizations[tileId]
+
+                    const baseTabProps = {
                         id: tabId,
                         title,
                         linkText,
+                        insightProps: createInsightProps(tileId, tabId),
+                        canOpenModal: true,
+                        ...(tab || {}),
+                    }
+
+                    // In case of a graph, we need to use the breakdownFilter and a InsightsVizNode,
+                    // which will actually be handled by a WebStatsTrendTile instead of a WebStatsTableTile
+                    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TREND_VIZ_TOGGLE] && visualization === 'graph') {
+                        return {
+                            ...baseTabProps,
+                            query: {
+                                kind: NodeKind.InsightVizNode,
+                                source: {
+                                    kind: NodeKind.TrendsQuery,
+                                    dateRange,
+                                    interval,
+                                    series: [uniqueUserSeries],
+                                    trendsFilter: {
+                                        display: ChartDisplayType.ActionsLineGraph,
+                                    },
+                                    breakdownFilter: getWebAnalyticsBreakdownFilter(breakdownBy),
+                                    filterTestAccounts,
+                                    conversionGoal,
+                                    properties: webAnalyticsFilters,
+                                },
+                                hidePersonsModal: true,
+                                embedded: true,
+                            },
+                            canOpenInsight: true,
+                            canOpenModal: false,
+                        }
+                    }
+
+                    return {
+                        ...baseTabProps,
                         query: {
                             full: true,
                             kind: NodeKind.DataTableNode,
@@ -924,9 +1106,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             showActions: true,
                             columns,
                         },
-                        insightProps: createInsightProps(tileId, tabId),
-                        canOpenModal: true,
-                        ...(tab || {}),
                     }
                 }
 
@@ -1053,7 +1232,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 !conversionGoal && revenueEventsSeries?.length
                                     ? createGraphsTrendsTab(
                                           GraphsTab.REVENUE_EVENTS,
-                                          'Revenue',
+                                          <span>
+                                              Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
+                                          </span>,
                                           'Revenue',
                                           revenueEventsSeries,
                                           {
@@ -1098,8 +1279,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 conversionGoal && conversionRevenueSeries.length
                                     ? createGraphsTrendsTab(
                                           GraphsTab.CONVERSION_REVENUE,
-                                          'Conversion revenue',
-                                          'Conversion revenue',
+                                          <span>
+                                              Conversion Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
+                                          </span>,
+                                          'Conversion Revenue',
                                           conversionRevenueSeries
                                       )
                                     : null,
@@ -1287,7 +1470,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 {},
                                 {
                                     control: (
-                                        <div className="flex flex-row space-x-2 font-medium">
+                                        <div className="flex flex-row deprecated-space-x-2 font-medium">
                                             <span>Customize channel types</span>
                                             <LemonButton
                                                 icon={<IconGear />}
@@ -2125,6 +2308,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 webVitalsPercentile,
                 domainFilter,
                 deviceTypeFilter,
+                tileVisualizations,
             } = values
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
@@ -2168,9 +2352,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (compareFilter) {
                 urlParams.set('compare_filter', JSON.stringify(compareFilter))
             }
-            if (productTab !== ProductTab.ANALYTICS) {
-                urlParams.set('product_tab', productTab)
-            }
+
+            const { featureFlags } = featureFlagLogic.values
+            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
+
             if (productTab === ProductTab.WEB_VITALS) {
                 urlParams.set('percentile', webVitalsPercentile)
             }
@@ -2180,8 +2365,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (deviceTypeFilter) {
                 urlParams.set('device_type', deviceTypeFilter)
             }
+            if (tileVisualizations) {
+                urlParams.set('tile_visualizations', JSON.stringify(tileVisualizations))
+            }
 
-            const basePath = productTab === ProductTab.WEB_VITALS ? '/web/web-vitals' : '/web'
+            let basePath = '/web'
+            if (pageReportsEnabled && productTab === ProductTab.PAGE_REPORTS) {
+                basePath = '/web/page-reports'
+            } else if (productTab === ProductTab.WEB_VITALS) {
+                basePath = '/web/web-vitals'
+            }
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
 
@@ -2202,6 +2395,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setIsPathCleaningEnabled: stateToUrl,
             setDomainFilter: stateToUrl,
             setDeviceTypeFilter: stateToUrl,
+            setTileVisualization: stateToUrl,
         }
     }),
 
@@ -2226,9 +2420,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 percentile,
                 domain,
                 device_type,
+                tile_visualizations,
             }: Record<string, any>
         ): void => {
-            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS].includes(productTab)) {
+            const { featureFlags } = featureFlagLogic.values
+            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
+
+            // If trying to access page reports but the feature flag is not enabled, redirect to analytics
+            if (productTab === ProductTab.PAGE_REPORTS && !pageReportsEnabled) {
+                productTab = ProductTab.ANALYTICS
+            }
+
+            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS].includes(productTab)) {
                 return
             }
 
@@ -2291,9 +2494,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (device_type && device_type !== values.deviceTypeFilter) {
                 actions.setDeviceTypeFilter(device_type)
             }
+            if (tile_visualizations && !objectsEqual(tile_visualizations, values.tileVisualizations)) {
+                for (const [tileId, visualization] of Object.entries(tile_visualizations)) {
+                    actions.setTileVisualization(tileId as TileId, visualization as TileVisualizationOption)
+                }
+            }
         }
 
-        return { '/web': toAction, '/web/:productTab': toAction }
+        return { '/web': toAction, '/web/:productTab': toAction, '/web/page-reports': toAction }
     }),
 
     listeners(({ values, actions }) => {

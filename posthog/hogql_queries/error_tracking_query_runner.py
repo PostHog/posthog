@@ -162,9 +162,10 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 or_exprs: list[ast.Expr] = []
 
                 props_to_search = [
-                    "$exception_list",
-                    "$exception_type",
-                    "$exception_message",
+                    "$exception_types",
+                    "$exception_values",
+                    "$exception_sources",
+                    "$exception_functions",
                 ]
                 for prop in props_to_search:
                     or_exprs.append(
@@ -173,6 +174,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
                             left=ast.Call(
                                 name="position",
                                 args=[
+                                    # This actually searches the entire stingified array rather than
+                                    # individual elements using the arrayExists function because the
+                                    # materialized column is a nullable string which causes typing issues
                                     ast.Call(name="lower", args=[ast.Field(chain=["properties", prop])]),
                                     ast.Call(name="lower", args=[ast.Constant(value=token)]),
                                 ],
@@ -181,11 +185,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         )
                     )
 
-                and_exprs.append(
-                    ast.Or(
-                        exprs=or_exprs,
-                    )
-                )
+                and_exprs.append(ast.Or(exprs=or_exprs))
+
             exprs.append(ast.And(exprs=and_exprs))
 
         return ast.And(exprs=exprs)
@@ -235,7 +236,10 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     results.append(
                         issue
                         | {
-                            "first_seen": result_dict.get("first_seen"),
+                            ## First seen timestamp is bounded by date range when querying for the list (comes from clickhouse) but it is global when querying for a single issue
+                            "first_seen": (
+                                issue.get("first_seen") if self.query.issueId else result_dict.get("first_seen")
+                            ),
                             "last_seen": result_dict.get("last_seen"),
                             "earliest": result_dict.get("earliest") if self.query.issueId else None,
                             "aggregations": self.extract_aggregations(result_dict),
@@ -255,7 +259,13 @@ class ErrorTrackingQueryRunner(QueryRunner):
             [
                 ast.OrderExpr(
                     expr=ast.Field(chain=[self.query.orderBy]),
-                    order="ASC" if self.query.orderBy == "first_seen" else "DESC",
+                    order=(
+                        self.query.orderDirection.value
+                        if self.query.orderDirection
+                        else "ASC"
+                        if self.query.orderBy == "first_seen"
+                        else "DESC"
+                    ),
                 )
             ]
             if self.query.orderBy
@@ -268,7 +278,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     def error_tracking_issues(self, ids):
         status = self.query.status
-        queryset = ErrorTrackingIssue.objects.select_related("assignment").filter(team=self.team, id__in=ids)
+        queryset = (
+            ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team=self.team, id__in=ids)
+        )
 
         if self.query.issueId:
             queryset = queryset.filter(id=self.query.issueId)
@@ -283,7 +295,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             )
 
         issues = queryset.values(
-            "id", "status", "name", "description", "assignment__user_id", "assignment__user_group_id"
+            "id", "status", "name", "description", "first_seen", "assignment__user_id", "assignment__user_group_id"
         )
 
         results = {}
@@ -293,6 +305,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 "name": issue["name"],
                 "status": issue["status"],
                 "description": issue["description"],
+                "first_seen": issue["first_seen"],
                 "assignee": None,
             }
 

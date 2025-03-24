@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 
 import { KAFKA_CDP_INTERNAL_EVENTS } from '../../config/kafka-topics'
-import { runInstrumentedFunction } from '../../main/utils'
-import { status } from '../../utils/status'
+import { parseJSON } from '../../utils/json-parse'
+import { logger } from '../../utils/logger'
 import { CdpInternalEventSchema } from '../schema'
 import { HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
@@ -18,42 +18,39 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
     // This consumer always parses from kafka
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         return await this.runWithHeartbeat(() =>
-            runInstrumentedFunction({
-                statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
-                func: async () => {
-                    const events: HogFunctionInvocationGlobals[] = []
-                    await Promise.all(
-                        messages.map(async (message) => {
-                            try {
-                                const kafkaEvent = JSON.parse(message.value!.toString()) as unknown
-                                // This is the input stream from elsewhere so we want to do some proper validation
-                                const event = CdpInternalEventSchema.parse(kafkaEvent)
+            this.runInstrumented('handleEachBatch.parseKafkaMessages', async () => {
+                const events: HogFunctionInvocationGlobals[] = []
+                await Promise.all(
+                    messages.map(async (message) => {
+                        try {
+                            const kafkaEvent = parseJSON(message.value!.toString()) as unknown
+                            // This is the input stream from elsewhere so we want to do some proper validation
+                            const event = CdpInternalEventSchema.parse(kafkaEvent)
 
-                                if (!this.hogFunctionManager.teamHasHogDestinations(event.team_id)) {
-                                    // No need to continue if the team doesn't have any functions
-                                    return
-                                }
+                            const [teamHogFunctions, team] = await Promise.all([
+                                this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, ['internal_destination']),
+                                this.hub.teamManager.fetchTeam(event.team_id),
+                            ])
 
-                                const team = await this.hub.teamManager.fetchTeam(event.team_id)
-                                if (!team) {
-                                    return
-                                }
-                                events.push(
-                                    convertInternalEventToHogFunctionInvocationGlobals(
-                                        event,
-                                        team,
-                                        this.hub.SITE_URL ?? 'http://localhost:8000'
-                                    )
-                                )
-                            } catch (e) {
-                                status.error('Error parsing message', e)
-                                counterParseError.labels({ error: e.message }).inc()
+                            if (!teamHogFunctions.length || !team) {
+                                return
                             }
-                        })
-                    )
 
-                    return events
-                },
+                            events.push(
+                                convertInternalEventToHogFunctionInvocationGlobals(
+                                    event,
+                                    team,
+                                    this.hub.SITE_URL ?? 'http://localhost:8000'
+                                )
+                            )
+                        } catch (e) {
+                            logger.error('Error parsing message', e)
+                            counterParseError.labels({ error: e.message }).inc()
+                        }
+                    })
+                )
+
+                return events
             })
         )
     }

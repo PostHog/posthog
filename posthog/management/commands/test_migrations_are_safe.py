@@ -31,9 +31,9 @@ def validate_migration_sql(sql) -> bool:
             table_name = re.findall(r"CREATE TABLE \"([a-z_]+)\"", operation_sql)[0]
             tables_created_so_far.append(table_name)
 
-            if '"id" serial' in operation_sql:
+            if '"id" serial' in operation_sql or '"id" bigserial' in operation_sql:
                 print(
-                    f"\n\n\033[91mFound a new table with an int32 id. Please use an int64 id or use UUIDModel instead.\nSource: `{operation_sql}`"
+                    f"\n\n\033[91mFound a new table with an integer id. Please use UUIDModel instead.\nSource: `{operation_sql}`"
                 )
                 return True
 

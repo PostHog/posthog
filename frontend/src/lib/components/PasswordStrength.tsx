@@ -39,7 +39,7 @@ export default function PasswordStrength({
             title={
                 <>
                     Your password scores a{' '}
-                    <strong className="space-x-0.5">
+                    <strong className="flex gap-x-0.5">
                         <span>{score}</span>
                         <span>/</span>
                         <span>5</span>

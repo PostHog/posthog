@@ -54,7 +54,7 @@ export function SimpleKeyValueList({
     }, [item, promotedKeys])
 
     return (
-        <div className="text-xs space-y-1 max-w-full">
+        <div className="text-xs deprecated-space-y-1 max-w-full">
             {header}
             {sortedItemsPromotedFirst.map(([key, value]) => (
                 <div key={key} className="flex gap-4 items-start justify-between overflow-hidden">

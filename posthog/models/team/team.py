@@ -39,7 +39,7 @@ from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
 from ...hogql.modifiers import set_default_modifier_values
-from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from ...schema import RevenueTrackingConfig, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
@@ -300,7 +300,19 @@ class Team(UUIDClassicModel):
     cookieless_server_hash_mode = models.SmallIntegerField(
         default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
     )
+
+    # Don't use directly in Django, use the `revenue_config` property instead
+    # That way we can validate the schema when setting the value and return reasonable defaults
     revenue_tracking_config = models.JSONField(null=True, blank=True)
+
+    @property
+    def revenue_config(self) -> RevenueTrackingConfig:
+        try:
+            if self.revenue_tracking_config is None:
+                return RevenueTrackingConfig()
+            return RevenueTrackingConfig.model_validate(self.revenue_tracking_config)
+        except pydantic.ValidationError:
+            return RevenueTrackingConfig()
 
     primary_dashboard = models.ForeignKey(
         "posthog.Dashboard",

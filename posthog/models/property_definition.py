@@ -115,10 +115,6 @@ class PropertyDefinition(UUIDModel):
                 check=~models.Q(type=3) | models.Q(group_type_index__isnull=False),
             ),
             UniqueConstraintByExpression(
-                name="posthog_propertydefinition_uniq",
-                expression="(team_id, name, type, coalesce(group_type_index, -1))",
-            ),
-            UniqueConstraintByExpression(
                 concurrently=True,
                 name="posthog_propdef_proj_uniq",
                 expression="(coalesce(project_id, team_id), name, type, coalesce(group_type_index, -1))",

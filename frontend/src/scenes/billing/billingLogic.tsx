@@ -441,6 +441,12 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         creditDiscount: [(s) => [s.computedDiscount], (computedDiscount) => computedDiscount || 0],
+        isManagedAccount: [
+            (s) => [s.billing],
+            (billing: BillingType): boolean => {
+                return !!(billing?.account_owner?.name || billing?.account_owner?.email)
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         activateLicense: {
@@ -634,6 +640,8 @@ export const billingLogic = kea<billingLogicType>([
                         or ${
                             productOverLimit.name === 'Data warehouse'
                                 ? 'data will not be synced'
+                                : productOverLimit.name === 'Feature flags & Experiments'
+                                ? 'feature flags will not evaluate'
                                 : 'data loss may occur'
                         }.`,
                     dismissKey: 'usage-limit-exceeded',

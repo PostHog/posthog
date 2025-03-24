@@ -9,23 +9,25 @@ import { isObject } from 'lib/utils'
 import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
-import { CompatMessage } from '../types'
+import { CompatMessage, VercelSDKImageMessage } from '../types'
 import { normalizeMessages } from '../utils'
 
 export function ConversationMessagesDisplay({
     input,
     output,
+    tools,
     httpStatus,
     raisedError,
     bordered = false,
 }: {
     input: any
     output: any
+    tools?: any
     httpStatus?: number
     raisedError?: boolean
     bordered?: boolean
 }): JSX.Element {
-    const inputNormalized = normalizeMessages(input, 'user')
+    const inputNormalized = normalizeMessages(input, 'user', tools)
     const outputNormalized = normalizeMessages(output, 'assistant')
 
     const outputDisplay = raisedError ? (
@@ -50,23 +52,25 @@ export function ConversationMessagesDisplay({
                 </span>
             )}
         </div>
+    ) : outputNormalized.length > 0 ? (
+        outputNormalized.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />)
     ) : (
-        outputNormalized?.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />) || (
-            <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
-        )
+        <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
     )
 
     return (
         <LLMInputOutput
             inputDisplay={
-                inputNormalized?.map((message, i) => (
-                    <>
-                        <LLMMessageDisplay key={i} message={message} />
-                        {i < inputNormalized.length - 1 && (
-                            <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
-                        )}
-                    </>
-                )) || (
+                inputNormalized.length > 0 ? (
+                    inputNormalized.map((message, i) => (
+                        <React.Fragment key={i}>
+                            <LLMMessageDisplay message={message} />
+                            {i < inputNormalized.length - 1 && (
+                                <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
+                            )}
+                        </React.Fragment>
+                    ))
+                ) : (
                     <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">
                         No input
                     </div>
@@ -76,33 +80,59 @@ export function ConversationMessagesDisplay({
             outputHeading={
                 raisedError
                     ? `Error (${httpStatus})`
-                    : `Output${outputNormalized && outputNormalized.length > 1 ? ' (multiple choices)' : ''}`
+                    : `Output${outputNormalized.length > 1 ? ' (multiple choices)' : ''}`
             }
             bordered={bordered}
         />
     )
 }
 
+export const ImageMessageDisplay = ({
+    message,
+}: {
+    message: { content: string | { type: string; image: string } }
+}): JSX.Element => {
+    const { content } = message
+    if (typeof content === 'string') {
+        return <span>{content}</span>
+    }
+    return <img src={content.image} alt="User sent image" />
+}
+
 export const LLMMessageDisplay = React.memo(
     ({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
         const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(true)
-        const [show, setShow] = React.useState(true)
+        const [show, setShow] = React.useState(role !== 'system' && role !== 'tool')
 
         // Compute whether the content looks like Markdown.
         // (Heuristic: looks for code blocks, blockquotes, or headings)
-        const isMarkdownCandidate = content ? /(\n\s*```|^>\s|#{1,6}\s)/.test(content) : false
+        const isMarkdownCandidate =
+            content && typeof content === 'string' ? /(\n\s*```|^>\s|#{1,6}\s)/.test(content) : false
 
         // Render any additional keyword arguments as JSON.
-        const additionalKwargsEntries = Object.fromEntries(
-            Object.entries(additionalKwargs).filter(([, value]) => value !== undefined)
-        )
+        const additionalKwargsEntries = Array.isArray(additionalKwargs.tools)
+            ? // Tools are a special case of input - and we want name and description to show first for them!
+              additionalKwargs.tools.map((tool) => {
+                  // Handle both formats: {function: {name, description, ...}} and {toolName, toolCallType, ...}
+                  if (tool.function) {
+                      const { function: { name = undefined, description = undefined, ...func } = {}, ...rest } = tool
+                      return {
+                          function: { name, description, ...func },
+                          ...rest,
+                      }
+                  }
+                  return tool
+              })
+            : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
 
-        const renderMessageContent = (content: string): JSX.Element | null => {
+        const renderMessageContent = (
+            content: string | { type: string; content: string } | VercelSDKImageMessage
+        ): JSX.Element | null => {
             if (!content) {
                 return null
             }
-            const trimmed = content.trim()
+            const trimmed = typeof content === 'string' ? content.trim() : JSON.stringify(content).trim()
 
             // If content is valid JSON (we only check when it starts and ends with {} or [] to avoid false positives)
             if (
@@ -110,7 +140,11 @@ export const LLMMessageDisplay = React.memo(
                 (trimmed.startsWith('[') && trimmed.endsWith(']'))
             ) {
                 try {
-                    const parsed = JSON.parse(content)
+                    const parsed = typeof content === 'string' ? JSON.parse(content) : content
+                    //check if special type
+                    if (parsed.type === 'image') {
+                        return <ImageMessageDisplay message={parsed} />
+                    }
                     if (typeof parsed === 'object' && parsed !== null) {
                         return <JSONViewer src={parsed} name={null} collapsed={5} />
                     }
@@ -122,7 +156,7 @@ export const LLMMessageDisplay = React.memo(
             // If the content appears to be Markdown, render based on the toggle.
             if (isMarkdownCandidate) {
                 return isRenderingMarkdown ? (
-                    <LemonMarkdown>{content}</LemonMarkdown>
+                    <LemonMarkdown>{content as string}</LemonMarkdown>
                 ) : (
                     <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
                 )
@@ -168,7 +202,7 @@ export const LLMMessageDisplay = React.memo(
                             <CopyToClipboardInline
                                 iconSize="small"
                                 description="message content"
-                                explicitValue={content}
+                                explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
                             />
                         </>
                     )}

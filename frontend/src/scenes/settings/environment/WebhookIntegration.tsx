@@ -62,7 +62,7 @@ export function WebhookIntegration(): JSX.Element {
                 supported.
             </p>
 
-            <div className="space-y-4 max-w-160">
+            <div className="deprecated-space-y-4 max-w-160">
                 <LemonInput
                     value={webhook}
                     onChange={setWebhook}

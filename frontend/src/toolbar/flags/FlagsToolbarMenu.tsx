@@ -60,7 +60,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                     className={clsx('-mx-1 py-1 px-2', hasOverride && 'bg-fill-primary')}
                                     key={feature_flag.key}
                                 >
-                                    <div className="flex flex-row items-center space-x-2">
+                                    <div className="flex flex-row items-center deprecated-space-x-2">
                                         <div className="flex-1 truncate">
                                             <Link
                                                 className="font-medium"
@@ -125,7 +125,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                                 />
                                             ) : null}
 
-                                            <div className={clsx('py-1', hasVariants && 'pl-4')}>
+                                            <div className={clsx(hasVariants && 'py-1 pl-4')}>
                                                 {openPayloadEditors[feature_flag.key] ? (
                                                     <div className="flex gap-2 items-start mt-1">
                                                         <LemonTextArea
