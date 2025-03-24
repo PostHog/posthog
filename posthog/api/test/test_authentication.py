@@ -1,4 +1,4 @@
-import datetime
+from datetime import UTC, timedelta, datetime
 import uuid
 from unittest.mock import ANY, patch
 
@@ -332,7 +332,8 @@ class TestTwoFactorAPI(APIBaseTest):
             "2fa_too_many_attempts",
         )
 
-    def test_login_with_backup_code(self):
+    @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
+    def test_login_with_backup_code(self, mock_send_email):
         """Test that a user can log in using a backup code instead of TOTP"""
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
@@ -355,7 +356,11 @@ class TestTwoFactorAPI(APIBaseTest):
         # Verify the backup code was consumed (can't be reused)
         self.assertFalse(static_device.token_set.filter(token="123456").exists())
 
-    def test_backup_code_is_consumed_after_use(self):
+        # Verify email was triggered
+        mock_send_email.delay.assert_called_once_with(self.user.id)
+
+    @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
+    def test_backup_code_is_consumed_after_use(self, mock_send_email):
         """Test that backup codes are one-time use only"""
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
@@ -367,6 +372,9 @@ class TestTwoFactorAPI(APIBaseTest):
         # Use backup code once
         response = self.client.post("/api/login/token", {"token": "123456"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify email was triggered
+        mock_send_email.delay.assert_called_once_with(self.user.id)
 
         # Log out
         self.client.logout()
@@ -380,7 +388,8 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "2fa_invalid")
 
-    def test_backup_codes_work_when_totp_device_is_throttled(self):
+    @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
+    def test_backup_codes_work_when_totp_device_is_throttled(self, mock_send_email):
         """Test that backup codes still work even if TOTP device is throttled"""
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
@@ -401,6 +410,9 @@ class TestTwoFactorAPI(APIBaseTest):
         # Backup code should still work
         response = self.client.post("/api/login/token", {"token": "123456"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify email was triggered
+        mock_send_email.delay.assert_called_once_with(self.user.id)
 
 
 class TestPasswordResetAPI(APIBaseTest):
@@ -428,7 +440,7 @@ class TestPasswordResetAPI(APIBaseTest):
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
         self.assertEqual(
             user.requested_password_reset_at,
-            datetime.datetime(2021, 10, 5, 12, 0, 0, tzinfo=timezone.utc),
+            datetime(2021, 10, 5, 12, 0, 0, tzinfo=UTC),
         )
 
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
@@ -583,7 +595,7 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_invalid_token_returns_error(self):
         valid_token = password_reset_token_generator.make_token(self.user)
 
-        with freeze_time(timezone.now() - datetime.timedelta(seconds=86_401)):
+        with freeze_time(timezone.now() - timedelta(seconds=86_401)):
             # tokens expire after one day
             expired_token = password_reset_token_generator.make_token(self.user)
 
@@ -612,7 +624,7 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_user_can_reset_password(self, mock_capture, mock_identify):
         self.client.logout()  # extra precaution to test login
 
-        self.user.requested_password_reset_at = datetime.datetime.now()
+        self.user.requested_password_reset_at = datetime.now()
         self.user.save()
         token = password_reset_token_generator.make_token(self.user)
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": VALID_TEST_PASSWORD})
@@ -709,7 +721,7 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_cant_reset_password_with_invalid_token(self):
         valid_token = password_reset_token_generator.make_token(self.user)
 
-        with freeze_time(timezone.now() - datetime.timedelta(seconds=86_401)):
+        with freeze_time(timezone.now() - timedelta(seconds=86_401)):
             # tokens expire after one day
             expired_token = password_reset_token_generator.make_token(self.user)
 
@@ -917,16 +929,16 @@ class TestTimeSensitivePermissions(APIBaseTest):
     def test_after_timeout_modifications_require_reauthentication(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        now = datetime.datetime.now()
+        now = datetime.now()
         with freeze_time(now):
             res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 200
 
-        with freeze_time(now + datetime.timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
             res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 200
 
-        with freeze_time(now + datetime.timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
             res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 403
             assert res.json() == {

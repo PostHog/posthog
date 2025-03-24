@@ -102,7 +102,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
         <div className="flex items-center">
             {labels.map((label, i) => (
                 <React.Fragment key={i}>
-                    {i > 0 && <span className="my-0.5 mx-2 border-l border-border h-3.5" />}
+                    {i > 0 && <span className="my-0.5 mx-2 border-l border-primary h-3.5" />}
                     {label}
                 </React.Fragment>
             ))}

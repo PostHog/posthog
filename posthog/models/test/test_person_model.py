@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Person, PersonDistinctId
 from posthog.models.event.util import create_event
 from posthog.models.person.util import delete_person

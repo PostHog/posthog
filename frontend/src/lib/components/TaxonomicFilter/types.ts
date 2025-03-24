@@ -3,7 +3,7 @@ import { LogicWrapper } from 'kea'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
-import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 import {
     ActionType,
     CohortType,
@@ -18,10 +18,14 @@ export interface SimpleOption {
     propertyFilterType?: PropertyFilterType
 }
 
+export type ExcludedProperties = { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
+
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
-    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
+    // sometimes the filter searches for a different value than provided e.g. a URL will be searched as $current_url
+    // in that case the original value is returned here as well as the property that the user chose
+    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any, originalQuery?: string) => void
     onClose?: () => void
     filter?: LocalFilter
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -34,11 +38,28 @@ export interface TaxonomicFilterProps {
     popoverEnabled?: boolean
     selectFirstItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
-    excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
+    excludedProperties?: ExcludedProperties
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] } // only return properties in this list, currently only working for EventProperties and PersonProperties
     metadataSource?: AnyDataNode
     hideBehavioralCohorts?: boolean
     showNumericalPropsOnly?: boolean
+    dataWarehousePopoverFields?: DataWarehousePopoverField[]
+    /**
+     * Controls the layout of taxonomic groups.
+     * When undefined (default), vertical/columnar layout is automatically used when there are more than VERTICAL_LAYOUT_THRESHOLD (4) groups.
+     * Set to true to force vertical/columnar layout, or false to force horizontal layout.
+     */
+    useVerticalLayout?: boolean
+}
+
+export interface DataWarehousePopoverField {
+    key: string
+    label: string
+    description?: string
+    allowHogQL?: boolean
+    hogQLOnly?: boolean
+    optional?: boolean
+    tableName?: string
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
@@ -122,7 +143,11 @@ export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
 
 export interface ListStorage {
     results: TaxonomicDefinitionTypes[]
-    searchQuery?: string // Query used for the results currently in state
+    // Query used for the results currently in state
+    searchQuery?: string
+    // some list logics alter the query to make it more useful
+    // the original query might be different to the search query
+    originalQuery?: string
     count: number
     expandedCount?: number
     queryChanged?: boolean

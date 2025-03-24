@@ -87,7 +87,7 @@ export function SystemStatus(): JSX.Element {
                     </>
                 }
             />
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {error && (
                     <LemonBanner type="error">
                         <div>Something went wrong</div>

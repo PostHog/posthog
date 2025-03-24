@@ -7,7 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, PathsQuery } from '~/queries/schema'
+import { FunnelsQuery, PathsQuery } from '~/queries/schema/schema-general'
 import { EditorFilterProps, FunnelPathType } from '~/types'
 
 export function PathsTargetStart(props: EditorFilterProps): JSX.Element {

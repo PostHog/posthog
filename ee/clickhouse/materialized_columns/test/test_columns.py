@@ -18,7 +18,7 @@ from ee.clickhouse.materialized_columns.columns import (
 )
 from ee.tasks.materialized_columns import mark_all_materialized
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.models.event.sql import EVENTS_DATA_TABLE

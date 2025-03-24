@@ -4,7 +4,7 @@ from typing import Optional
 
 from zoneinfo import ZoneInfo
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimPerson, SimSessionIntent

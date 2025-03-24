@@ -5,8 +5,10 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { AlphaAccessScenePrompt } from '../AlphaAccessScenePrompt'
+import { ErrorTrackingSetupPrompt } from '../ErrorTrackingSetupPrompt'
 import type { errorTrackingConfigurationSceneLogicType } from './ErrorTrackingConfigurationSceneType'
+
+const SETTINGS_LOGIC_KEY = 'errorTracking'
 
 export const errorTrackingConfigurationSceneLogic = kea<errorTrackingConfigurationSceneLogicType>([
     path(['scenes', 'error-tracking', 'configuration', 'errorTrackingConfigurationSceneLogic']),
@@ -36,13 +38,13 @@ export const scene: SceneExport = {
 
 export function ErrorTrackingConfigurationScene(): JSX.Element {
     return (
-        <AlphaAccessScenePrompt>
+        <ErrorTrackingSetupPrompt>
             <Settings
-                logicKey="errorTracking"
+                logicKey={SETTINGS_LOGIC_KEY}
                 sectionId="environment-error-tracking"
-                settingId="error-tracking-user-groups" // acts as a default
+                settingId="error-tracking-exception-autocapture" // acts as a default
                 handleLocally
             />
-        </AlphaAccessScenePrompt>
+        </ErrorTrackingSetupPrompt>
     )
 }

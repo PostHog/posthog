@@ -3,6 +3,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, selecto
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { toSentenceCase } from 'lib/utils'
 import posthog from 'posthog-js'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -156,6 +157,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 return props.resource as AccessControlResourceType
             },
         ],
+
         endpoint: [
             () => [(_, props) => props],
             (props): string => {
@@ -166,6 +168,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 return `api/projects/@current/${props.resource}s/${props.resource_id}/access_controls`
             },
         ],
+
         humanReadableResource: [
             () => [(_, props) => props],
             (props): string => {
@@ -213,6 +216,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 return options
             },
         ],
+
         accessControlDefault: [
             (s) => [s.accessControls, s.accessControlDefaultLevel],
             (accessControls, accessControlDefaultLevel): AccessControlTypeProject => {
@@ -227,12 +231,39 @@ export const accessControlLogic = kea<accessControlLogicType>([
             },
         ],
 
+        organizationAdmins: [
+            (s) => [s.sortedMembers],
+            (members): OrganizationMemberType[] => {
+                return members?.filter((member) => member.level >= OrganizationMembershipLevel.Admin) ?? []
+            },
+        ],
+
+        organizationAdminsAsAccessControlMembers: [
+            (s) => [s.organizationAdmins],
+            (organizationAdmins): AccessControlTypeMember[] => {
+                return organizationAdmins.map((admin) => ({
+                    organization_member: admin.id,
+                    access_level: 'admin',
+                    created_by: null,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    resource: 'organization',
+                }))
+            },
+        ],
+
         accessControlMembers: [
-            (s) => [s.accessControls],
-            (accessControls): AccessControlTypeMember[] => {
-                return (accessControls?.access_controls || []).filter(
-                    (accessControl) => !!accessControl.organization_member
-                ) as AccessControlTypeMember[]
+            (s) => [s.accessControls, s.organizationAdminsAsAccessControlMembers],
+            (accessControls, organizationAdminsAsAccessControlMembers): AccessControlTypeMember[] => {
+                const members = (accessControls?.access_controls || [])
+                    .filter((accessControl) => !!accessControl.organization_member)
+                    .filter(
+                        (accessControl) =>
+                            !organizationAdminsAsAccessControlMembers.some(
+                                (admin) => admin.organization_member === accessControl.organization_member
+                            )
+                    ) as AccessControlTypeMember[]
+                return organizationAdminsAsAccessControlMembers.concat(members)
             },
         ],
 
@@ -267,11 +298,13 @@ export const accessControlLogic = kea<accessControlLogicType>([
         ],
 
         addableMembers: [
-            (s) => [s.sortedMembers, s.accessControlMembers],
-            (members, accessControlMembers): any[] => {
+            (s) => [s.sortedMembers, s.accessControlMembers, s.organizationAdmins],
+            (members, accessControlMembers, organizationAdmins): any[] => {
                 return members
                     ? members.filter(
-                          (member) => !accessControlMembers.find((ac) => ac.organization_member === member.id)
+                          (member) =>
+                              !accessControlMembers.find((ac) => ac.organization_member === member.id) &&
+                              !organizationAdmins.find((admin) => admin.id === member.id)
                       )
                     : []
             },

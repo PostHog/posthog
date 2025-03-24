@@ -1,6 +1,6 @@
 import dataclasses
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 
 
 @dataclasses.dataclass(frozen=True)

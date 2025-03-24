@@ -36,7 +36,7 @@ export function PipelineNodeMetrics({ id }: PipelineNodeMetricsProps): JSX.Eleme
     const { setDateRange } = useActions(logic)
 
     return (
-        <div className="space-y-8">
+        <div className="deprecated-space-y-8">
             <div className="flex items-start justify-between gap-2">
                 <MetricsOverview metrics={appMetricsResponse?.metrics} metricsLoading={appMetricsResponseLoading} />
 
@@ -72,7 +72,7 @@ function MetricsOverview({ metrics, metricsLoading }: MetricsOverviewProps): JSX
     }
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <div className="flex items-start gap-8 flex-wrap">
                 <div>
                     <div className="text-secondary font-semibold mb-2">
@@ -302,7 +302,7 @@ function ErrorDetailsModal({ id }: { id: number | string }): JSX.Element {
             {!errorDetailsModalError || errorDetailsLoading ? (
                 <LemonSkeleton className="h-10" />
             ) : (
-                <div className="flex flex-col space-y-2 h-[80vh]">
+                <div className="flex flex-col deprecated-space-y-2 h-[80vh]">
                     <div>
                         <span className="font-semibold">When:</span>{' '}
                         <TZLabel time={activeErrorDetails.timestamp} showSeconds />

@@ -1,9 +1,12 @@
 import { LemonDivider, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { SupportedWebVitalsMetrics } from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+
+import { ProductKey } from '~/types'
 
 function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMetrics }): JSX.Element {
     const { userLoading } = useValues(userLogic)
@@ -75,7 +78,7 @@ export function AutocaptureSettings(): JSX.Element {
                 , where they can be configured directly in code.
             </p>
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonSwitch
                     id="posthog-autocapture-switch"
                     onChange={(checked) => {
@@ -97,7 +100,7 @@ export function AutocaptureSettings(): JSX.Element {
 export function ExceptionAutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeam, addProductIntent } = useActions(teamLogic)
     const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
 
     return (
@@ -116,6 +119,12 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
             <LemonSwitch
                 id="posthog-autocapture-exceptions-switch"
                 onChange={(checked) => {
+                    if (checked) {
+                        addProductIntent({
+                            product_type: ProductKey.ERROR_TRACKING,
+                            intent_context: ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
+                        })
+                    }
                     updateCurrentTeam({
                         autocapture_exceptions_opt_in: checked,
                     })
@@ -158,11 +167,7 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
                 }}
                 checked={!!currentTeam?.autocapture_web_vitals_opt_in}
                 disabled={userLoading}
-                label={
-                    <>
-                        Enable web vitals autocapture <LemonTag>NEW</LemonTag>
-                    </>
-                }
+                label="Enable web vitals autocapture"
                 bordered
             />
             <LemonDivider />

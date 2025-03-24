@@ -33,15 +33,17 @@
             background: var(--bg-light);
 
             .dark & {
+                color: var(--text-primary);
                 background: var(--bg-depth);
             }
         }
 
         &--user {
             color: var(--text-primary);
-            background: var(--bg-light);
+            background: var(--bg-surface-primary);
 
             .dark & {
+                color: var(--text-primary);
                 background: var(--bg-side);
             }
         }

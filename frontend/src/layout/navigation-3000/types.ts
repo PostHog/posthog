@@ -31,6 +31,8 @@ interface NavbarItemBase {
     featureFlag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
     tag?: 'alpha' | 'beta' | 'new'
     sideAction?: Omit<SideAction, 'divider' | 'data-attr' | 'tooltipPlacement'> & { identifier: string }
+    /** @deprecated */
+    onClick?: () => void
 }
 export interface SceneNavbarItem extends NavbarItemBase {
     to: string
@@ -85,6 +87,9 @@ export interface SidebarCategory extends SidebarCategoryBase {
         /** The "page" size. @default 100 */
         minimumBatchSize?: number
     }
+
+    /** Optional component to render when the category is empty. */
+    emptyComponent?: JSX.Element
 }
 
 export interface SearchMatch {

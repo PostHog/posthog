@@ -14,6 +14,7 @@ class TestTemplateMetaAds(BaseHogFunctionTemplateTest):
             "pixelId": "123451234512345",
             "eventName": "checkout",
             "eventTime": "1728812163",
+            "eventId": "eventId12345",
             "actionSource": "website",
             "userData": {
                 "em": "3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98",
@@ -43,6 +44,7 @@ class TestTemplateMetaAds(BaseHogFunctionTemplateTest):
                         "data": [
                             {
                                 "event_name": "checkout",
+                                "event_id": "eventId12345",
                                 "event_time": "1728812163",
                                 "action_source": "website",
                                 "user_data": {"em": "3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98"},

@@ -17,7 +17,7 @@ interface QueryTabsProps {
 
 export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeModelUri }: QueryTabsProps): JSX.Element {
     return (
-        <div className="flex flex-row w-full overflow-scroll hide-scrollbar h-10 pt-1">
+        <div className="flex flex-row w-full overflow-scroll hide-scrollbar h-10">
             {models.map((model: QueryTab) => (
                 <QueryTabComponent
                     key={model.uri.path}
@@ -58,8 +58,10 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
         <div
             onClick={() => onClick?.(model)}
             className={clsx(
-                'space-y-px rounded-t p-1 flex border-b-2 border-transparent flex-row items-center gap-1 hover:bg-surface-primary cursor-pointer',
-                active ? 'bg-surface-primary border-b-2 !border-brand-yellow' : 'bg-surface-secondary',
+                'deprecated-space-y-px p-1 flex border-b-2 flex-row items-center gap-1 hover:bg-surface-primary cursor-pointer',
+                active
+                    ? 'bg-surface-primary border-b-2 !border-brand-yellow'
+                    : 'bg-surface-secondary border-transparent',
                 onClear ? 'pl-3 pr-2' : 'px-3'
             )}
         >

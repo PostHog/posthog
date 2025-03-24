@@ -6,8 +6,8 @@ import {
     Cohort,
     Element,
     Hub,
+    InternalPerson,
     ISOTimestamp,
-    Person,
     PostIngestionEvent,
     PropertyOperator,
     RawAction,
@@ -21,15 +21,16 @@ import { ActionMatcher, castingCompare } from '../../../src/worker/ingestion/act
 import { commonUserId } from '../../helpers/plugins'
 import { getFirstTeam, insertRow, resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 
 /** Return a test event created on a common base using provided property overrides. */
 function createTestEvent(overrides: Partial<PostIngestionEvent> = {}): PostIngestionEvent {
     const url: string = overrides.properties?.$current_url ?? 'http://example.com/foo/'
+
+    // @ts-expect-error TODO: Fix underlying types
     return {
         eventUuid: 'uuid1',
         distinctId: 'my_id',
-        ip: '127.0.0.1',
         teamId: 2,
         timestamp: new Date().toISOString() as ISOTimestamp,
         event: '$pageview',
@@ -53,7 +54,7 @@ describe('ActionMatcher', () => {
         hub = await createHub()
         actionManager = new ActionManager(hub.db.postgres, hub)
         await actionManager.start()
-        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager, hub.teamManager)
+        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
         actionCounter = 0
     })
 
@@ -76,8 +77,6 @@ describe('ActionMatcher', () => {
             is_calculating: false,
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
-            bytecode: null,
-            bytecode_error: null,
             steps_json: partialSteps
                 ? partialSteps.map(
                       (partialStep): ActionStep => ({
@@ -95,7 +94,6 @@ describe('ActionMatcher', () => {
                       })
                   )
                 : null,
-            pinned_at: null,
         }
         await insertRow(hub.db.postgres, 'posthog_action', action)
         await actionManager.reloadAction(action.team_id, action.id)
@@ -1281,7 +1279,8 @@ describe('ActionMatcher', () => {
     describe('doesPersonBelongToCohort()', () => {
         let team: Team
         let cohort: Cohort
-        let person: Person
+        let person: InternalPerson
+        let personId: InternalPerson['id']
         const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
 
         beforeEach(async () => {
@@ -1292,7 +1291,10 @@ describe('ActionMatcher', () => {
                 team_id: team.id,
                 version: 10,
             })
+
             person = await hub.db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, new UUIDT().toString(), [])
+
+            personId = person.id
         })
 
         it('returns false if person does not belong to cohort', async () => {
@@ -1301,19 +1303,19 @@ describe('ActionMatcher', () => {
                 description: '',
                 team_id: team.id,
             })
-            await hub.db.addPersonToCohort(cohort2.id, person.id, cohort.version)
+            await hub.db.addPersonToCohort(cohort2.id, personId, cohort.version)
 
             expect(await actionMatcher.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(false)
         })
 
         it('returns true if person belongs to cohort', async () => {
-            await hub.db.addPersonToCohort(cohort.id, person.id, cohort.version)
+            await hub.db.addPersonToCohort(cohort.id, personId, cohort.version)
 
             expect(await actionMatcher.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(true)
         })
 
         it('returns false if person does not belong to current version of the cohort', async () => {
-            await hub.db.addPersonToCohort(cohort.id, person.id, -1)
+            await hub.db.addPersonToCohort(cohort.id, personId, -1)
 
             expect(await actionMatcher.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(false)
         })
@@ -1327,7 +1329,7 @@ describe('ActionMatcher', () => {
             })
             expect(await actionMatcher.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(false)
 
-            await hub.db.addPersonToCohort(cohort2.id, person.id, null)
+            await hub.db.addPersonToCohort(cohort2.id, personId, null)
             expect(await actionMatcher.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(true)
         })
     })

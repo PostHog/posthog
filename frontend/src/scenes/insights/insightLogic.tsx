@@ -20,12 +20,13 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema/schema-general'
 import { isValidQueryForExperiment } from '~/queries/utils'
 import {
     AccessControlResourceType,
@@ -336,7 +337,20 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 )
             },
         ],
-        showPersonsModal: [() => [(s) => s.query], (query) => !query || !query.hidePersonsModal],
+        showPersonsModal: [
+            (s) => [s.query, s.insightProps, s.featureFlags],
+            (
+                query: Record<string, any>,
+                insightProps: InsightLogicProps,
+                featureFlags: Record<string, boolean>
+            ): boolean => {
+                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HIDE_MODAL_ACTORS]) {
+                    const theQuery = query || insightProps?.query
+                    return !theQuery || !theQuery.hidePersonsModal
+                }
+                return !query || !query.hidePersonsModal
+            },
+        ],
         supportsCreatingExperiment: [
             (s) => [s.insight, s.activeScene],
             (insight: QueryBasedInsightModel, activeScene: Scene) =>
@@ -349,6 +363,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     Scene.ExperimentsSharedMetrics,
                 ].includes(activeScene),
         ],
+        isUsingPathsV1: [(s) => [s.featureFlags], (featureFlags) => !featureFlags[FEATURE_FLAGS.PATHS_V2]],
+        isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
     }),
     listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode }) => {
@@ -423,6 +439,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 // so that we aren't stuck on /insights/new
                 router.actions.push(urls.insightEdit(savedInsight.short_id))
             }
+        },
+        saveInsightSuccess: async () => {
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFirstInsight)
         },
         saveAs: async ({ redirectToViewMode, persist }) => {
             LemonDialog.openForm({

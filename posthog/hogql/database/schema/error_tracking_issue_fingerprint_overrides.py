@@ -16,9 +16,9 @@ from posthog.hogql.database.models import (
 from posthog.hogql.errors import ResolutionError
 
 ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_FIELDS: dict[str, FieldOrTable] = {
-    "team_id": IntegerDatabaseField(name="team_id"),
-    "fingerprint": StringDatabaseField(name="fingerprint"),
-    "issue_id": StringDatabaseField(name="issue_id"),
+    "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+    "fingerprint": StringDatabaseField(name="fingerprint", nullable=False),
+    "issue_id": StringDatabaseField(name="issue_id", nullable=False),
 }
 
 
@@ -65,8 +65,8 @@ def select_from_error_tracking_issue_fingerprint_overrides_table(requested_field
 class RawErrorTrackingIssueFingerprintOverridesTable(Table):
     fields: dict[str, FieldOrTable] = {
         **ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_FIELDS,
-        "is_deleted": BooleanDatabaseField(name="is_deleted"),
-        "version": IntegerDatabaseField(name="version"),
+        "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
+        "version": IntegerDatabaseField(name="version", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):

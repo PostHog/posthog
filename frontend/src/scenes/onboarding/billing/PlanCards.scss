@@ -1,0 +1,73 @@
+.CheekyHogTopRight {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 0;
+    pointer-events: none;
+    transform: translate(0, 0) rotate(0deg);
+}
+
+.CheekyHogTopRight--peek {
+    animation: CheekyHogTopRight__Peek 0.3s ease-out forwards;
+}
+
+.CheekyHogTopRight--hide {
+    animation: CheekyHogTopRight__Hide 0.3s ease-out forwards;
+}
+
+@keyframes CheekyHogTopRight__Peek {
+    from {
+        transform: translate(0, 0) rotate(0deg);
+    }
+
+    to {
+        transform: translate(60%, 0) rotate(45deg);
+    }
+}
+
+@keyframes CheekyHogTopRight__Hide {
+    from {
+        transform: translate(60%, 0) rotate(45deg);
+    }
+
+    to {
+        transform: translate(0, 0) rotate(0deg);
+    }
+}
+
+.CheekyHogTopLeft {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 0;
+    pointer-events: none;
+    transform: translate(0, 0) rotate(0deg);
+}
+
+.CheekyHogTopLeft--peek {
+    animation: CheekyHogTopLeft__Peek 0.3s ease-out forwards;
+}
+
+.CheekyHogTopLeft--hide {
+    animation: CheekyHogTopLeft__Hide 0.3s ease-out forwards;
+}
+
+@keyframes CheekyHogTopLeft__Peek {
+    from {
+        transform: translate(0, 0) rotate(0deg);
+    }
+
+    to {
+        transform: translate(-80%, 0) rotate(-45deg);
+    }
+}
+
+@keyframes CheekyHogTopLeft__Hide {
+    from {
+        transform: translate(-80%, 0) rotate(-45deg);
+    }
+
+    to {
+        transform: translate(0, 0) rotate(0deg);
+    }
+}

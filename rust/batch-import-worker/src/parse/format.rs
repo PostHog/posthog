@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Error};
+use chrono::Duration;
 use common_types::{InternallyCapturedEvent, RawEvent};
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
@@ -45,14 +46,29 @@ impl FormatConfig {
         };
 
         match content {
-            ContentType::Mixpanel => {
+            ContentType::Mixpanel(config) => {
                 let format_parse = json_nd(*skip_blanks);
-                let event_transform = MixpanelEvent::parse_fn(transform_context);
+
+                let event_transform = MixpanelEvent::parse_fn(
+                    transform_context,
+                    config.skip_no_distinct_id,
+                    config
+                        .timestamp_offset_seconds
+                        .map(Duration::seconds)
+                        .unwrap_or_default(),
+                    skip_geoip(),
+                );
+
                 let parser = move |data| {
                     let parsed: Parsed<Vec<MixpanelEvent>> = format_parse(data)?;
                     let consumed = parsed.consumed;
-                    let result: Result<_, Error> =
-                        parsed.data.into_par_iter().map(&event_transform).collect();
+                    let result: Result<_, Error> = parsed
+                        .data
+                        .into_par_iter()
+                        .map(&event_transform)
+                        .filter_map(|x| x.transpose())
+                        .collect();
+
                     Ok(Parsed {
                         data: result?,
                         consumed,
@@ -63,12 +79,17 @@ impl FormatConfig {
             }
             ContentType::Captured => {
                 let format_parse = json_nd(*skip_blanks);
-                let event_transform = captured_parse_fn(transform_context);
+                let event_transform = captured_parse_fn(transform_context, skip_geoip());
                 let parser = move |data| {
                     let parsed: Parsed<Vec<RawEvent>> = format_parse(data)?;
                     let consumed = parsed.consumed;
-                    let result: Result<_, Error> =
-                        parsed.data.into_par_iter().map(&event_transform).collect();
+                    let result: Result<_, Error> = parsed
+                        .data
+                        .into_par_iter()
+                        .map(&event_transform)
+                        .filter_map(|x| x.transpose())
+                        .collect();
+
                     Ok(Parsed {
                         data: result?,
                         consumed,
@@ -171,6 +192,16 @@ where
         let parsed = serde_json::from_str(line).context("Failed to json parse line")?;
         Ok(parsed)
     })
+}
+
+pub fn skip_geoip() -> impl Fn(RawEvent) -> Result<Option<RawEvent>, Error> {
+    move |mut event| {
+        event
+            .properties
+            .insert("$geoip_disable".to_string(), serde_json::Value::Bool(true));
+
+        Ok(Some(event))
+    }
 }
 
 #[cfg(test)]

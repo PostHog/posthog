@@ -16,7 +16,7 @@ from posthog.async_migrations.utils import (
     run_optimize_table,
     sleep_until_finished,
 )
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.utils import str_to_bool
 

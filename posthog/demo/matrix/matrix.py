@@ -16,6 +16,7 @@ from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
 from posthog.models import Team, User
 from posthog.models.utils import UUIDT, uuid7
+import tiktoken
 
 from .models import Effect, SimPerson, SimServerClient
 
@@ -28,9 +29,9 @@ class Cluster(ABC):
 
     index: int  # Cluster index
     matrix: "Matrix"  # Parent
-    start: timezone.datetime  # Start of the simulation
-    now: timezone.datetime  # Current moment in the simulation
-    end: timezone.datetime  # End of the simulation (might be same as now or later)
+    start: dt.datetime  # Start of the simulation
+    now: dt.datetime  # Current moment in the simulation
+    end: dt.datetime  # End of the simulation (might be same as now or later)
 
     radius: int
     people_matrix: list[list[SimPerson]]  # Grid containing all people in the cluster
@@ -221,6 +222,7 @@ class Matrix(ABC):
     datetime_provider: mimesis.Datetime
     finance_provider: mimesis.Finance
     file_provider: mimesis.File
+    gpt_4o_encoding: tiktoken.Encoding
 
     def __init__(
         self,
@@ -254,6 +256,7 @@ class Matrix(ABC):
         self.distinct_id_to_person = {}
         self.clusters = [self.CLUSTER_CLASS(index=i, matrix=self) for i in range(n_clusters)]
         self.server_client = SimServerClient(self)
+        self.gpt_4o_encoding = tiktoken.encoding_for_model("gpt-4o")
         self.is_complete = None
 
     @property

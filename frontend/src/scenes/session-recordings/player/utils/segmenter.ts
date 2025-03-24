@@ -132,21 +132,6 @@ export const createSegments = (
         }
     }
 
-    if (trackedWindow) {
-        segments = segments.map((segment) => {
-            if (segment.windowId === trackedWindow) {
-                return segment
-            }
-            // every window segment that isn't the tracked window is a gap
-            return {
-                ...segment,
-                windowId: trackedWindow,
-                isActive: false,
-                kind: 'gap',
-            }
-        })
-    }
-
     segments = segments.reduce((acc, segment, index) => {
         const previousSegment = segments[index - 1]
         const list = [...acc]

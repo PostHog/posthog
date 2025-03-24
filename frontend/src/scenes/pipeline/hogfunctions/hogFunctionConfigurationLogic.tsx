@@ -4,6 +4,7 @@ import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, 
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -46,6 +47,7 @@ import {
     HogFunctionType,
     HogFunctionTypeType,
     PersonType,
+    PipelineNodeTab,
     PipelineStage,
     PropertyFilterType,
     PropertyGroupFilter,
@@ -56,12 +58,25 @@ import { EmailTemplate } from './email-templater/emailTemplaterLogic'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
 export interface HogFunctionConfigurationLogicProps {
+    logicKey?: string
     templateId?: string | null
     id?: string | null
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
 const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
+export const HOG_CODE_SIZE_LIMIT = 100 * 1024 // 100KB to match backend limit
+
+const VALIDATION_RULES = {
+    SITE_DESTINATION_REQUIRES_MAPPINGS: (data: HogFunctionConfigurationType) =>
+        data.type === 'site_destination' && (!data.mappings || data.mappings.length === 0)
+            ? 'You must add at least one mapping'
+            : undefined,
+    INTERNAL_DESTINATION_REQUIRES_FILTERS: (data: HogFunctionConfigurationType) =>
+        data.type === 'internal_destination' && data.filters?.events?.length === 0
+            ? 'You must choose a filter'
+            : undefined,
+} as const
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
@@ -75,6 +90,8 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
 }
 
 export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
+export const TYPES_WITH_SPARKLINE: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
+export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     function sanitizeInputs(
@@ -189,7 +206,7 @@ export function convertToHogFunctionInvocationGlobals(
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid ?? '')}/${encodeURIComponent(event.timestamp)}`,
         },
         person: {
-            id: person.id ?? '',
+            id: person.uuid ?? '',
             properties: person.properties,
 
             name: asDisplay(person),
@@ -199,11 +216,56 @@ export function convertToHogFunctionInvocationGlobals(
     }
 }
 
+export type SparklineData = {
+    data: { name: string; values: number[]; color: string }[]
+    count: number
+    labels: string[]
+    warning?: string
+}
+
+// Helper function to check if code might return null/undefined
+export function mightDropEvents(code: string): boolean {
+    if (!code) {
+        return false
+    }
+    // Direct null/undefined returns
+    if (
+        code.includes('return null') ||
+        code.includes('return undefined') ||
+        /\breturn\b\s*;/.test(code) ||
+        /\breturn\b\s*$/.test(code) ||
+        /\bif\s*\([^)]*\)\s*\{\s*\breturn\s+(null|undefined)\b/.test(code)
+    ) {
+        return true
+    }
+
+    // Check for variables set to null/undefined that are also returned
+    const nullVarMatch = code.match(/\blet\s+(\w+)\s*:?=\s*(null|undefined)/g)
+    if (nullVarMatch) {
+        // Extract variable names
+        const nullVars = nullVarMatch
+            .map((match) => {
+                return match.match(/\blet\s+(\w+)/)?.[1]
+            })
+            .filter(Boolean)
+
+        // Check if any of these variables are returned
+        for (const varName of nullVars) {
+            if (new RegExp(`\\breturn\\s+${varName}\\b`).test(code)) {
+                return true
+            }
+        }
+    }
+
+    return false
+}
+
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
-        return id ?? templateId ?? 'new'
+    key(({ id, templateId, logicKey }: HogFunctionConfigurationLogicProps) => {
+        const baseKey = id ?? templateId ?? 'new'
+        return logicKey ? `${logicKey}_${baseKey}` : baseKey
     }),
     connect(({ id }: HogFunctionConfigurationLogicProps) => ({
         values: [
@@ -335,14 +397,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         sparkline: [
-            null as null | {
-                data: { name: string; values: number[]; color: string }[]
-                count: number
-                labels: string[]
-            },
+            null as null | SparklineData,
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
-                    if (values.type !== 'destination' && values.type !== 'site_destination') {
+                    if (!TYPES_WITH_SPARKLINE.includes(values.type)) {
                         return null
                     }
                     if (values.sparkline === null) {
@@ -354,31 +412,48 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     breakpoint()
 
                     const dataValues: number[] = result?.results?.[0]?.data ?? []
-                    const [underThreshold, overThreshold] = dataValues.reduce(
-                        (acc, val: number) => {
-                            acc[0].push(Math.min(val, EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
-                            acc[1].push(Math.max(0, val - EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
+                    const showVolumeWarning = TYPES_WITH_VOLUME_WARNING.includes(values.type)
 
-                            return acc
-                        },
-                        [[], []] as [number[], number[]]
-                    )
-
+                    if (showVolumeWarning) {
+                        const [underThreshold, overThreshold] = dataValues.reduce(
+                            (acc, val: number) => {
+                                acc[0].push(Math.min(val, EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
+                                acc[1].push(Math.max(0, val - EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
+                                return acc
+                            },
+                            [[], []] as [number[], number[]]
+                        )
+                        const data = [
+                            {
+                                name: 'Low volume',
+                                values: underThreshold,
+                                color: 'success',
+                            },
+                            {
+                                name: 'High volume',
+                                values: overThreshold,
+                                color: 'warning',
+                            },
+                        ]
+                        return { data, count: result?.results?.[0]?.count, labels: result?.results?.[0]?.labels }
+                    }
+                    // For transformations, just show the raw values without warning thresholds
                     const data = [
                         {
-                            name: 'Low volume',
-                            values: underThreshold,
+                            name: 'Volume',
+                            values: dataValues,
                             color: 'success',
                         },
-                        {
-                            name: 'High volume',
-                            values: overThreshold,
-                            color: 'warning',
-                        },
                     ]
-                    const count = result?.results?.[0]?.count
-                    const labels = result?.results?.[0]?.labels
-                    return { data, count, labels }
+                    return {
+                        data,
+                        count: result?.results?.[0]?.count,
+                        labels: result?.results?.[0]?.labels,
+                        warning:
+                            values.type === 'transformation'
+                                ? 'Historical volume may not reflect future volume after transformation is applied.'
+                                : undefined,
+                    }
                 },
             },
         ],
@@ -464,18 +539,25 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : undefined,
-                    mappings:
-                        data.type === 'site_destination' && (!data.mappings || data.mappings.length === 0)
-                            ? 'You must add at least one mapping'
-                            : undefined,
-                    filters:
-                        data.type === 'internal_destination' && data.filters?.events?.length === 0
-                            ? 'You must choose a filter'
-                            : undefined,
+                    mappings: VALIDATION_RULES.SITE_DESTINATION_REQUIRES_MAPPINGS(data),
+                    filters: VALIDATION_RULES.INTERNAL_DESTINATION_REQUIRES_FILTERS(data),
                     ...(values.inputFormErrors as any),
                 }
             },
             submit: async (data) => {
+                // Check HOG code size immediately before submission
+                if (data.hog) {
+                    const hogSize = new Blob([data.hog]).size
+                    if (hogSize > HOG_CODE_SIZE_LIMIT) {
+                        lemonToast.error(
+                            `Hog code exceeds maximum size of ${
+                                HOG_CODE_SIZE_LIMIT / 1024
+                            }KB. Please simplify your code or contact support to increase the limit.`
+                        )
+                        return
+                    }
+                }
+
                 const payload: Record<string, any> = sanitizeConfiguration(data)
                 // Only sent on create
                 payload.template_id = props.templateId || values.hogFunction?.template?.id
@@ -761,10 +843,32 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             { resultEqualityCheck: equal },
         ],
 
+        filtersContainPersonProperties: [
+            (s) => [s.configuration],
+            (configuration) => {
+                const filters = configuration.filters
+                let containsPersonProperties = false
+                if (filters?.properties && !containsPersonProperties) {
+                    containsPersonProperties = filters.properties.some((p) => p.type === 'person')
+                }
+                if (filters?.actions && !containsPersonProperties) {
+                    containsPersonProperties = filters.actions.some((a) =>
+                        a.properties?.some((p) => p.type === 'person')
+                    )
+                }
+                if (filters?.events && !containsPersonProperties) {
+                    containsPersonProperties = filters.events.some((e) =>
+                        e.properties?.some((p) => p.type === 'person')
+                    )
+                }
+                return containsPersonProperties
+            },
+        ],
+
         sparklineQuery: [
             (s) => [s.configuration, s.matchingFilters, s.type],
             (configuration, matchingFilters, type): TrendsQuery | null => {
-                if (type !== 'destination' && type !== 'site_destination') {
+                if (!TYPES_WITH_SPARKLINE.includes(type)) {
                     return null
                 }
                 return {
@@ -785,6 +889,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     },
                     trendsFilter: {
                         display: ChartDisplayType.ActionsBar,
+                    },
+                    modifiers: {
+                        personsOnEventsMode: 'person_id_no_override_properties_on_events',
                     },
                 }
             },
@@ -838,6 +945,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     select: ['*', 'person'],
                     after: '-7d',
                     orderBy: ['timestamp DESC'],
+                    modifiers: {
+                        // NOTE: We always want to show events with the person properties at the time the event was created as that is what the function will see
+                        personsOnEventsMode: 'person_id_no_override_properties_on_events',
+                    },
                 }
                 groupTypes.forEach((groupType) => {
                     const name = escapePropertyAsHogQlIdentifier(groupType.group_type)
@@ -1039,7 +1150,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (!values.hogFunction) {
                 return
             }
-            const { id, name, type } = values.hogFunction
+            const { id, name, type, template } = values.hogFunction
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
@@ -1048,12 +1159,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
                 callback(undo) {
                     if (undo) {
-                        router.actions.replace(hogFunctionUrl(type, id))
+                        router.actions.replace(hogFunctionUrl(type, id, template?.id))
                     }
                 },
             })
 
-            router.actions.replace(hogFunctionUrl(type))
+            router.actions.replace(hogFunctionUrl(type, undefined, template?.id))
         },
 
         persistForUnload: () => {
@@ -1088,7 +1199,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
 
                 cache.disabledBeforeUnload = true
-                router.actions.replace(hogFunctionUrl(hogFunction.type, hogFunction.id))
+                router.actions.replace(hogFunctionUrl(hogFunction.type, hogFunction.id, hogFunction.template.id))
             }
         },
         sparklineQuery: async (sparklineQuery) => {
@@ -1101,15 +1212,40 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 actions.personsCountQueryChanged(personsCountQuery)
             }
         },
-        lastEventQuery: (lastEventQuery) => {
-            if (lastEventQuery) {
-                actions.loadSampleGlobals()
-            }
-        },
     })),
 
     beforeUnload(({ values, cache }) => ({
-        enabled: () => !cache.disabledBeforeUnload && !values.unsavedConfiguration && values.configurationChanged,
+        enabled: (newLocation?: CombinedLocation) => {
+            if (cache.disabledBeforeUnload || values.unsavedConfiguration || !values.configurationChanged) {
+                return false
+            }
+
+            // the oldRoute includes the project id, so we remove it for comparison
+            const oldRoute = router.values.location.pathname.replace(/\/project\/\d+/, '').split('/')
+            const newRoute = newLocation?.pathname.replace(/\/project\/\d+/, '').split('/')
+
+            if (!newRoute || newRoute.length !== oldRoute.length) {
+                return true
+            }
+
+            for (let i = 0; i < oldRoute.length - 1; i++) {
+                if (oldRoute[i] !== newRoute[i]) {
+                    return true
+                }
+            }
+
+            const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
+            if (
+                !(
+                    possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
+                    possibleMenuIds.includes(oldRoute[newRoute.length - 1])
+                )
+            ) {
+                return true
+            }
+
+            return false
+        },
         message: 'Changes you made will be discarded.',
         onConfirm: () => {
             cache.disabledBeforeUnload = true

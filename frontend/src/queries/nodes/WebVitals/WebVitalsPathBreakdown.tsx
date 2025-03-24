@@ -10,7 +10,7 @@ import {
     WebVitalsMetricBand,
     WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownQueryResponse,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { PropertyFilterType } from '~/types'
 
@@ -47,7 +47,7 @@ export function WebVitalsPathBreakdown(props: {
     const webVitalsQueryResponse = response as WebVitalsPathBreakdownQueryResponse | undefined
 
     return (
-        <div className="border rounded bg-surface-secondary grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
+        <div className="border rounded bg-surface-primary grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
             <div className="p-4">
                 <Header band="good" label="Good" />
                 <Content band="good" response={webVitalsQueryResponse} responseLoading={responseLoading} />
@@ -113,8 +113,8 @@ const Header = ({ band, label }: { band: WebVitalsMetricBand; label: string }): 
     return (
         <div className="flex flex-row justify-between">
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <span className="flex flex-row gap-1 items-center" style={{ color: WEB_VITALS_COLORS[band] }}>
-                <Icon />
+            <span className="flex flex-row gap-1 items-center font-semibold" style={{ color: WEB_VITALS_COLORS[band] }}>
+                <Icon className="w-6 h-6" />
                 {label}
             </span>
             <span className="text-sm text-secondary">{thresholdText}</span>
@@ -162,9 +162,9 @@ const Content = ({
                                 key={path}
                             >
                                 <div
-                                    className="absolute top-0 left-0 h-full"
+                                    className="absolute top-0 left-0 h-full opacity-80 bg-surface-secondary"
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width, backgroundColor: 'var(--bg-surface-primary)', opacity: 0.5 }}
+                                    style={{ width }}
                                 />
                                 <span
                                     title={path}

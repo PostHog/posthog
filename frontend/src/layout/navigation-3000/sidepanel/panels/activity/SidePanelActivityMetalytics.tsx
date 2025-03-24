@@ -20,7 +20,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
     const humanizedScope = `this ${scope ? humanizeScope(scope, true) : 'app'}`
 
     return (
-        <div className="space-y-4 ">
+        <div className="deprecated-space-y-4 ">
             <p>
                 You are viewing "meta" analytics of how your organization members are interacting with{' '}
                 <b>{humanizedScope}</b>.

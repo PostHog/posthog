@@ -1,9 +1,12 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { combineUrl } from 'kea-router'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { EarlyAccessFeature, posthog } from 'posthog-js'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import type { featurePreviewsLogicType } from './featurePreviewsLogicType'
@@ -27,6 +30,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         beginEarlyAccessFeatureFeedback: (flagKey: string) => ({ flagKey }),
         cancelEarlyAccessFeatureFeedback: true,
         submitEarlyAccessFeatureFeedback: (message: string) => ({ message }),
+        copyExternalFeaturePreviewLink: (flagKey: string) => ({ flagKey }),
     }),
     loaders(({ values }) => ({
         rawEarlyAccessFeatures: [
@@ -34,7 +38,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             {
                 loadEarlyAccessFeatures: async () => {
                     return await new Promise((resolve) =>
-                        posthog.getEarlyAccessFeatures((features) => resolve(features), true)
+                        posthog.getEarlyAccessFeatures((features) => resolve(features), true, ['concept', 'beta'])
                     )
                 },
             },
@@ -73,6 +77,9 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         updateEarlyAccessFeatureEnrollment: ({ flagKey, enabled }) => {
             posthog.updateEarlyAccessFeatureEnrollment(flagKey, enabled)
         },
+        copyExternalFeaturePreviewLink: ({ flagKey }) => {
+            void copyToClipboard(urls.absolute(combineUrl('/', undefined, `panel=feature-previews%3A${flagKey}`).url))
+        },
     })),
     selectors({
         earlyAccessFeatures: [
@@ -97,7 +104,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                             flagKey: feature.flagKey,
                             enabled: !!featureFlags[feature.flagKey],
                         }
-                    }),
+                    }) || [],
         ],
     }),
 ])

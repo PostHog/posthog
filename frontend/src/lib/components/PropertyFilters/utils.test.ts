@@ -6,7 +6,7 @@ import {
     propertyFilterTypeToTaxonomicFilterType,
 } from 'lib/components/PropertyFilters/utils'
 
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 
 import {
     AnyPropertyFilter,

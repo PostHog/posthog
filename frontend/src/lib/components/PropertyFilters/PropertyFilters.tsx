@@ -2,11 +2,15 @@ import './PropertyFilters.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
+import {
+    ExcludedProperties,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterProps,
+} from 'lib/components/TaxonomicFilter/types'
 import React, { useEffect, useState } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
-import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
@@ -36,6 +40,7 @@ interface PropertyFiltersProps {
     openOnInsert?: boolean
     errorMessages?: JSX.Element[] | null
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
+    excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
     disabledReason?: string
     exactMatchFeatureFlagCohortOperators?: boolean
@@ -65,6 +70,7 @@ export function PropertyFilters({
     openOnInsert = false,
     errorMessages = null,
     propertyAllowList,
+    excludedProperties,
     allowRelativeDateOptions,
     disabledReason = undefined,
     exactMatchFeatureFlagCohortOperators = false,
@@ -130,6 +136,7 @@ export function PropertyFilters({
                                             addText={addText}
                                             hasRowOperator={hasRowOperator}
                                             propertyAllowList={propertyAllowList}
+                                            excludedProperties={excludedProperties}
                                             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
                                             allowRelativeDateOptions={allowRelativeDateOptions}
                                             exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}

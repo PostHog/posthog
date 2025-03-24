@@ -41,7 +41,6 @@ const PLUGIN_SELECT = `SELECT
             posthog_plugin.organization_id,
             posthog_plugin.is_global,
             posthog_plugin.capabilities,
-            posthog_plugin.public_jobs,
             posthog_plugin.is_stateless,
             posthog_plugin.log_level,
             posthog_plugin.updated_at,
@@ -71,7 +70,6 @@ const PLUGIN_UPSERT_RETURNING = `INSERT INTO posthog_plugin
         organization_id,
         is_global,
         capabilities,
-        public_jobs,
         is_stateless,
         log_level,
         description,
@@ -80,7 +78,7 @@ const PLUGIN_UPSERT_RETURNING = `INSERT INTO posthog_plugin
         updated_at,
         created_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
     ON CONFLICT (url)
     DO UPDATE SET
         name = $1,
@@ -92,12 +90,11 @@ const PLUGIN_UPSERT_RETURNING = `INSERT INTO posthog_plugin
         organization_id = $8,
         is_global = $9,
         capabilities = $10,
-        public_jobs = $11,
-        is_stateless = $12,
-        log_level = $13,
-        description = $14,
-        is_preinstalled = $15,
-        config_schema = $16,
+        is_stateless = $11,
+        log_level = $12,
+        description = $13,
+        is_preinstalled = $14,
+        config_schema = $15,
         updated_at = NOW()
     RETURNING *
 `
@@ -184,7 +181,6 @@ export async function upsertInlinePlugin(hub: Hub, inline: InlinePluginDescripti
         organization_id: undefined,
         is_global: inline.is_global,
         capabilities: inline.capabilities,
-        public_jobs: undefined,
         is_stateless: inline.is_stateless,
         log_level: inline.log_level,
         description: inline.description,
@@ -206,7 +202,6 @@ export async function upsertInlinePlugin(hub: Hub, inline: InlinePluginDescripti
             fullPlugin.organization_id,
             fullPlugin.is_global,
             fullPlugin.capabilities,
-            fullPlugin.public_jobs,
             fullPlugin.is_stateless,
             fullPlugin.log_level,
             fullPlugin.description,

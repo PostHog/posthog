@@ -48,6 +48,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 'query as insightQuery',
                 'response as insightDataRaw',
                 'dataLoading as insightDataLoading',
+                'loadingTimeSeconds as insightLoadingTimeSeconds',
                 'responseErrorObject as insightDataError',
                 'getInsightRefreshButtonDisabledReason',
                 'pollResponse as insightPollResponse',

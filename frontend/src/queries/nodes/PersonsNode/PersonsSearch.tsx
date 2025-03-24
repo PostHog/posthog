@@ -3,7 +3,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { useDebouncedQuery } from '~/queries/hooks/useDebouncedQuery'
-import { ActorsQuery, PersonsNode } from '~/queries/schema'
+import { ActorsQuery, PersonsNode } from '~/queries/schema/schema-general'
 import { isQueryForGroup } from '~/queries/utils'
 
 type ActorType = 'person' | 'group'

@@ -1,6 +1,6 @@
 from typing import Optional
 
-from posthog.client import query_with_columns
+from posthog.clickhouse.client import query_with_columns
 from posthog.queries.time_to_see_data.hierarchy import construct_hierarchy
 from posthog.queries.time_to_see_data.serializers import (
     SessionEventsQuerySerializer,

@@ -1,7 +1,7 @@
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { VerifiedDefinitionCheckbox } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
+import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -33,8 +33,9 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
     const { saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
 
-    const showVerifiedCheckbox =
-        hasTaxonomyFeatures && !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
+    const allowVerification = hasTaxonomyFeatures && !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
+
+    const showHiddenOption = hasTaxonomyFeatures && 'hidden' in editDefinition
 
     if (definitionMissing) {
         return <NotFound object="event" />
@@ -71,17 +72,17 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
             />
 
             {definitionLoading ? (
-                <div className="space-y-4 mt-4">
+                <div className="deprecated-space-y-4 mt-4">
                     <LemonSkeleton className="h-10 w-1/3" />
                     <LemonSkeleton className="h-6 w-1/2" />
                     <LemonSkeleton className="h-30 w-1/2" />
                 </div>
             ) : (
-                <div className="my-4 space-y-4">
+                <div className="my-4 deprecated-space-y-4">
                     <div>
                         <h1>Editing "{getFilterLabel(editDefinition.name, TaxonomicFilterGroupType.Events) || ''}"</h1>
                         <div className="flex flex-wrap items-center gap-2 text-secondary">
-                            <div>Raw event name:</div>
+                            <div>{isProperty ? 'Property' : 'Event'} name:</div>
                             <LemonTag className="font-mono">{editDefinition.name}</LemonTag>
                         </div>
                     </div>
@@ -108,17 +109,25 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
                             </LemonField>
                         </div>
                     )}
-                    {showVerifiedCheckbox && (
+                    {(allowVerification || showHiddenOption) && (
                         <div className="ph-ignore-input">
-                            <LemonField name="verified" label="Verification" data-attr="definition-verified">
-                                {({ value, onChange }) => (
-                                    <VerifiedDefinitionCheckbox
-                                        isProperty={isProperty}
-                                        verified={!!value}
-                                        onChange={(nextVerified) => {
-                                            onChange(nextVerified)
-                                        }}
-                                    />
+                            <LemonField name="verified" label="Status" data-attr="definition-status">
+                                {({ value: verified, onChange }) => (
+                                    <LemonField name="hidden">
+                                        {({ value: hidden, onChange: onHiddenChange }) => (
+                                            <PropertyStatusControl
+                                                isProperty={isProperty}
+                                                verified={!!verified}
+                                                hidden={!!hidden}
+                                                showHiddenOption={showHiddenOption}
+                                                allowVerification={allowVerification}
+                                                onChange={({ verified: newVerified, hidden: newHidden }) => {
+                                                    onChange(newVerified)
+                                                    onHiddenChange(newHidden)
+                                                }}
+                                            />
+                                        )}
+                                    </LemonField>
                                 )}
                             </LemonField>
                         </div>

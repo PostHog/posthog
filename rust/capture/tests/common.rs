@@ -26,11 +26,9 @@ use tokio::time::timeout;
 use tracing::{debug, warn};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
-use capture::limiters::redis::{
-    QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
-};
 use capture::server::serve;
 use health::HealthStrategy;
+use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,
@@ -138,7 +136,11 @@ impl ServerHandle {
             .expect("failed to send request")
     }
 
-    pub async fn capture_recording<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+    pub async fn capture_recording<T: Into<reqwest::Body>>(
+        &self,
+        body: T,
+        user_agent: Option<&str>,
+    ) -> reqwest::Response {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(3000))
             .build()
@@ -146,6 +148,7 @@ impl ServerHandle {
         client
             .post(format!("http://{:?}/s/", self.addr))
             .body(body)
+            .header("User-Agent", user_agent.unwrap_or("test-client"))
             .send()
             .await
             .expect("failed to send request")

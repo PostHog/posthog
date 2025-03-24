@@ -17,13 +17,24 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { ExploreButton, ResultsQuery, VariantTag } from '../ExperimentView/components'
 import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview'
 import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
+import { getMetricTag } from './utils'
+export function getDefaultMetricTitle(metric: ExperimentMetric): string {
+    if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
+        return metric.metric_config.event
+    } else if (metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
+        return metric.metric_config.name || `Action ${metric.metric_config.action}`
+    }
+    return 'Untitled metric'
+}
 
 function formatTickValue(value: number): string {
     if (value === 0) {
@@ -46,9 +57,13 @@ function formatTickValue(value: number): string {
 
     return `${(value * 100).toFixed(decimals)}%`
 }
-const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
+export const getMetricTitle = (metric: any, metricType?: InsightType): JSX.Element => {
     if (metric.name) {
         return <span className="truncate">{metric.name}</span>
+    }
+
+    if (metric.kind === NodeKind.ExperimentMetric) {
+        return <span className="truncate">{getDefaultMetricTitle(metric)}</span>
     }
 
     if (metricType === InsightType.TRENDS && metric.count_query?.series?.[0]?.name) {
@@ -62,12 +77,16 @@ const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
             const lastStep = series[series.length - 1]?.name
 
             return (
-                <span className="inline-flex items-center gap-1 min-w-0">
-                    <IconFunnels className="text-secondary flex-shrink-0" fontSize="14" />
-                    <span className="truncate">{firstStep}</span>
-                    <IconArrowRight className="text-secondary flex-shrink-0" fontSize="14" />
-                    <span className="truncate">{lastStep}</span>
-                </span>
+                <div className="inline-flex flex-wrap items-center gap-1 min-w-0">
+                    <div className="inline-flex items-center gap-1 min-w-0">
+                        <IconFunnels className="text-secondary flex-shrink-0" fontSize="14" />
+                        <span className="truncate">{firstStep}</span>
+                    </div>
+                    <div className="inline-flex items-center gap-1 min-w-0 @max-[200px]:ml-5">
+                        <IconArrowRight className="text-secondary flex-shrink-0" fontSize="14" />
+                        <span className="truncate">{lastStep}</span>
+                    </div>
+                </div>
             )
         }
     }
@@ -75,26 +94,45 @@ const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
     return <span className="text-secondary truncate">Untitled metric</span>
 }
 
-function generateViolinPath(x1: number, x2: number, y: number, height: number): string {
+export function generateViolinPath(x1: number, x2: number, y: number, height: number, deltaX: number): string {
     // Create points for the violin curve
     const points: [number, number][] = []
     const steps = 20
-    const maxWidth = height / 2 // Use half the height as the maximum width to maintain proportions
+    const maxWidth = height / 2
 
-    // Generate top curve points
+    // Generate left side points (x1 to deltaX)
     for (let i = 0; i <= steps; i++) {
         const t = i / steps
-        const x = x1 + (x2 - x1) * t
-        // Using a normal distribution approximation
-        const width = Math.exp(-Math.pow((t - 0.5) * 3, 2)) * maxWidth
+        const x = x1 + (deltaX - x1) * t
+        // Standard normal distribution PDF from x1 to deltaX
+        const z = (t - 1) * 2 // Reduced scale factor from 2.5 to 2 for thicker tails
+        const width = Math.exp(-0.5 * z * z) * maxWidth
+        points.push([x, y + height / 2 - width])
+    }
+
+    // Generate right side points (deltaX to x2)
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps
+        const x = deltaX + (x2 - deltaX) * t
+        // Standard normal distribution PDF from deltaX to x2
+        const z = t * 2 // Reduced scale factor from 2.5 to 2 for thicker tails
+        const width = Math.exp(-0.5 * z * z) * maxWidth
         points.push([x, y + height / 2 - width])
     }
 
     // Generate bottom curve points (mirror of top)
     for (let i = steps; i >= 0; i--) {
         const t = i / steps
-        const x = x1 + (x2 - x1) * t
-        const width = Math.exp(-Math.pow((t - 0.5) * 3, 2)) * maxWidth
+        const x = deltaX + (x2 - deltaX) * t
+        const z = t * 2
+        const width = Math.exp(-0.5 * z * z) * maxWidth
+        points.push([x, y + height / 2 + width])
+    }
+    for (let i = steps; i >= 0; i--) {
+        const t = i / steps
+        const x = x1 + (deltaX - x1) * t
+        const z = (t - 1) * 2
+        const width = Math.exp(-0.5 * z * z) * maxWidth
         points.push([x, y + height / 2 + width])
     }
 
@@ -133,14 +171,16 @@ export function DeltaChart({
         credibleIntervalForVariant,
         conversionRateForVariant,
         experimentId,
+        experiment,
         countDataForVariant,
         exposureCountDataForVariant,
         metricResultsLoading,
         secondaryMetricResultsLoading,
         featureFlags,
+        primaryMetricsLengthWithSharedMetrics,
+        hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
-    const { experiment } = useValues(experimentLogic)
     const {
         openPrimaryMetricModal,
         openSecondaryMetricModal,
@@ -248,16 +288,16 @@ export function DeltaChart({
                         style={{ height: `${ticksSvgHeight}px` }}
                     />
                 )}
-                {isFirstMetric && <div className="w-full border-t border-border" />}
+                {isFirstMetric && <div className="w-full border-t border-primary" />}
                 <div
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: `${chartSvgHeight}px`, borderRight: `1px solid ${COLORS.BOUNDARY_LINES}` }}
                     className="p-2 overflow-auto"
                 >
                     <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
-                        <div className="space-y-1">
+                        <div className="deprecated-space-y-1">
                             <div className="flex items-center gap-2">
-                                <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
+                                <div className="@container cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-start">
                                     <span className="mr-1">{metricIndex + 1}.</span>
                                     {getMetricTitle(metric, metricType)}
                                 </div>
@@ -281,9 +321,9 @@ export function DeltaChart({
                                     }}
                                 />
                             </div>
-                            <div className="space-x-1">
+                            <div className="deprecated-space-x-1">
                                 <LemonTag type="muted" size="small">
-                                    {metric.kind === 'ExperimentFunnelsQuery' ? 'Funnel' : 'Trend'}
+                                    {getMetricTag(metric)}
                                 </LemonTag>
                                 {metric.isSharedMetric && (
                                     <LemonTag type="option" size="small">
@@ -337,16 +377,16 @@ export function DeltaChart({
                         </svg>
                     </div>
                 )}
-                {isFirstMetric && <div className="w-full border-t border-border" />}
+                {isFirstMetric && <div className="w-full border-t border-primary" />}
                 {/* Chart */}
-                {result ? (
+                {result && hasMinimumExposureForResults ? (
                     <div className="relative">
                         {/* Chart is z-index 100, so we need to be above it */}
                         {/* eslint-disable-next-line react/forbid-dom-props */}
                         <div className="absolute top-2 left-2" style={{ zIndex: 102 }}>
                             <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
                         </div>
-                        {(isSecondary || (!isSecondary && experiment.metrics.length > 1)) && (
+                        {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                             <div
                                 className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)]"
                                 // Chart is z-index 100, so we need to be above it
@@ -469,7 +509,7 @@ export function DeltaChart({
                                             {variant.key === 'control' ? (
                                                 // Control variant - dashed violin
                                                 <path
-                                                    d={generateViolinPath(x1, x2, y, BAR_HEIGHT)}
+                                                    d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
                                                     fill={COLORS.BAR_CONTROL}
                                                     stroke={COLORS.BOUNDARY_LINES}
                                                     strokeWidth={1}
@@ -517,7 +557,7 @@ export function DeltaChart({
                                                         </linearGradient>
                                                     </defs>
                                                     <path
-                                                        d={generateViolinPath(x1, x2, y, BAR_HEIGHT)}
+                                                        d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
                                                         fill={`url(#gradient-${metricIndex}-${variant.key}-${
                                                             isSecondary ? 'secondary' : 'primary'
                                                         })`}
@@ -585,6 +625,22 @@ export function DeltaChart({
                                         <IconClock fontSize="1em" />
                                     </LemonTag>
                                     <span>Waiting for experiment to start&hellip;</span>
+                                </div>
+                            </foreignObject>
+                        ) : !hasMinimumExposureForResults ? (
+                            <foreignObject x="0" y={chartHeight / 2 - 10} width={VIEW_BOX_WIDTH} height="20">
+                                <div
+                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-secondary cursor-default"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ fontSize: '10px', fontWeight: 400 }}
+                                >
+                                    <LemonTag size="small" className="mr-2">
+                                        <IconActivity fontSize="1em" />
+                                    </LemonTag>
+                                    <span>
+                                        Waiting for {EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS}+ exposures per variant to
+                                        show results
+                                    </span>
                                 </div>
                             </foreignObject>
                         ) : (
@@ -844,9 +900,14 @@ export function DeltaChart({
                     </LemonButton>
                 }
             >
-                <div className="flex justify-end">
-                    <ExploreButton result={result} />
-                </div>
+                {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                {result &&
+                    (result.kind === NodeKind.ExperimentTrendsQuery ||
+                        result.kind === NodeKind.ExperimentFunnelsQuery) && (
+                        <div className="flex justify-end">
+                            <ExploreButton result={result} />
+                        </div>
+                    )}
                 <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                     <div className="items-center inline-flex flex-wrap">
                         <WinningVariantText result={result} experimentId={experimentId} />
@@ -854,7 +915,12 @@ export function DeltaChart({
                     </div>
                 </LemonBanner>
                 <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
-                <ResultsQuery result={result} showTable={true} />
+                {/* TODO: Only show results query if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                {result &&
+                    (result.kind === NodeKind.ExperimentTrendsQuery ||
+                        result.kind === NodeKind.ExperimentFunnelsQuery) && (
+                        <ResultsQuery result={result} showTable={true} />
+                    )}
             </LemonModal>
         </div>
     )

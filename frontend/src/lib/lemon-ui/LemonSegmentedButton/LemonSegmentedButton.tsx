@@ -6,19 +6,21 @@ import React from 'react'
 import { useSliderPositioning } from '../hooks'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 
-export interface LemonSegmentedButtonOption<T extends React.Key> {
-    value: T
-    label: string | JSX.Element
-    icon?: React.ReactElement
-    /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
-    disabledReason?: string
-    tooltip?: string | JSX.Element
-    'data-attr'?: string
-}
+// Expects at least one of label or icon to be provided
+export type LemonSegmentedButtonOption<T extends React.Key> = { value: T } & (
+    | { label: string | JSX.Element }
+    | { icon: JSX.Element }
+) & {
+        label?: string | JSX.Element
+        icon?: JSX.Element
+        disabledReason?: string
+        tooltip?: string | JSX.Element
+        'data-attr'?: string
+    }
 
 export interface LemonSegmentedButtonProps<T extends React.Key> {
     value?: T
-    onChange?: (newValue: T) => void
+    onChange?: (newValue: T, e: React.MouseEvent) => void
     options: LemonSegmentedButtonOption<T>[]
     size?: LemonButtonProps['size']
     className?: string
@@ -89,9 +91,9 @@ export function LemonSegmentedButton<T extends React.Key>({
                             size={size}
                             fullWidth
                             disabledReason={option.disabledReason}
-                            onClick={() => {
+                            onClick={(e) => {
                                 if (!option.disabledReason) {
-                                    onChange?.(option.value)
+                                    onChange?.(option.value, e)
                                 }
                             }}
                             icon={option.icon}

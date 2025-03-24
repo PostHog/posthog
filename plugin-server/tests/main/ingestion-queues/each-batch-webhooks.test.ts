@@ -8,6 +8,7 @@ import {
 } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
+import { parseJSON } from '../../../src/utils/json-parse'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
@@ -15,7 +16,7 @@ import { HookCommander } from '../../../src/worker/ingestion/hooks'
 import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 
 const kafkaEvent: RawKafkaEvent = {
     event: '$pageview',
@@ -84,7 +85,7 @@ describe('eachMessageWebhooksHandlers', () => {
 
     it('calls runWebhooksHandlersEventPipeline', async () => {
         const actionManager = new ActionManager(hub.postgres, hub)
-        const actionMatcher = new ActionMatcher(hub.postgres, actionManager, hub.teamManager)
+        const actionMatcher = new ActionMatcher(hub.postgres, actionManager)
         const hookCannon = new HookCommander(
             hub.postgres,
             hub.teamManager,
@@ -94,12 +95,7 @@ describe('eachMessageWebhooksHandlers', () => {
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
         )
         const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
-        groupTypeManager['groupTypesCache'].set(2, [
-            {
-                organization: 0,
-            },
-            Date.now(),
-        ])
+        await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'organization', 0)
 
         const organizationManager = new OrganizationManager(hub.postgres, hub.teamManager)
         organizationManager['availableProductFeaturesCache'].set(2, [
@@ -121,6 +117,7 @@ describe('eachMessageWebhooksHandlers', () => {
                     is_calculating: false,
                     steps: [
                         {
+                            // @ts-expect-error TODO revisit this, but fixing TS for now
                             id: 913,
                             action_id: 69,
                             tag_name: null,
@@ -188,7 +185,7 @@ describe('eachMessageWebhooksHandlers', () => {
         `)
 
         expect(postWebhookSpy).toHaveBeenCalledTimes(1)
-        expect(JSON.parse(postWebhookSpy.mock.calls[0][0].webhook.body)).toMatchInlineSnapshot(`
+        expect(parseJSON(postWebhookSpy.mock.calls[0][0].webhook.body)).toMatchInlineSnapshot(`
             {
               "text": "[Test Action](/project/2/action/1) was triggered by [my\\_id](/project/2/person/my\\_id) in organization [PostHog](/project/2/groups/0/org\\_posthog)",
             }

@@ -4,7 +4,7 @@ import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getEventsQueriesForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
-import { DataTableNode } from '~/queries/schema'
+import { DataTableNode } from '~/queries/schema/schema-general'
 
 interface SavedQueriesProps {
     query: DataTableNode

@@ -9,6 +9,7 @@ import json
 
 import pytz
 
+from .ip import isIPAddressInRange
 from .print import print_hog_string_output
 from .date import (
     now,
@@ -717,10 +718,10 @@ def substring(args: list[Any], team: Optional["Team"], stdout: Optional[list[str
     # start is 1-based.
     s = args[0]
     start = args[1]
-    length = args[2]
     if not isinstance(s, str):
         return ""
     start_idx = start - 1
+    length = args[2] if len(args) > 2 else len(s) - start_idx
     if start_idx < 0 or length < 0:
         return ""
     end_idx = start_idx + length
@@ -917,7 +918,9 @@ STL: dict[str, STLFunction] = {
         fn=lambda args, team, stdout, timeout: not empty(args, team, stdout, timeout), minArgs=1, maxArgs=1
     ),
     "tuple": STLFunction(fn=lambda args, team, stdout, timeout: tuple(args), minArgs=0, maxArgs=None),
-    "lower": STLFunction(fn=lambda args, team, stdout, timeout: args[0].lower(), minArgs=1, maxArgs=1),
+    "lower": STLFunction(
+        fn=lambda args, team, stdout, timeout: args[0].lower() if args[0] is not None else None, minArgs=1, maxArgs=1
+    ),
     "upper": STLFunction(fn=lambda args, team, stdout, timeout: args[0].upper(), minArgs=1, maxArgs=1),
     "reverse": STLFunction(fn=lambda args, team, stdout, timeout: args[0][::-1], minArgs=1, maxArgs=1),
     "print": STLFunction(fn=print, minArgs=0, maxArgs=None),
@@ -960,6 +963,9 @@ STL: dict[str, STLFunction] = {
     "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5Hex(args[0]), minArgs=1, maxArgs=1),
     "sha256HmacChainHex": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256HmacChainHex(args[0]), minArgs=1, maxArgs=1
+    ),
+    "isIPAddressInRange": STLFunction(
+        fn=lambda args, team, stdout, timeout: isIPAddressInRange(args[0], args[1]), minArgs=2, maxArgs=2
     ),
     "keys": STLFunction(fn=keys, minArgs=1, maxArgs=1),
     "values": STLFunction(fn=values, minArgs=1, maxArgs=1),
@@ -1056,7 +1062,7 @@ STL: dict[str, STLFunction] = {
     "range": STLFunction(fn=range_fn, minArgs=1, maxArgs=2),
     "round": STLFunction(fn=round_fn, minArgs=1, maxArgs=1),
     "startsWith": STLFunction(fn=startsWith, minArgs=2, maxArgs=2),
-    "substring": STLFunction(fn=substring, minArgs=3, maxArgs=3),
+    "substring": STLFunction(fn=substring, minArgs=2, maxArgs=3),
     "toIntervalDay": STLFunction(fn=toIntervalDay, minArgs=1, maxArgs=1),
     "toIntervalHour": STLFunction(fn=toIntervalHour, minArgs=1, maxArgs=1),
     "toIntervalMinute": STLFunction(fn=toIntervalMinute, minArgs=1, maxArgs=1),

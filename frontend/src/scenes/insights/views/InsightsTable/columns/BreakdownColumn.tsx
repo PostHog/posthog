@@ -5,7 +5,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { formatBreakdownType } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 
 interface BreakdownColumnTitleProps {
     breakdownFilter: BreakdownFilter

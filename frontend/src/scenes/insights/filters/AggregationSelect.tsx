@@ -6,7 +6,7 @@ import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FunnelsQuery } from '~/queries/schema'
+import { FunnelsQuery } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isInsightQueryNode, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
@@ -100,7 +100,7 @@ export function AggregationSelect({
             label: `Unique sessions`,
         })
         optionSections[0].options.push({
-            label: 'Custom HogQL expression',
+            label: 'Custom SQL expression',
             options: [
                 {
                     // This is a bit of a hack so that the HogQL option is only highlighted as active when the user has
@@ -115,7 +115,7 @@ export function AggregationSelect({
                                     onChange={onSelect}
                                     value={value}
                                     placeholder={
-                                        "Enter HogQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
+                                        "Enter SQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
                                     }
                                 />
                             </div>

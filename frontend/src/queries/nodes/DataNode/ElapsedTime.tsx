@@ -4,7 +4,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { useState } from 'react'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { QueryTiming } from '~/queries/schema'
+import { QueryTiming } from '~/queries/schema/schema-general'
 
 export interface TimingsProps {
     timings: QueryTiming[]
@@ -13,12 +13,12 @@ export interface TimingsProps {
 
 export function Timings({ timings, elapsedTime }: TimingsProps): JSX.Element | null {
     return (
-        <div className="space-y-2 p-2">
+        <div className="deprecated-space-y-2 p-2">
             {timings.map(({ k: key, t: time }) => (
                 <div
                     key={key}
                     className={clsx(
-                        'flex justify-between items-start space-x-2',
+                        'flex justify-between items-start deprecated-space-x-2',
                         time > timings[timings.length - 1].t * 0.5 ? 'font-bold' : ''
                     )}
                 >
@@ -27,7 +27,7 @@ export function Timings({ timings, elapsedTime }: TimingsProps): JSX.Element | n
                 </div>
             ))}
             {elapsedTime !== undefined && timings.length > 0 ? (
-                <div className={clsx('flex justify-between items-start space-x-2')}>
+                <div className={clsx('flex justify-between items-start deprecated-space-x-2')}>
                     <div>+ HTTP overhead</div>
                     <div>{(elapsedTime / 1000 - timings[timings.length - 1].t).toFixed(3)}s</div>
                 </div>

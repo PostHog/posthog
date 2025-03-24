@@ -1,4 +1,6 @@
 import pytest
+from freezegun import freeze_time
+from datetime import datetime, timedelta
 from django.db.utils import IntegrityError
 
 from posthog.test.base import BaseTest
@@ -95,3 +97,18 @@ class TestErrorTracking(BaseTest):
         with pytest.raises(IntegrityError):
             ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
             ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
+
+    @freeze_time("2025-01-01")
+    def test_error_tracking_issue_first_seen_earliest_fingerprint(self):
+        issue = self.create_issue(["fingerprint_one"])
+
+        ten_minutes_ago = datetime.now() - timedelta(minutes=10)
+        fingerprint = ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team, issue=issue, fingerprint="fingerprint_two", first_seen=ten_minutes_ago
+        )
+
+        # first_seen not accessible by default
+        assert not hasattr(issue, "first_seen")
+
+        issue = ErrorTrackingIssue.objects.with_first_seen().get(id=issue.id)
+        assert issue.first_seen == fingerprint.first_seen  # type: ignore[attr-defined]

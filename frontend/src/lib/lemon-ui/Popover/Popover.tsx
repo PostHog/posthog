@@ -68,6 +68,8 @@ export interface PopoverProps {
     closeParentPopoverOnClickInside?: boolean
     /** Whether to show an arrow pointing to a reference element */
     showArrow?: boolean
+    /** An added delay before the floating overlay is shown */
+    delayMs?: number
 }
 
 /** Context for the popover overlay: parent popover visibility and parent popover level. */
@@ -106,6 +108,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         style,
         showArrow = false,
         overflowHidden = false,
+        delayMs = 50,
     },
     contentRef
 ): JSX.Element {
@@ -232,7 +235,14 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             )}
             {visible ? (
                 <FloatingPortal root={floatingContainer}>
-                    <CSSTransition in={visible} timeout={50} classNames="Popover-" appear mountOnEnter unmountOnExit>
+                    <CSSTransition
+                        in={visible}
+                        timeout={delayMs}
+                        classNames="Popover-"
+                        appear
+                        mountOnEnter
+                        unmountOnExit
+                    >
                         <PopoverReferenceContext.Provider
                             value={null /* Resetting the reference, since there's none */}
                         >

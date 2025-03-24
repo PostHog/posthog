@@ -6,4 +6,4 @@ export OBJECT_STORAGE_SECRET_ACCESS_KEY="object_storage_root_password"
 export FRAME_CACHE_TTL_SECONDS="1"
 export ALLOW_INTERNAL_IPS="true"
 
-RUST_LOG=info cargo run --bin cymbal
+RUST_LOG=debug,rdkafka=warn cargo run --bin cymbal

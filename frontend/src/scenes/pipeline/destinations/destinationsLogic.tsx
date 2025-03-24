@@ -153,9 +153,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {} as Record<string, BatchExportConfiguration>,
             {
                 loadBatchExports: async () => {
-                    const results = await api.loadPaginatedResults<BatchExportConfiguration>(
-                        `api/projects/${values.currentProjectId}/batch_exports`
-                    )
+                    const response = await api.batchExports.list()
+                    const results = response.results
                     return Object.fromEntries(results.map((batchExport) => [batchExport.id, batchExport]))
                 },
                 toggleNodeBatchExport: async ({ destination, enabled }) => {
@@ -190,7 +189,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     const destinationTypes = siteDesinationsEnabled
                         ? props.types
                         : props.types.filter((type) => type !== 'site_destination')
-                    return (await api.hogFunctions.list(undefined, destinationTypes)).results
+                    return (await api.hogFunctions.list({ types: destinationTypes })).results
                 },
                 saveTransformationsOrder: async ({ newOrders }) => {
                     const response = await api.update(`api/projects/@current/hog_functions/rearrange`, {
@@ -240,6 +239,16 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     })),
+    reducers({
+        reorderTransformationsModalOpen: [
+            false as boolean,
+            {
+                openReorderTransformationsModal: () => true,
+                closeReorderTransformationsModal: () => false,
+                saveTransformationsOrder: () => false,
+            },
+        ],
+    }),
     selectors({
         paidHogFunctions: [
             (s) => [s.hogFunctions],
@@ -332,16 +341,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     }),
-    reducers({
-        reorderTransformationsModalOpen: [
-            false as boolean,
-            {
-                openReorderTransformationsModal: () => true,
-                closeReorderTransformationsModal: () => false,
-                saveTransformationsOrder: () => false,
-            },
-        ],
-    }),
     listeners(({ values, actions }) => ({
         toggleNode: ({ destination, enabled }) => {
             if (enabled && !values.canEnableDestination(destination)) {
@@ -380,9 +379,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     })),
 
     afterMount(({ actions, props }) => {
-        actions.loadPlugins()
-        actions.loadPluginConfigs()
         if (props.types.includes('destination')) {
+            actions.loadPlugins()
+            actions.loadPluginConfigs()
             actions.loadBatchExports()
         }
         actions.loadHogFunctions()

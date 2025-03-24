@@ -31,6 +31,7 @@ from posthog.temporal.common.clickhouse import encode_clickhouse_data
             dt.datetime(2023, 7, 14, 0, 0, 0, 5555, tzinfo=dt.UTC),
             b"toDateTime64('2023-07-14 00:00:00.005555', 6, 'UTC')",
         ),
+        ([1.1666, [0.132, -0.2390], 0.0], b"[1.1666,[0.132,-0.239],0]"),
     ],
 )
 def test_encode_clickhouse_data(data, expected):

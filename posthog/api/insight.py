@@ -14,7 +14,7 @@ from django.utils.text import slugify
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import request, serializers, status, viewsets
@@ -28,12 +28,6 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog import schema
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight_serializers import (
-    FunnelSerializer,
-    FunnelStepsResultsSerializer,
-    TrendResultsSerializer,
-    TrendSerializer,
-)
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -964,29 +958,6 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(serialized_data)
 
-    # ******************************************
-    # Calculated Insight Endpoints
-    # /projects/:id/insights/trend
-    # /projects/:id/insights/funnel
-    #
-    # Request parameters and caching are handled here and passed onto respective .queries classes
-    # ******************************************
-
-    # ******************************************
-    # /projects/:id/insights/trend
-    #
-    # params:
-    # - from_dashboard: (string) determines trend is being retrieved from dashboard item to update dashboard_item metadata
-    # - shown_as: (string: Volume, Stickiness) specifies the trend aggregation type
-    # - **shared filter types
-    # ******************************************
-    @extend_schema(
-        request=TrendSerializer,
-        methods=["POST"],
-        tags=["trend"],
-        operation_id="Trends",
-        responses=TrendResultsSerializer,
-    )
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
         capture_legacy_api_call(request, self.team)
@@ -1078,26 +1049,6 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return {"result": result.results, "timezone": team.timezone}
 
-    # ******************************************
-    # /projects/:id/insights/funnel
-    # The funnel endpoint is asynchronously processed. When a request is received, the endpoint will
-    # call an async task with an id that can be continually polled for 3 minutes.
-    #
-    # params:
-    # - refresh: (dict) specifies cache to force refresh or poll
-    # - from_dashboard: (dict) determines funnel is being retrieved from dashboard item to update dashboard_item metadata
-    # - **shared filter types
-    # ******************************************
-    @extend_schema(
-        request=FunnelSerializer,
-        responses=OpenApiResponse(
-            response=FunnelStepsResultsSerializer,
-            description="Note, if funnel_viz_type is set the response will be different.",
-        ),
-        methods=["POST"],
-        tags=["funnel"],
-        operation_id="Funnels",
-    )
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         capture_legacy_api_call(request, self.team)

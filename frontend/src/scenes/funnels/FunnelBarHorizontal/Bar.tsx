@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelDataLogic } from '../funnelDataLogic'

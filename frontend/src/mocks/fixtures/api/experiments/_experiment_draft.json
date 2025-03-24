@@ -1,0 +1,91 @@
+{
+    "id": 20,
+    "name": "march-5-draft",
+    "description": null,
+    "start_date": null,
+    "end_date": null,
+    "feature_flag_key": "march-5-draft",
+    "feature_flag": {
+        "id": 24,
+        "team_id": 1,
+        "name": "Feature Flag for Experiment march-5-draft",
+        "key": "march-5-draft",
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+            "multivariate": {
+                "variants": [
+                    {
+                        "key": "control",
+                        "rollout_percentage": 34
+                    },
+                    {
+                        "key": "test",
+                        "rollout_percentage": 33
+                    },
+                    {
+                        "key": "test_2",
+                        "rollout_percentage": 33
+                    }
+                ]
+            },
+            "holdout_groups": null,
+            "aggregation_group_type_index": null
+        },
+        "deleted": false,
+        "active": false,
+        "ensure_experience_continuity": false,
+        "has_encrypted_payloads": false
+    },
+    "holdout": null,
+    "holdout_id": null,
+    "exposure_cohort": null,
+    "parameters": {
+        "feature_flag_variants": [
+            {
+                "key": "control",
+                "rollout_percentage": 34
+            },
+            {
+                "key": "test",
+                "rollout_percentage": 33
+            },
+            {
+                "key": "test_2",
+                "rollout_percentage": 33
+            }
+        ],
+        "recommended_sample_size": 0,
+        "recommended_running_time": 0,
+        "minimum_detectable_effect": 1
+    },
+    "secondary_metrics": [],
+    "saved_metrics": [],
+    "saved_metrics_ids": null,
+    "filters": {},
+    "archived": false,
+    "created_by": {
+        "id": 1,
+        "uuid": "01951575-a0b1-0000-f80f-3cf5b4322ba2",
+        "distinct_id": "78baw57uobbGws0hzFCfivjKM2sTRrmfP5mfFFlvqCf",
+        "first_name": "Employee 427",
+        "last_name": "",
+        "email": "test@posthog.com",
+        "is_email_verified": null,
+        "hedgehog_config": null,
+        "role_at_organization": null
+    },
+    "created_at": "2025-03-05T12:06:23.533661Z",
+    "updated_at": "2025-03-05T12:06:23.533806Z",
+    "type": "product",
+    "exposure_criteria": {},
+    "metrics": [],
+    "metrics_secondary": [],
+    "stats_config": {
+        "version": 2
+    }
+}

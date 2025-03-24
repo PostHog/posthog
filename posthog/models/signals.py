@@ -2,8 +2,16 @@ from contextlib import contextmanager
 from functools import wraps
 
 from django.dispatch.dispatcher import receiver
+from django.dispatch import Signal
 
 is_muted = False
+
+# Used for any model that requires an activity log of changes
+# To use this, a model must either:
+# 1. Include ModelActivityMixin in the model's inheritance
+# 2. Or override the save method and call this signal manually
+# See FeatureFlag for an example.
+model_activity_signal = Signal()
 
 
 def mutable_receiver(*args, **kwargs):

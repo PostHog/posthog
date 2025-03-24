@@ -4,7 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import posthog from 'posthog-js'
-import { proxyLogic } from 'scenes/settings/environment/proxyLogic'
+import { proxyLogic, ProxyRecord } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 function snippetFunctions(arrayJs = '/static/array.js'): string {
@@ -30,6 +30,19 @@ type SnippetOption = {
     comment?: string
 }
 
+function domainFor(proxyRecord: ProxyRecord | undefined): string {
+    if (!proxyRecord) {
+        return apiHostOrigin()
+    }
+
+    let domain = proxyRecord.domain
+    if (!domain.startsWith('https://')) {
+        domain = `https://${domain}`
+    }
+
+    return domain
+}
+
 export function useJsSnippet(indent = 0, arrayJs?: string): string {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -41,7 +54,7 @@ export function useJsSnippet(indent = 0, arrayJs?: string): string {
 
     const options: Record<string, SnippetOption> = {
         api_host: {
-            content: proxyRecord?.domain ?? apiHostOrigin(),
+            content: domainFor(proxyRecord),
             comment: proxyRecord ? 'your managed reverse proxy domain' : undefined,
             enabled: true,
         },

@@ -76,3 +76,30 @@ test('processEvent filters same events at different increasing percent', () => {
         expect(event1).toEqual(event0)
     }
 })
+
+test('processEvent filters events based on triggering events', () => {
+    // create an event. Hash generates 0.42
+    const event0 = createEvent({ event: 'blah', distinct_id: '1' })
+
+    for (let i = 0; i < 5; i++) {
+        meta.config.percentage = (i * 10).toString()
+        meta.config.triggeringEvents = 'blah,$pageview'
+
+        // Setup Plugin
+        setupPlugin(meta)
+
+        const event1 = processEvent(event0, meta)
+        expect(event1).toBeNull()
+    }
+
+    for (let i = 0; i < 5; i++) {
+        meta.config.percentage = (i * 10).toString()
+        meta.config.triggeringEvents = '$pageview'
+
+        // Setup Plugin
+        setupPlugin(meta)
+
+        const event1 = processEvent(event0, meta)
+        expect(event1).toEqual(event0)
+    }
+})

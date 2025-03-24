@@ -1,13 +1,13 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
-import { captureException } from '@sentry/node'
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
 import { PluginsServerConfig } from '../types'
 import { createRedisClient } from '../utils/db/redis'
 import { timeoutGuard } from '../utils/db/utils'
-import { status } from '../utils/status'
+import { logger } from '../utils/logger'
+import { captureException } from '../utils/posthog'
 
 type WithCheckRateLimit<T> = {
     checkRateLimit: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => T
@@ -127,7 +127,7 @@ export const createCdpRedisPool = (config: PluginsServerConfig): CdpRedis => {
             if (options.failOpen) {
                 // We log the error and return null
                 captureException(e)
-                status.error(`Redis call${options.name} failed`, e)
+                logger.error(`Redis call${options.name} failed`, e)
                 return null
             }
             throw e

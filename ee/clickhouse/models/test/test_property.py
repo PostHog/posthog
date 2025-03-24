@@ -7,7 +7,7 @@ from freezegun.api import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.materialized_columns.columns import materialize
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.element import Element

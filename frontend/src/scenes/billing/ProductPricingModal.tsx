@@ -36,7 +36,9 @@ export const ProductPricingModal = ({
                         <span className="font-bold text-base">
                             $
                             {parseFloat(
-                                isFirstTierFree ? tiers?.[1]?.unit_amount_usd : tiers?.[0]?.unit_amount_usd
+                                isFirstTierFree && tiers?.[1]?.unit_amount_usd
+                                    ? tiers?.[1]?.unit_amount_usd
+                                    : tiers?.[0]?.unit_amount_usd
                             ).toFixed(numberOfSigFigs)}
                         </span>
                         {/* the product types we have are plural, so we need to singularlize them and this works for now */}
@@ -52,7 +54,7 @@ export const ProductPricingModal = ({
                                 return (
                                     <div
                                         key={`tiers-modal-${product.name}-tier-${i}`}
-                                        className="flex justify-between border-b border-border border-dashed py-1 gap-x-8"
+                                        className="flex justify-between border-b border-primary border-dashed py-1 gap-x-8"
                                     >
                                         <p className="col-span-1 mb-0">
                                             {getTierDescription(tiers, i, product, 'month')}

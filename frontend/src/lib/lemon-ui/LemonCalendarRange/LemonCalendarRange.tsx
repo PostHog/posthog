@@ -31,7 +31,7 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
             <div className="p-2">
                 <LemonCalendarRangeInline value={value} onChange={setRange} months={months} />
             </div>
-            <div className="flex space-x-2 justify-end items-center border-t p-2 pt-4">
+            <div className="flex deprecated-space-x-2 justify-end items-center border-t p-2 pt-4">
                 {rangeStart && rangeEnd && (
                     <div className="flex-1">
                         <span className="text-secondary">Selected period:</span>{' '}

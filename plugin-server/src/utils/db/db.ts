@@ -1,6 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
 import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 import { DateTime } from 'luxon'
@@ -50,8 +49,10 @@ import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestio
 import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
+import { parseJSON } from '../json-parse'
+import { logger } from '../logger'
 import { instrumentQuery } from '../metrics'
-import { status } from '../status'
+import { captureException } from '../posthog'
 import {
     castTimestampOrNow,
     escapeClickHouseString,
@@ -261,7 +262,7 @@ export class DB {
                 if (typeof value === 'undefined' || value === null) {
                     return defaultValue
                 }
-                return value ? (jsonSerialize ? JSON.parse(value) : value) : null
+                return value ? (jsonSerialize ? parseJSON(value) : value) : null
             } catch (error) {
                 if (error instanceof SyntaxError) {
                     // invalid JSON
@@ -459,6 +460,7 @@ export class DB {
     private toPerson(row: RawPerson): InternalPerson {
         return {
             ...row,
+            id: String(row.id),
             created_at: DateTime.fromISO(row.created_at).toUTC(),
             version: Number(row.version || 0),
         }
@@ -689,7 +691,7 @@ export class DB {
 
         const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
 
-        status.debug(
+        logger.debug(
             '🧑‍🦰',
             `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
         )
@@ -1025,7 +1027,7 @@ export class DB {
         ).data.map((event) => {
             return {
                 ...event,
-                snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
+                snapshot_data: event.snapshot_data ? parseJSON(event.snapshot_data) : null,
             }
         })
         return events
@@ -1060,7 +1062,7 @@ export class DB {
 
         if (parsedEntry.message.length > 50_000) {
             const { message, ...rest } = parsedEntry
-            status.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
+            logger.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
             return Promise.resolve()
         }
 
@@ -1076,7 +1078,7 @@ export class DB {
                     messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
                 })
                 .catch((error) => {
-                    status.warn('⚠️', 'Failed to produce plugin log entry', {
+                    logger.warn('⚠️', 'Failed to produce plugin log entry', {
                         error,
                         entry: parsedEntry,
                     })
@@ -1398,38 +1400,6 @@ export class DB {
             row.project_id = Number(row.project_id) as ProjectId
         }
         return selectResult.rows
-    }
-
-    public async addOrUpdatePublicJob(
-        pluginId: number,
-        jobName: string,
-        jobPayloadJson: Record<string, any>
-    ): Promise<void> {
-        await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'addOrUpdatePublicJob', async (tx) => {
-            let publicJobs: Record<string, any> = (
-                await this.postgres.query(
-                    tx,
-                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1 FOR UPDATE',
-                    [pluginId],
-                    'selectPluginPublicJobsForUpdate'
-                )
-            ).rows[0]?.public_jobs
-
-            if (
-                !publicJobs ||
-                !(jobName in publicJobs) ||
-                JSON.stringify(publicJobs[jobName]) !== JSON.stringify(jobPayloadJson)
-            ) {
-                publicJobs = { ...publicJobs, [jobName]: jobPayloadJson }
-
-                await this.postgres.query(
-                    tx,
-                    'UPDATE posthog_plugin SET public_jobs = $1 WHERE id = $2',
-                    [JSON.stringify(publicJobs), pluginId],
-                    'updatePublicJob'
-                )
-            }
-        })
     }
 
     public async getPluginSource(pluginId: Plugin['id'], filename: string): Promise<string | null> {

@@ -5,7 +5,7 @@ import structlog
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import KafkaProducer
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.util import create_person_distinct_id

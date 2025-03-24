@@ -12,6 +12,7 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 class AvailableFeature(StrEnum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
+    ENVIRONMENTS = "environments"
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
@@ -299,6 +300,7 @@ class EventDefinitionType(StrEnum):
 class FlagRequestType(StrEnum):
     DECIDE = "decide"
     LOCAL_EVALUATION = "local-evaluation"
+    REMOTE_CONFIG = "remote-config"
 
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"

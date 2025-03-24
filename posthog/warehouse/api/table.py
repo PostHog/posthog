@@ -11,7 +11,6 @@ from posthog.schema import DatabaseSerializedFieldType
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 from posthog.warehouse.models import (
     DataWarehouseCredential,
-    DataWarehouseSavedQuery,
     DataWarehouseTable,
 )
 from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceSerializers
@@ -113,12 +112,12 @@ class TableSerializer(serializers.ModelSerializer):
             )
         table = DataWarehouseTable(**validated_data)
         try:
-            table.columns = table.get_columns()  # type: ignore
+            table.columns = table.get_columns()
         except Exception as err:
             raise serializers.ValidationError(str(err))
         table.save()
 
-        validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))  # type: ignore
+        validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
 
         return table
 
@@ -186,7 +185,11 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()
-        DataWarehouseSavedQuery.objects.filter(external_tables__icontains=instance.name).delete()
+
+        if instance.external_data_source is not None:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST, data={"message": "Can't delete a sourced table"}
+            )
 
         instance.soft_delete()
 
@@ -260,7 +263,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def refresh_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         table: DataWarehouseTable = self.get_object()
 
-        table.columns = table.get_columns()  # type: ignore
+        table.columns = table.get_columns()
         table.save()
 
         return response.Response(status=status.HTTP_200_OK)

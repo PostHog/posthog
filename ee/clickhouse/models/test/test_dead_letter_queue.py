@@ -13,7 +13,7 @@ from posthog.clickhouse.dead_letter_queue import (
     INSERT_DEAD_LETTER_QUEUE_EVENT_SQL,
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
 )
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.settings import KAFKA_HOSTS
 from posthog.test.base import BaseTest, ClickhouseTestMixin

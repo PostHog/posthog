@@ -46,35 +46,27 @@ export const calculateLayouts = (
         const layouts = (sortedDashboardTiles || []).map((tile) => {
             const query = tile.insight ? getQueryBasedInsightModel(tile.insight) : null
             // Base constraints
-            let minW = 3
-            let minH = 3
             let defaultW = 6
             let defaultH = 5
             // Content-adjusted constraints (note that widths should be factors of 12)
             if (tile.text) {
-                minW = 1
-                minH = 1
+                defaultW = 2
                 defaultH = 2
             } else if (isFunnelsQuery(query)) {
-                minW = 4
-                minH = 4
+                defaultW = 4
+                defaultH = 4
             } else if (isRetentionQuery(query)) {
-                minW = 6
-                minH = 7
                 defaultW = 6
                 defaultH = 7
             } else if (isPathsQuery(query)) {
-                minW = columnCount // Paths take up so much space that they need to be full width to be readable
-                minH = 7
-                defaultW = columnCount
+                defaultW = columnCount // Paths take up so much space that they need to be full width to be readable
                 defaultH = 7
             } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
-                minW = 2
-                minH = 2
+                defaultW = 2
+                defaultH = 2
             }
             // Single-column layout width override
             if (breakpoint === 'xs') {
-                minW = 1
                 defaultW = 1
             }
 
@@ -90,8 +82,8 @@ export const calculateLayouts = (
                 y: Number.isInteger(y) ? y : Infinity,
                 w: realW,
                 h: realH,
-                minW,
-                minH,
+                minW: 1,
+                minH: 1,
             }
         })
 

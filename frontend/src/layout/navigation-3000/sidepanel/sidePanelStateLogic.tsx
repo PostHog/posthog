@@ -2,10 +2,13 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
+import React from 'react'
 
 import { SidePanelTab } from '~/types'
 
 import type { sidePanelStateLogicType } from './sidePanelStateLogicType'
+
+export const WithinSidePanelContext = React.createContext<boolean>(false)
 
 // The side panel imports a lot of other components so this allows us to avoid circular dependencies
 
@@ -84,10 +87,16 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             }
 
             const panelHash = hashParams['panel'] as string | undefined
+
             if (panelHash) {
                 const [panel, ...panelOptions] = panelHash.split(':')
 
-                if (panel && (panel !== values.selectedTab || !values.sidePanelOpen)) {
+                if (
+                    panel &&
+                    (panel !== values.selectedTab ||
+                        !values.sidePanelOpen ||
+                        panelOptions.join(':') !== values.selectedTabOptions)
+                ) {
                     actions.openSidePanel(panel as SidePanelTab, panelOptions.join(':'))
                 }
             }

@@ -102,10 +102,6 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
 
-    const showWebVitalsFlag = useToolbarFeatureFlag('web-vitals')
-    const showWebVitalsToolbarFlag = useToolbarFeatureFlag('web-vitals-toolbar')
-    const showWebVitals = inStorybook() || inStorybookTestRunner() || (showWebVitalsFlag && showWebVitalsToolbarFlag)
-
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -116,10 +112,10 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <HedgehogMenu />
     ) : visibleMenu === 'debugger' ? (
         <EventDebugMenu />
+    ) : visibleMenu === 'web-vitals' ? (
+        <WebVitalsToolbarMenu />
     ) : visibleMenu === 'experiments' && showExperiments ? (
         <ExperimentsToolbarMenu />
-    ) : visibleMenu === 'web-vitals' && showWebVitals ? (
-        <WebVitalsToolbarMenu />
     ) : null
 
     useEffect(() => {
@@ -169,10 +165,6 @@ export function Toolbar(): JSX.Element | null {
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
 
-    const showWebVitalsFlag = useToolbarFeatureFlag('web-vitals')
-    const showWebVitalsToolbarFlag = useToolbarFeatureFlag('web-vitals-toolbar')
-    const showWebVitals = inStorybook() || inStorybookTestRunner() || (showWebVitalsFlag && showWebVitalsToolbarFlag)
-
     useEffect(() => {
         setElement(ref.current)
         return () => setElement(null)
@@ -212,9 +204,7 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--with-experiments': showExperiments && !showWebVitals,
-                    'Toolbar--with-web-vitals': showWebVitals && !showExperiments,
-                    'Toolbar--with-experiments-and-web-vitals': showExperiments && showWebVitals,
+                    'Toolbar--with-experiments': showExperiments,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -251,14 +241,12 @@ export function Toolbar(): JSX.Element | null {
                         <ToolbarButton menuId="debugger" title="Event debugger">
                             <IconLive />
                         </ToolbarButton>
+                        <ToolbarButton menuId="web-vitals" title="Web vitals">
+                            <IconPieChart />
+                        </ToolbarButton>
                         {showExperiments && (
                             <ToolbarButton menuId="experiments" title="Experiments">
                                 <IconTestTube />
-                            </ToolbarButton>
-                        )}
-                        {showWebVitals && (
-                            <ToolbarButton menuId="web-vitals" title="Web vitals">
-                                <IconPieChart />
                             </ToolbarButton>
                         )}
                     </>

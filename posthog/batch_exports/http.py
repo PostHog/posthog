@@ -1,4 +1,5 @@
 import datetime as dt
+from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 
 import posthoganalytics
@@ -6,7 +7,7 @@ import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
-from rest_framework import filters, mixins, request, response, serializers, viewsets
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import (
     NotAuthenticated,
     NotFound,
@@ -48,6 +49,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.temporal.batch_exports.destination_tests import get_destination_test
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
 
@@ -281,11 +283,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             config = destination_attrs["config"]
             # for updates, get the existing config
             self.instance: BatchExport | None
+            view = self.context.get("view")
+
             if self.instance is not None:
                 existing_config = self.instance.destination.config
+            elif view is not None and "pk" in view.kwargs:
+                # Running validation for a `detail=True` action.
+                instance = view.get_object()
+                existing_config = instance.destination.config
             else:
                 existing_config = {}
             merged_config = {**existing_config, **config}
+
             if config.get("authentication_type") == "password" and merged_config.get("password") is None:
                 raise serializers.ValidationError("Password is required if authentication type is password")
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
@@ -312,7 +321,24 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 },
                 send_feature_flag_events=False,
             ):
-                raise PermissionDenied("Higher frequency exports are not enabled for this team.")
+                raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
+
+        if validated_data.get("model", "events") == "sessions":
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "sessions-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Sessions batch exports are not enabled for this team.")
 
         hogql_query = None
         if hogql_query := validated_data.pop("hogql_query", None):
@@ -508,21 +534,102 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         """
         disable_and_delete_export(instance)
 
+    @action(methods=["GET"], detail=False, required_scopes=["INTERNAL"])
+    def test(self, request: request.Request, *args, **kwargs) -> response.Response:
+        destination = request.query_params.get("destination", None)
+        if not destination:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            destination_test = get_destination_test(destination=destination)
+        except ValueError:
+            return response.Response(status=status.HTTP_404_NOT_FOUND)
+
+        return response.Response(destination_test.as_dict())
+
+    @action(methods=["POST"], detail=False, required_scopes=["INTERNAL"])
+    def run_test_step_new(self, request: request.Request, *args, **kwargs) -> response.Response:
+        test_step = request.data.pop("step", 0)
+
+        serializer = self.get_serializer(data=request.data)
+        _ = serializer.is_valid(raise_exception=True)
+
+        destination_test = get_destination_test(
+            destination=serializer.validated_data["destination"]["type"],
+        )
+        test_configuration = serializer.validated_data["destination"]["config"]
+        destination_test.configure(**test_configuration)
+
+        result = destination_test.run_step(test_step)
+        return response.Response(result.as_dict())
+
+    @action(methods=["POST"], detail=True, required_scopes=["INTERNAL"])
+    def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
+        test_step = request.data.pop("step", 0)
+
+        serializer = self.get_serializer(data=request.data)
+        _ = serializer.is_valid(raise_exception=True)
+
+        destination_test = get_destination_test(
+            destination=serializer.validated_data["destination"]["type"],
+        )
+        batch_export = self.get_object()
+        test_configuration = {**batch_export.destination.config, **serializer.validated_data["destination"]["config"]}
+        destination_test.configure(**test_configuration)
+
+        result = destination_test.run_step(test_step)
+        return response.Response(result.as_dict())
+
 
 class BatchExportOrganizationViewSet(BatchExportViewSet):
     filter_rewrite_rules = {"organization_id": "team__organization_id"}
 
 
+@dataclass
+class BatchExportBackfillProgress:
+    """Progress information for a batch export backfill."""
+
+    total_runs: int | None
+    finished_runs: int | None
+    progress: float | None
+
+
 class BatchExportBackfillSerializer(serializers.ModelSerializer):
-    total_runs = serializers.SerializerMethodField(read_only=True)
+    progress = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = BatchExportBackfill
         fields = "__all__"
 
-    def get_total_runs(self, obj: BatchExportBackfill) -> int | None:
-        """Return the total number of runs for this backfill."""
-        return obj.total_runs
+    def get_progress(self, obj: BatchExportBackfill) -> BatchExportBackfillProgress | None:
+        """Return progress information containing total runs, finished runs, and progress percentage.
+
+        To reduce the number of database calls we make (which could be expensive when fetching a list of backfills) we
+        only get the list of completed runs from the DB if the backfill is still running.
+        """
+        if obj.status == obj.Status.COMPLETED:
+            return BatchExportBackfillProgress(
+                total_runs=obj.total_expected_runs, finished_runs=obj.total_expected_runs, progress=1.0
+            )
+        elif obj.status not in (obj.Status.RUNNING, obj.Status.STARTING):
+            # if backfill finished in some other state then progress info may not be meaningful
+            return None
+
+        total_runs = obj.total_expected_runs
+        if not total_runs:
+            return None
+
+        if obj.start_at is None:
+            # if it's just a single run, backfilling from the beginning of time, we can't calculate progress based on
+            # the number of completed runs so better to return None
+            return None
+
+        finished_runs = obj.get_finished_runs()
+        # just make sure we never return a progress > 1
+        total_runs = max(total_runs, finished_runs)
+        return BatchExportBackfillProgress(
+            total_runs=total_runs, finished_runs=finished_runs, progress=round(finished_runs / total_runs, ndigits=1)
+        )
 
 
 class BackfillsCursorPagination(CursorPagination):
@@ -559,32 +666,35 @@ def create_backfill(
         end_at = None
 
     if (start_at is not None or end_at is not None) and batch_export.model is not None:
-        earliest_backfill_start_at = fetch_earliest_backfill_start_at(
-            team_id=team.pk,
-            model=batch_export.model,
-            interval_time_delta=batch_export.interval_time_delta,
-            exclude_events=batch_export.destination.config.get("exclude_events", []),
-            include_events=batch_export.destination.config.get("include_events", []),
-        )
-        if earliest_backfill_start_at is None:
-            raise ValidationError("There is no data to backfill for this model.")
-
-        earliest_backfill_start_at = earliest_backfill_start_at.astimezone(team.timezone_info)
-
-        if end_at is not None and end_at < earliest_backfill_start_at:
-            raise ValidationError(
-                "The provided backfill date range contains no data. The earliest possible backfill start date is "
-                f"{earliest_backfill_start_at.strftime('%Y-%m-%d %H:%M:%S')}",
+        try:
+            earliest_backfill_start_at = fetch_earliest_backfill_start_at(
+                team_id=team.pk,
+                model=batch_export.model,
+                interval_time_delta=batch_export.interval_time_delta,
+                exclude_events=batch_export.destination.config.get("exclude_events", []),
+                include_events=batch_export.destination.config.get("include_events", []),
             )
+            if earliest_backfill_start_at is None:
+                raise ValidationError("There is no data to backfill for this model.")
 
-        if start_at is not None and start_at < earliest_backfill_start_at:
-            logger.info(
-                "Backfill start_at '%s' is before the earliest possible backfill start_at '%s', setting start_at "
-                "to earliest_backfill_start_at",
-                start_at,
-                earliest_backfill_start_at,
-            )
-            start_at = earliest_backfill_start_at
+            earliest_backfill_start_at = earliest_backfill_start_at.astimezone(team.timezone_info)
+
+            if end_at is not None and end_at < earliest_backfill_start_at:
+                raise ValidationError(
+                    "The provided backfill date range contains no data. The earliest possible backfill start date is "
+                    f"{earliest_backfill_start_at.strftime('%Y-%m-%d %H:%M:%S')}",
+                )
+
+            if start_at is not None and start_at < earliest_backfill_start_at:
+                logger.info(
+                    "Backfill start_at '%s' is before the earliest possible backfill start_at '%s', setting start_at "
+                    "to earliest_backfill_start_at",
+                    start_at,
+                    earliest_backfill_start_at,
+                )
+                start_at = earliest_backfill_start_at
+        except NotImplementedError:
+            logger.warning("No backfill check implemented for model: '%s'; skipping", batch_export.model)
 
     if start_at is None or end_at is None:
         return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)

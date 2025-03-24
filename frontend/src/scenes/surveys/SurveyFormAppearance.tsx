@@ -26,6 +26,9 @@ export function SurveyFormAppearance({
                 previewPageIndex={previewPageIndex}
                 onPreviewSubmit={(response) => {
                     const nextStep = getNextSurveyStep(survey, previewPageIndex, response)
+                    if (nextStep === SurveyQuestionBranchingType.End && !survey.appearance?.displayThankYouMessage) {
+                        return
+                    }
                     handleSetSelectedPageIndex(
                         nextStep === SurveyQuestionBranchingType.End ? survey.questions.length : nextStep
                     )

@@ -4,7 +4,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { LLMTrace } from '~/queries/schema'
+import { LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 
@@ -12,7 +12,8 @@ import { llmObservabilityLogic } from './llmObservabilityLogic'
 import { formatLLMCost, formatLLMUsage, removeMilliseconds } from './utils'
 
 export function LLMObservabilityTraces(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } =
+        useActions(llmObservabilityLogic)
     const { tracesQuery } = useValues(llmObservabilityLogic)
     return (
         <DataTable
@@ -24,6 +25,7 @@ export function LLMObservabilityTraces(): JSX.Element {
                 setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
                 setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
                 setPropertyFilters(query.source.properties || [])
+                setTracesQuery(query)
             }}
             context={{
                 emptyStateHeading: 'There were no traces in this period',
@@ -36,6 +38,10 @@ export function LLMObservabilityTraces(): JSX.Element {
                     timestamp: {
                         title: 'Time',
                         render: TimestampColumn,
+                    },
+                    traceName: {
+                        title: 'Trace Name',
+                        render: TraceNameColumn,
                     },
                     person: {
                         title: 'Person',
@@ -68,6 +74,20 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
                 to={urls.llmObservabilityTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
             >
                 {row.id.slice(0, 4)}...{row.id.slice(-4)}
+            </Link>
+        </strong>
+    )
+}
+
+const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    return (
+        <strong>
+            <Link
+                className="ph-no-capture"
+                to={urls.llmObservabilityTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
+            >
+                {row.traceName || '–'}
             </Link>
         </strong>
     )

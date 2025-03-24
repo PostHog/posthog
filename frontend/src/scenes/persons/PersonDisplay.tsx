@@ -27,6 +27,7 @@ export interface PersonDisplayProps {
     isCentered?: boolean
     children?: React.ReactChild
     withCopyButton?: boolean
+    placement?: 'top' | 'bottom' | 'left' | 'right'
 }
 
 export function PersonIcon({
@@ -64,6 +65,7 @@ export function PersonDisplay({
     href = asLink(person),
     children,
     withCopyButton,
+    placement,
 }: PersonDisplayProps): JSX.Element {
     const display = asDisplay(person)
     const [visible, setVisible] = useState(false)
@@ -125,7 +127,7 @@ export function PersonDisplay({
                 }
                 visible={visible}
                 onClickOutside={() => setVisible(false)}
-                placement="top"
+                placement={placement || 'top'}
                 fallbackPlacements={['bottom', 'right']}
                 showArrow
             >

@@ -1,4 +1,5 @@
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { dayjs } from 'lib/dayjs'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -12,6 +13,7 @@ import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
+import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
 
 import { Realm } from '~/types'
@@ -34,12 +36,14 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
 import { SessionRecordingIngestionSettings } from './environment/SessionRecordingIngestionSettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayGeneral,
+    ReplayMaskingSettings,
 } from './environment/SessionRecordingSettings'
 import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveySettings } from './environment/SurveySettings'
@@ -47,9 +51,9 @@ import { TeamAccessControl } from './environment/TeamAccessControl'
 import { TeamDangerZone } from './environment/TeamDangerZone'
 import {
     Bookmarklet,
+    TeamAuthorizedURLs,
     TeamDisplayName,
     TeamTimezone,
-    TeamToolbarURLs,
     TeamVariables,
     WebSnippet,
 } from './environment/TeamSettings'
@@ -58,6 +62,7 @@ import { UserGroups } from './environment/UserGroups'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
+import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
@@ -95,6 +100,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebSnippet />,
             },
             {
+                id: 'authorized-urls',
+                title: 'Toolbar Authorized URLs',
+                component: <TeamAuthorizedURLs />,
+            },
+            {
                 id: 'bookmarklet',
                 title: 'Bookmarklet',
                 component: <Bookmarklet />,
@@ -128,12 +138,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <HeatmapsSettings />,
             },
             {
-                id: 'exception-autocapture',
-                title: 'Exception autocapture',
-                component: <ExceptionAutocaptureSettings />,
-                flag: 'ERROR_TRACKING',
-            },
-            {
                 id: 'web-vitals-autocapture',
                 title: 'Web vitals autocapture',
                 component: <WebVitalsAutocaptureSettings />,
@@ -145,7 +149,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
-
     {
         level: 'environment',
         id: 'environment-product-analytics',
@@ -224,16 +227,26 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
-
     {
         level: 'environment',
         id: 'environment-web-analytics',
         title: 'Web analytics',
         settings: [
             {
+                id: 'web-analytics-authorized-urls',
+                title: 'Web Analytics Domains',
+                component: <TeamAuthorizedURLs />,
+            },
+            {
                 id: 'channel-type',
                 title: 'Custom channel type',
                 component: <CustomChannelTypes />,
+            },
+            {
+                id: 'revenue-base-currency',
+                title: 'Revenue base currency',
+                component: <RevenueBaseCurrencySettings />,
+                flag: 'WEB_REVENUE_TRACKING',
             },
             {
                 id: 'cookieless-server-hash-mode',
@@ -252,9 +265,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <BounceRatePageViewModeSetting />,
                 flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
             },
+            {
+                id: 'session-join-mode',
+                title: 'Session join mode',
+                component: <SessionsV2JoinModeSettings />,
+                flag: 'SETTINGS_SESSIONS_V2_JOIN',
+            },
         ],
     },
-
     {
         level: 'environment',
         id: 'environment-replay',
@@ -269,6 +287,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-network',
                 title: 'Network capture',
                 component: <NetworkCaptureSettings />,
+            },
+            {
+                id: 'replay-masking',
+                title: 'Masking',
+                component: <ReplayMaskingSettings />,
             },
             {
                 id: 'replay-authorized-domains',
@@ -325,6 +348,11 @@ export const SETTINGS_MAP: SettingSection[] = [
         flag: 'ERROR_TRACKING',
         settings: [
             {
+                id: 'error-tracking-exception-autocapture',
+                title: 'Exception autocapture',
+                component: <ExceptionAutocaptureSettings />,
+            },
+            {
                 id: 'error-tracking-user-groups',
                 title: 'User groups',
                 description: 'Allow collections of users to be assigned to issues',
@@ -338,7 +366,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-alerting',
                 title: 'Alerting',
-                flag: 'ERROR_TRACKING_ALERTING',
                 component: <ErrorTrackingAlerting />,
             },
         ],
@@ -356,18 +383,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don’t want Max to remember, you can edit or remove them below.',
                 component: <MaxMemorySettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-toolbar',
-        title: 'Toolbar',
-        settings: [
-            {
-                id: 'authorized-toolbar-urls',
-                title: 'Authorized toolbar URLs',
-                component: <TeamToolbarURLs />,
             },
         ],
     },
@@ -480,6 +495,30 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Logo',
                 component: <OrganizationLogo />,
             },
+            {
+                id: 'organization-ai-consent',
+                title: 'PostHog AI data analysis',
+                description: (
+                    // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
+                    <>
+                        PostHog AI features, such as our assistant Max, use{' '}
+                        <Tooltip
+                            title={`As of ${dayjs().format(
+                                'MMMM YYYY'
+                            )}: OpenAI for core analysis, Perplexity for fetching product information`}
+                        >
+                            <dfn>external AI services</dfn>
+                        </Tooltip>{' '}
+                        for data analysis.
+                        <br />
+                        This <i>can</i> involve transfer of identifying user data, so we ask for your org-wide consent
+                        below.
+                        <br />
+                        <strong>Your data will not be used for training models.</strong>
+                    </>
+                ),
+                component: <OrganizationAI />,
+            },
         ],
     },
     {
@@ -518,14 +557,6 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
-        id: 'organization-billing',
-        hideSelfHost: true,
-        title: 'Billing',
-        to: urls.organizationBilling(),
-        settings: [],
-    },
-    {
-        level: 'organization',
         id: 'organization-authentication',
         title: 'Authentication domains & SSO',
         settings: [
@@ -559,6 +590,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <OrganizationDangerZone />,
             },
         ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-billing',
+        hideSelfHost: true,
+        title: 'Billing',
+        to: urls.organizationBilling(),
+        settings: [],
     },
 
     // USER

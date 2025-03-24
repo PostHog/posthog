@@ -31,3 +31,12 @@ class TestInsightVariable(APIBaseTest):
         variable_count = InsightVariable.objects.filter(team_id=self.team.pk).count()
 
         assert variable_count == 1
+
+    def test_delete_insight_variable(self):
+        variable = InsightVariable.objects.create(team=self.team, name="Test Delete", type="String")
+
+        response = self.client.delete(f"/api/projects/{self.team.pk}/insight_variables/{variable.id}/")
+        assert response.status_code == 204
+
+        # Verify the variable was deleted
+        assert not InsightVariable.objects.filter(id=variable.id).exists()

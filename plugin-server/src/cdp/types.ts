@@ -70,7 +70,7 @@ export type HogFunctionInvocationGlobals = {
         uuid: string
         event: string
         distinct_id: string
-        properties: Record<string, any>
+        properties: Record<string, unknown>
         elements_chain: string
         timestamp: string
 
@@ -232,6 +232,7 @@ export type HogFunctionInvocationResult = {
     error?: any
     // asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
     logs: LogEntry[]
+    metrics?: HogFunctionAppMetric[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
     execResult?: unknown
 }
@@ -265,6 +266,7 @@ export type HogFunctionInputSchemaType = {
     required?: boolean
     default?: any
     secret?: boolean
+    hidden?: boolean
     description?: string
     integration?: string
     integration_key?: string
@@ -297,10 +299,11 @@ export type HogFunctionType = {
     team_id: number
     name: string
     enabled: boolean
+    deleted: boolean
     hog: string
     bytecode: HogBytecode
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, HogFunctionInputType>
+    inputs?: Record<string, HogFunctionInputType | null>
     encrypted_inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
@@ -309,6 +312,7 @@ export type HogFunctionType = {
     template_id?: string
     execution_order?: number
     created_at: string
+    updated_at: string
 }
 
 export type HogFunctionInputType = {

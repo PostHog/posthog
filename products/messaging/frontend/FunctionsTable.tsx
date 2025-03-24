@@ -21,7 +21,7 @@ export function FunctionsTableFilters(): JSX.Element | null {
     const { setFilters } = useActions(functionsTableLogic)
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <div className="flex items-center gap-2">
                 <LemonInput
                     type="search"
@@ -40,7 +40,7 @@ export function FunctionsTable({ type }: FunctionsTableProps): JSX.Element {
 
     return (
         <BindLogic logic={functionsTableLogic} props={{ type }}>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <FunctionsTableFilters />
 
                 <LemonTable
@@ -64,7 +64,7 @@ export function FunctionsTable({ type }: FunctionsTableProps): JSX.Element {
                             render: function RenderPluginName(_, hogFunction) {
                                 return (
                                     <LemonTableLink
-                                        to={hogFunctionUrl(hogFunction.type, hogFunction.id)}
+                                        to={hogFunctionUrl(hogFunction.type, hogFunction.id, hogFunction.template?.id)}
                                         title={
                                             <>
                                                 <Tooltip title="Click to update configuration, view metrics, and more">

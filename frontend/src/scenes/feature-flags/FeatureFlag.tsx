@@ -28,6 +28,7 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
 import { PostHogFeature } from 'posthog-js/react'
 import { useEffect, useState } from 'react'
@@ -40,6 +41,7 @@ import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { concatWithPunctuation } from 'scenes/insights/utils'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -57,6 +59,7 @@ import {
     FeatureFlagGroupType,
     FeatureFlagType,
     NotebookNodeType,
+    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     QueryBasedInsightModel,
@@ -128,7 +131,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 
     if (featureFlagLoading) {
         return (
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonSkeleton active className="h-4 w-2/5" />
                 <LemonSkeleton active className="h-4 w-full" />
                 <LemonSkeleton active className="h-4 w-full" />
@@ -250,7 +253,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         props={props}
                         formKey="featureFlag"
                         enableFormOnSubmit
-                        className="space-y-4"
+                        className="deprecated-space-y-4"
                     >
                         <PageHeader
                             buttons={
@@ -290,7 +293,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </LemonBanner>
                         )}
                         <div className="my-4">
-                            <div className="max-w-1/2 space-y-4">
+                            <div className="max-w-1/2 deprecated-space-y-4">
                                 <LemonField
                                     name="key"
                                     label="Key"
@@ -486,7 +489,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             caption={
                                 <div>
                                     <div className="flex flex-wrap items-center gap-2">
-                                        <div className="flex space-x-1">
+                                        <div className="flex deprecated-space-x-1">
                                             <div>
                                                 <span className="text-secondary">Key:</span>{' '}
                                                 <CopyToClipboardInline
@@ -546,6 +549,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                         </>
                                                     )}
 
+                                                    <LemonButton
+                                                        to={urls.featureFlagDuplicate(featureFlag.id)}
+                                                        fullWidth
+                                                    >
+                                                        <span>Duplicate feature flag</span>
+                                                    </LemonButton>
+                                                    <LemonDivider />
                                                     <AccessControlledLemonButton
                                                         userAccessLevel={featureFlag.user_access_level}
                                                         minAccessLevel="editor"
@@ -742,6 +752,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         recordingFilterForFlag,
         flagStatus,
         flagType,
+        flagTypeString,
+        hasEncryptedPayloadBeenSaved,
         hasExperiment,
         isDraftExperiment,
     } = useValues(featureFlagLogic)
@@ -753,7 +765,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         setFeatureFlag,
         saveFeatureFlag,
         setRemoteConfigEnabled,
+        resetEncryptedPayload,
     } = useActions(featureFlagLogic)
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
 
@@ -766,6 +780,24 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                 type: 'primary',
                 onClick: () => setMultivariateEnabled(false),
                 size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    const confirmEncryptedPayloadReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset payload?',
+            description: 'The existing payload will not be reset until the feature flag is saved.',
+            primaryButton: {
+                children: 'Reset',
+                onClick: resetEncryptedPayload,
+                size: 'small',
+                status: 'danger',
             },
             secondaryButton: {
                 children: 'Cancel',
@@ -867,11 +899,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 )}
                             </div>
                             <div className="col-span-6">
-                                <span className="mt-1">
-                                    {featureFlag.filters.multivariate
-                                        ? 'Multiple variants with rollout percentages (A/B/n test)'
-                                        : 'Release toggle (boolean)'}
-                                </span>
+                                <span className="mt-1">{flagTypeString}</span>
                             </div>
                         </div>
 
@@ -945,6 +973,12 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                                 )
                                                             )
                                                         )
+                                                        addProductIntentForCrossSell({
+                                                            from: ProductKey.FEATURE_FLAGS,
+                                                            to: ProductKey.SESSION_REPLAY,
+                                                            intent_context:
+                                                                ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                                        })
                                                     }}
                                                 >
                                                     View recordings
@@ -1047,19 +1081,60 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         </>
                                     )}
                                 </div>
-                                <Group name={['filters', 'payloads']}>
-                                    <LemonField name="true">
-                                        <JSONEditorInput
-                                            readOnly={readOnly}
-                                            placeholder='Examples: "A string", 2500, {"key": "value"}'
-                                        />
+                                {featureFlag.is_remote_configuration && (
+                                    <LemonField name="has_encrypted_payloads">
+                                        {({ value, onChange }) => (
+                                            <div className="border rounded mb-4 p-4">
+                                                <LemonCheckbox
+                                                    id="flag-payload-encrypted-checkbox"
+                                                    label="Encrypt remote configuration payload"
+                                                    onChange={() => onChange(!value)}
+                                                    checked={value}
+                                                    dataAttr="feature-flag-payload-encrypted-checkbox"
+                                                    disabledReason={
+                                                        hasEncryptedPayloadBeenSaved &&
+                                                        'An encrypted payload has already been saved for this flag. Reset the payload or create a new flag to create an unencrypted configuration payload.'
+                                                    }
+                                                />
+                                            </div>
+                                        )}
                                     </LemonField>
-                                </Group>
+                                )}
+                                <div className="flex gap-2">
+                                    <Group name={['filters', 'payloads']}>
+                                        <LemonField name="true" className="grow">
+                                            <JSONEditorInput
+                                                readOnly={
+                                                    readOnly ||
+                                                    (featureFlag.has_encrypted_payloads &&
+                                                        Boolean(featureFlag.filters?.payloads?.['true']))
+                                                }
+                                                placeholder={'Examples: "A string", 2500, {"key": "value"}'}
+                                            />
+                                        </LemonField>
+                                    </Group>
+                                    {featureFlag.has_encrypted_payloads && (
+                                        <LemonButton
+                                            className="grow-0"
+                                            icon={<IconTrash />}
+                                            type="secondary"
+                                            size="small"
+                                            status="danger"
+                                            onClick={confirmEncryptedPayloadReset}
+                                        >
+                                            Reset
+                                        </LemonButton>
+                                    )}
+                                </div>
                                 {featureFlag.is_remote_configuration && (
                                     <div className="text-sm text-secondary mt-4">
                                         Note: remote config flags must be accessed through payloads, e.g.{' '}
-                                        <span className="font-mono font-bold">getFeatureFlagPayload</span>. Using
-                                        standard SDK methods such as{' '}
+                                        <span className="font-mono font-bold">
+                                            {featureFlag.has_encrypted_payloads
+                                                ? 'getDecryptedFeatureFlagPayload'
+                                                : 'getFeatureFlagPayload'}
+                                        </span>
+                                        . Using standard SDK methods such as{' '}
                                         <span className="font-mono font-bold">getFeatureFlag</span> or{' '}
                                         <span className="font-mono font-bold">isFeatureEnabled</span> will always return{' '}
                                         <span className="font-mono font-bold">true</span>
@@ -1077,6 +1152,11 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     onClick={() => {
                                         reportViewRecordingsClicked()
                                         router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
+                                        addProductIntentForCrossSell({
+                                            from: ProductKey.FEATURE_FLAGS,
+                                            to: ProductKey.SESSION_REPLAY,
+                                            intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                        })
                                     }}
                                     icon={<IconRewindPlay />}
                                     type="secondary"
@@ -1093,7 +1173,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                 <div className="feature-flag-variants">
                     <h3 className="l4">Variant keys</h3>
                     <span>The rollout percentage of feature flag variants must add up to 100%</span>
-                    <div className="VariantFormList space-y-2">
+                    <div className="VariantFormList deprecated-space-y-2">
                         <div className="VariantFormList__row grid label-row gap-2 items-center">
                             <div />
                             <div className="col-span-4">Variant key</div>

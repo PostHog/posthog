@@ -13,6 +13,7 @@ frontend/dist/
 .yalc
 .python-version
 storybook-static
+common/storybook/dist/
 dist/
 node_modules/
 pnpm-lock.yaml

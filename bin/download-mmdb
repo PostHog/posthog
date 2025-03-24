@@ -1,0 +1,16 @@
+#!/bin/bash
+
+set -e
+
+# Get dir of this script
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+mkdir -p "$DIR/../share"
+
+if [ ! -f "$DIR/../share/GeoLite2-City.mmdb" ] || [ ! -f "$DIR/../share/GeoLite2-City.json" ]; then
+    rm -f "$DIR/../share/GeoLite2-City.mmdb" "$DIR/../share/GeoLite2-City.json"
+    curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb"
+
+    DATE=$(date +"%Y-%m-%d")
+    echo "{ \"date\": \"$DATE\" }" >"$DIR/../share/GeoLite2-City.json"
+fi

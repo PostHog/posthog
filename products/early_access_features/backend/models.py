@@ -15,6 +15,8 @@ class EarlyAccessFeature(UUIDModel):
         GENERAL_AVAILABILITY = "general-availability", "general availability"
         ARCHIVED = "archived", "archived"
 
+    ReleaseStage = [Stage.CONCEPT, Stage.ALPHA, Stage.BETA, Stage.GENERAL_AVAILABILITY]
+
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,

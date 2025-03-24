@@ -1,5 +1,6 @@
 import { IconBug, IconInfo, IconQuestion } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonInput,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
@@ -85,7 +86,7 @@ export function SupportForm(): JSX.Element | null {
             formKey="sendSupportRequest"
             id="support-modal-form"
             enableFormOnSubmit
-            className="space-y-4"
+            className="deprecated-space-y-4"
         >
             {!user && (
                 <>
@@ -111,6 +112,12 @@ export function SupportForm(): JSX.Element | null {
                     options={TARGET_AREA_TO_NAME}
                 />
             </LemonField>
+            {sendSupportRequest.target_area === 'error_tracking' && (
+                <LemonBanner type="warning">
+                    This topic is for our Error Tracking <i>product</i>. If you're reporting an error in PostHog please
+                    choose the relevant topic so your submission is sent to the correct team.
+                </LemonBanner>
+            )}
             <LemonField
                 name="message"
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}

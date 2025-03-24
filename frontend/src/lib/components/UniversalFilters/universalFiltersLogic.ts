@@ -39,7 +39,9 @@ export type UniversalFiltersLogicProps = {
 export const universalFiltersLogic = kea<universalFiltersLogicType>([
     path((key) => ['lib', 'components', 'UniversalFilters', 'universalFiltersLogic', key]),
     props({} as UniversalFiltersLogicProps),
-    key((props) => props.rootKey),
+    key((props) => {
+        return `${props.rootKey}-${JSON.stringify(props.group)}`
+    }),
 
     connect(() => ({
         values: [propertyDefinitionsModel, ['describeProperty']],
@@ -59,11 +61,13 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         addGroupFilter: (
             taxonomicGroup: TaxonomicFilterGroup,
             propertyKey: TaxonomicFilterValue,
-            item: { propertyFilterType?: PropertyFilterType; name?: string; key?: string }
+            item: { propertyFilterType?: PropertyFilterType; name?: string; key?: string },
+            originalQuery?: string
         ) => ({
             taxonomicGroup,
             propertyKey,
             item,
+            originalQuery,
         }),
     }),
 
@@ -117,7 +121,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         replaceGroupValue: () => props.onChange(values.filterGroup),
         removeGroupValue: () => props.onChange(values.filterGroup),
 
-        addGroupFilter: ({ taxonomicGroup, propertyKey, item }) => {
+        addGroupFilter: ({ taxonomicGroup, propertyKey, item, originalQuery }) => {
             const newValues = [...values.filterGroup.values]
 
             if (taxonomicGroup.type === TaxonomicFilterGroupType.FeatureFlags) {
@@ -139,7 +143,8 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         propertyKey,
                         propertyType,
                         taxonomicGroup,
-                        values.describeProperty
+                        values.describeProperty,
+                        originalQuery
                     )
                     newValues.push(newPropertyFilter)
                 } else {

@@ -9,7 +9,7 @@ export function UpdateEmailPreferences(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <LemonSwitch
                 id="plugin-disabled"
                 data-attr="plugin_disabled"
@@ -32,7 +32,7 @@ export function UpdateEmailPreferences(): JSX.Element {
             <p>
                 The weekly digest keeps you up to date with everything that's happening in your PostHog organizations.
             </p>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonSwitch
                     id="all-digests-disabled"
                     data-attr="all_digests_disabled"

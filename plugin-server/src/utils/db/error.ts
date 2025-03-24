@@ -1,7 +1,7 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
 
 import { Hub, PluginConfig, PluginError, PluginLogEntrySource, PluginLogEntryType } from '../../types'
+import { captureException } from '../posthog'
 
 export class DependencyUnavailableError extends Error {
     constructor(message: string, dependencyName: string, error: Error) {

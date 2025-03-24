@@ -8,6 +8,7 @@ import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useState } from 'react'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
+import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -95,7 +96,7 @@ export function ProjectNotice(): JSX.Element | null {
                 <>
                     This project has no events yet. Go to the{' '}
                     <Link
-                        to={urls.onboarding(ProductKey.PRODUCT_ANALYTICS)}
+                        to={urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL)}
                         data-attr="real_project_with_no_events-ingestion_link"
                     >
                         onboarding wizard
@@ -108,7 +109,7 @@ export function ProjectNotice(): JSX.Element | null {
                 </>
             ),
             action: {
-                to: urls.onboarding(ProductKey.PRODUCT_ANALYTICS),
+                to: urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL),
                 'data-attr': 'demo-warning-cta',
                 icon: <IconGear />,
                 children: 'Go to wizard',

@@ -1,13 +1,16 @@
+import { DateTime } from 'luxon'
+
 import { HogFunctionType, IntegrationType } from '~/src/cdp/types'
 import { Hub } from '~/src/types'
 import { closeHub, createHub } from '~/src/utils/db/hub'
 import { PostgresUse } from '~/src/utils/db/postgres'
-import { insertHogFunction, insertIntegration } from '~/tests/cdp/fixtures'
 import { createTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
+import { insertHogFunction, insertIntegration } from '../_tests/fixtures'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
+    jest.setTimeout(2000)
     let hub: Hub
     let manager: HogFunctionManagerService
 
@@ -90,7 +93,7 @@ describe('HogFunctionManager', () => {
             })
         )
 
-        await manager.start(['destination'])
+        await manager.start()
     })
 
     afterEach(async () => {
@@ -99,7 +102,7 @@ describe('HogFunctionManager', () => {
     })
 
     it('returns the hog functions', async () => {
-        let items = manager.getTeamHogFunctions(teamId1)
+        let items = await manager.getHogFunctionsForTeam(teamId1, ['destination'])
 
         expect(items).toEqual([
             expect.objectContaining({
@@ -120,9 +123,10 @@ describe('HogFunctionManager', () => {
                 inputs: {
                     slack: {
                         value: {
-                            access_token: 'token',
                             team: 'foobar',
+                            access_token: 'token',
                             not_encrypted: 'not-encrypted',
+                            integrationId: 1,
                         },
                     },
                     normal: {
@@ -139,15 +143,15 @@ describe('HogFunctionManager', () => {
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET name='Test Hog Function team 1 updated' WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET name='Test Hog Function team 1 updated', updated_at = NOW() WHERE id = $1`,
             [hogFunctions[0].id],
             'testKey'
         )
 
         // This is normally dispatched by django
-        await manager.reloadHogFunctions(teamId1, [hogFunctions[0].id])
+        manager['onHogFunctionsReloaded'](teamId1, [hogFunctions[0].id])
 
-        items = manager.getTeamHogFunctions(teamId1)
+        items = await manager.getHogFunctionsForTeam(teamId1, ['destination'])
 
         expect(items).toMatchObject([
             {
@@ -157,21 +161,32 @@ describe('HogFunctionManager', () => {
         ])
     })
 
-    it('filters hog functions by type', async () => {
-        manager['hogTypes'] = ['transformation']
-        await manager.reloadAllHogFunctions()
-        expect(manager.getTeamHogFunctions(teamId1).length).toEqual(1)
-        expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('transformation')
+    describe('filters hog functions by type', () => {
+        it('for just transformations', async () => {
+            expect((await manager.getHogFunctionsForTeam(teamId1, ['transformation'])).length).toEqual(1)
+            expect((await manager.getHogFunctionsForTeam(teamId1, ['transformation']))[0].type).toEqual(
+                'transformation'
+            )
+        })
 
-        manager['hogTypes'] = ['transformation', 'destination']
-        await manager.reloadAllHogFunctions()
-        expect(manager.getTeamHogFunctions(teamId1).length).toEqual(2)
-        expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('destination')
-        expect(manager.getTeamHogFunctions(teamId1)[1].type).toEqual('transformation')
+        it('for just destinations', async () => {
+            expect((await manager.getHogFunctionsForTeam(teamId1, ['destination'])).length).toEqual(1)
+            expect((await manager.getHogFunctionsForTeam(teamId1, ['destination']))[0].type).toEqual('destination')
+        })
+
+        it('for both', async () => {
+            expect((await manager.getHogFunctionsForTeam(teamId1, ['destination', 'transformation'])).length).toEqual(2)
+            expect((await manager.getHogFunctionsForTeam(teamId1, ['destination', 'transformation']))[0].type).toEqual(
+                'destination'
+            )
+            expect((await manager.getHogFunctionsForTeam(teamId1, ['destination', 'transformation']))[1].type).toEqual(
+                'transformation'
+            )
+        })
     })
 
     it('removes disabled functions', async () => {
-        let items = manager.getTeamHogFunctions(teamId1)
+        let items = await manager.getHogFunctionsForTeam(teamId1, ['destination'])
 
         expect(items).toMatchObject([
             {
@@ -181,30 +196,31 @@ describe('HogFunctionManager', () => {
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET enabled=false WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET enabled=false, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[0].id],
             'testKey'
         )
 
         // This is normally dispatched by django
-        await manager.reloadHogFunctions(teamId1, [hogFunctions[0].id])
+        manager['onHogFunctionsReloaded'](teamId1, [hogFunctions[0].id])
 
-        items = manager.getTeamHogFunctions(teamId1)
+        items = await manager.getHogFunctionsForTeam(teamId1, ['destination'])
 
         expect(items).toEqual([])
     })
 
-    it('enriches integration inputs if found and belonging to the team', () => {
-        const function1Inputs = manager.getTeamHogFunctions(teamId1)[0].inputs
-        const function2Inputs = manager.getTeamHogFunctions(teamId2)[0].inputs
+    it('enriches integration inputs if found and belonging to the team', async () => {
+        const function1Inputs = (await manager.getHogFunctionsForTeam(teamId1, ['destination']))[0].inputs
+        const function2Inputs = (await manager.getHogFunctionsForTeam(teamId2, ['destination']))[0].inputs
 
         // Only the right team gets the integration inputs enriched
         expect(function1Inputs).toEqual({
             slack: {
                 value: {
-                    access_token: 'token',
                     team: 'foobar',
+                    access_token: 'token',
                     not_encrypted: 'not-encrypted',
+                    integrationId: 1,
                 },
             },
             normal: {
@@ -229,10 +245,10 @@ describe('Hogfunction Manager - Execution Order', () => {
     let hogFunctions: HogFunctionType[]
     let teamId: number
     let teamId2: number
+
     beforeEach(async () => {
         // Setup fake timers but exclude nextTick and setImmediate
         // faking them can cause tests to hang or timeout
-        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
 
         hub = await createHub()
         await resetTestDatabase()
@@ -268,7 +284,7 @@ describe('Hogfunction Manager - Execution Order', () => {
             })
         )
 
-        await manager.start(['transformation'])
+        await manager.start()
     })
 
     afterEach(async () => {
@@ -279,7 +295,7 @@ describe('Hogfunction Manager - Execution Order', () => {
 
     it('maintains correct execution order after individual reloads', async () => {
         // Initial order check
-        let teamFunctions = manager.getTeamHogFunctions(teamId)
+        let teamFunctions = await manager.getHogFunctionsForTeam(teamId, ['transformation'])
         expect(teamFunctions).toHaveLength(3)
         expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
             { name: 'fn1', order: 1 },
@@ -292,7 +308,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         // Update fn2's to be last
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 3 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 3, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[1].id],
             'testKey'
         )
@@ -300,13 +316,13 @@ describe('Hogfunction Manager - Execution Order', () => {
         // therefore fn3's execution order should be 2
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 2 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 2, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[2].id],
             'testKey'
         )
 
-        await manager.reloadHogFunctions(teamId, [hogFunctions[1].id, hogFunctions[2].id])
-        teamFunctions = manager.getTeamHogFunctions(teamId)
+        manager['onHogFunctionsReloaded'](teamId, [hogFunctions[2].id, hogFunctions[1].id])
+        teamFunctions = await manager.getHogFunctionsForTeam(teamId, ['transformation'])
         expect(teamFunctions).toHaveLength(3)
         expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
             { name: 'fn1', order: 1 },
@@ -317,27 +333,27 @@ describe('Hogfunction Manager - Execution Order', () => {
         // change fn1 to be last
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 3 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 3, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[0].id],
             'testKey'
         )
         // change fn3 to be first
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 1 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 1, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[2].id],
             'testKey'
         )
         // change fn2 to be second
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 2 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 2, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[1].id],
             'testKey'
         )
 
-        await manager.reloadHogFunctions(teamId, [hogFunctions[0].id, hogFunctions[1].id, hogFunctions[2].id])
-        teamFunctions = manager.getTeamHogFunctions(teamId)
+        manager['onHogFunctionsReloaded'](teamId, [hogFunctions[2].id, hogFunctions[1].id, hogFunctions[0].id])
+        teamFunctions = await manager.getHogFunctionsForTeam(teamId, ['transformation'])
         expect(teamFunctions).toHaveLength(3)
         expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
             { name: 'fn3', order: 1 },
@@ -347,32 +363,29 @@ describe('Hogfunction Manager - Execution Order', () => {
     })
 
     it('should handle null/undefined execution orders and created_at ordering', async () => {
-        // Set initial time
-        jest.setSystemTime(new Date('2024-01-01T00:00:00Z'))
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn1',
-            execution_order: null,
+            execution_order: undefined,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 1 }).toISO(),
         })
 
-        // Advance time by 1 day
-        jest.setSystemTime(new Date('2024-01-02T00:00:00Z'))
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn2',
             execution_order: 1,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 2 }).toISO(),
         })
 
-        // Advance time by another day
-        jest.setSystemTime(new Date('2024-01-03T00:00:00Z'))
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn3',
             execution_order: 1,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 3 }).toISO(),
         })
 
-        await manager.reloadAllHogFunctions()
-        const teamFunctions = manager.getTeamHogFunctions(teamId2)
+        manager['onHogFunctionsReloaded'](teamId2, [hogFunctions[2].id, hogFunctions[1].id])
+        const teamFunctions = await manager.getHogFunctionsForTeam(teamId2, ['transformation'])
 
         expect(teamFunctions).toHaveLength(3)
         expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
@@ -384,36 +397,35 @@ describe('Hogfunction Manager - Execution Order', () => {
 
     it('should maintain order with mixed execution orders and timestamps', async () => {
         // Create functions with different timestamps and execution orders
-        jest.setSystemTime(new Date('2024-01-01T00:00:00Z'))
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn1',
             execution_order: 2,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 1 }).toISO(),
         })
 
-        jest.setSystemTime(new Date('2024-01-02T00:00:00Z'))
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn2',
-            execution_order: null,
+            execution_order: undefined,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 2 }).toISO(),
         })
 
-        jest.setSystemTime(new Date('2024-01-03T00:00:00Z'))
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn3',
             execution_order: 1,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 3 }).toISO(),
         })
 
-        jest.setSystemTime(new Date('2024-01-04T00:00:00Z'))
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn4',
             execution_order: 1,
             type: 'transformation',
+            created_at: DateTime.now().plus({ days: 4 }).toISO(),
         })
-
-        await manager.reloadAllHogFunctions()
-        const teamFunctions = manager.getTeamHogFunctions(teamId2)
+        manager['onHogFunctionsReloaded'](teamId2, [hogFunctions[2].id, hogFunctions[1].id])
+        const teamFunctions = await manager.getHogFunctionsForTeam(teamId2, ['transformation'])
 
         expect(teamFunctions).toHaveLength(4)
         expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
@@ -422,5 +434,218 @@ describe('Hogfunction Manager - Execution Order', () => {
             { name: 'fn1', order: 2 }, // Third because execution_order=2
             { name: 'fn2', order: null }, // Last because null execution_order
         ])
+    })
+})
+
+describe('HogFunctionManager - Integration Updates', () => {
+    let hub: Hub
+    let manager: HogFunctionManagerService
+    let teamId: number
+    let integration: IntegrationType
+
+    beforeEach(async () => {
+        hub = await createHub()
+        await resetTestDatabase()
+        manager = new HogFunctionManagerService(hub)
+
+        const team = await hub.db.fetchTeam(2)
+        teamId = await createTeam(hub.db.postgres, team!.organization_id)
+
+        // Create an integration
+        integration = await insertIntegration(hub.postgres, teamId, {
+            kind: 'slack',
+            config: { team: 'initial-team' },
+            sensitive_config: {
+                access_token: hub.encryptedFields.encrypt('initial-token'),
+            },
+        })
+
+        // Create a hog function that uses this integration
+        await insertHogFunction(hub.postgres, teamId, {
+            name: 'Test Integration Updates',
+            inputs_schema: [
+                {
+                    type: 'integration',
+                    key: 'slack',
+                },
+            ],
+            inputs: {
+                slack: {
+                    value: integration.id,
+                },
+            },
+        })
+
+        await manager.start()
+    })
+
+    afterEach(async () => {
+        await manager.stop()
+        await closeHub(hub)
+    })
+
+    it('updates cached integration data when integration changes', async () => {
+        // First check - initial state
+        const functions = await manager.getHogFunctionsForTeam(teamId, ['destination'])
+        expect(functions[0]?.inputs?.slack?.value).toEqual({
+            team: 'initial-team',
+            access_token: 'initial-token',
+            integrationId: integration.id,
+        })
+
+        // Update the integration in the database
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_integration 
+             SET config = jsonb_set(config, '{team}', '"updated-team"'::jsonb),
+                 sensitive_config = jsonb_set(sensitive_config, '{access_token}', $1::jsonb)
+             WHERE id = $2`,
+            [JSON.stringify(hub.encryptedFields.encrypt('updated-token')), integration.id],
+            'updateIntegration'
+        )
+
+        manager['onIntegrationsReloaded']([integration.id])
+
+        // Verify the database update worked
+        const updatedIntegration = await hub.db.postgres.query(
+            PostgresUse.COMMON_READ,
+            `SELECT config, sensitive_config FROM posthog_integration WHERE id = $1`,
+            [integration.id],
+            'fetchUpdatedIntegration'
+        )
+
+        // assert the integration was updated
+        expect(updatedIntegration.rows[0].config).toEqual({ team: 'updated-team' })
+        expect(hub.encryptedFields.decrypt(updatedIntegration.rows[0].sensitive_config.access_token)).toEqual(
+            'updated-token'
+        )
+
+        // Trigger integration reload
+        manager['onIntegrationsReloaded']([integration.id])
+        // Check if the cached data was updated
+        const newFunctions = await manager.getHogFunctionsForTeam(teamId, ['destination'])
+        expect(newFunctions[0]?.inputs?.slack?.value).toEqual({
+            team: 'updated-team',
+            access_token: 'updated-token',
+            integrationId: integration.id,
+        })
+    })
+})
+
+describe('sanitize', () => {
+    let hub: Hub
+    let manager: HogFunctionManagerService
+
+    beforeEach(async () => {
+        hub = await createHub()
+        manager = new HogFunctionManagerService(hub)
+    })
+
+    afterEach(async () => {
+        await closeHub(hub)
+    })
+
+    it('should handle encrypted_inputs as an object', () => {
+        const item: HogFunctionType = {
+            id: '1',
+            team_id: 1,
+            name: 'test',
+            type: 'destination',
+            enabled: true,
+            deleted: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            encrypted_inputs: {
+                apiKey: {
+                    value: 'test-key',
+                    order: 0,
+                    bytecode: ['_H', 1, 32, 'test-key'],
+                },
+            },
+        } as unknown as HogFunctionType
+
+        manager.sanitize([item])
+
+        // Should preserve the original object
+        expect(item.encrypted_inputs).toEqual({
+            apiKey: {
+                value: 'test-key',
+                order: 0,
+                bytecode: ['_H', 1, 32, 'test-key'],
+            },
+        })
+    })
+
+    it('should handle encrypted_inputs as a string', () => {
+        const encryptedString = hub.encryptedFields.encrypt(
+            JSON.stringify({
+                apiKey: {
+                    value: 'test-key',
+                    order: 0,
+                },
+            })
+        )
+
+        const item: HogFunctionType = {
+            id: '1',
+            team_id: 1,
+            name: 'test',
+            type: 'destination',
+            enabled: true,
+            deleted: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            encrypted_inputs: encryptedString,
+        } as unknown as HogFunctionType
+
+        manager.sanitize([item])
+
+        // Should decrypt and parse the string
+        expect(item.encrypted_inputs).toEqual({
+            apiKey: {
+                value: 'test-key',
+                order: 0,
+            },
+        })
+    })
+
+    it('should capture exception for invalid encrypted string while preserving value', () => {
+        const item: HogFunctionType = {
+            id: '1',
+            team_id: 1,
+            name: 'test',
+            type: 'destination',
+            enabled: true,
+            deleted: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            encrypted_inputs: 'invalid-encrypted-string',
+        } as unknown as HogFunctionType
+
+        manager.sanitize([item])
+
+        // Should preserve the original invalid string
+        expect(item.encrypted_inputs).toBe('invalid-encrypted-string')
+    })
+
+    it('should not capture exception for undefined values', () => {
+        const items: HogFunctionType[] = [
+            {
+                id: '1',
+                team_id: 1,
+                name: 'test-undefined',
+                type: 'destination',
+                enabled: true,
+                deleted: false,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                encrypted_inputs: undefined,
+            } as unknown as HogFunctionType,
+        ]
+
+        manager.sanitize(items)
+
+        // Should preserve undefined value
+        expect(items[0].encrypted_inputs).toBeUndefined()
     })
 })

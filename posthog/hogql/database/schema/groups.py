@@ -15,13 +15,13 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.errors import ResolutionError
 
-GROUPS_TABLE_FIELDS = {
-    "index": IntegerDatabaseField(name="group_type_index"),
-    "team_id": IntegerDatabaseField(name="team_id"),
-    "key": StringDatabaseField(name="group_key"),
-    "created_at": DateTimeDatabaseField(name="created_at"),
-    "updated_at": DateTimeDatabaseField(name="_timestamp"),
-    "properties": StringJSONDatabaseField(name="group_properties"),
+GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
+    "index": IntegerDatabaseField(name="group_type_index", nullable=False),
+    "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+    "key": StringDatabaseField(name="group_key", nullable=False),
+    "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
+    "updated_at": DateTimeDatabaseField(name="_timestamp", nullable=False),
+    "properties": StringJSONDatabaseField(name="group_properties", nullable=False),
 }
 
 

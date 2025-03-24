@@ -1,11 +1,13 @@
-import { IconRefresh, IconWarning } from '@posthog/icons'
+import { IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { ProgressStatus } from '~/types'
@@ -16,9 +18,27 @@ import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 
 export function Info(): JSX.Element {
-    const { experiment, featureFlags, metricResults, metricResultsLoading, secondaryMetricResultsLoading } =
-        useValues(experimentLogic)
-    const { updateExperiment, setExperimentStatsVersion, refreshExperimentResults } = useActions(experimentLogic)
+    const {
+        experiment,
+        featureFlags,
+        metricResults,
+        metricResultsLoading,
+        secondaryMetricResultsLoading,
+        isDescriptionModalOpen,
+    } = useValues(experimentLogic)
+    const {
+        updateExperiment,
+        setExperimentStatsVersion,
+        refreshExperimentResults,
+        openDescriptionModal,
+        closeDescriptionModal,
+    } = useActions(experimentLogic)
+
+    const [tempDescription, setTempDescription] = useState(experiment.description || '')
+
+    useEffect(() => {
+        setTempDescription(experiment.description || '')
+    }, [experiment.description])
 
     const { created_by } = experiment
 
@@ -33,7 +53,7 @@ export function Info(): JSX.Element {
     return (
         <div>
             <div className="flex flex-wrap justify-between gap-4">
-                <div className="inline-flex space-x-8">
+                <div className="inline-flex deprecated-space-x-8">
                     <div className="block" data-attr="experiment-status">
                         <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
                         <StatusTag experiment={experiment} />
@@ -103,11 +123,11 @@ export function Info(): JSX.Element {
                 </div>
 
                 <div className="flex flex-col">
-                    <div className="inline-flex space-x-8">
+                    <div className="inline-flex deprecated-space-x-8">
                         {experiment.start_date && (
                             <div className="block">
                                 <div className="text-xs font-semibold uppercase tracking-wide">Last refreshed</div>
-                                <div className="inline-flex space-x-2">
+                                <div className="inline-flex deprecated-space-x-2">
                                     <span
                                         className={`${
                                             lastRefresh
@@ -147,19 +167,46 @@ export function Info(): JSX.Element {
                 </div>
             </div>
             <div className="block mt-4">
-                <div className="text-xs font-semibold uppercase tracking-wide">Description</div>
-                <EditableField
-                    className="py-2"
-                    multiline
-                    markdown
-                    name="description"
-                    value={experiment.description || ''}
-                    placeholder="Add your hypothesis for this test (optional)"
-                    onSave={(value) => updateExperiment({ description: value })}
-                    maxLength={400}
-                    data-attr="experiment-description"
-                    compactButtons
-                />
+                <div className="flex items-center gap-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide">Hypothesis</div>
+                    <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openDescriptionModal} />
+                </div>
+                {experiment.description ? (
+                    <p className="py-2 m-0">{experiment.description}</p>
+                ) : (
+                    <p className="py-2 m-0 text-muted">Add your hypothesis for this test</p>
+                )}
+
+                <LemonModal
+                    isOpen={isDescriptionModalOpen}
+                    onClose={closeDescriptionModal}
+                    title="Edit hypothesis"
+                    footer={
+                        <div className="flex items-center gap-2 justify-end">
+                            <LemonButton type="secondary" onClick={closeDescriptionModal}>
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => {
+                                    updateExperiment({ description: tempDescription })
+                                    closeDescriptionModal()
+                                }}
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    }
+                >
+                    <LemonTextArea
+                        className="w-full"
+                        value={tempDescription}
+                        onChange={(value) => setTempDescription(value)}
+                        placeholder="Add your hypothesis for this test (optional)"
+                        minRows={6}
+                        maxLength={400}
+                    />
+                </LemonModal>
             </div>
         </div>
     )

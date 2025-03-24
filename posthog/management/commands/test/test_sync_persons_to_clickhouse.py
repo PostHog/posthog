@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 
 import posthog.management.commands.sync_persons_to_clickhouse
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.management.commands.sync_persons_to_clickhouse import (
     run,
     run_distinct_id_sync,

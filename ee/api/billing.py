@@ -60,12 +60,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if org.billing.stripe_subscription_id:  # type: ignore
                 raise NotFound("Billing V1 is active for this organization")
 
-        plan_keys = request.query_params.get("plan_keys", None)
         billing_manager = self.get_billing_manager()
         query = {}
         if "include_forecasting" in request.query_params:
             query["include_forecasting"] = request.query_params.get("include_forecasting")
-        response = billing_manager.get_billing(org, plan_keys, query)
+        response = billing_manager.get_billing(org, query)
 
         return Response(response)
 

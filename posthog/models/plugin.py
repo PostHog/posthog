@@ -11,7 +11,6 @@ from django.core import exceptions
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
-from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec
 
@@ -20,7 +19,7 @@ from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
-from posthog.plugins.access import can_configure_plugins, can_install_plugins
+from posthog.plugins.access import can_install_plugins
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
 from posthog.plugins.site import get_decide_site_apps, get_decide_site_functions
 from posthog.plugins.utils import (
@@ -30,11 +29,10 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-
 from .utils import UUIDModel, sane_repr
 
 try:
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 except ImportError:
     pass
 
@@ -492,8 +490,8 @@ def fetch_plugin_log_entries(
     *,
     team_id: Optional[int] = None,
     plugin_config_id: Optional[int] = None,
-    after: Optional[timezone.datetime] = None,
-    before: Optional[timezone.datetime] = None,
+    after: Optional[datetime.datetime] = None,
+    before: Optional[datetime.datetime] = None,
     search: Optional[str] = None,
     limit: Optional[int] = None,
     type_filter: Optional[list[PluginLogEntryType]] = None,
@@ -566,45 +564,6 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
                     f"⚠️ Cannot preinstall plugin from {plugin_url}, skipping it for organization {instance.name}:\n",
                     e,
                 )
-
-
-@receiver(models.signals.post_save, sender=Team)
-def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    if not created or not can_configure_plugins(instance.organization):
-        return
-
-    if settings.USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION:
-        if not settings.DISABLE_MMDB:
-            # New way: Create GeoIP transformation
-            from posthog.models.hog_functions.hog_function import HogFunction
-            from posthog.api.hog_function_template import HogFunctionTemplates
-
-            geoip_template = HogFunctionTemplates.template("plugin-posthog-plugin-geoip")
-            if not geoip_template:
-                return
-
-            HogFunction.objects.create(
-                team=instance,
-                created_by=kwargs.get("initiating_user"),
-                type="transformation",
-                name="GeoIP",
-                description="Enrich events with GeoIP data",
-                icon_url="/static/transformations/geoip.png",
-                hog=geoip_template.hog,
-                inputs_schema=geoip_template.inputs_schema,
-                enabled=True,
-                execution_order=1,
-            )
-    else:
-        # Old way: Enable all preinstalled plugins including GeoIP
-        for order, preinstalled_plugin in enumerate(Plugin.objects.filter(is_preinstalled=True)):
-            PluginConfig.objects.create(
-                team=instance,
-                plugin=preinstalled_plugin,
-                enabled=True,
-                order=order,
-                config=preinstalled_plugin.get_default_config(),
-            )
 
 
 @mutable_receiver([post_save, post_delete], sender=Plugin)

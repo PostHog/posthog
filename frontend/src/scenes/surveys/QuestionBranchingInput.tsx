@@ -4,6 +4,7 @@ import { LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { truncate } from 'lib/utils'
+import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL } from 'scenes/surveys/constants'
 
 import { MultipleSurveyQuestion, RatingSurveyQuestion, SurveyQuestionBranchingType, SurveyQuestionType } from '~/types'
 
@@ -146,9 +147,9 @@ function QuestionResponseBasedBranchingInput({
     } else if (question.type === SurveyQuestionType.Rating && question.scale === 10) {
         config = [
             // NPS categories
-            { value: 'detractors', label: '0 to 6 (Detractors)' },
-            { value: 'passives', label: '7 to 8 (Passives)' },
-            { value: 'promoters', label: '9 to 10 (Promoters)' },
+            { value: 'detractors', label: `0 to 6 (${NPS_DETRACTOR_LABEL})` },
+            { value: 'passives', label: `7 to 8 (${NPS_PASSIVE_LABEL})` },
+            { value: 'promoters', label: `9 to 10 (${NPS_PROMOTER_LABEL})` },
         ]
     } else if (question.type === SurveyQuestionType.SingleChoice) {
         config = question.choices.map((choice, choiceIndex) => ({
@@ -158,7 +159,7 @@ function QuestionResponseBasedBranchingInput({
     }
 
     return (
-        <div className="mt-2 space-y-2">
+        <div className="mt-2 deprecated-space-y-2">
             {config.map(({ value, label }, i) => (
                 <div key={i} className="flex">
                     <div className="w-2/3 flex items-center">

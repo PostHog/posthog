@@ -15,8 +15,8 @@ import pytest_asyncio
 
 from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
 from posthog.models.team.team import Team
-from posthog.temporal.data_imports import ACTIVITIES
-from posthog.temporal.data_imports import DeltalakeCompactionJobWorkflow
+from posthog.temporal.data_imports.settings import ACTIVITIES
+from posthog.temporal.data_imports.settings import DeltalakeCompactionJobWorkflow
 from posthog.temporal.data_imports.deltalake_compaction_job import DeltalakeCompactionJobWorkflowInputs
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
@@ -113,7 +113,7 @@ async def _run(team: Team):
                     activity_executor=ThreadPoolExecutor(max_workers=50),
                     max_concurrent_activities=50,
                 ):
-                    await activity_environment.client.execute_workflow(  # type: ignore
+                    await activity_environment.client.execute_workflow(
                         DeltalakeCompactionJobWorkflow.run,
                         inputs,
                         id=str(uuid.uuid4()),

@@ -35,24 +35,6 @@ interface SyncMethodFormProps {
         incrementalFieldType: string | null
     ) => void
     saveButtonIsLoading?: boolean
-    showRefreshMessageOnChange?: boolean
-}
-
-const hasInputChanged = (
-    newSchemaSyncType: ExternalDataSourceSyncSchema['sync_type'],
-    newSchemaIncrementalField: string | null,
-    originalSchemaSyncType: ExternalDataSourceSyncSchema['sync_type'],
-    originalSchemaIncrementalField: string | null
-): boolean => {
-    if (originalSchemaSyncType !== newSchemaSyncType) {
-        return true
-    }
-
-    if (newSchemaSyncType === 'incremental' && newSchemaIncrementalField !== originalSchemaIncrementalField) {
-        return true
-    }
-
-    return false
 }
 
 const getSaveDisabledReason = (
@@ -68,16 +50,7 @@ const getSaveDisabledReason = (
     }
 }
 
-export const SyncMethodForm = ({
-    schema,
-    onClose,
-    onSave,
-    saveButtonIsLoading,
-    showRefreshMessageOnChange,
-}: SyncMethodFormProps): JSX.Element => {
-    const [originalSchemaSyncType] = useState(schema.sync_type ?? null)
-    const [originalSchemaIncrementalField] = useState(schema.incremental_field ?? null)
-
+export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }: SyncMethodFormProps): JSX.Element => {
     const [radioValue, setRadioValue] = useState(schema.sync_type ?? undefined)
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(schema.incremental_field ?? null)
 
@@ -87,14 +60,6 @@ export const SyncMethodForm = ({
     }, [schema.table])
 
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
-
-    const inputChanged = hasInputChanged(
-        radioValue ?? null,
-        incrementalFieldValue,
-        originalSchemaSyncType,
-        originalSchemaIncrementalField
-    )
-    const showRefreshMessage = inputChanged && showRefreshMessageOnChange
 
     return (
         <>
@@ -107,18 +72,18 @@ export const SyncMethodForm = ({
                         disabledReason:
                             (incrementalSyncSupported.disabled && incrementalSyncSupported.disabledReason) || undefined,
                         label: (
-                            <div className="mb-6 font-normal">
-                                <div className="items-center flex leading-[normal] overflow-hidden mb-2.5">
-                                    <h2 className="mb-0 mr-2">Incremental replication</h2>
+                            <div className="mb-4 font-normal">
+                                <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                                    <h4 className="mb-0 mr-2 text-base font-semibold">Incremental replication</h4>
                                     {!incrementalSyncSupported.disabled && (
                                         <LemonTag type="success">Recommended</LemonTag>
                                     )}
                                 </div>
-                                <p>
+                                <p className="mb-1">
                                     When using incremental replication, we'll store the max value of the below field on
                                     each sync and only sync rows with greater or equal value on the next run.
                                 </p>
-                                <p>
+                                <p className="mb-1">
                                     You should pick a field that increments or updates each time the row is updated,
                                     such as a <code>updated_at</code> timestamp.
                                 </p>
@@ -147,10 +112,10 @@ export const SyncMethodForm = ({
                         value: 'full_refresh',
                         label: (
                             <div className="mb-6 font-normal">
-                                <div className="items-center flex leading-[normal] overflow-hidden mb-2.5">
-                                    <h2 className="mb-0 mr-2">Full table replication</h2>
+                                <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                                    <h4 className="mb-0 mr-2 text-base font-semibold">Full table replication</h4>
                                 </div>
-                                <p>
+                                <p className="m-0">
                                     We'll replicate the whole table on every sync. This can take longer to sync and
                                     increase your monthly billing.
                                 </p>
@@ -160,11 +125,6 @@ export const SyncMethodForm = ({
                 ]}
                 onChange={(newValue) => setRadioValue(newValue)}
             />
-            {showRefreshMessage && (
-                <p className="text-danger">
-                    Note: Changing the sync type or incremental replication field will trigger a full table refresh
-                </p>
-            )}
             <div className="flex flex-row justify-end w-full">
                 <LemonButton className="mr-3" type="secondary" onClick={onClose}>
                     Close

@@ -1,0 +1,43 @@
+.live-user-indicator {
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-right: 0.25rem;
+    border-radius: 9999px;
+    transition: background-color 1s ease-in-out;
+
+    &.online {
+        background-color: var(--color-green-500);
+        animation: LiveUserIndicator__Pulse 10s ease-in-out infinite;
+    }
+
+    &.offline {
+        background-color: var(--color-red-300);
+    }
+}
+
+@keyframes LiveUserIndicator__Pulse {
+    0% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    45% {
+        opacity: 1;
+        transform: scale(0.9);
+    }
+
+    50% {
+        opacity: 0.6;
+        transform: scale(1.15);
+    }
+
+    55% {
+        opacity: 1;
+        transform: scale(0.9);
+    }
+
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}

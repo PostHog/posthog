@@ -321,6 +321,10 @@ def get_temporal_context() -> dict[str, str | int]:
         # This works because the WorkflowID is made up like f"{external_data_schema_id}-{data_interval_end}"
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
         log_source = "external_data_jobs"
+    elif workflow_type == "deltalake-compaction-job":
+        # This works because the WorkflowID is made up like f"{external_data_schema_id}-compaction"
+        log_source_id = workflow_id.split("-compaction")[0]
+        log_source = "deltalake_compaction_job"
     else:
         # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
         # Since 'data_interval_end' is an iso formatted datetime string, it has two '-' to separate the

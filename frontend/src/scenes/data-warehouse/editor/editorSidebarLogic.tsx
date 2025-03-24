@@ -1,9 +1,10 @@
+import { IconDatabase, IconDocument, IconLogomark } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import { IconCalculate, IconClipboardEdit } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -12,10 +13,11 @@ import { urls } from 'scenes/urls'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import { BasicListItem, ExtendedListItem, ListItemAccordion, SidebarCategory } from '~/layout/navigation-3000/types'
-import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries/schema'
-import { DataWarehouseSavedQuery, PipelineTab } from '~/types'
+import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { DataWarehouseSavedQuery, PipelineStage } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { DataWarehouseSourceIcon } from '../settings/DataWarehouseSourceIcon'
 import { viewLinkLogic } from '../viewLinkLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import type { editorSidebarLogicType } from './editorSidebarLogicType'
@@ -88,6 +90,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         relevantDataWarehouseTables.length > 0
                             ? relevantDataWarehouseTables.map(([table, matches]) => ({
                                   key: table.id,
+                                  icon: <IconDatabase />,
                                   name: table.name,
                                   url: '',
                                   searchMatch: matches
@@ -111,8 +114,30 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                               }))
                             : dataWarehouseTablesBySourceType,
                     onAdd: () => {
-                        router.actions.push(urls.pipeline(PipelineTab.Sources))
+                        router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
                     },
+                    emptyComponent: (
+                        <div className="p-4 text-center flex flex-col justify-center items-center">
+                            <div className="mb-4 flex justify-center gap-6">
+                                <DataWarehouseSourceIcon type="Postgres" size="small" />
+                                <DataWarehouseSourceIcon type="Stripe" size="small" />
+                            </div>
+                            <h4 className="mb-2">No external sources connected</h4>
+                            {/* eslint-disable-next-line react/forbid-dom-props */}
+                            <p className="text-muted mb-4 text-xs px-2 break-words w" style={{ whiteSpace: 'normal' }}>
+                                Import data from external sources like Postgres, Stripe, or other databases to enrich
+                                your analytics.
+                            </p>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))}
+                                center
+                                size="small"
+                            >
+                                Add data source
+                            </LemonButton>
+                        </div>
+                    ),
                 } as SidebarCategory,
                 {
                     key: 'data-warehouse-tables',
@@ -122,6 +147,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         key: table.id,
                         name: table.name,
                         url: '',
+                        icon: <IconLogomark />,
                         searchMatch: matches
                             ? {
                                   matchingFields: matches.map((match) => match.key),
@@ -150,13 +176,13 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         key: savedQuery.id,
                         name: savedQuery.name,
                         url: '',
-                        icon: savedQuery.status ? (
+                        icon: savedQuery.last_run_at ? (
                             <Tooltip title="Materialized view">
-                                <IconCalculate />
+                                <IconDatabase />
                             </Tooltip>
                         ) : (
                             <Tooltip title="View">
-                                <IconClipboardEdit />
+                                <IconDocument />
                             </Tooltip>
                         ),
                         searchMatch: matches
@@ -244,6 +270,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         key: table.id,
                         name: table.name,
                         url: '',
+                        icon: <IconDatabase />,
                         searchMatch: null,
                         onClick: () => {
                             actions.selectSchema(table)

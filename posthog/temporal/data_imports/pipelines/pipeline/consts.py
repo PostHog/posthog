@@ -1,0 +1,2 @@
+DEFAULT_TABLE_SIZE_BYTES = 150 * 1024 * 1024  # 150 MB
+PARTITION_KEY = "_ph_partition_key"

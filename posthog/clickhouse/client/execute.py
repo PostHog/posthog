@@ -1,15 +1,17 @@
 import json
 import threading
 import types
+from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Optional, Union
-from collections.abc import Sequence
 
 import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
+from prometheus_client import Counter, Gauge
+from sentry_sdk import set_tag
 
 from posthog.clickhouse.client.connection import Workload, get_client_from_pool
 from posthog.clickhouse.client.escape import substitute_params
@@ -17,8 +19,6 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
 from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
-from prometheus_client import Counter, Gauge
-from sentry_sdk import set_tag
 
 QUERY_ERROR_COUNTER = Counter(
     "clickhouse_query_failure",
@@ -121,26 +121,26 @@ def sync_execute(
     if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
 
-    with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
-        start_time = perf_counter()
+    start_time = perf_counter()
 
-        prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
-        query_id = validated_client_query_id()
-        core_settings = {**default_settings(), **(settings or {})}
-        tags["query_settings"] = core_settings
+    prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
+    query_id = validated_client_query_id()
+    core_settings = {**default_settings(), **(settings or {})}
+    tags["query_settings"] = core_settings
 
-        query_type = tags.get("query_type", "Other")
-        set_tag("query_type", query_type)
-        if team_id is not None:
-            set_tag("team_id", team_id)
+    query_type = tags.get("query_type", "Other")
+    set_tag("query_type", query_type)
+    if team_id is not None:
+        set_tag("team_id", team_id)
 
-        settings = {
-            **core_settings,
-            "log_comment": json.dumps(tags, separators=(",", ":")),
-            "query_id": query_id,
-        }
+    settings = {
+        **core_settings,
+        "log_comment": json.dumps(tags, separators=(",", ":")),
+        "query_id": query_id,
+    }
 
-        try:
+    try:
+        with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
             result = client.execute(
                 prepared_sql,
                 params=prepared_args,
@@ -148,23 +148,23 @@ def sync_execute(
                 with_column_types=with_column_types,
                 query_id=query_id,
             )
-        except Exception as e:
-            err = wrap_query_error(e)
-            exception_type = type(err).__name__
-            set_tag("clickhouse_exception_type", exception_type)
-            QUERY_ERROR_COUNTER.labels(exception_type=exception_type, query_type=query_type).inc()
+    except Exception as e:
+        err = wrap_query_error(e)
+        exception_type = type(err).__name__
+        set_tag("clickhouse_exception_type", exception_type)
+        QUERY_ERROR_COUNTER.labels(exception_type=exception_type, query_type=query_type).inc()
 
-            raise err from e
-        finally:
-            execution_time = perf_counter() - start_time
+        raise err from e
+    finally:
+        execution_time = perf_counter() - start_time
 
-            QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type).set(execution_time * 1000.0)
+        QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type).set(execution_time * 1000.0)
 
-            if query_counter := getattr(thread_local_storage, "query_counter", None):
-                query_counter.total_query_time += execution_time
+        if query_counter := getattr(thread_local_storage, "query_counter", None):
+            query_counter.total_query_time += execution_time
 
-            if app_settings.SHELL_PLUS_PRINT_SQL:
-                print("Execution time: %.6fs" % (execution_time,))  # noqa T201
+        if app_settings.SHELL_PLUS_PRINT_SQL:
+            print("Execution time: %.6fs" % (execution_time,))  # noqa T201
     return result
 
 
@@ -196,9 +196,7 @@ def query_with_columns(
     return rows
 
 
-@patchable
 def _prepare_query(
-    client: SyncClient,
     query: str,
     args: QueryArgs,
     workload: Workload = Workload.DEFAULT,

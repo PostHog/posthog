@@ -56,6 +56,9 @@ services:
             file: docker-compose.base.yml
             service: clickhouse
         hostname: clickhouse
+        environment:
+            - AWS_ACCESS_KEY_ID=object_storage_root_user
+            - AWS_SECRET_ACCESS_KEY=object_storage_root_password
         ports:
             - '8123:8123'
             - '8443:8443'
@@ -148,13 +151,6 @@ services:
             - redis
             - kafka
 
-    property-defs-rs:
-        extends:
-            file: docker-compose.base.yml
-            service: property-defs-rs
-        depends_on:
-            - kafka
-
     feature-flags:
         extends:
             file: docker-compose.base.yml
@@ -200,27 +196,5 @@ services:
         depends_on:
             temporal:
                 condition: service_started
-            db:
-                condition: service_healthy
-
-    cyclotron-fetch:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-fetch
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            RUST_LOG: 'info'
-        depends_on:
-            db:
-                condition: service_healthy
-
-    cyclotron-janitor:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-janitor
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            RUST_LOG: 'info'
-        depends_on:
             db:
                 condition: service_healthy

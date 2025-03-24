@@ -1,13 +1,19 @@
+import re
 from datetime import datetime
 from typing import Any, Optional
-import dlt
 from urllib.parse import urlencode
+
+import dlt
+import structlog
+from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from dlt.sources.helpers.requests import Response, Request
+
+from posthog.temporal.common.logger import get_temporal_context
 from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.pipelines.salesforce.auth import SalseforceAuth
-import re
+
+LOGGER = structlog.get_logger()
 
 
 # Note: When pulling all fields, salesforce requires a 200 limit. We circumvent the pagination by using Id ordering.
@@ -311,17 +317,38 @@ class SalesforceEndpointPaginator(BasePaginator):
         self.instance_url = instance_url
         self.is_incremental = is_incremental
 
+    def __repr__(self):
+        pairs = (
+            f"{attr}={repr(getattr(self, attr))}"
+            for attr in ("is_incremental", "_has_next_page", "_model_name", "_last_record_id")
+        )
+        return f"<SalesforceEndpointPaginator at {hex(id(self))}: {', '.join(pairs)}>"
+
+    @property
+    def logger(self):
+        temporal_context = get_temporal_context()
+        return LOGGER.bind(**temporal_context)
+
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
-        self._next_page = None
-
         if not res or not res["records"]:
             self._has_next_page = False
+            self.logger.debug(
+                "No more Salesforce pages", instance_url=self.instance_url, is_incremental=self.is_incremental
+            )
             return
 
         last_record = res["records"][-1]
         model_name = res["records"][0]["attributes"]["type"]
+
+        self.logger.debug(
+            "More Salesforce pages required",
+            instance_url=self.instance_url,
+            is_incremental=self.is_incremental,
+            model_name=model_name,
+            last_record_id=last_record["Id"],
+        )
 
         self._has_next_page = True
         self._last_record_id = last_record["Id"]
@@ -332,12 +359,29 @@ class SalesforceEndpointPaginator(BasePaginator):
             # Cludge: Need to get initial value for date filter
             query = request.params.get("q", "")
             date_match = re.search(r"SystemModstamp >= (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+?)\s", query)
+
+            self.logger.debug(
+                "Constructing incremental query",
+                instance_url=self.instance_url,
+                is_incremental=self.is_incremental,
+                model_name=self._model_name,
+                last_record_id=self._last_record_id,
+            )
+
             if date_match:
                 date_filter = date_match.group(1)
                 query = f"SELECT FIELDS(ALL) FROM {self._model_name} WHERE Id > '{self._last_record_id}' AND SystemModstamp >= {date_filter} ORDER BY Id ASC LIMIT 200"
             else:
                 raise ValueError("No date filter found in initial query. Incremental loading requires a date filter.")
         else:
+            self.logger.debug(
+                "Constructing non-incremental query",
+                instance_url=self.instance_url,
+                is_incremental=self.is_incremental,
+                model_name=self._model_name,
+                last_record_id=self._last_record_id,
+            )
+
             query = f"SELECT FIELDS(ALL) FROM {self._model_name} WHERE Id > '{self._last_record_id}' ORDER BY Id ASC LIMIT 200"
 
         _next_page = f"/services/data/v61.0/query" + "?" + urlencode({"q": query})

@@ -19,7 +19,7 @@
     &--small {
         --lemon-button-padding-horizontal: 0.5rem;
         --lemon-button-height: 2.0625rem;
-        --lemon-button-gap: 0.25rem;
+        --lemon-button-gap: 0.5rem;
         --lemon-button-side-action-width: 1.75rem;
         --lemon-button-icon-size: 1.25rem;
     }
@@ -67,7 +67,7 @@
     flex-shrink: 0;
     align-items: center;
     padding: 0;
-    font-family: var(--font-title);
+    font-family: var(--font-button);
     appearance: none !important; // Important as this gets overridden by Ant styles...
     cursor: pointer;
     user-select: none;

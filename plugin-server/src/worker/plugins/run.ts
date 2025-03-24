@@ -1,6 +1,6 @@
 import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginMethodsConcrete, PluginTaskType, PostIngestionEvent } from '../../types'
+import { Hub, PluginConfig, PluginMethodsConcrete, PostIngestionEvent } from '../../types'
 import { processError } from '../../utils/db/error'
 import {
     convertToOnEventPayload,
@@ -8,7 +8,7 @@ import {
     mutatePostIngestionEventWithElementsList,
 } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { IllegalOperationError } from '../../utils/utils'
 import { WebhookFormatter } from '../ingestion/webhook-formatter'
 import { pluginActionMsSummary } from '../metrics'
@@ -22,7 +22,7 @@ async function runSingleTeamPluginOnEvent(
     onEvent: PluginMethodsConcrete['onEvent']
 ): Promise<void> {
     const timeout = setTimeout(() => {
-        status.warn('⌛', `Still running single onEvent plugin for team ${event.teamId} for plugin ${pluginConfig.id}`)
+        logger.warn('⌛', `Still running single onEvent plugin for team ${event.teamId} for plugin ${pluginConfig.id}`)
     }, 10 * 1000) // 10 seconds
 
     if (!hub.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)) {
@@ -36,7 +36,7 @@ async function runSingleTeamPluginOnEvent(
         // Runs onEvent for a single plugin without any retries
         const timer = new Date()
         try {
-            await onEvent(onEventPayload)
+            await hub.legacyOneventCompareService.runOnEvent(pluginConfig, onEvent, event, onEventPayload)
 
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'success')
@@ -105,7 +105,7 @@ async function runSingleTeamPluginComposeWebhook(
                     team,
                     siteUrl: hub.SITE_URL || '',
                     // TODO: What about pluginConfig.name ?
-                    sourceName: pluginConfig.plugin.name || 'Unnamed plugin',
+                    sourceName: pluginConfig.plugin?.name || 'Unnamed plugin',
                     sourcePath: `/pipeline/destinations/${pluginConfig.id}`,
                 })
                 maybeWebhook = webhookFormatter.composeWebhook()
@@ -116,7 +116,7 @@ async function runSingleTeamPluginComposeWebhook(
 
         if (!maybeWebhook) {
             // TODO: ideally we'd queryMetric it as skipped, but that's not an option atm
-            status.debug('Skipping composeWebhook returned null', {
+            logger.debug('Skipping composeWebhook returned null', {
                 teamId: event.team_id,
                 pluginConfigId: pluginConfig.id,
                 eventUuid: event.uuid,
@@ -167,7 +167,7 @@ async function runSingleTeamPluginComposeWebhook(
     // Old-style `fetch` send, used for on-prem.
     const slowWarningTimeout = hub.EXTERNAL_REQUEST_TIMEOUT_MS * 0.7
     const timeout = setTimeout(() => {
-        status.warn(
+        logger.warn(
             '⌛',
             `Still running single composeWebhook plugin for team ${event.team_id} for plugin ${pluginConfig.id}`
         )
@@ -245,7 +245,6 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
 
 export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | null> {
     const teamId = event.team_id
-
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent')
 
     let returnedEvent: PluginEvent | null = event
@@ -312,72 +311,6 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
     }
 
     return returnedEvent
-}
-
-export async function runPluginTask(
-    hub: Hub,
-    taskName: string,
-    taskType: PluginTaskType,
-    pluginConfigId: number,
-    payload?: Record<string, any>
-): Promise<any> {
-    const timer = new Date()
-    let response
-    const pluginConfig = hub.pluginConfigs.get(pluginConfigId)
-    const teamId = pluginConfig?.team_id
-    let shouldQueueAppMetric = false
-
-    try {
-        const task = await pluginConfig?.instance?.getTask(taskName, taskType)
-        if (!task) {
-            throw new Error(
-                `Task "${taskName}" not found for plugin "${pluginConfig?.plugin?.name}" with config id ${pluginConfigId}`
-            )
-        }
-
-        if (!pluginConfig?.enabled) {
-            status.info('🚮', 'Skipping job for disabled pluginconfig', {
-                taskName: taskName,
-                taskType: taskType,
-                pluginConfigId: pluginConfigId,
-            })
-            return
-        }
-
-        shouldQueueAppMetric = taskType === PluginTaskType.Schedule && !task.__ignoreForAppMetrics
-        response = await (payload ? task?.exec(payload) : task?.exec())
-
-        pluginActionMsSummary
-            .labels(String(pluginConfig?.plugin?.id), 'task', 'success')
-            .observe(new Date().getTime() - timer.getTime())
-        if (shouldQueueAppMetric && teamId) {
-            await hub.appMetrics.queueMetric({
-                teamId: teamId,
-                pluginConfigId: pluginConfigId,
-                category: 'scheduledTask',
-                successes: 1,
-            })
-        }
-    } catch (error) {
-        await processError(hub, pluginConfig || null, error)
-
-        pluginActionMsSummary
-            .labels(String(pluginConfig?.plugin?.id), 'task', 'error')
-            .observe(new Date().getTime() - timer.getTime())
-        if (shouldQueueAppMetric && teamId) {
-            await hub.appMetrics.queueError(
-                {
-                    teamId: teamId,
-                    pluginConfigId: pluginConfigId,
-                    category: 'scheduledTask',
-                    failures: 1,
-                },
-                { error }
-            )
-        }
-    }
-
-    return response
 }
 
 async function getPluginMethodsForTeam<M extends keyof PluginMethodsConcrete>(

@@ -139,6 +139,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 loadAlerts()
                                 push(urls.insightAlerts(insight.short_id as InsightShortId))
                             }}
+                            insightLogicProps={insightLogicProps}
                         />
                     )}
                     <NewDashboardModal />

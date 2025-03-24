@@ -142,10 +142,8 @@ def _screenshot_asset(
     driver: Optional[webdriver.Chrome] = None
     try:
         driver = get_driver()
-        # Note: When the content height is smaller than the height set here,
-        # elements with `h-full` can expand the scroll height we read
-        # further below. This can lead to a screenshot that is too tall.
-        driver.set_window_size(screenshot_width, 200)
+        # Set initial window size with a more reasonable height to prevent initial rendering issues
+        driver.set_window_size(screenshot_width, 600)
         driver.get(url_to_render)
         WebDriverWait(driver, 20).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
         # Also wait until nothing is loading
@@ -166,6 +164,17 @@ def _screenshot_asset(
                 except Exception:
                     pass
                 capture_exception()
+
+        # Get the height of the visualization container specifically
+        height = driver.execute_script("""
+            const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
+            if (element) {
+                const rect = element.getBoundingClientRect();
+                return Math.max(rect.height, document.body.scrollHeight);
+            }
+            return document.body.scrollHeight;
+        """)
+
         # For example funnels use a table that can get very wide, so try to get its width
         width = driver.execute_script(
             """
@@ -175,15 +184,29 @@ def _screenshot_asset(
             }
         """
         )
-        height = driver.execute_script("return document.body.scrollHeight")
         if isinstance(width, int):
             width = max(int(screenshot_width), min(1800, width or screenshot_width))
         else:
             width = screenshot_width
+
+        # Set window size with the calculated dimensions
         driver.set_window_size(width, height + HEIGHT_OFFSET)
-        # The needed height might have changed when setting width, so we need to get it again
-        height = driver.execute_script("return document.body.scrollHeight")
-        driver.set_window_size(width, height + HEIGHT_OFFSET)
+
+        # Allow a moment for any dynamic resizing
+        driver.execute_script("return new Promise(resolve => setTimeout(resolve, 500))")
+
+        # Get the final height after any dynamic adjustments
+        final_height = driver.execute_script("""
+            const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
+            if (element) {
+                const rect = element.getBoundingClientRect();
+                return Math.max(rect.height, document.body.scrollHeight);
+            }
+            return document.body.scrollHeight;
+        """)
+
+        # Set final window size
+        driver.set_window_size(width, final_height + HEIGHT_OFFSET)
         driver.save_screenshot(image_path)
     except Exception as e:
         # To help with debugging, add a screenshot and any chrome logs

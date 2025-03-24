@@ -1,13 +1,11 @@
-import './EditorFilterGroup.scss'
-
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
+import clsx from 'clsx'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { slugify } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner, slugify } from 'lib/utils'
 import { Fragment, useState } from 'react'
 
-import { InsightQueryNode } from '~/queries/schema'
+import { InsightQueryNode } from '~/queries/schema/schema-general'
 import type { InsightEditorFilterGroup, InsightLogicProps } from '~/types'
 
 export interface EditorFilterGroupProps {
@@ -17,29 +15,42 @@ export interface EditorFilterGroupProps {
 }
 
 export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFilterGroupProps): JSX.Element {
-    const { title, count, defaultExpanded = true, editorFilters } = editorFilterGroup
-    const [isRowExpanded, setIsRowExpanded] = useState(defaultExpanded)
+    const { title, defaultExpanded, editorFilters } = editorFilterGroup
+    const [isRowExpanded, setIsRowExpanded] = useState(() => {
+        // Snapshots will display all editor filter groups by default
+        if (inStorybook() || inStorybookTestRunner()) {
+            return true
+        }
+
+        // If not specified, the group is expanded
+        return defaultExpanded ?? true
+    })
+
+    // If defaultExpanded is not set, the group is not expandable
+    const isExpandable = defaultExpanded != undefined
 
     return (
-        <div key={title} className="EditorFilterGroup">
-            {title && (
-                <div className="EditorFilterGroup__title">
-                    <LemonButton
-                        fullWidth
-                        onClick={() => setIsRowExpanded(!isRowExpanded)}
-                        sideIcon={isRowExpanded ? <IconCollapse /> : <IconExpand />}
-                        title={isRowExpanded ? 'Show less' : 'Show more'}
-                        data-attr={'editor-filter-group-collapse-' + slugify(title)}
-                    >
-                        <div className="flex items-center space-x-2 font-semibold">
-                            <span>{title}</span>
-                            <LemonBadge.Number count={count || 0} />
-                        </div>
-                    </LemonButton>
-                </div>
+        <div>
+            {isExpandable && (
+                <LemonButton
+                    fullWidth
+                    onClick={() => setIsRowExpanded(!isRowExpanded)}
+                    sideIcon={isRowExpanded ? <IconCollapse /> : <IconExpand />}
+                    title={isRowExpanded ? 'Show less' : 'Show more'}
+                    data-attr={'editor-filter-group-collapse-' + slugify(title)}
+                >
+                    <div className="flex items-center deprecated-space-x-2 font-semibold">
+                        <span>{title}</span>
+                    </div>
+                </LemonButton>
             )}
-            {isRowExpanded ? (
-                <div className="EditorFilterGroup__content">
+
+            {isRowExpanded && (
+                <div
+                    className={clsx('flex flex-col gap-2', {
+                        'border rounded p-2 mt-1': isExpandable && isRowExpanded,
+                    })}
+                >
                     {editorFilters.map(({ label: Label, tooltip, showOptional, key, component: Component }) => {
                         if (Component && Component.name === 'component') {
                             throw new Error(
@@ -59,7 +70,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
                         )
                     })}
                 </div>
-            ) : null}
+            )}
         </div>
     )
 }

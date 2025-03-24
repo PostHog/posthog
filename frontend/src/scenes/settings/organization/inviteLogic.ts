@@ -7,6 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { OrganizationInviteType } from '~/types'
 
 import type { inviteLogicType } from './inviteLogicType'
@@ -158,6 +159,10 @@ export const inviteLogic = kea<inviteLogicType>([
 
             if (values.preflight?.email_service_available) {
                 actions.hideInviteModal()
+            }
+
+            if (inviteCount > 0) {
+                activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
             }
         },
     })),

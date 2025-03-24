@@ -1,11 +1,17 @@
-import { PassThrough, Writable } from 'stream'
+import { DateTime } from 'luxon'
+import { validate as uuidValidate } from 'uuid'
 
+import { parseJSON } from '../../../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData } from '../kafka/types'
+import { SnapshotEvent } from '../kafka/types'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
-import { SessionBatchFileWriter } from './session-batch-file-writer'
+import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionConsoleLogRecorder } from './session-console-log-recorder'
+import { SessionConsoleLogStore } from './session-console-log-store'
+import { SessionMetadataStore } from './session-metadata-store'
 import { EndResult, SnappySessionRecorder } from './snappy-session-recorder'
 
 // RRWeb event type constants
@@ -35,25 +41,25 @@ interface MessageMetadata {
 export class SnappySessionRecorderMock {
     private chunks: Buffer[] = []
     private size: number = 0
-    private startTimestamp: number | null = null
-    private endTimestamp: number | null = null
+    private startDateTime: DateTime | null = null
+    private endDateTime: DateTime | null = null
+    private _distinctId: string | null = null
 
-    constructor(public readonly sessionId: string, public readonly teamId: number) {}
+    constructor(public readonly sessionId: string, public readonly teamId: number, private readonly batchId: string) {}
 
     public recordMessage(message: ParsedMessageData): number {
         let bytesWritten = 0
 
-        if (message.eventsRange.start > 0) {
-            this.startTimestamp =
-                this.startTimestamp === null
-                    ? message.eventsRange.start
-                    : Math.min(this.startTimestamp, message.eventsRange.start)
+        // Store distinctId from first message
+        if (!this._distinctId) {
+            this._distinctId = message.distinct_id
         }
-        if (message.eventsRange.end > 0) {
-            this.endTimestamp =
-                this.endTimestamp === null
-                    ? message.eventsRange.end
-                    : Math.max(this.endTimestamp, message.eventsRange.end)
+
+        if (!this.startDateTime || message.eventsRange.start < this.startDateTime) {
+            this.startDateTime = message.eventsRange.start
+        }
+        if (!this.endDateTime || message.eventsRange.end > this.endDateTime) {
+            this.endDateTime = message.eventsRange.end
         }
 
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
@@ -68,16 +74,45 @@ export class SnappySessionRecorderMock {
         return bytesWritten
     }
 
+    public get distinctId(): string {
+        if (!this._distinctId) {
+            throw new Error('No distinct_id set. No messages recorded yet.')
+        }
+        return this._distinctId
+    }
+
     public end(): EndResult {
         const buffer = Buffer.concat(this.chunks as any[])
         return {
             buffer,
             eventCount: this.chunks.length,
-            startTimestamp: this.startTimestamp ?? 0,
-            endTimestamp: this.endTimestamp ?? 0,
+            startDateTime: this.startDateTime ?? DateTime.now(),
+            endDateTime: this.endDateTime ?? DateTime.now(),
+            firstUrl: null,
+            urls: [],
+            clickCount: 0,
+            keypressCount: 0,
+            mouseActivityCount: 0,
+            activeMilliseconds: 0,
+            size: buffer.length,
+            messageCount: 0,
+            snapshotSource: null,
+            snapshotLibrary: null,
+            batchId: this.batchId,
         }
     }
 }
+
+jest.mock('./session-console-log-recorder', () => ({
+    SessionConsoleLogRecorder: jest.fn().mockImplementation((_sessionId, _teamId, _batchId) => ({
+        recordMessage: jest.fn().mockResolvedValue(undefined),
+        end: jest.fn().mockReturnValue({
+            consoleLogCount: 3,
+            consoleWarnCount: 2,
+            consoleErrorCount: 1,
+        }),
+    })),
+}))
 
 jest.setTimeout(1000)
 
@@ -94,38 +129,34 @@ jest.mock('./blackhole-session-batch-writer')
 jest.mock('./snappy-session-recorder', () => ({
     SnappySessionRecorder: jest
         .fn()
-        .mockImplementation((sessionId: string, teamId: number) => new SnappySessionRecorderMock(sessionId, teamId)),
+        .mockImplementation(
+            (sessionId: string, teamId: number, batchId: string) =>
+                new SnappySessionRecorderMock(sessionId, teamId, batchId)
+        ),
 }))
 
 describe('SessionBatchRecorder', () => {
     let recorder: SessionBatchRecorder
     let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
-    let mockStream: PassThrough
-    let mockNewBatch: jest.Mock
-    let mockFinish: jest.Mock
-
-    const createOpenMock = () => {
-        const stream = new PassThrough()
-        const finishMock = jest.fn().mockResolvedValue(undefined)
-        const openMock = jest.fn().mockReturnValue({ stream, finish: finishMock })
-        return { openMock, finishMock, stream }
-    }
+    let mockStorage: jest.Mocked<SessionBatchFileStorage>
+    let mockMetadataStore: jest.Mocked<SessionMetadataStore>
+    let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
 
     beforeEach(() => {
         jest.clearAllMocks()
 
         jest.mocked(SnappySessionRecorder).mockImplementation(
-            (sessionId: string, teamId: number) =>
-                new SnappySessionRecorderMock(sessionId, teamId) as unknown as SnappySessionRecorder
+            (sessionId: string, teamId: number, batchId: string) =>
+                new SnappySessionRecorderMock(sessionId, teamId, batchId) as unknown as SnappySessionRecorder
         )
 
-        const openMock = createOpenMock()
-        mockNewBatch = openMock.openMock
-        mockFinish = openMock.finishMock
-        mockStream = openMock.stream
         mockWriter = {
-            newBatch: mockNewBatch,
+            writeSession: jest.fn().mockResolvedValue({
+                bytesWritten: 100,
+                url: 's3://test/file?range=bytes=0-99',
+            }),
+            finish: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionBatchFileWriter>
 
         mockOffsetManager = {
@@ -134,28 +165,42 @@ describe('SessionBatchRecorder', () => {
             commit: jest.fn(),
         } as unknown as jest.Mocked<KafkaOffsetManager>
 
-        recorder = new SessionBatchRecorder(mockOffsetManager, mockWriter)
+        mockMetadataStore = {
+            storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionMetadataStore>
+
+        mockConsoleLogStore = {
+            storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
+            flush: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionConsoleLogStore>
+
+        mockStorage = {
+            newBatch: jest.fn().mockReturnValue(mockWriter),
+        } as unknown as jest.Mocked<SessionBatchFileStorage>
+
+        recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore, mockConsoleLogStore)
     })
 
     const createMessage = (
         sessionId: string,
-        events: RRWebEvent[],
+        events: SnapshotEvent[],
         metadata: MessageMetadata = {},
-        teamId: number = 1
+        teamId: number = 1,
+        distinctId: string = 'distinct_id'
     ): MessageWithTeam => ({
         team: {
             teamId,
             consoleLogIngestionEnabled: false,
         },
         message: {
-            distinct_id: 'distinct_id',
+            distinct_id: distinctId,
             session_id: sessionId,
             eventsByWindowId: {
                 window1: events,
             },
             eventsRange: {
-                start: events[0]?.timestamp || 0,
-                end: events[events.length - 1]?.timestamp || 0,
+                start: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                end: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
             },
             metadata: {
                 partition: 1,
@@ -165,6 +210,8 @@ describe('SessionBatchRecorder', () => {
                 rawSize: 0,
                 ...metadata,
             },
+            snapshot_source: null,
+            snapshot_library: null,
         },
     })
 
@@ -173,24 +220,34 @@ describe('SessionBatchRecorder', () => {
             .trim()
             .split('\n')
             .map((line) => {
-                const [windowId, event] = JSON.parse(line)
+                const [windowId, event] = parseJSON(line)
                 return [windowId, event]
             })
     }
 
-    const captureOutput = (stream: PassThrough): Promise<string> => {
-        return new Promise<string>((resolve) => {
-            let streamData = ''
-            stream.on('data', (chunk) => {
-                streamData += chunk
-            })
-            stream.on('end', () => {
-                resolve(streamData)
-            })
-        })
+    // Helper to capture written data
+    const captureWrittenData = (mockWriteSession: jest.Mock): string[] => {
+        return mockWriteSession.mock.calls.map(([buffer]) => buffer.toString())
     }
 
     describe('recording and writing', () => {
+        it('should write events in correct format', async () => {
+            const message = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ])
+
+            await recorder.record(message)
+            await recorder.flush()
+
+            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            const lines = parseLines(writtenData[0])
+            expect(lines).toEqual([['window1', message.message.eventsByWindowId.window1[0]]])
+        })
+
         it('should process and flush a single session and track offsets', async () => {
             const message = createMessage('session1', [
                 {
@@ -200,23 +257,20 @@ describe('SessionBatchRecorder', () => {
                 },
             ])
 
-            recorder.record(message)
+            await recorder.record(message)
             expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({
                 partition: message.message.metadata.partition,
                 offset: message.message.metadata.offset,
             })
 
-            const outputPromise = captureOutput(mockStream)
             await recorder.flush()
+            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
 
-            expect(mockNewBatch).toHaveBeenCalledTimes(1)
-            expect(mockFinish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
-            const output = await outputPromise
-            const lines = parseLines(output)
+            const lines = parseLines(writtenData[0])
             expect(lines).toEqual([['window1', message.message.eventsByWindowId.window1[0]]])
-            expect(output.endsWith('\n')).toBe(true)
         })
 
         it('should handle multiple sessions in parallel', async () => {
@@ -224,42 +278,38 @@ describe('SessionBatchRecorder', () => {
                 createMessage('session1', [
                     {
                         type: EventType.Meta,
-                        timestamp: 1000,
+                        timestamp: DateTime.fromISO('2025-01-01T10:00:00.000Z').toMillis(),
                         data: { href: 'https://example.com' },
                     },
                 ]),
                 createMessage('session2', [
                     {
                         type: EventType.Custom,
-                        timestamp: 2000,
+                        timestamp: DateTime.fromISO('2025-01-01T10:00:01.000Z').toMillis(),
                         data: { tag: 'user-interaction' },
                     },
                 ]),
             ]
 
-            messages.forEach((message) => {
-                recorder.record(message)
+            for (const message of messages) {
+                await recorder.record(message)
                 expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({
                     partition: message.message.metadata.partition,
                     offset: message.message.metadata.offset,
                 })
-            })
+            }
             expect(mockOffsetManager.trackOffset).toHaveBeenCalledTimes(2)
 
-            const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            expect(mockNewBatch).toHaveBeenCalledTimes(1)
-            expect(mockFinish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
-            const output = await outputPromise
-            const lines = parseLines(output)
-            expect(lines).toEqual([
-                ['window1', messages[0].message.eventsByWindowId.window1[0]],
-                ['window1', messages[1].message.eventsByWindowId.window1[0]],
-            ])
-            expect(output.endsWith('\n')).toBe(true)
+            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            const lines1 = parseLines(writtenData[0])
+            const lines2 = parseLines(writtenData[1])
+            expect(lines1).toEqual([['window1', messages[0].message.eventsByWindowId.window1[0]]])
+            expect(lines2).toEqual([['window1', messages[1].message.eventsByWindowId.window1[0]]])
         })
 
         it('should accumulate events for the same session', async () => {
@@ -280,36 +330,33 @@ describe('SessionBatchRecorder', () => {
                 ]),
             ]
 
-            messages.forEach((message) => recorder.record(message))
-            const outputPromise = captureOutput(mockStream)
+            for (const message of messages) {
+                await recorder.record(message)
+            }
             await recorder.flush()
 
-            expect(mockNewBatch).toHaveBeenCalledTimes(1)
-            expect(mockFinish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
-            const output = await outputPromise
-            const lines = parseLines(output)
+            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            const lines = parseLines(writtenData[0])
             expect(lines).toEqual([
                 ['window1', messages[0].message.eventsByWindowId.window1[0]],
                 ['window1', messages[1].message.eventsByWindowId.window1[0]],
             ])
-            expect(output.endsWith('\n')).toBe(true)
         })
 
         it('should handle empty events array', async () => {
             const message = createMessage('session1', [])
-            const bytesWritten = recorder.record(message)
+            const bytesWritten = await recorder.record(message)
 
-            const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            expect(mockNewBatch).toHaveBeenCalledTimes(1)
-            expect(mockFinish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
-            const output = await outputPromise
-            expect(output).toBe('')
+            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            expect(writtenData[0]).toBe('')
             expect(bytesWritten).toBe(0)
         })
 
@@ -345,35 +392,299 @@ describe('SessionBatchRecorder', () => {
                 ]),
             ]
 
-            messages.forEach((message) => recorder.record(message))
-            const outputPromise = captureOutput(mockStream)
+            for (const message of messages) {
+                await recorder.record(message)
+            }
             await recorder.flush()
 
-            expect(mockNewBatch).toHaveBeenCalledTimes(1)
-            expect(mockFinish).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
-            const output = await outputPromise
-            const lines = parseLines(output)
+            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            const lines1 = parseLines(writtenData[0])
+            const lines2 = parseLines(writtenData[1])
 
             // Events should be grouped by session, maintaining chronological order within each session
-            expect(lines).toEqual([
+            expect(lines1).toEqual([
                 // All session1 events
                 ['window1', messages[0].message.eventsByWindowId.window1[0]],
                 ['window1', messages[2].message.eventsByWindowId.window1[0]],
+            ])
+            expect(lines2).toEqual([
                 // All session2 events
                 ['window1', messages[1].message.eventsByWindowId.window1[0]],
                 ['window1', messages[3].message.eventsByWindowId.window1[0]],
             ])
-            expect(output.endsWith('\n')).toBe(true)
+        })
+    })
+
+    describe('console log recording', () => {
+        it('should create console log recorder for each session', async () => {
+            const message = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ])
+
+            await recorder.record(message)
+            await recorder.flush()
+
+            expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
+                'session1',
+                1,
+                expect.any(String),
+                mockConsoleLogStore
+            )
+            expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
+                message
+            )
+        })
+
+        it('should create console log recorder once per session', async () => {
+            const messages = [
+                createMessage('session1', [
+                    {
+                        type: EventType.FullSnapshot,
+                        timestamp: 1000,
+                        data: { source: 1 },
+                    },
+                ]),
+                createMessage('session1', [
+                    {
+                        type: EventType.IncrementalSnapshot,
+                        timestamp: 2000,
+                        data: { source: 2 },
+                    },
+                ]),
+            ]
+
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+            await recorder.flush()
+
+            expect(SessionConsoleLogRecorder).toHaveBeenCalledTimes(1)
+            expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
+                'session1',
+                1,
+                expect.any(String),
+                mockConsoleLogStore
+            )
+            const mockRecorder = jest.mocked(SessionConsoleLogRecorder).mock.results[0].value
+            expect(mockRecorder.recordMessage).toHaveBeenCalledTimes(2)
+            expect(mockRecorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0])
+            expect(mockRecorder.recordMessage).toHaveBeenNthCalledWith(2, messages[1])
+        })
+
+        it('should create separate console log recorders for different sessions', async () => {
+            const messages = [
+                createMessage('session1', [
+                    {
+                        type: EventType.Meta,
+                        timestamp: DateTime.fromISO('2025-01-01T10:00:00.000Z').toMillis(),
+                        data: { href: 'https://example.com' },
+                    },
+                ]),
+                createMessage('session2', [
+                    {
+                        type: EventType.Custom,
+                        timestamp: DateTime.fromISO('2025-01-01T10:00:01.000Z').toMillis(),
+                        data: { tag: 'user-interaction' },
+                    },
+                ]),
+            ]
+
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+            await recorder.flush()
+
+            expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
+                'session1',
+                1,
+                expect.any(String),
+                mockConsoleLogStore
+            )
+            expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
+                'session2',
+                1,
+                expect.any(String),
+                mockConsoleLogStore
+            )
+            expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
+                messages[0]
+            )
+            expect(jest.mocked(SessionConsoleLogRecorder).mock.results[1].value.recordMessage).toHaveBeenCalledWith(
+                messages[1]
+            )
+        })
+
+        it('should flush console logs before storing metadata', async () => {
+            const message = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ])
+
+            let consoleLogFlushCalled = false
+            let metadataStoreCalled = false
+
+            mockConsoleLogStore.flush.mockImplementation(() => {
+                expect(metadataStoreCalled).toBe(false)
+                consoleLogFlushCalled = true
+                return Promise.resolve()
+            })
+
+            mockMetadataStore.storeSessionBlocks.mockImplementation(() => {
+                expect(consoleLogFlushCalled).toBe(true)
+                metadataStoreCalled = true
+                return Promise.resolve()
+            })
+
+            await recorder.record(message)
+            await recorder.flush()
+
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
+        })
+
+        it('should correctly record messages for multiple interleaved sessions', async () => {
+            const messages = [
+                createMessage('session1', [
+                    {
+                        type: EventType.FullSnapshot,
+                        timestamp: 1000,
+                        data: { source: 1 },
+                    },
+                ]),
+                createMessage('session2', [
+                    {
+                        type: EventType.Meta,
+                        timestamp: 1100,
+                        data: { href: 'https://example.com' },
+                    },
+                ]),
+                createMessage('session1', [
+                    {
+                        type: EventType.IncrementalSnapshot,
+                        timestamp: 2000,
+                        data: { source: 2 },
+                    },
+                ]),
+                createMessage('session3', [
+                    {
+                        type: EventType.Custom,
+                        timestamp: 2100,
+                        data: { tag: 'click' },
+                    },
+                ]),
+                createMessage('session2', [
+                    {
+                        type: EventType.Meta,
+                        timestamp: 3000,
+                        data: { href: 'https://example.com/page2' },
+                    },
+                ]),
+            ]
+
+            // Record all messages
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+            await recorder.flush()
+
+            // Verify recorder creation
+            expect(SessionConsoleLogRecorder).toHaveBeenCalledTimes(3)
+            expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
+                'session1',
+                1,
+                expect.any(String),
+                mockConsoleLogStore
+            )
+            expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
+                'session2',
+                1,
+                expect.any(String),
+                mockConsoleLogStore
+            )
+            expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
+                'session3',
+                1,
+                expect.any(String),
+                mockConsoleLogStore
+            )
+
+            // Get mock recorders
+            const mockRecorders = jest.mocked(SessionConsoleLogRecorder).mock.results
+            const session1Recorder = mockRecorders[0].value
+            const session2Recorder = mockRecorders[1].value
+            const session3Recorder = mockRecorders[2].value
+
+            // Verify session1 recorder calls
+            expect(session1Recorder.recordMessage).toHaveBeenCalledTimes(2)
+            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0])
+            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[2])
+
+            // Verify session2 recorder calls
+            expect(session2Recorder.recordMessage).toHaveBeenCalledTimes(2)
+            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[1])
+            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[4])
+
+            // Verify session3 recorder calls
+            expect(session3Recorder.recordMessage).toHaveBeenCalledTimes(1)
+            expect(session3Recorder.recordMessage).toHaveBeenCalledWith(messages[3])
+        })
+
+        it('should handle messages with different team IDs', async () => {
+            const messages = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }], {}, 1),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }], {}, 1),
+                createMessage('session2', [{ type: EventType.Meta, timestamp: 3000, data: {} }], {}, 2),
+                createMessage('session2', [{ type: EventType.Meta, timestamp: 4000, data: {} }], {}, 2),
+            ]
+
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+            await recorder.flush()
+
+            // Verify recorder creation with correct team IDs
+            expect(SessionConsoleLogRecorder).toHaveBeenCalledTimes(2)
+            expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
+                'session1',
+                1,
+                expect.any(String),
+                mockConsoleLogStore
+            )
+            expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
+                'session2',
+                2,
+                expect.any(String),
+                mockConsoleLogStore
+            )
+
+            // Get mock recorders
+            const mockRecorders = jest.mocked(SessionConsoleLogRecorder).mock.results
+            const session1Recorder = mockRecorders[0].value
+            const session2Recorder = mockRecorders[1].value
+
+            // Verify correct message recording for each team
+            expect(session1Recorder.recordMessage).toHaveBeenCalledTimes(2)
+            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0])
+            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[1])
+
+            expect(session2Recorder.recordMessage).toHaveBeenCalledTimes(2)
+            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[2])
+            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[3])
         })
     })
 
     describe('flushing behavior', () => {
         it('should clear sessions after flush', async () => {
-            const { openMock: firstNewBatch, finishMock: firstFinish, stream: firstStream } = createOpenMock()
-            mockWriter.newBatch = firstNewBatch
-
             const message1 = createMessage('session1', [
                 {
                     type: EventType.FullSnapshot,
@@ -381,6 +692,17 @@ describe('SessionBatchRecorder', () => {
                     data: { source: 1, adds: [{ parentId: 1, nextId: 2, node: { tag: 'div' } }] },
                 },
             ])
+
+            await recorder.record(message1)
+            await recorder.flush()
+
+            const writtenData1 = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
+
+            // Reset mock for second batch
+            jest.clearAllMocks()
+            mockStorage.newBatch.mockReturnValue(mockWriter)
 
             const message2 = createMessage('session1', [
                 {
@@ -390,36 +712,20 @@ describe('SessionBatchRecorder', () => {
                 },
             ])
 
-            recorder.record(message1)
-            const outputPromise1 = captureOutput(firstStream)
+            await recorder.record(message2)
             await recorder.flush()
 
-            expect(firstNewBatch).toHaveBeenCalledTimes(1)
-            const output1 = await outputPromise1
-            expect(firstFinish).toHaveBeenCalledTimes(1)
+            const writtenData2 = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
-            const { openMock: secondNewBatch, finishMock: secondFinish, stream: secondStream } = createOpenMock()
-            mockWriter.newBatch = secondNewBatch
-
-            recorder.record(message2)
-            const outputPromise2 = captureOutput(secondStream)
-            await recorder.flush()
-
-            expect(secondNewBatch).toHaveBeenCalledTimes(1)
-            expect(firstFinish).toHaveBeenCalledTimes(1)
-            expect(secondFinish).toHaveBeenCalledTimes(1)
-            const output2 = await outputPromise2
-
-            const lines1 = parseLines(output1)
-            const lines2 = parseLines(output2)
+            const lines1 = parseLines(writtenData1[0])
+            const lines2 = parseLines(writtenData2[0])
             expect(lines1).toEqual([['window1', message1.message.eventsByWindowId.window1[0]]])
             expect(lines2).toEqual([['window1', message2.message.eventsByWindowId.window1[0]]])
         })
 
         it('should not create file on second flush if no new events', async () => {
-            const { openMock: firstNewBatch, finishMock: firstFinish } = createOpenMock()
-            mockWriter.newBatch = firstNewBatch
-
             const message = createMessage('session1', [
                 {
                     type: EventType.FullSnapshot,
@@ -428,18 +734,20 @@ describe('SessionBatchRecorder', () => {
                 },
             ])
 
-            recorder.record(message)
+            await recorder.record(message)
             await recorder.flush()
 
-            expect(firstNewBatch).toHaveBeenCalledTimes(1)
-            expect(firstFinish).toHaveBeenCalledTimes(1)
+            expect(mockStorage.newBatch).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
             // Second flush with no new events
             await recorder.flush()
 
             // Should not create a new batch or write any data
-            expect(firstNewBatch).toHaveBeenCalledTimes(1) // Only from first flush
-            expect(firstFinish).toHaveBeenCalledTimes(1) // Only from first flush
+            expect(mockStorage.newBatch).toHaveBeenCalledTimes(1) // Only from first flush
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1) // Only from first flush
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1) // Only from first flush
 
             // Should still commit offsets
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(2)
@@ -449,8 +757,10 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
 
             // Should not create a new batch or write any data
-            expect(mockNewBatch).not.toHaveBeenCalled()
-            expect(mockFinish).not.toHaveBeenCalled()
+            expect(mockStorage.newBatch).not.toHaveBeenCalled()
+            expect(mockWriter.finish).not.toHaveBeenCalled()
+            expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
+            expect(mockConsoleLogStore.flush).not.toHaveBeenCalled()
 
             // Should still commit offsets
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
@@ -460,6 +770,202 @@ describe('SessionBatchRecorder', () => {
             expect(SessionBatchMetrics.incrementSessionsFlushed).not.toHaveBeenCalled()
             expect(SessionBatchMetrics.incrementEventsFlushed).not.toHaveBeenCalled()
             expect(SessionBatchMetrics.incrementBytesWritten).not.toHaveBeenCalled()
+        })
+
+        it('should store metadata after s3 write completes, but before offsets are committed', async () => {
+            const message = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ])
+
+            let finishCalled = false
+            let metadataStoreCalled = false
+            let consoleLogFlushCalled = false
+            let commitCalled = false
+
+            mockWriter.finish.mockImplementation(() => {
+                finishCalled = true
+                expect(metadataStoreCalled).toBe(false)
+                expect(consoleLogFlushCalled).toBe(false)
+                expect(commitCalled).toBe(false)
+                return Promise.resolve()
+            })
+
+            mockConsoleLogStore.flush.mockImplementation(() => {
+                expect(finishCalled).toBe(true)
+                expect(metadataStoreCalled).toBe(false)
+                expect(commitCalled).toBe(false)
+                consoleLogFlushCalled = true
+                return Promise.resolve()
+            })
+
+            mockMetadataStore.storeSessionBlocks.mockImplementation(() => {
+                expect(consoleLogFlushCalled).toBe(true)
+                expect(commitCalled).toBe(false)
+                metadataStoreCalled = true
+                return Promise.resolve()
+            })
+
+            mockOffsetManager.commit.mockImplementation(() => {
+                expect(metadataStoreCalled).toBe(true)
+                expect(commitCalled).toBe(false)
+                commitCalled = true
+                return Promise.resolve()
+            })
+
+            await recorder.record(message)
+            await recorder.flush()
+
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    sessionId: 'session1',
+                    teamId: 1,
+                    distinctId: 'distinct_id',
+                    startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                    endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
+                    blockUrl: 's3://test/file?range=bytes=0-99',
+                    blockLength: 100,
+                    firstUrl: null,
+                    urls: [],
+                    clickCount: 0,
+                    keypressCount: 0,
+                    mouseActivityCount: 0,
+                    activeMilliseconds: 0,
+                    consoleLogCount: 3,
+                    consoleWarnCount: 2,
+                    consoleErrorCount: 1,
+                    size: expect.any(Number),
+                    messageCount: 0,
+                    snapshotSource: null,
+                    snapshotLibrary: null,
+                }),
+            ])
+            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
+        })
+
+        it('should not commit offsets if metadata storage fails', async () => {
+            const error = new Error('Metadata store failed')
+            mockMetadataStore.storeSessionBlocks.mockRejectedValueOnce(error)
+
+            const message = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ])
+
+            await recorder.record(message)
+            await expect(recorder.flush()).rejects.toThrow(error)
+
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
+            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
+        })
+
+        it('should not commit offsets if console log flush fails', async () => {
+            const error = new Error('Console log flush failed')
+            mockConsoleLogStore.flush.mockRejectedValueOnce(error)
+
+            const message = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ])
+
+            await recorder.record(message)
+            await expect(recorder.flush()).rejects.toThrow(error)
+
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
+            expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
+            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
+        })
+
+        it('should store metadata for all sessions in batch', async () => {
+            const messages = [
+                createMessage('session1', [
+                    {
+                        type: EventType.FullSnapshot,
+                        timestamp: DateTime.fromISO('2025-01-01T10:00:00.000Z').toMillis(),
+                        data: { source: 1 },
+                    },
+                ]),
+                createMessage(
+                    'session2',
+                    [
+                        {
+                            type: EventType.FullSnapshot,
+                            timestamp: DateTime.fromISO('2025-01-01T10:00:02.000Z').toMillis(),
+                            data: { source: 2 },
+                        },
+                    ],
+                    {},
+                    2,
+                    'other_distinct_id'
+                ),
+            ]
+
+            messages.forEach((message) => recorder.record(message))
+            await recorder.flush()
+
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        sessionId: 'session1',
+                        teamId: 1,
+                        distinctId: 'distinct_id',
+                        startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                        endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
+                        blockUrl: 's3://test/file?range=bytes=0-99',
+                        blockLength: 100,
+                        firstUrl: null,
+                        urls: [],
+                        clickCount: 0,
+                        keypressCount: 0,
+                        mouseActivityCount: 0,
+                        activeMilliseconds: 0,
+                        consoleLogCount: 3,
+                        consoleWarnCount: 2,
+                        consoleErrorCount: 1,
+                        size: expect.any(Number),
+                        messageCount: 0,
+                        snapshotSource: null,
+                        snapshotLibrary: null,
+                    }),
+                    expect.objectContaining({
+                        sessionId: 'session2',
+                        teamId: 2,
+                        distinctId: 'other_distinct_id',
+                        startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                        endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
+                        blockUrl: 's3://test/file?range=bytes=0-99',
+                        blockLength: 100,
+                        firstUrl: null,
+                        urls: [],
+                        clickCount: 0,
+                        keypressCount: 0,
+                        mouseActivityCount: 0,
+                        activeMilliseconds: 0,
+                        consoleLogCount: 3,
+                        consoleWarnCount: 2,
+                        consoleErrorCount: 1,
+                        size: expect.any(Number),
+                        messageCount: 0,
+                        snapshotSource: null,
+                        snapshotLibrary: null,
+                    }),
+                ])
+            )
         })
     })
 
@@ -491,18 +997,15 @@ describe('SessionBatchRecorder', () => {
             ]
 
             messages.forEach((message) => recorder.record(message))
-            const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            const output = await outputPromise
-            const lines = parseLines(output)
-
-            expect(lines).toEqual([
-                ['window1', messages[0].message.eventsByWindowId.window1[0]],
-                ['window1', messages[1].message.eventsByWindowId.window1[0]],
-            ])
-            expect(mockNewBatch).toHaveBeenCalledTimes(1)
-            expect(mockFinish).toHaveBeenCalledTimes(1)
+            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            const lines1 = parseLines(writtenData[0])
+            const lines2 = parseLines(writtenData[1])
+            expect(lines1).toEqual([['window1', messages[0].message.eventsByWindowId.window1[0]]])
+            expect(lines2).toEqual([['window1', messages[1].message.eventsByWindowId.window1[0]]])
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
         })
 
@@ -534,18 +1037,15 @@ describe('SessionBatchRecorder', () => {
 
             messages.forEach((message) => recorder.record(message))
             recorder.discardPartition(1)
-
-            const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            const output = await outputPromise
-            const lines = parseLines(output)
-
+            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            const lines = parseLines(writtenData[0])
             // Should only contain message from partition 2
             expect(lines).toEqual([['window1', messages[1].message.eventsByWindowId.window1[0]]])
         })
 
-        it('should correctly update size when discarding partitions', () => {
+        it('should correctly update size when discarding partitions', async () => {
             const message1 = createMessage(
                 'session1',
                 [
@@ -569,11 +1069,9 @@ describe('SessionBatchRecorder', () => {
                 { partition: 2 }
             )
 
-            const size1 = recorder.record(message1)
-            const size2 = recorder.record(message2)
-            const totalSize = size1 + size2
-
-            expect(recorder.size).toBe(totalSize)
+            const size1 = await recorder.record(message1)
+            const size2 = await recorder.record(message2)
+            expect(recorder.size).toBe(size1 + size2)
 
             recorder.discardPartition(1)
             expect(mockOffsetManager.discardPartition).toHaveBeenCalledWith(1)
@@ -584,7 +1082,7 @@ describe('SessionBatchRecorder', () => {
             expect(recorder.size).toBe(0)
         })
 
-        it('should handle discarding non-existent partitions', () => {
+        it('should handle discarding non-existent partitions', async () => {
             const message = createMessage('session1', [
                 {
                     type: EventType.FullSnapshot,
@@ -593,7 +1091,7 @@ describe('SessionBatchRecorder', () => {
                 },
             ])
 
-            const bytesWritten = recorder.record(message)
+            const bytesWritten = await recorder.record(message)
             expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({
                 partition: message.message.metadata.partition,
                 offset: message.message.metadata.offset,
@@ -629,7 +1127,9 @@ describe('SessionBatchRecorder', () => {
                 ]),
             ]
 
-            messages.forEach((message) => recorder.record(message))
+            for (const message of messages) {
+                await recorder.record(message)
+            }
             await recorder.flush()
 
             expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(1)
@@ -685,18 +1185,6 @@ describe('SessionBatchRecorder', () => {
         })
 
         it('should not count sessions again on subsequent flushes', async () => {
-            const stream1 = new PassThrough()
-            const stream2 = new PassThrough()
-            const stream3 = new PassThrough()
-            const finish1 = jest.fn().mockResolvedValue(undefined)
-            const finish2 = jest.fn().mockResolvedValue(undefined)
-            const finish3 = jest.fn().mockResolvedValue(undefined)
-
-            mockWriter.newBatch
-                .mockReturnValueOnce({ stream: stream1, finish: finish1 })
-                .mockReturnValueOnce({ stream: stream2, finish: finish2 })
-                .mockReturnValueOnce({ stream: stream3, finish: finish3 })
-
             const messages = [
                 createMessage('session1', [
                     {
@@ -714,7 +1202,9 @@ describe('SessionBatchRecorder', () => {
                 ]),
             ]
 
-            messages.forEach((message) => recorder.record(message))
+            for (const message of messages) {
+                await recorder.record(message)
+            }
             await recorder.flush()
 
             expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(1)
@@ -729,15 +1219,14 @@ describe('SessionBatchRecorder', () => {
             expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(1)
             expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(1)
 
-            recorder.record(
-                createMessage('session3', [
-                    {
-                        type: EventType.Custom,
-                        timestamp: 2000,
-                        data: { custom: 'data' },
-                    },
-                ])
-            )
+            const message3 = createMessage('session3', [
+                {
+                    type: EventType.Custom,
+                    timestamp: 2000,
+                    data: { custom: 'data' },
+                },
+            ])
+            await recorder.record(message3)
             await recorder.flush()
 
             expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(2)
@@ -745,6 +1234,200 @@ describe('SessionBatchRecorder', () => {
             expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(2)
             expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(1) // Only the new session
             expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(1) // Only the new event
+        })
+    })
+
+    describe('metadata handling', () => {
+        it('should pass non-default metadata values to storeSessionBlocks', async () => {
+            // Create a custom mock implementation of SnappySessionRecorderMock that returns non-default values
+            const customRecorder = new SnappySessionRecorderMock('session_custom', 3, 'test_batch_id')
+
+            // Override the end method to return non-default values
+            customRecorder.end = jest.fn().mockReturnValue({
+                buffer: Buffer.from('test'),
+                eventCount: 5,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:10.000Z'),
+                firstUrl: 'https://example.com/start',
+                urls: ['https://example.com/start', 'https://example.com/page1', 'https://example.com/page2'],
+                clickCount: 10,
+                keypressCount: 25,
+                mouseActivityCount: 50,
+                activeMilliseconds: 8000,
+                size: 1024,
+                messageCount: 15,
+                snapshotSource: 'web',
+                snapshotLibrary: 'rrweb@1.0.0',
+                batchId: 'test_batch_id',
+            })
+
+            jest.mocked(SnappySessionRecorder).mockImplementationOnce(
+                () => customRecorder as unknown as SnappySessionRecorder
+            )
+
+            jest.mocked(SessionConsoleLogRecorder).mockImplementationOnce(
+                (_sessionId, _teamId, _batchId) =>
+                    ({
+                        recordMessage: jest.fn().mockResolvedValue(undefined),
+                        end: jest.fn().mockReturnValue({
+                            consoleLogCount: 5,
+                            consoleWarnCount: 3,
+                            consoleErrorCount: 2,
+                        }),
+                    } as unknown as SessionConsoleLogRecorder)
+            )
+
+            const message = createMessage('session_custom', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ])
+
+            recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore, mockConsoleLogStore)
+            await recorder.record(message)
+            await recorder.flush()
+
+            // Verify that the metadata store received both the non-default values and console log counts
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    sessionId: 'session_custom',
+                    teamId: 3,
+                    distinctId: 'distinct_id',
+                    startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                    endDateTime: DateTime.fromISO('2025-01-01T10:00:10.000Z'),
+                    blockUrl: 's3://test/file?range=bytes=0-99',
+                    blockLength: 100,
+                    firstUrl: 'https://example.com/start',
+                    urls: ['https://example.com/start', 'https://example.com/page1', 'https://example.com/page2'],
+                    clickCount: 10,
+                    keypressCount: 25,
+                    mouseActivityCount: 50,
+                    activeMilliseconds: 8000,
+                    consoleLogCount: 5,
+                    consoleWarnCount: 3,
+                    consoleErrorCount: 2,
+                    size: 1024,
+                    messageCount: 15,
+                    snapshotSource: 'web',
+                    snapshotLibrary: 'rrweb@1.0.0',
+                }),
+            ])
+        })
+
+        it('should use the same batch ID for all sessions in a batch', async () => {
+            const messages = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]),
+                createMessage('session2', [{ type: EventType.Meta, timestamp: 2000, data: {} }]),
+            ]
+
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+            await recorder.flush()
+
+            const storedBlocks = mockMetadataStore.storeSessionBlocks.mock.calls[0][0]
+            expect(storedBlocks).toHaveLength(2)
+
+            // All sessions should have the same batch ID
+            const batchId = storedBlocks[0].batchId
+            expect(batchId).toBeDefined()
+            expect(typeof batchId).toBe('string')
+            expect(storedBlocks[1].batchId).toBe(batchId)
+        })
+
+        it('should generate UUIDv7 format batch IDs', async () => {
+            await recorder.record(createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]))
+            await recorder.flush()
+
+            const batchId = mockMetadataStore.storeSessionBlocks.mock.calls[0][0][0].batchId
+            expect(uuidValidate(batchId)).toBe(true)
+        })
+
+        it('should store event counts from session block recorders', async () => {
+            const messages = [
+                createMessage('session1', [
+                    {
+                        type: EventType.FullSnapshot,
+                        timestamp: 1000,
+                        data: { source: 1 },
+                    },
+                    {
+                        type: EventType.IncrementalSnapshot,
+                        timestamp: 2000,
+                        data: { source: 2 },
+                    },
+                ]),
+                createMessage('session2', [
+                    {
+                        type: EventType.Meta,
+                        timestamp: 1500,
+                        data: { href: 'https://example.com' },
+                    },
+                ]),
+            ]
+
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+            await recorder.flush()
+
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        sessionId: 'session1',
+                        eventCount: 2,
+                    }),
+                    expect.objectContaining({
+                        sessionId: 'session2',
+                        eventCount: 1,
+                    }),
+                ])
+            )
+        })
+
+        it('should reset event counts after flush', async () => {
+            const message1 = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 2000,
+                    data: { source: 2 },
+                },
+            ])
+
+            await recorder.record(message1)
+            await recorder.flush()
+
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenLastCalledWith([
+                expect.objectContaining({
+                    sessionId: 'session1',
+                    eventCount: 2,
+                }),
+            ])
+
+            const message2 = createMessage('session1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 3000,
+                    data: { href: 'https://example.com' },
+                },
+            ])
+
+            await recorder.record(message2)
+            await recorder.flush()
+
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenLastCalledWith([
+                expect.objectContaining({
+                    sessionId: 'session1',
+                    eventCount: 1,
+                }),
+            ])
         })
     })
 
@@ -766,193 +1449,29 @@ describe('SessionBatchRecorder', () => {
                     } as unknown as SnappySessionRecorder)
             )
 
-            recorder.record(createMessage('session', events))
+            await recorder.record(createMessage('session', events))
 
             const flushPromise = recorder.flush()
 
             await expect(flushPromise).rejects.toThrow('Stream read error')
 
-            // Verify cleanup
-            expect(mockFinish).not.toHaveBeenCalled()
+            expect(mockWriter.finish).not.toHaveBeenCalled()
+            expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })
 
         it('should handle writer errors', async () => {
             const error = new Error('Write failed')
-            mockWriter.newBatch.mockImplementationOnce(() => {
-                throw error
-            })
+            mockWriter.writeSession.mockRejectedValueOnce(error)
 
             const message = createMessage('session1', [{ type: 1, timestamp: 1, data: {} }])
-            recorder.record(message)
+            await recorder.record(message)
 
             await expect(recorder.flush()).rejects.toThrow(error)
-            expect(mockFinish).not.toHaveBeenCalled()
+
+            expect(mockWriter.finish).not.toHaveBeenCalled()
+            expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
-        })
-
-        it('should handle errors from batch file writer stream', async () => {
-            const message1 = createMessage('session1', [
-                {
-                    type: EventType.FullSnapshot,
-                    timestamp: 1000,
-                    data: { source: 1 },
-                },
-            ])
-            const message2 = createMessage('session2', [
-                {
-                    type: EventType.FullSnapshot,
-                    timestamp: 2000,
-                    data: { source: 2 },
-                },
-            ])
-            recorder.record(message1)
-            recorder.record(message2)
-
-            // Create a stream that fails on second write
-            class FailingStream extends Writable {
-                private writeCount = 0
-
-                _write(chunk: any, encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
-                    this.writeCount++
-                    if (this.writeCount === 1) {
-                        callback(null) // First write succeeds
-                    } else {
-                        callback(new Error('Stream write error')) // Second write fails
-                    }
-                }
-            }
-
-            const errorStream = new FailingStream()
-            mockWriter.newBatch.mockReturnValueOnce({
-                stream: errorStream,
-                finish: mockFinish,
-            })
-
-            await expect(recorder.flush()).rejects.toThrow('Stream write error')
-            expect(mockFinish).not.toHaveBeenCalled()
-            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('block metadata', () => {
-        it('should track correct metadata for multiple sessions', async () => {
-            const messages = [
-                createMessage(
-                    'session1',
-                    [
-                        {
-                            type: EventType.FullSnapshot,
-                            timestamp: 2000,
-                            data: { source: 1, adds: [{ parentId: 1, nextId: 2, node: { tag: 'div' } }] },
-                        },
-                        {
-                            type: EventType.IncrementalSnapshot,
-                            timestamp: 3000,
-                            data: { source: 2, mutations: [{ id: 1 }] },
-                        },
-                    ],
-                    undefined,
-                    42
-                ),
-                createMessage(
-                    'session2',
-                    [
-                        {
-                            type: EventType.Meta,
-                            timestamp: 2500,
-                            data: { href: 'https://example.com', width: 1024, height: 768 },
-                        },
-                        {
-                            type: EventType.FullSnapshot,
-                            timestamp: 4500,
-                            data: { source: 1, snapshot: { html: '<div>2</div>' } },
-                        },
-                    ],
-                    undefined,
-                    787
-                ),
-                createMessage(
-                    'session3',
-                    [
-                        {
-                            type: EventType.FullSnapshot,
-                            timestamp: 1000,
-                            data: { source: 1, snapshot: { html: '<div>3</div>' } },
-                        },
-                        {
-                            type: EventType.IncrementalSnapshot,
-                            timestamp: 5000,
-                            data: { source: 2, texts: [{ id: 1, value: 'Updated text' }] },
-                        },
-                    ],
-                    undefined,
-                    123
-                ),
-            ]
-
-            // Create individual recorders and get their buffers
-            const recorder1 = new SnappySessionRecorderMock('session1', 42)
-            const recorder2 = new SnappySessionRecorderMock('session2', 787)
-            const recorder3 = new SnappySessionRecorderMock('session3', 123)
-
-            recorder1.recordMessage(messages[0].message)
-            recorder2.recordMessage(messages[1].message)
-            recorder3.recordMessage(messages[2].message)
-
-            const buffer1 = recorder1.end().buffer
-            const buffer2 = recorder2.end().buffer
-            const buffer3 = recorder3.end().buffer
-
-            const expectedBuffers = {
-                session1: buffer1,
-                session2: buffer2,
-                session3: buffer3,
-            }
-
-            const expectedTimestamps = {
-                session1: { start: 2000, end: 3000 },
-                session2: { start: 2500, end: 4500 },
-                session3: { start: 1000, end: 5000 },
-            }
-
-            // Record messages in the batch recorder
-            messages.forEach((message) => recorder.record(message))
-
-            const streamOutputPromise = captureOutput(mockStream)
-            const metadata = await recorder.flush()
-            const streamOutput = await streamOutputPromise
-
-            // Verify we got metadata for all three sessions
-            expect(metadata).toHaveLength(3)
-
-            // Verify all expected sessions are present
-            const sessionIds = new Set(metadata.map((block) => block.sessionId))
-            expect(sessionIds).toEqual(new Set(['session1', 'session2', 'session3']))
-
-            // Verify that each session has a block with correct data
-            metadata.forEach((block) => {
-                const expectedBuffer = expectedBuffers[block.sessionId as keyof typeof expectedBuffers]
-                const blockData = streamOutput.slice(block.blockStartOffset, block.blockStartOffset + block.blockLength)
-                const expected = expectedTimestamps[block.sessionId as keyof typeof expectedTimestamps]
-
-                const expectedTeamId = {
-                    session1: 42,
-                    session2: 787,
-                    session3: 123,
-                }[block.sessionId as keyof typeof expectedBuffers]
-
-                expect(block.teamId).toBe(expectedTeamId)
-                expect(block.blockLength).toBe(expectedBuffer.length)
-                expect(Buffer.from(blockData)).toEqual(expectedBuffer)
-                expect(block.startTimestamp).toBe(expected.start)
-                expect(block.endTimestamp).toBe(expected.end)
-            })
-
-            // Verify total length matches
-            const totalLength = Buffer.from(streamOutput).length
-            const expectedTotalLength = Object.values(expectedBuffers).reduce((sum, buf) => sum + buf.length, 0)
-            expect(totalLength).toBe(expectedTotalLength)
         })
     })
 })

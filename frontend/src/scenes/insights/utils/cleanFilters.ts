@@ -5,6 +5,7 @@ import {
     NON_VALUES_ON_SERIES_DISPLAY_TYPES,
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
     RETENTION_FIRST_TIME,
+    RETENTION_MEAN_NONE,
     ShownAsValue,
 } from 'lib/constants'
 import { clamp } from 'lib/utils'
@@ -308,6 +309,9 @@ export function cleanFilters(
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
             show_mean: filters.show_mean,
+            ...(filters.mean_retention_calculation && filters.mean_retention_calculation !== RETENTION_MEAN_NONE
+                ? { mean_retention_calculation: filters.mean_retention_calculation }
+                : {}),
             cumulative: filters.cumulative,
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.aggregation_group_type_index != undefined

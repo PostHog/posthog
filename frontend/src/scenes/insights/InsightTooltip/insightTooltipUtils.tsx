@@ -3,7 +3,7 @@ import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 
 import { formatBreakdownLabel } from '../utils'

@@ -115,6 +115,8 @@ export const TECHNOLOGY = {
         'IconPullRequest',
         'IconTerminal',
         'IconApp',
+        'IconFolder',
+        'IconFolderOpen',
     ],
     UI: [
         'IconPassword',
@@ -171,9 +173,12 @@ export const ELEMENTS = {
         'IconInfo',
         'IconCheckCircle',
         'IconCheck',
+        'IconCircleDashed',
         'IconX',
         'IconEllipsis',
         'IconHide',
+        'IconStopFilled',
+        'IconListCheck',
     ],
     'Arrows & Shapes': [
         'IconArrowLeft',
@@ -183,6 +188,7 @@ export const ELEMENTS = {
         'IconArrowRightDown',
         'IconArrowUpRight',
         'IconArrowUpLeftDiagonal',
+        'IconCornerDownRight',
         'IconCollapse',
         'IconExpand',
         'IconCollapse45',
@@ -250,4 +256,6 @@ export const TEAMS_AND_COMPANIES = {
     Pipeline: ['IconWebhooks', 'IconDecisionTree'],
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
     Logos: ['IconLogomark', 'IconGithub'],
+    ErrorTracking: ['IconIssue'],
+    LLMObservability: ['IconLlmObservability', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement'],
 }

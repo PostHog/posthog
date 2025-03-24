@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE

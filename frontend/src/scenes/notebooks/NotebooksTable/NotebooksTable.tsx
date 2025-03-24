@@ -90,7 +90,7 @@ export function NotebooksTable(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <LemonBanner
                 type="info"
                 action={{

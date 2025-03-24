@@ -2,7 +2,7 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginCapabilities, PluginConfig, PluginLogLevel } from '../../../types'
 import { upsertInlinePlugin } from '../../../utils/db/sql'
-import { status } from '../../../utils/status'
+import { logger } from '../../../utils/logger'
 import { PluginInstance } from '../lazy'
 import { NoopInlinePlugin } from './noop'
 import { SEMVER_FLATTENER_CONFIG_SCHEMA, SemverFlattener } from './semver-flattener'
@@ -57,8 +57,6 @@ export const INLINE_PLUGIN_MAP: Record<InlinePluginId, RegisteredInlinePlugin> =
             config_schema: SEMVER_FLATTENER_CONFIG_SCHEMA,
             tag: 'semver-flattener',
             capabilities: {
-                jobs: [],
-                scheduled_tasks: [],
                 methods: ['processEvent'],
             },
             is_stateless: false, // TODO - this plugin /could/ be stateless, but right now we cache config parsing, which is stateful
@@ -77,8 +75,6 @@ export const INLINE_PLUGIN_MAP: Record<InlinePluginId, RegisteredInlinePlugin> =
             config_schema: USER_AGENT_CONFIG_SCHEMA,
             tag: 'user-agent',
             capabilities: {
-                jobs: [],
-                scheduled_tasks: [],
                 methods: ['processEvent'],
             },
             is_stateless: false,
@@ -105,7 +101,7 @@ export interface InlinePluginDescription {
 }
 
 export async function syncInlinePlugins(hub: Hub): Promise<void> {
-    status.info('⚡', 'Syncing inline plugins')
+    logger.info('⚡', 'Syncing inline plugins')
     for (const url of INLINE_PLUGIN_URLS) {
         const plugin = INLINE_PLUGIN_MAP[url]
         await upsertInlinePlugin(hub, plugin.description)

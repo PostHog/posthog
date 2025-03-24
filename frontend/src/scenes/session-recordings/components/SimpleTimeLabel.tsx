@@ -1,15 +1,17 @@
 import clsx from 'clsx'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { shortTimeZone } from 'lib/utils'
 import { memo } from 'react'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 function formattedReplayTime(
     time: string | number | Dayjs | null | undefined,
-    timestampFormat: TimestampFormat
+    timestampFormat: TimestampFormat,
+    timeOnly?: boolean
 ): string {
     if (time == null) {
-        return '--/--/----, 00:00:00'
+        return timeOnly ? '00:00:00' : '--/--/----, 00:00:00'
     }
 
     let d = dayjs(time)
@@ -17,12 +19,16 @@ function formattedReplayTime(
     if (isUTC) {
         d = d.tz('UTC')
     }
-    const formatted = d.format(formatStringFor(d))
+    const formatted = d.format(formatStringFor(d, timeOnly))
     const timezone = isUTC ? 'UTC' : shortTimeZone(undefined, d.toDate())
     return `${formatted} ${timezone}`
 }
 
-function formatStringFor(d: Dayjs): string {
+function formatStringFor(d: Dayjs, timeOnly?: boolean): string {
+    if (timeOnly) {
+        return 'HH:mm:ss'
+    }
+
     const today = dayjs()
     if (d.isSame(today, 'year')) {
         return 'DD/MMM, HH:mm:ss'
@@ -46,12 +52,15 @@ export function _SimpleTimeLabel({
     timestampFormat,
     muted = true,
     size = 'xsmall',
+    containerSize,
 }: {
     startTime: string | number | Dayjs | undefined
     timestampFormat: TimestampFormat
     muted?: boolean
     size?: 'small' | 'xsmall'
+    containerSize?: 'small' | 'normal'
 }): JSX.Element {
+    const formattedTime = formattedReplayTime(startTime, timestampFormat, containerSize === 'small')
     return (
         <div
             className={clsx(
@@ -61,7 +70,11 @@ export function _SimpleTimeLabel({
                 size === 'small' && 'text-sm'
             )}
         >
-            {formattedReplayTime(startTime, timestampFormat)}
+            {containerSize === 'small' ? (
+                <Tooltip title={formattedReplayTime(startTime, timestampFormat, false)}>{formattedTime}</Tooltip>
+            ) : (
+                formattedTime
+            )}
         </div>
     )
 }
@@ -80,7 +93,8 @@ export const SimpleTimeLabel = memo(
             prevStartTimeTruncated === nextStartTimeTruncated &&
             prevProps.timestampFormat === nextProps.timestampFormat &&
             prevProps.muted === nextProps.muted &&
-            prevProps.size === nextProps.size
+            prevProps.size === nextProps.size &&
+            prevProps.containerSize === nextProps.containerSize
         )
     }
 )

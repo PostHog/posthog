@@ -113,7 +113,6 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                     ),
                                 value: 3000,
                                 prefix: '$',
-                                top: true,
                             },
                             {
                                 type: BillingGaugeItemKind.FreeTier,
@@ -127,7 +126,6 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                     ),
                                 value: 20000,
                                 prefix: '$',
-                                top: true,
                             },
                             {
                                 type: BillingGaugeItemKind.FreeTier,
@@ -141,7 +139,6 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                     ),
                                 prefix: '$',
                                 value: 60000,
-                                top: true,
                             },
                             {
                                 type: BillingGaugeItemKind.FreeTier,
@@ -155,14 +152,12 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                     ),
                                 prefix: '$',
                                 value: 100000,
-                                top: true,
                             },
                             {
                                 type: BillingGaugeItemKind.CurrentUsage,
                                 text: 'Credits purchased',
                                 prefix: '$',
                                 value: creditInputValue,
-                                top: false,
                             },
                         ]}
                         // @ts-expect-error
@@ -220,7 +215,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                             {
                                 item: "Credits you'll receive",
                                 value: (
-                                    <span className="flex space-x-2">
+                                    <span className="flex deprecated-space-x-2">
                                         <span className="line-through">
                                             $
                                             {creditInputValue.toLocaleString('en-US', {

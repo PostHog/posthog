@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 import { ConversionGoalWarning, ProductTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
@@ -31,6 +32,21 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
     // No need to show loading or error states for this warning
     if (!statusCheck) {
         return null
+    }
+
+    if (!statusCheck.hasAuthorizedUrls) {
+        return (
+            <LemonBanner type="warning" className="mt-2">
+                <p>
+                    We couldn't find any authorized domains. Some of our Web analytics filters won't work correctly
+                    until you let us know what domains you are sending your events from.
+                </p>
+                <p>
+                    Please take some time to outline them for us in{' '}
+                    <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>the settings</Link>.
+                </p>
+            </LemonBanner>
+        )
     }
 
     if (productTab === ProductTab.WEB_VITALS) {

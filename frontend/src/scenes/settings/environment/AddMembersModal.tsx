@@ -43,7 +43,7 @@ export function AddMembersModalWithButton({ disabledReason }: { disabledReason: 
                     <LemonModal.Header>
                         <h3>{`Adding members${currentTeam?.name ? ` to project ${currentTeam.name}` : ''}`}</h3>
                     </LemonModal.Header>
-                    <LemonModal.Content className="space-y-2">
+                    <LemonModal.Content className="deprecated-space-y-2">
                         <LemonField name="userUuids">
                             <LemonInputSelect
                                 mode="multiple"

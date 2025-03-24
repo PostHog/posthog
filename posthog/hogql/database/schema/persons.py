@@ -29,11 +29,11 @@ from posthog.models.organization import Organization
 from posthog.schema import PersonsArgMaxVersion
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
-    "id": StringDatabaseField(name="id"),
-    "created_at": DateTimeDatabaseField(name="created_at"),
-    "team_id": IntegerDatabaseField(name="team_id"),
-    "properties": StringJSONDatabaseField(name="properties"),
-    "is_identified": BooleanDatabaseField(name="is_identified"),
+    "id": StringDatabaseField(name="id", nullable=False),
+    "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
+    "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+    "properties": StringJSONDatabaseField(name="properties", nullable=False),
+    "is_identified": BooleanDatabaseField(name="is_identified", nullable=False),
     "pdi": LazyJoin(
         from_field=["id"],
         join_table=PersonsPDITable(),
@@ -165,7 +165,9 @@ def join_with_persons_table(
         raise ResolutionError("No fields requested from persons table")
     join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node))
 
-    organization: Organization = context.team.organization if context.team else None
+    organization: Organization | None = context.team.organization if context.team else None
+    if organization is None:
+        raise ResolutionError("Organization is required to join with persons table")
     # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
     use_inner_join = (
         posthoganalytics.feature_enabled(
@@ -204,8 +206,8 @@ def join_with_persons_table(
 class RawPersonsTable(Table):
     fields: dict[str, FieldOrTable] = {
         **PERSONS_FIELDS,
-        "is_deleted": BooleanDatabaseField(name="is_deleted"),
-        "version": IntegerDatabaseField(name="version"),
+        "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
+        "version": IntegerDatabaseField(name="version", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):

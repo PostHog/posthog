@@ -19,6 +19,8 @@ import type { definitionLogicType } from './definitionLogicType'
 export const createNewDefinition = (isEvent: boolean): Definition => ({
     id: 'new',
     name: `New ${isEvent ? 'Event' : 'Event property'}`,
+    verified: false,
+    hidden: false,
 })
 
 export interface SetDefinitionProps {

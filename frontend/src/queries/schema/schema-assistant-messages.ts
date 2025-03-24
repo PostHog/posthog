@@ -1,12 +1,17 @@
-import { AssistantFunnelsQuery, AssistantRetentionQuery, AssistantTrendsQuery } from './schema-assistant-queries'
+import {
+    AssistantFunnelsQuery,
+    AssistantHogQLQuery,
+    AssistantRetentionQuery,
+    AssistantTrendsQuery,
+} from './schema-assistant-queries'
 
 export enum AssistantMessageType {
     Human = 'human',
+    ToolCall = 'tool',
     Assistant = 'ai',
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     Failure = 'ai/failure',
-    Router = 'ai/router',
 }
 
 export interface BaseAssistantMessage {
@@ -31,10 +36,17 @@ export interface AssistantMessageMetadata {
     form?: AssistantForm
 }
 
+export interface AssistantToolCall {
+    id: string
+    name: string
+    args: Record<string, unknown>
+}
+
 export interface AssistantMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Assistant
     content: string
     meta?: AssistantMessageMetadata
+    tool_calls?: AssistantToolCall[]
 }
 
 export interface ReasoningMessage extends BaseAssistantMessage {
@@ -45,8 +57,10 @@ export interface ReasoningMessage extends BaseAssistantMessage {
 
 export interface VisualizationMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Visualization
+    /** @default '' */
+    query: string
     plan?: string
-    answer?: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery
+    answer?: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
     initiator?: string
 }
 
@@ -55,18 +69,12 @@ export interface FailureMessage extends BaseAssistantMessage {
     content?: string
 }
 
-export interface RouterMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.Router
-    content: string
-}
-
 export type RootAssistantMessage =
     | VisualizationMessage
     | ReasoningMessage
     | AssistantMessage
     | HumanMessage
     | FailureMessage
-    | RouterMessage
 
 export enum AssistantEventType {
     Status = 'status',
@@ -81,4 +89,10 @@ export enum AssistantGenerationStatusType {
 
 export interface AssistantGenerationStatusEvent {
     type: AssistantGenerationStatusType
+}
+
+export interface AssistantToolCallMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.ToolCall
+    content: string
+    tool_call_id: string
 }

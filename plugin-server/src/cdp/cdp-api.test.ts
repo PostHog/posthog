@@ -3,11 +3,12 @@ import '../../tests/helpers/mocks/producer.mock'
 import express from 'express'
 import supertest from 'supertest'
 
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../tests/cdp/examples'
-import { createHogFunction, insertHogFunction as _insertHogFunction } from '../../tests/cdp/fixtures'
+import { forSnapshot } from '../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
+import { createHogFunction, insertHogFunction as _insertHogFunction } from './_tests/fixtures'
 import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
@@ -84,7 +85,7 @@ describe('CDP API', () => {
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
         // Trigger the reload that django would do
-        await api['hogFunctionManager'].reloadAllHogFunctions()
+        api['hogFunctionManager']['onHogFunctionsReloaded'](team.id, [item.id])
         return item
     }
 
@@ -95,7 +96,6 @@ describe('CDP API', () => {
         team = await getFirstTeam(hub)
 
         api = new CdpApi(hub)
-        await api.start()
         app = express()
         app.use(express.json())
         app.use('/', api.router())
@@ -111,7 +111,6 @@ describe('CDP API', () => {
 
     afterEach(async () => {
         jest.setTimeout(10000)
-        await api.stop()
         await closeHub(hub)
     })
 
@@ -143,7 +142,7 @@ describe('CDP API', () => {
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/new/invocations`)
             .send({ globals })
 
-        expect(res.status).toEqual(200)
+        expect(res.status).toEqual(400)
     })
 
     it('can invoke a function via the API with mocks', async () => {
@@ -360,7 +359,7 @@ describe('CDP API', () => {
 
         expect(res.status).toEqual(200)
 
-        const minimalLogs = res.body.logs.map((log) => ({
+        const minimalLogs = res.body.logs.map((log: any) => ({
             level: log.level,
             message: log.message,
         }))
@@ -472,23 +471,26 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
 
-            expect(res.body.logs.map((log) => log.message)).toMatchInlineSnapshot(`
-                [
-                  "Executing plugin plugin-posthog-filter-out-plugin",
-                  "Execution successful",
-                ]
-            `)
+            expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`[]`)
 
-            expect(res.body.result).toMatchInlineSnapshot(`
+            expect(forSnapshot(res.body.result)).toMatchInlineSnapshot(`
                 {
                   "distinct_id": "123",
+                  "elements_chain": "",
                   "event": "$pageview",
+                  "ip": null,
+                  "now": "",
                   "properties": {
                     "$lib_version": "1.0.0",
+                    "$transformations_succeeded": [
+                      "Filter Out Plugin (<REPLACED-UUID-1>)",
+                    ],
                   },
+                  "site_url": "http://localhost:8000/project/2",
                   "team_id": 2,
                   "timestamp": "2021-09-28T14:00:00Z",
-                  "uuid": "b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                  "url": "https://example.com/events/<REPLACED-UUID-0>/2021-09-28T14:00:00Z",
+                  "uuid": "<REPLACED-UUID-0>",
                 }
             `)
         })
@@ -502,12 +504,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
 
-            expect(res.body.logs.map((log) => log.message)).toMatchInlineSnapshot(`
-                [
-                  "Executing plugin plugin-posthog-filter-out-plugin",
-                  "Execution successful",
-                ]
-            `)
+            expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`[]`)
 
             expect(res.body.result).toMatchInlineSnapshot(`null`)
         })

@@ -5,7 +5,7 @@ from django.utils import timezone
 from django.utils.timezone import now
 
 from ee.models.license import License
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models import User
 from posthog.settings import SITE_URL
 

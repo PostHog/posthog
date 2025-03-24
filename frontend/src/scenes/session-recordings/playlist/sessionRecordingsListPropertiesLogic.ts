@@ -46,9 +46,10 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                                     any(properties.$device_type) as $device_type, 
                                     any(properties.$os) as $os, 
                                     any(properties.$os_name) as $os_name,
-                                    argMin(properties.$referring_domain, timestamp) as $referring_domain,
+                                    any(session.$entry_referring_domain) as $entry_referring_domain,
                                     any(properties.$geoip_subdivision_1_name) as $geoip_subdivision_1_name,
-                                    any(properties.$geoip_city_name) as $geoip_city_name
+                                    any(properties.$geoip_city_name) as $geoip_city_name,
+                                    any(session.$entry_current_url) as $entry_current_url
                                 FROM events
                                 WHERE event IN ${Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP['events'])}
                                 AND session_id IN ${sessionIds}
@@ -76,9 +77,10 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                                 $device_type: x[3],
                                 $os: x[4],
                                 $os_name: x[5],
-                                $referring_domain: x[6],
+                                $entry_referring_domain: x[6],
                                 $geoip_subdivision_1_name: x[7],
                                 $geoip_city_name: x[8],
+                                $entry_current_url: x[9],
                             },
                         }
                     })
@@ -107,7 +109,9 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                 ): Record<string, SessionRecordingPropertiesType['properties']> => {
                     const newState = { ...state }
                     recordingProperties.forEach((properties) => {
-                        newState[properties.id] = properties.properties
+                        if (properties.properties) {
+                            newState[properties.id] = properties.properties
+                        }
                     })
 
                     return newState

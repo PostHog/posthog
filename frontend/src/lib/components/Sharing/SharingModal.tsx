@@ -90,7 +90,7 @@ export function SharingModalContent({
     }, [iframeProperties.src, sharingConfiguration?.enabled, showPreview])
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             {dashboardId ? (
                 <>
                     <DashboardCollaboration dashboardId={dashboardId} />
@@ -110,7 +110,7 @@ export function SharingModalContent({
                 </>
             ) : undefined}
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {!sharingConfiguration && sharingConfigurationLoading ? (
                     <LemonSkeleton.Row repeat={3} />
                 ) : !sharingConfiguration ? (
@@ -130,7 +130,7 @@ export function SharingModalContent({
 
                         {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
-                                <div className="space-y-2">
+                                <div className="deprecated-space-y-2">
                                     <LemonButton
                                         data-attr="sharing-link-button"
                                         type="secondary"
@@ -168,9 +168,9 @@ export function SharingModalContent({
                                     logic={sharingLogic}
                                     props={logicProps}
                                     formKey="embedConfig"
-                                    className="space-y-2"
+                                    className="deprecated-space-y-2"
                                 >
-                                    <div className="grid grid-cols-2 gap-2 grid-flow odd:last:*:col-span-2">
+                                    <div className="grid grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
                                         {insight && (
                                             <LemonField name="noHeader">
                                                 {({ value, onChange }) => (

@@ -13,7 +13,7 @@ import { HotKeyOrModifier } from '~/types'
 import { playerSettingsLogic, TimestampFormat } from '../playerSettingsLogic'
 import { seekbarLogic } from './seekbarLogic'
 
-function RelativeTimestampLabel(): JSX.Element {
+function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Element {
     const { logicProps, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
 
@@ -22,16 +22,25 @@ function RelativeTimestampLabel(): JSX.Element {
 
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
 
-    return (
+    const current = colonDelimitedDuration(startTimeSeconds, fixedUnits)
+    const total = colonDelimitedDuration(endTimeSeconds, fixedUnits)
+    const fullDisplay = (
         <div className="flex gap-0.5">
-            <span>{colonDelimitedDuration(startTimeSeconds, fixedUnits)}</span>
+            <span>{current}</span>
             <span>/</span>
-            <span>{colonDelimitedDuration(endTimeSeconds, fixedUnits)}</span>
+            <span>{total}</span>
         </div>
+    )
+    return size === 'small' ? (
+        <Tooltip title={fullDisplay}>
+            <span>{current}</span>
+        </Tooltip>
+    ) : (
+        <span>{fullDisplay}</span>
     )
 }
 
-export function Timestamp(): JSX.Element {
+export function Timestamp({ size }: { size: 'small' | 'normal' }): JSX.Element {
     const { logicProps, currentTimestamp, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
     const { timestampFormat } = useValues(playerSettingsLogic)
@@ -43,11 +52,12 @@ export function Timestamp(): JSX.Element {
     return (
         <div data-attr="recording-timestamp" className="text-center whitespace-nowrap font-mono text-xs">
             {timestampFormat === TimestampFormat.Relative ? (
-                <RelativeTimestampLabel />
+                <RelativeTimestampLabel size={size} />
             ) : (
                 <SimpleTimeLabel
                     startTime={isScrubbing ? scrubbingTimestamp : currentTimestamp}
                     timestampFormat={timestampFormat}
+                    containerSize={size}
                 />
             )}
         </div>

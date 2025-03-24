@@ -1,4 +1,4 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent, StorageExtension } from '@posthog/plugin-scaffold'
 
 import { Response, trackedFetch } from '~/src/utils/fetch'
 
@@ -25,6 +25,7 @@ export type LegacyTransformationPluginMeta = LegacyPluginMeta & {
 
 export type LegacyDestinationPluginMeta = LegacyTransformationPluginMeta & {
     fetch: (...args: Parameters<typeof trackedFetch>) => Promise<Response>
+    storage: Pick<StorageExtension, 'get' | 'set'>
 }
 
 export type LegacyDestinationPlugin = {

@@ -1,5 +1,12 @@
 import { IconEllipsis, IconMinus } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonTable, LemonTableColumns, ProfilePicture } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonMenu,
+    LemonTable,
+    LemonTableColumns,
+    ProfileBubbles,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { useEffect } from 'react'
@@ -21,6 +28,26 @@ export const UserGroups = (): JSX.Element => {
             title: 'Team',
             dataIndex: 'name',
             key: 'name',
+            width: 0,
+            className: 'whitespace-nowrap font-semibold',
+        },
+        {
+            title: 'Members',
+            key: 'members',
+            dataIndex: 'members',
+            render: (_, { members }) => {
+                return members && members.length ? (
+                    <ProfileBubbles
+                        people={members.map((user) => ({
+                            email: user.email,
+                            name: user.first_name,
+                            title: `${user.first_name} <${user.email}>`,
+                        }))}
+                    />
+                ) : (
+                    'No members'
+                )
+            },
         },
         {
             key: 'actions',
@@ -29,7 +56,7 @@ export const UserGroups = (): JSX.Element => {
     ]
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <LemonTable
                 size="small"
                 dataSource={userGroups}
@@ -52,7 +79,7 @@ const Actions = ({ group }: { group: UserGroup }): JSX.Element => {
     const { addMember, deleteUserGroup } = useActions(userGroupsLogic)
 
     return (
-        <div className="flex flex-row justify-end space-x-2">
+        <div className="flex flex-row justify-end deprecated-space-x-2">
             <LemonMenu
                 items={[
                     {

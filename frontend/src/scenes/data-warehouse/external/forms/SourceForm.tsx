@@ -220,14 +220,14 @@ export function SourceFormComponent({
     const isUpdateMode = !!setSourceConfigValue
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <Group name="payload">
                 {SOURCE_DETAILS[sourceConfig.name].fields.map((field) =>
                     sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode)
                 )}
             </Group>
             {showPrefix && (
-                <LemonField name="prefix" label="Table Prefix (optional)">
+                <LemonField name="prefix" label="Table prefix (optional)">
                     {({ value, onChange }) => (
                         <>
                             <LemonInput

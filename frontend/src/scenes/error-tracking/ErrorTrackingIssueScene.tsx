@@ -1,107 +1,119 @@
 import './ErrorTracking.scss'
 
-import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
-import { errorTrackingIssueSceneLogic, IssueTab } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingFilters } from './ErrorTrackingFilters'
+import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
+import { GenericSelect } from './issue/GenericSelect'
+import { IssueStatus, StatusIndicator } from './issue/Indicator'
+import { Metadata } from './issue/Metadata'
 import { EventsTab } from './issue/tabs/EventsTab'
-import { OverviewTab } from './issue/tabs/OverviewTab'
+import { DetailsWidget } from './issue/widgets/DetailsWidget'
+import { StacktraceWidget } from './issue/widgets/StacktraceWidget'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
     logic: errorTrackingIssueSceneLogic,
-    paramsToProps: ({ params: { id } }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id }),
+    paramsToProps: ({
+        params: { id },
+        searchParams: { fingerprint },
+    }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint }),
 }
 
-const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
+export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
     active: 'Active',
     archived: 'Archived',
     resolved: 'Resolved',
     pending_release: 'Pending release',
+    suppressed: 'Suppressed',
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading, tab } = useValues(errorTrackingIssueSceneLogic)
-    const { updateIssue, loadIssue, setTab } = useActions(errorTrackingIssueSceneLogic)
+    const { issue } = useValues(errorTrackingIssueSceneLogic)
+    const { updateIssue, initIssue, assignIssue } = useActions(errorTrackingIssueSceneLogic)
+    const [activeTab, setActiveTab] = useState('stacktrace')
 
     useEffect(() => {
-        // don't like doing this but scene logics do not unmount after being loaded
-        // so this refreshes the group on each page visit in case any changes occurred
-        if (!issueLoading) {
-            loadIssue()
-        }
-    }, [])
+        initIssue()
+    }, [initIssue])
 
     return (
-        <AlphaAccessScenePrompt>
+        <ErrorTrackingSetupPrompt>
             <>
                 <PageHeader
                     buttons={
-                        issue ? (
-                            issue.status === 'active' ? (
-                                <div className="flex divide-x gap-x-2">
-                                    <AssigneeSelect
-                                        assignee={issue.assignee}
-                                        onChange={(assignee) => updateIssue({ assignee })}
-                                        type="secondary"
-                                        showName
-                                    />
-                                    <div className="flex pl-2 gap-x-2">
-                                        <LemonButton
-                                            type="secondary"
-                                            onClick={() => updateIssue({ status: 'archived' })}
-                                        >
-                                            Archive
-                                        </LemonButton>
-                                        <LemonButton type="primary" onClick={() => updateIssue({ status: 'resolved' })}>
-                                            Resolve
-                                        </LemonButton>
-                                    </div>
-                                </div>
-                            ) : (
-                                <LemonButton
+                        <div className="flex gap-x-2">
+                            {issue && issue.status == 'active' && (
+                                <AssigneeSelect
+                                    assignee={issue.assignee}
+                                    onChange={assignIssue}
                                     type="secondary"
-                                    className="upcasefirst-letter:uppercase"
-                                    onClick={() => updateIssue({ status: 'active' })}
-                                    tooltip="Mark as active"
-                                >
-                                    {STATUS_LABEL[issue.status]}
-                                </LemonButton>
-                            )
-                        ) : (
-                            false
-                        )
+                                    showName
+                                />
+                            )}
+                            {issue && (
+                                <GenericSelect
+                                    size="small"
+                                    current={issue.status}
+                                    values={['active', 'resolved', 'suppressed']}
+                                    placeholder="Mark as"
+                                    renderValue={(value) => (
+                                        <StatusIndicator
+                                            status={value as IssueStatus}
+                                            size="small"
+                                            withTooltip={true}
+                                        />
+                                    )}
+                                    onChange={(value) => updateIssue({ status: value })}
+                                />
+                            )}
+                        </div>
                     }
                 />
                 {issue ? (
-                    <LemonTabs
-                        activeKey={tab}
-                        tabs={[
-                            {
-                                key: IssueTab.Overview,
-                                label: 'Overview',
-                                content: <OverviewTab />,
-                            },
-
-                            {
-                                key: IssueTab.Events,
-                                label: 'Events',
-                                content: <EventsTab />,
-                            },
-                        ]}
-                        onChange={setTab}
-                    />
+                    <div className="ErrorTrackingIssue">
+                        <Metadata />
+                        <LemonTabs
+                            activeKey={activeTab}
+                            onChange={(key) => setActiveTab(key)}
+                            tabs={[
+                                {
+                                    key: 'stacktrace',
+                                    label: 'Overview',
+                                    content: (
+                                        <div className="space-y-2">
+                                            <DetailsWidget />
+                                            <StacktraceWidget />
+                                        </div>
+                                    ),
+                                },
+                                {
+                                    key: 'events',
+                                    label: 'Events',
+                                    content: (
+                                        <div className="space-y-2">
+                                            <ErrorTrackingFilters />
+                                            <div className="border-1 overflow-hidden border-accent-primary border-primary rounded bg-surface-primary relative">
+                                                <EventsTab />
+                                            </div>
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    </div>
                 ) : (
                     <Spinner />
                 )}
             </>
-        </AlphaAccessScenePrompt>
+        </ErrorTrackingSetupPrompt>
     )
 }

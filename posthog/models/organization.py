@@ -43,6 +43,7 @@ class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
+    feature_flag_requests: Optional[OrganizationUsageResource]
     period: Optional[list[str]]
 
 
@@ -131,6 +132,7 @@ class Organization(UUIDModel):
     )
     for_internal_metrics = models.BooleanField(default=False)
     is_member_join_email_enabled = models.BooleanField(default=True)
+    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
     enforce_2fa = models.BooleanField(null=True, blank=True)
 
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
@@ -142,6 +144,7 @@ class Organization(UUIDModel):
     # Like {
     #   'events': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 },
     #   'recordings': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 }
+    #   'feature_flags_requests': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 }
     #   'period': ['2021-01-01', '2021-01-31']
     # }
     # Also currently indicates if the organization is on billing V2 or not

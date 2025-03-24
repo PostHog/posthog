@@ -238,8 +238,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     values.isUnlicensedDebug
                         ? product.plans?.[product.plans.length - 1]
                         : product.plans?.[currentPlanIndex + 1]
-                const downgradePlan = product.plans?.[currentPlanIndex - 1]
-                return { currentPlan, upgradePlan, downgradePlan }
+                return { currentPlan, upgradePlan }
             },
         ],
         freeTier: [
@@ -255,30 +254,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         billingLimitAsUsage: [
-            (s, p) => [s.billing, p.product, s.isEditingBillingLimit, s.billingLimitInput, s.customLimitUsd],
-            (billing, product, isEditingBillingLimit, billingLimitInput, customLimitUsd) => {
-                // cast the product as a product, not an addon, to avoid TS errors. This is fine since we're just getting the tiers.
-                product = product as BillingProductV2Type
-                const addonTiers =
-                    product.addons
-                        ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
-                        ?.map((addon: BillingProductV2AddonType) => addon.tiers) ?? []
-                const productAndAddonTiers: BillingTierType[][] = [product.tiers, ...addonTiers].filter(
-                    Boolean
-                ) as BillingTierType[][]
-                return product.tiers
-                    ? isEditingBillingLimit
-                        ? convertAmountToUsage(
-                              `${billingLimitInput.input}`,
-                              productAndAddonTiers,
-                              billing?.discount_percent
-                          )
-                        : convertAmountToUsage(
-                              customLimitUsd ? `${customLimitUsd}` : '',
-                              productAndAddonTiers,
-                              billing?.discount_percent
-                          )
-                    : 0
+            (_, p) => [p.product],
+            (product) => {
+                return product.usage_limit || 0
             },
         ],
         billingGaugeItems: [
@@ -289,7 +267,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         ? {
                               type: BillingGaugeItemKind.BillingLimit,
                               text: 'Billing limit',
-                              top: true,
                               value: billingLimitAsUsage || 0,
                           }
                         : (undefined as any),
@@ -298,7 +275,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                               type: BillingGaugeItemKind.FreeTier,
                               text: 'Free tier limit',
                               value: freeTier,
-                              top: true,
                           }
                         : undefined,
                     product.projected_usage && product.projected_usage > (product.current_usage || 0)
@@ -306,14 +282,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
                               type: BillingGaugeItemKind.ProjectedUsage,
                               text: 'Projected',
                               value: product.projected_usage || 0,
-                              top: false,
                           }
                         : undefined,
                     {
                         type: BillingGaugeItemKind.CurrentUsage,
                         text: 'Current',
                         value: product.current_usage || 0,
-                        top: false,
                     },
                 ].filter(Boolean)
             },

@@ -1,21 +1,29 @@
-import { PassThrough } from 'stream'
+import { logger } from '../../../../utils/logger'
+import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } from './session-batch-file-storage'
 
-import { status } from '../../../../utils/status'
-import { SessionBatchFileWriter, StreamWithFinish } from './session-batch-file-writer'
+class BlackholeBatchFileWriter implements SessionBatchFileWriter {
+    public writeSession(buffer: Buffer): Promise<WriteSessionResult> {
+        logger.debug('🔁', 'blackhole_writer_writing_session', { bytes: buffer.length })
+        return Promise.resolve({
+            bytesWritten: buffer.length,
+            url: null,
+        })
+    }
 
-export class BlackholeSessionBatchWriter implements SessionBatchFileWriter {
-    public newBatch(): StreamWithFinish {
-        status.debug('🔁', 'blackhole_writer_creating_stream')
-        const stream = new PassThrough()
+    public finish(): Promise<void> {
+        logger.debug('🔁', 'blackhole_writer_finishing_batch')
+        return Promise.resolve()
+    }
+}
 
-        stream.on('data', () => {})
+export class BlackholeSessionBatchFileStorage implements SessionBatchFileStorage {
+    public newBatch(): SessionBatchFileWriter {
+        logger.debug('🔁', 'blackhole_writer_creating_batch')
+        return new BlackholeBatchFileWriter()
+    }
 
-        return {
-            stream,
-            finish: async () => {
-                status.debug('🔁', 'blackhole_writer_finishing_stream')
-                return Promise.resolve()
-            },
-        }
+    public checkHealth(): Promise<boolean> {
+        logger.debug('🔁', 'blackhole_writer_healthcheck')
+        return Promise.resolve(true)
     }
 }

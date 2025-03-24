@@ -1,12 +1,12 @@
 import { Webhook } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 import fetch from 'node-fetch'
 
 import { buildIntegerMatcher } from '../config/config'
 import { PluginsServerConfig, ValueMatcher } from '../types'
 import { isProdEnv } from '../utils/env-utils'
 import { raiseIfUserProvidedUrlUnsafe } from '../utils/fetch'
-import { status } from '../utils/status'
+import { logger } from '../utils/logger'
+import { captureException } from '../utils/posthog'
 import { sleep } from '../utils/utils'
 import { pluginActionMsSummary } from './metrics'
 
@@ -116,8 +116,8 @@ export class RustyHook {
                     parameters: { ...rustyWebhookPayload.parameters, body: '<redacted>' },
                     metadata: rustyWebhookPayload.metadata,
                 }
-                status.error('🔴', 'Webhook enqueue to rusty-hook failed', { error, redactedWebhook, attempt })
-                Sentry.captureException(error, { extra: { redactedWebhook } })
+                logger.error('🔴', 'Webhook enqueue to rusty-hook failed', { error, redactedWebhook, attempt })
+                captureException(error, { extra: { redactedWebhook } })
             }
 
             const delayMs = Math.min(2 ** (attempt - 1) * RUSTY_HOOK_BASE_DELAY_MS, MAX_RUSTY_HOOK_DELAY_MS)
@@ -160,13 +160,13 @@ export class RustyHook {
                 // call `fetch` inline.
                 if (response.status >= 400) {
                     const message = 'Hoghook enqueue failed with an HTTP Error'
-                    Sentry.captureMessage(message, {
+                    captureException(message, {
                         extra: {
                             status: response.status,
                             statusText: response.statusText,
                         },
                     })
-                    status.error('🔴', message, {
+                    logger.error('🔴', message, {
                         status: response.status,
                         statusText: response.statusText,
                         payload,
@@ -179,8 +179,8 @@ export class RustyHook {
                     `Hoghook enqueue returned ${response.status} ${response.statusText}: ${await response.text()}`
                 )
             } catch (error) {
-                status.error('🔴', 'Hoghook enqueue to rusty-hook for Hog failed', { error, attempt })
-                Sentry.captureException(error)
+                logger.error('🔴', 'Hoghook enqueue to rusty-hook for Hog failed', { error, attempt })
+                captureException(error)
             }
 
             const delayMs = Math.min(2 ** (attempt - 1) * RUSTY_HOOK_BASE_DELAY_MS, MAX_RUSTY_HOOK_DELAY_MS)

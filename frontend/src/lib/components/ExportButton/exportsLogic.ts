@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cohortsModel } from '~/models/cohortsModel'
-import { AnyDataNode } from '~/queries/schema'
+import { AnyDataNode } from '~/queries/schema/schema-general'
 import { CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext, SidePanelTab } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'

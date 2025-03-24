@@ -2,7 +2,7 @@ from typing import Optional
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex

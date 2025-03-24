@@ -27,11 +27,7 @@ def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "D
         .first()
     )
     if table is None:
-        table = (
-            DataWarehouseSavedQuery.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
-            .filter(team=team, name=name)
-            .first()
-        )
+        table = DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=name).first()
     return table
 
 
@@ -85,6 +81,7 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Map": StringJSONDatabaseField,
     "Bool": BooleanDatabaseField,
     "Decimal": FloatDatabaseField,
+    "FixedString": StringDatabaseField,
 }
 
 STR_TO_HOGQL_MAPPING = {

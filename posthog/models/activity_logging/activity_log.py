@@ -29,6 +29,7 @@ ActivityScope = Literal[
     "Cohort",
     "FeatureFlag",
     "Person",
+    "Group",
     "Insight",
     "Plugin",
     "PluginConfig",
@@ -46,6 +47,7 @@ ActivityScope = Literal[
     "Comment",
     "Team",
     "Project",
+    "ErrorTrackingIssue",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -185,6 +187,8 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "is_simple_flag",
         "experiment",
         "featureflagoverride",
+        "usage_dashboard",
+        "analytics_dashboards",
     ],
     "Person": [
         "distinct_ids",

@@ -1,0 +1,20 @@
+{
+    "query_status": {
+        "complete": true,
+        "dashboard_id": null,
+        "end_time": "2025-02-06T13:33:39.890Z",
+        "error": true,
+        "error_message": "[ErrorDetail(string='{\"no-exposures\": false, \"no-control-variant\": true, \"no-test-variant\": true}', code='no-results')]",
+        "expiration_time": "2025-02-06T13:53:36.382Z",
+        "id": "a705ec2b160c493fb7f52087907ffcf3",
+        "insight_id": null,
+        "labels": null,
+        "pickup_time": "2025-02-06T13:33:36.382Z",
+        "query_async": true,
+        "query_progress": null,
+        "results": null,
+        "start_time": "2025-02-06T13:33:35.541Z",
+        "task_id": "27dd6480-a665-47dc-87b9-1e2d1f747bbb",
+        "team_id": 1
+    }
+}

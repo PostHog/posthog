@@ -1,4 +1,6 @@
 #!/bin/bash
 set -e
 
-python3 manage.py runserver
+export OBJECT_STORAGE_ENDPOINT=http://localhost:19000
+
+uvicorn --reload posthog.asgi:application --host 0.0.0.0 --log-level debug --reload-include "posthog/" --reload-include "ee/" --reload-include "products/"

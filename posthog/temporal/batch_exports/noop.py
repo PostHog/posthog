@@ -6,14 +6,14 @@ from typing import Any
 
 from temporalio import activity, workflow
 
-from posthog.batch_exports.service import NoOpInputs
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.batch_exports.service import BackfillDetails, NoOpInputs
+from posthog.temporal.common.base import PostHogWorkflow
 
 
 @dataclass
 class NoopActivityArgs:
     arg: str
-    is_backfill: bool = False
+    backfill_details: BackfillDetails | None = None
 
 
 @activity.defn
@@ -40,7 +40,7 @@ class NoOpWorkflow(PostHogWorkflow):
         workflow.logger.info(f"Running workflow with parameter {inputs.arg}")
         result = await workflow.execute_activity(
             noop_activity,
-            NoopActivityArgs(inputs.arg, inputs.is_backfill),
+            NoopActivityArgs(inputs.arg, inputs.backfill_details),
             start_to_close_timeout=timedelta(seconds=60),
             schedule_to_close_timeout=timedelta(minutes=5),
         )

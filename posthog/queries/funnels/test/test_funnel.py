@@ -6,7 +6,7 @@ from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
 from posthog.models import Action, Element
 from posthog.models.cohort import Cohort

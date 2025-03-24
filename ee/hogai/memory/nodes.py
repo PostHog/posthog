@@ -36,7 +36,7 @@ from ee.hogai.memory.prompts import (
     SCRAPING_VERIFICATION_MESSAGE,
     TOOL_CALL_ERROR_PROMPT,
 )
-from ee.hogai.utils.helpers import filter_messages, find_last_message_of_type
+from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -182,7 +182,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         return re.sub(r"\[\d+\]", "", message)
 
     def _model(self):
-        return ChatPerplexity(model="llama-3.1-sonar-large-128k-online", temperature=0, streaming=True)
+        return ChatPerplexity(model="sonar-pro", temperature=0, streaming=True)
 
 
 class MemoryInitializerInterruptNode(AssistantNode):
@@ -192,7 +192,7 @@ class MemoryInitializerInterruptNode(AssistantNode):
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
-        if not state.resumed:
+        if state.graph_status != "resumed":
             raise NodeInterrupt(
                 AssistantMessage(
                     content=SCRAPING_VERIFICATION_MESSAGE,
@@ -325,7 +325,7 @@ class MemoryCollectorNode(AssistantNode):
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         node_messages = state.memory_collection_messages or []
 
-        filtered_messages = filter_messages(
+        filtered_messages = filter_and_merge_messages(
             state.messages, entity_filter=(HumanMessage, AssistantMessage, VisualizationMessage)
         )
         conversation: list[BaseMessage] = []

@@ -13,7 +13,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { ExternalDataSourceType, InsightLogicProps } from '~/types'
 
 import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
@@ -294,7 +294,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
     return (
         <div
             className={clsx(
-                `bg-surface-primary rounded space-y-px border p-2 overflow-y-auto`,
+                `bg-surface-primary rounded deprecated-space-y-px border p-2 overflow-y-auto`,
                 !collapsed ? 'min-w-80 flex-1' : ''
             )}
         >

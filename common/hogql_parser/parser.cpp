@@ -977,6 +977,25 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     auto limit_and_offset_clause_ctx = ctx->limitAndOffsetClause();
+    auto offset_only_clause_ctx = ctx->offsetOnlyClause();
+
+    // Process OFFSET clause only if we don't have LIMIT AND OFFSET
+    if (offset_only_clause_ctx && !limit_and_offset_clause_ctx) {
+      PyObject* offset;
+      try {
+        offset = visitAsPyObject(offset_only_clause_ctx);
+      } catch (...) {
+        Py_DECREF(select_query);
+        throw;
+      }
+      err_indicator = PyObject_SetAttrString(select_query, "offset", offset);
+      Py_DECREF(offset);
+      if (err_indicator == -1) {
+        Py_DECREF(select_query);
+        throw PyInternalError();
+      }
+    }
+
     if (limit_and_offset_clause_ctx) {
       PyObject* limit;
       try {
@@ -1007,22 +1026,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
           throw PyInternalError();
         }
       }
-      auto limit_by_exprs_ctx = limit_and_offset_clause_ctx->columnExprList();
-      if (limit_by_exprs_ctx) {
-        PyObject* limit_by_exprs;
-        try {
-          limit_by_exprs = visitAsPyObject(limit_by_exprs_ctx);
-        } catch (...) {
-          Py_DECREF(select_query);
-          throw;
-        }
-        err_indicator = PyObject_SetAttrString(select_query, "limit_by", limit_by_exprs);
-        Py_DECREF(limit_by_exprs);
-        if (err_indicator == -1) {
-          Py_DECREF(select_query);
-          throw PyInternalError();
-        }
-      }
       if (limit_and_offset_clause_ctx->WITH() && limit_and_offset_clause_ctx->TIES()) {
         err_indicator = PyObject_SetAttrString(select_query, "limit_with_ties", Py_True);
         if (err_indicator == -1) {
@@ -1030,22 +1033,23 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
           throw PyInternalError();
         }
       }
-    } else {
-      auto offset_only_clause_ctx = ctx->offsetOnlyClause();
-      if (offset_only_clause_ctx) {
-        PyObject* offset_only_clause;
-        try {
-          offset_only_clause = visitAsPyObject(offset_only_clause_ctx->columnExpr());
-        } catch (...) {
-          Py_DECREF(select_query);
-          throw;
-        }
-        err_indicator = PyObject_SetAttrString(select_query, "offset", offset_only_clause);
-        Py_DECREF(offset_only_clause);
-        if (err_indicator == -1) {
-          Py_DECREF(select_query);
-          throw PyInternalError();
-        }
+    }
+
+    // Handle limitByClause
+    auto limit_by_clause_ctx = ctx->limitByClause();
+    if (limit_by_clause_ctx) {
+      PyObject* limit_by_expr;
+      try {
+        limit_by_expr = visitAsPyObject(limit_by_clause_ctx);
+      } catch (...) {
+        Py_DECREF(select_query);
+        throw;
+      }
+      err_indicator = PyObject_SetAttrString(select_query, "limit_by", limit_by_expr);
+      Py_DECREF(limit_by_expr);
+      if (err_indicator == -1) {
+        Py_DECREF(select_query);
+        throw PyInternalError();
       }
     }
 
@@ -1143,9 +1147,93 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(OrderByClause) { return visit(ctx->orderExprList()); }
 
+  VISIT(LimitByClause) {
+    PyObject* limit_expr_result = visitAsPyObject(ctx->limitExpr());
+    if (!limit_expr_result) {
+      throw ParsingError("Failed to parse limitExpr");
+    }
+    
+    PyObject* exprs = visitAsPyObject(ctx->columnExprList());
+    if (!exprs) {
+      Py_DECREF(limit_expr_result);
+      throw ParsingError("Failed to parse columnExprList");
+    }
+
+    PyObject* n = NULL;
+    PyObject* offset_value = NULL;
+    
+    // Check if it's a tuple
+    if (PyTuple_Check(limit_expr_result)) {
+      if (PyTuple_Size(limit_expr_result) >= 2) {
+        // Extract the tuple values
+        n = Py_NewRef(PyTuple_GetItem(limit_expr_result, 0));
+        offset_value = Py_NewRef(PyTuple_GetItem(limit_expr_result, 1));
+        Py_DECREF(limit_expr_result);
+      } else {
+        // Tuple with wrong size
+        Py_DECREF(limit_expr_result);
+        Py_DECREF(exprs);
+        throw ParsingError("Tuple from limitExpr has fewer than 2 items");
+      }
+    } else {
+      // Not a tuple, just use as n (transfer ownership)
+      n = limit_expr_result;
+      offset_value = Py_NewRef(Py_None);
+    }
+    
+    // Create the LimitByExpr node (transfers ownership of n, offset_value, and exprs)
+    RETURN_NEW_AST_NODE("LimitByExpr", "{s:N,s:N,s:N}",
+                       "n", n,
+                       "offset_value", offset_value,
+                       "exprs", exprs);
+  }
+
+  VISIT(LimitExpr) {
+    PyObject* first = visitAsPyObject(ctx->columnExpr(0));
+    if (!first) {
+      throw ParsingError("Failed to parse first columnExpr in LimitExpr");
+    }
+
+    // If no second expression, just return the first
+    if (!ctx->columnExpr(1)) {
+      return first; // Return first as is, ownership transferred
+    }
+
+    // We have both limit and offset
+    PyObject* second = visitAsPyObject(ctx->columnExpr(1));
+    if (!second) {
+      Py_DECREF(first);
+      throw ParsingError("Failed to parse second columnExpr in LimitExpr");
+    }
+
+    PyObject* result = PyTuple_New(2);
+    if (!result) {
+      Py_DECREF(first);
+      Py_DECREF(second);
+      throw PyInternalError();
+    }
+    
+    if (ctx->COMMA()) {
+      // For "LIMIT a, b" syntax: a is offset, b is limit
+      // PyTuple_SET_ITEM steals references, so we don't need to DECREF after
+      PyTuple_SET_ITEM(result, 0, second);  // offset (ownership transferred)
+      PyTuple_SET_ITEM(result, 1, first);   // limit (ownership transferred)
+    } else {
+      // For "LIMIT a OFFSET b" syntax: a is limit, b is offset
+      PyTuple_SET_ITEM(result, 0, first);   // limit (ownership transferred)
+      PyTuple_SET_ITEM(result, 1, second);  // offset (ownership transferred)
+    }
+
+    return result;
+  }
+
+  VISIT(OffsetOnlyClause) {
+    return visitAsPyObject(ctx->columnExpr());
+  }
+
   VISIT_UNSUPPORTED(ProjectionOrderByClause)
 
-  VISIT_UNSUPPORTED(LimitAndOffsetClause)
+  VISIT_UNSUPPORTED(LimitAndOffsetClause) // We handle this directly in the SelectStmt visitor
 
   VISIT_UNSUPPORTED(SettingsClause)
 

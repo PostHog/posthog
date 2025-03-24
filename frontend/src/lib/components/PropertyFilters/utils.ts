@@ -10,7 +10,7 @@ import {
 
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import {
     AnyFilterLike,
     AnyPropertyFilter,
@@ -122,13 +122,13 @@ export function formatPropertyLabel(
     if (isHogQLPropertyFilter(item as AnyFilterLike)) {
         return extractExpressionComment(item.key)
     }
-    const { value, key, operator, type } = item
+    const { value, key, operator, type, cohort_name } = item
 
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
 
     return type === 'cohort'
         ? `${capitalizeFirstLetter(cohortOperatorMap[operator || 'in'] || 'user in')} ` +
-              (cohortsById[value]?.name || `ID ${value}`)
+              (cohort_name || cohortsById[value]?.name || `ID ${value}`)
         : (CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${allOperatorsMapping[operator]}`
@@ -391,7 +391,8 @@ export function createDefaultPropertyFilter(
     propertyKey: string | number,
     propertyType: PropertyFilterType,
     taxonomicGroup: TaxonomicFilterGroup,
-    describeProperty: propertyDefinitionsModelType['values']['describeProperty']
+    describeProperty: propertyDefinitionsModelType['values']['describeProperty'],
+    originalQuery?: string
 ): AnyPropertyFilter {
     if (propertyType === PropertyFilterType.Cohort) {
         const operator =
@@ -437,7 +438,7 @@ export function createDefaultPropertyFilter(
     // is the equivalent of selecting a property value
     const property: AnyPropertyFilter = {
         key: isGroupNameFilter ? '$group_key' : propertyKey.toString(),
-        value: isGroupNameFilter ? propertyKey.toString() : null,
+        value: isGroupNameFilter ? propertyKey.toString() : originalQuery ?? null,
         operator,
         type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
         group_type_index: taxonomicGroup.groupTypeIndex,

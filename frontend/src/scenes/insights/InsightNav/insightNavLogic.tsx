@@ -27,7 +27,7 @@ import {
     StickinessQuery,
     TrendsFilter,
     TrendsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     filterKeyForQuery,

@@ -31,7 +31,7 @@
         background-color: inherit;
     }
 
-    .Field--error &,
+    .Field--error &:not(.ignore-error-border),
     &.LemonInput--status-danger {
         border-color: var(--danger) !important; // The error border overrides hover/focus higlighting
     }

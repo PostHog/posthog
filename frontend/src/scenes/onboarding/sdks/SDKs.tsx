@@ -15,6 +15,15 @@ import { OnboardingStep } from '../OnboardingStep'
 import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
 
+export type SDKsProps = {
+    sdkInstructionMap: SDKInstructionsMap
+    stepKey?: OnboardingStepKey
+    listeningForName?: string
+    teamPropertyToVerify?: string
+    usersAction?: string
+    subtitle?: string
+}
+
 export function InviteHelpCard(): JSX.Element {
     return (
         <LemonCard hoverEffect={false}>
@@ -30,14 +39,7 @@ export function SDKs({
     stepKey = OnboardingStepKey.INSTALL,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
-}: {
-    usersAction?: string
-    sdkInstructionMap: SDKInstructionsMap
-    subtitle?: string
-    stepKey?: OnboardingStepKey
-    listeningForName?: string
-    teamPropertyToVerify?: string
-}): JSX.Element {
+}: SDKsProps): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { setSourceFilter, selectSDK, setAvailableSDKInstructionsMap, setShowSideBySide, setPanel } =
@@ -48,7 +50,6 @@ export function SDKs({
     const { goToNextStep, completeOnboarding } = useActions(onboardingLogic)
     const [showListeningFor, setShowListeningFor] = React.useState(false)
     const [hasCheckedInstallation, setHasCheckedInstallation] = React.useState(false)
-    const { isUserInNonTechnicalTest } = useValues(sdksLogic)
 
     const {
         windowSize: { width },
@@ -87,7 +88,6 @@ export function SDKs({
                         !showSideBySide && panel !== 'options' ? 'hidden' : 'flex'
                     }`}
                 >
-                    {isUserInNonTechnicalTest && <InviteHelpCard />}
                     {showSourceOptionsSelect && (
                         <LemonSelect
                             allowClear
@@ -121,7 +121,7 @@ export function SDKs({
                             </LemonButton>
                         </React.Fragment>
                     ))}
-                    {!isUserInNonTechnicalTest && <InviteHelpCard />}
+                    <InviteHelpCard />
                 </div>
                 {selectedSDK && productKey && !!sdkInstructionMap[selectedSDK.key] && (
                     <div

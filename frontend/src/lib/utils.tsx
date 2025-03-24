@@ -118,6 +118,14 @@ export function fromParams(): Record<string, any> {
     return fromParamsGivenUrl(window.location.search)
 }
 
+export function tryDecodeURIComponent(value: string): string {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        return value
+    }
+}
+
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
 export function percentage(
     division: number,
@@ -161,6 +169,10 @@ export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Parti
         ...base,
         padding: '2px 15px',
     }),
+}
+
+export function splitKebabCase(string: string): string {
+    return string.replace(/-/g, ' ')
 }
 
 export function capitalizeFirstLetter(string: string): string {
@@ -1944,4 +1956,24 @@ export function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
 
 export function interleaveArray<T1, T2>(arr: T1[], separator: T2): (T1 | T2)[] {
     return arr.flatMap((item, index, _arr) => (_arr.length - 1 !== index ? [item, separator] : [item]))
+}
+
+/**
+ * Uses the non-standard `memory` extension available in Chromium based browsers to
+ * get JS heap metrics.
+ */
+export const getJSHeapMemory = (): {
+    js_heap_used_mb?: number
+    js_heap_total_mb?: number
+    js_heap_limit_mb?: number
+} => {
+    if ('memory' in window.performance) {
+        const memory = (window.performance as any).memory
+        return {
+            js_heap_used_mb: +(memory.usedJSHeapSize / 1024 / 1024).toFixed(2),
+            js_heap_total_mb: +(memory.totalJSHeapSize / 1024 / 1024).toFixed(2),
+            js_heap_limit_mb: +(memory.jsHeapSizeLimit / 1024 / 1024).toFixed(2),
+        }
+    }
+    return {}
 }

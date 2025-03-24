@@ -16,7 +16,7 @@ from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
-from posthog.schema import CachedPathsQueryResponse
+from posthog.schema import CachedPathsQueryResponse, PathsLink
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
@@ -159,12 +159,12 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response,
                 [
-                    {
-                        "source": "1_/1",
-                        "target": "2_/2",
-                        "value": 1,
-                        "average_conversion_time": ONE_MINUTE,
-                    }
+                    PathsLink(
+                        source="1_/1",
+                        target="2_/2",
+                        value=1,
+                        average_conversion_time=ONE_MINUTE,
+                    )
                 ],
             )
             self.assertEqual([p1.uuid], self._get_people_at_path(filter, "1_/1", "2_/2"))
@@ -179,18 +179,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response,
                 [
-                    {
-                        "source": "1_/1",
-                        "target": "2_/2",
-                        "value": 1,
-                        "average_conversion_time": ONE_MINUTE,
-                    },
-                    {
-                        "source": "2_/2",
-                        "target": "3_/3",
-                        "value": 1,
-                        "average_conversion_time": 2 * ONE_MINUTE,
-                    },
+                    PathsLink(
+                        source="1_/1",
+                        target="2_/2",
+                        value=1,
+                        average_conversion_time=ONE_MINUTE,
+                    ),
+                    PathsLink(
+                        source="2_/2",
+                        target="3_/3",
+                        value=1,
+                        average_conversion_time=2 * ONE_MINUTE,
+                    ),
                 ],
             )
             self.assertEqual([p1.uuid], self._get_people_at_path(filter, "2_/2", "3_/3"))
@@ -204,24 +204,24 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response,
                 [
-                    {
-                        "source": "1_/1",
-                        "target": "2_/2",
-                        "value": 1,
-                        "average_conversion_time": ONE_MINUTE,
-                    },
-                    {
-                        "source": "2_/2",
-                        "target": "3_/3",
-                        "value": 1,
-                        "average_conversion_time": 2 * ONE_MINUTE,
-                    },
-                    {
-                        "source": "3_/3",
-                        "target": "4_/4",
-                        "value": 1,
-                        "average_conversion_time": 3 * ONE_MINUTE,
-                    },
+                    PathsLink(
+                        source="1_/1",
+                        target="2_/2",
+                        value=1,
+                        average_conversion_time=ONE_MINUTE,
+                    ),
+                    PathsLink(
+                        source="2_/2",
+                        target="3_/3",
+                        value=1,
+                        average_conversion_time=2 * ONE_MINUTE,
+                    ),
+                    PathsLink(
+                        source="3_/3",
+                        target="4_/4",
+                        value=1,
+                        average_conversion_time=3 * ONE_MINUTE,
+                    ),
                 ],
             )
             self.assertEqual([p1.uuid], self._get_people_at_path(filter, "1_/1", "2_/2"))
@@ -318,24 +318,24 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/1",
-                    "target": "2_/2",
-                    "value": 2,
-                    "average_conversion_time": 1.5 * ONE_MINUTE,
-                },
-                {
-                    "source": "2_/2",
-                    "target": "3_/3",
-                    "value": 2,
-                    "average_conversion_time": 3 * ONE_MINUTE,
-                },
-                {
-                    "source": "3_/3",
-                    "target": "4_/4",
-                    "value": 1,
-                    "average_conversion_time": 3 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/1",
+                    target="2_/2",
+                    value=2,
+                    average_conversion_time=1.5 * ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/2",
+                    target="3_/3",
+                    value=2,
+                    average_conversion_time=3 * ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="3_/3",
+                    target="4_/4",
+                    value=1,
+                    average_conversion_time=3 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -401,24 +401,24 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_step one",
-                    "target": "2_step two",
-                    "value": 50,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "2_step two",
-                    "target": "3_step three",
-                    "value": 50,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "3_step three",
-                    "target": "4_step branch",
-                    "value": 25,
-                    "average_conversion_time": 60000.0,
-                },
+                PathsLink(
+                    source="1_step one",
+                    target="2_step two",
+                    value=50,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="2_step two",
+                    target="3_step three",
+                    value=50,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="3_step three",
+                    target="4_step branch",
+                    value=25,
+                    average_conversion_time=60000.0,
+                ),
             ],
         )
 
@@ -775,48 +775,48 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/2",
-                    "target": "2_/3",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "1_/3",
-                    "target": "2_/4",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "1_/5",
-                    "target": "2_/about",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "2_/3",
-                    "target": "3_/4",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "2_/4",
-                    "target": "3_/about",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "3_/4",
-                    "target": "4_/5",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "4_/5",
-                    "target": "5_/about",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
+                PathsLink(
+                    source="1_/2",
+                    target="2_/3",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="1_/3",
+                    target="2_/4",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="1_/5",
+                    target="2_/about",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="2_/3",
+                    target="3_/4",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="2_/4",
+                    target="3_/about",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="3_/4",
+                    target="4_/5",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="4_/5",
+                    target="5_/about",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
             ],
         )
 
@@ -840,48 +840,48 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/2",
-                    "target": "2_/3",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "1_/3",
-                    "target": "2_/4",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "1_/5",
-                    "target": "2_/about",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "2_/3",
-                    "target": "3_/4",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "2_/4",
-                    "target": "3_/about",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "3_/4",
-                    "target": "4_/5",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "4_/5",
-                    "target": "5_/about",
-                    "value": 1,
-                    "average_conversion_time": 60000.0,
-                },
+                PathsLink(
+                    source="1_/2",
+                    target="2_/3",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="1_/3",
+                    target="2_/4",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="1_/5",
+                    target="2_/about",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="2_/3",
+                    target="3_/4",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="2_/4",
+                    target="3_/about",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="3_/4",
+                    target="4_/5",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="4_/5",
+                    target="5_/about",
+                    value=1,
+                    average_conversion_time=60000.0,
+                ),
             ],
         )
 
@@ -984,18 +984,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/1",
-                    "target": "2_/2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/2",
-                    "target": "3_/3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/1",
+                    target="2_/2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/2",
+                    target="3_/3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -1018,18 +1018,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/screen1",
-                    "target": "2_/screen2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/screen2",
-                    "target": "3_/screen3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/screen1",
+                    target="2_/screen2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/screen2",
+                    target="3_/screen3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -1052,18 +1052,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/custom1",
-                    "target": "2_/custom2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/custom2",
-                    "target": "3_/custom3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/custom1",
+                    target="2_/custom2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/custom2",
+                    target="3_/custom3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -1087,24 +1087,24 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/custom2",
-                    "target": "2_/custom3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
-                {
-                    "source": "1_/screen1",
-                    "target": "2_/screen2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/screen2",
-                    "target": "3_/screen3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/custom2",
+                    target="2_/custom3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="1_/screen1",
+                    target="2_/screen2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/screen2",
+                    target="3_/screen3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -1212,12 +1212,12 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/1",
-                    "target": "2_/3",
-                    "value": 3,
-                    "average_conversion_time": 3 * ONE_MINUTE,
-                }
+                PathsLink(
+                    source="1_/1",
+                    target="2_/3",
+                    value=3,
+                    average_conversion_time=3 * ONE_MINUTE,
+                )
             ],
         )
 
@@ -1341,54 +1341,54 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/1",
-                    "target": "2_/2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/2",
-                    "target": "3_/3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
-                {
-                    "source": "3_/3",
-                    "target": "4_/screen1",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "4_/screen1",
-                    "target": "5_/screen2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "5_/screen2",
-                    "target": "6_/screen3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
-                {
-                    "source": "6_/screen3",
-                    "target": "7_/custom1",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "7_/custom1",
-                    "target": "8_/custom2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "8_/custom2",
-                    "target": "9_/custom3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/1",
+                    target="2_/2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/2",
+                    target="3_/3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="3_/3",
+                    target="4_/screen1",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="4_/screen1",
+                    target="5_/screen2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="5_/screen2",
+                    target="6_/screen3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="6_/screen3",
+                    target="7_/custom1",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="7_/custom1",
+                    target="8_/custom2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="8_/custom2",
+                    target="9_/custom3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -1411,36 +1411,36 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/1",
-                    "target": "2_/2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/2",
-                    "target": "3_/3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
-                {
-                    "source": "3_/3",
-                    "target": "4_/screen1",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "4_/screen1",
-                    "target": "5_/screen2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "5_/screen2",
-                    "target": "6_/screen3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/1",
+                    target="2_/2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/2",
+                    target="3_/3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="3_/3",
+                    target="4_/screen1",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="4_/screen1",
+                    target="5_/screen2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="5_/screen2",
+                    target="6_/screen3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -1464,24 +1464,24 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/1",
-                    "target": "2_/2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/2",
-                    "target": "3_/3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
-                {
-                    "source": "3_/3",
-                    "target": "4_/custom2",
-                    "value": 1,
-                    "average_conversion_time": 6 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/1",
+                    target="2_/2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/2",
+                    target="3_/3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="3_/3",
+                    target="4_/custom2",
+                    value=1,
+                    average_conversion_time=6 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -1561,18 +1561,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/1",
-                    "target": "2_/2",
-                    "value": 2,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/2",
-                    "target": "3_/3",
-                    "value": 2,
-                    "average_conversion_time": 3 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/1",
+                    target="2_/2",
+                    value=2,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/2",
+                    target="3_/3",
+                    value=2,
+                    average_conversion_time=3 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -1671,18 +1671,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/1",
-                    "target": "2_/2",
-                    "value": 2,
-                    "average_conversion_time": 1.5 * ONE_MINUTE,
-                },
-                {
-                    "source": "2_/2",
-                    "target": "3_/3",
-                    "value": 2,
-                    "average_conversion_time": 3 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/1",
+                    target="2_/2",
+                    value=2,
+                    average_conversion_time=1.5 * ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/2",
+                    target="3_/3",
+                    value=2,
+                    average_conversion_time=3 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -1837,12 +1837,12 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/5",
-                    "target": "2_/about",
-                    "value": 2,
-                    "average_conversion_time": 60000.0,
-                }
+                PathsLink(
+                    source="1_/5",
+                    target="2_/about",
+                    value=2,
+                    average_conversion_time=60000.0,
+                )
             ],
         )
         self.assertCountEqual(self._get_people_at_path(paths_query.copy(), "1_/5", "2_/about"), [p1.uuid, p2.uuid])
@@ -1861,30 +1861,30 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/2",
-                    "target": "2_/3",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/3",
-                    "target": "3_...",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "3_...",
-                    "target": "4_/5",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "4_/5",
-                    "target": "5_/about",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/2",
+                    target="2_/3",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/3",
+                    target="3_...",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="3_...",
+                    target="4_/5",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="4_/5",
+                    target="5_/about",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
             ],
         )
         self.assertCountEqual(self._get_people_at_path(paths_query, "3_...", "4_/5"), [p1.uuid])
@@ -2045,18 +2045,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/1",
-                    "target": "2_/bar/*/foo",
-                    "value": 3,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/bar/*/foo",
-                    "target": "3_/3",
-                    "value": 3,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/1",
+                    target="2_/bar/*/foo",
+                    value=3,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/bar/*/foo",
+                    target="3_/3",
+                    value=3,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -2152,24 +2152,24 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/1",
-                    "target": "2_/3*",
-                    "value": 1,
-                    "average_conversion_time": 3 * ONE_MINUTE,
-                },
-                {
-                    "source": f"1_{evil_string}",
-                    "target": "2_/2/bar/aaa",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/2/bar/aaa",
-                    "target": "3_/3*",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/1",
+                    target="2_/3*",
+                    value=1,
+                    average_conversion_time=3 * ONE_MINUTE,
+                ),
+                PathsLink(
+                    source=f"1_{evil_string}",
+                    target="2_/2/bar/aaa",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/2/bar/aaa",
+                    target="3_/3*",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -2436,37 +2436,37 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/2",
-                    "target": "2_/3",
-                    "value": 5,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "2_/3",
-                    "target": "3_/4",
-                    "value": 5,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "3_/4",
-                    "target": "4_/5",
-                    "value": 5,
-                    "average_conversion_time": 60000.0,
-                },
-                {
-                    "source": "4_/5",
-                    "target": "5_/about",
-                    "value": 5,
-                    "average_conversion_time": 60000.0,
-                },
-                # {'source': '3_/x', 'target': '4_/about', 'value': 2, 'average_conversion_time': 60000.0}, # gets deleted by validation since dangling
-                {
-                    "source": "1_/2",
-                    "target": "2_/a",
-                    "value": 1,
-                    "average_conversion_time": 30000.0,
-                },
+                PathsLink(
+                    source="1_/2",
+                    target="2_/3",
+                    value=5,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="2_/3",
+                    target="3_/4",
+                    value=5,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="3_/4",
+                    target="4_/5",
+                    value=5,
+                    average_conversion_time=60000.0,
+                ),
+                PathsLink(
+                    source="4_/5",
+                    target="5_/about",
+                    value=5,
+                    average_conversion_time=60000.0,
+                ),
+                # PathsLink(source='3_/x', target='4_/about', value=2, average_conversion_time=60000.0), # gets deleted by validation since dangling
+                PathsLink(
+                    source="1_/2",
+                    target="2_/a",
+                    value=1,
+                    average_conversion_time=30000.0,
+                ),
             ],
         )
 
@@ -2589,18 +2589,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/1",
-                    "target": "2_/2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/2",
-                    "target": "3_/3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/1",
+                    target="2_/2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/2",
+                    target="3_/3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -2641,18 +2641,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/screen1",
-                    "target": "2_/screen2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/screen2",
-                    "target": "3_/screen3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/screen1",
+                    target="2_/screen2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/screen2",
+                    target="3_/screen3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -2693,18 +2693,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {
-                    "source": "1_/custom1",
-                    "target": "2_/custom2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/custom2",
-                    "target": "3_/custom3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/custom1",
+                    target="2_/custom2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/custom2",
+                    target="3_/custom3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
             ],
         )
 
@@ -2829,18 +2829,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response,
                 [
-                    {
-                        "source": "1_/1",
-                        "target": "2_/2",
-                        "value": 1,
-                        "average_conversion_time": ONE_MINUTE,
-                    },
-                    {
-                        "source": "2_/2",
-                        "target": "3_/3",
-                        "value": 1,
-                        "average_conversion_time": 2 * ONE_MINUTE,
-                    },
+                    PathsLink(
+                        source="1_/1",
+                        target="2_/2",
+                        value=1,
+                        average_conversion_time=ONE_MINUTE,
+                    ),
+                    PathsLink(
+                        source="2_/2",
+                        target="3_/3",
+                        value=1,
+                        average_conversion_time=2 * ONE_MINUTE,
+                    ),
                 ],
             )
 
@@ -2880,18 +2880,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response,
                 [
-                    {
-                        "source": "1_/screen1",
-                        "target": "2_/screen2",
-                        "value": 1,
-                        "average_conversion_time": ONE_MINUTE,
-                    },
-                    {
-                        "source": "2_/screen2",
-                        "target": "3_/screen3",
-                        "value": 1,
-                        "average_conversion_time": 2 * ONE_MINUTE,
-                    },
+                    PathsLink(
+                        source="1_/screen1",
+                        target="2_/screen2",
+                        value=1,
+                        average_conversion_time=ONE_MINUTE,
+                    ),
+                    PathsLink(
+                        source="2_/screen2",
+                        target="3_/screen3",
+                        value=1,
+                        average_conversion_time=2 * ONE_MINUTE,
+                    ),
                 ],
             )
 
@@ -2931,18 +2931,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response,
                 [
-                    {
-                        "source": "1_/custom1",
-                        "target": "2_/custom2",
-                        "value": 1,
-                        "average_conversion_time": ONE_MINUTE,
-                    },
-                    {
-                        "source": "2_/custom2",
-                        "target": "3_/custom3",
-                        "value": 1,
-                        "average_conversion_time": 2 * ONE_MINUTE,
-                    },
+                    PathsLink(
+                        source="1_/custom1",
+                        target="2_/custom2",
+                        value=1,
+                        average_conversion_time=ONE_MINUTE,
+                    ),
+                    PathsLink(
+                        source="2_/custom2",
+                        target="3_/custom3",
+                        value=1,
+                        average_conversion_time=2 * ONE_MINUTE,
+                    ),
                 ],
             )
 
@@ -3034,20 +3034,18 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                # we expect 1s for the "value"s because the two persons above are actually the same person
-                # due to the override
-                {
-                    "source": "1_/1",
-                    "target": "2_/2",
-                    "value": 1,
-                    "average_conversion_time": ONE_MINUTE,
-                },
-                {
-                    "source": "2_/2",
-                    "target": "3_/3",
-                    "value": 1,
-                    "average_conversion_time": 2 * ONE_MINUTE,
-                },
+                PathsLink(
+                    source="1_/1",
+                    target="2_/2",
+                    value=1,
+                    average_conversion_time=ONE_MINUTE,
+                ),
+                PathsLink(
+                    source="2_/2",
+                    target="3_/3",
+                    value=1,
+                    average_conversion_time=2 * ONE_MINUTE,
+                ),
             ],
         )
 

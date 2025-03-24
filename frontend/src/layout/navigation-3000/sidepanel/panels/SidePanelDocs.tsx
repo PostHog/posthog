@@ -10,7 +10,7 @@ import { sidePanelDocsLogic } from './sidePanelDocsLogic'
 
 export function SidePanelDocsSkeleton(): JSX.Element {
     return (
-        <div className="absolute inset-0 p-4 space-y-2">
+        <div className="absolute inset-0 p-4 deprecated-space-y-2">
             <LemonSkeleton className="w-full h-10 mb-12" />
             <LemonSkeleton className="w-1/3 h-8" />
             <LemonSkeleton className="w-1/2 h-4 mb-10" />

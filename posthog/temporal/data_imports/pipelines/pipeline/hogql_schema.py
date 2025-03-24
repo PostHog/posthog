@@ -27,6 +27,9 @@ class HogQLSchema:
         if existing_type is not None and existing_type != StringDatabaseField.__name__:
             return
 
+        if pa.types.is_binary(field.type):
+            return
+
         hogql_type: type[DatabaseField] = DatabaseField
 
         if pa.types.is_time(field.type):
@@ -43,8 +46,6 @@ class HogQLSchema:
             hogql_type = BooleanDatabaseField
         elif pa.types.is_integer(field.type):
             hogql_type = IntegerDatabaseField
-        elif pa.types.is_binary(field.type):
-            raise Exception("Type 'binary' is not a supported column type")
         elif pa.types.is_string(field.type):
             hogql_type = StringDatabaseField
 

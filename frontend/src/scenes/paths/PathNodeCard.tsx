@@ -1,7 +1,7 @@
 import { LemonDropdown, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { FunnelPathsFilter } from '~/queries/schema'
+import { FunnelPathsFilter } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'

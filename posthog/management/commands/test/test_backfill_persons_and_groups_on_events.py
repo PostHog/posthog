@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 import pytest
 from django.conf import settings
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.management.commands.backfill_persons_and_groups_on_events import (
     run_backfill,

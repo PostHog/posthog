@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.session_recordings.sql.session_recording_event_sql import (
     MATERIALIZED_COLUMNS,
 )

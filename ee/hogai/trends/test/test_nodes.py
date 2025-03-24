@@ -43,13 +43,18 @@ class TestTrendsGeneratorNode(BaseTest):
                 AssistantState(
                     messages=[HumanMessage(content="Text")],
                     plan="Plan",
+                    root_tool_insight_plan="question",
                 ),
                 {},
             )
             self.assertEqual(
                 new_state,
                 PartialAssistantState(
-                    messages=[VisualizationMessage(answer=self.schema, plan="Plan", id=new_state.messages[0].id)],
+                    messages=[
+                        VisualizationMessage(
+                            query="question", answer=self.schema, plan="Plan", id=new_state.messages[0].id
+                        )
+                    ],
                     intermediate_steps=[],
                     plan="",
                 ),

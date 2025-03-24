@@ -7,11 +7,23 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     type="destination",
     id="template-zapier",
     name="Zapier",
-    description="Trigger Zaps in Zapier based on PostHog events.",
+    description="Trigger Zaps in Zapier based on PostHog events. NOTE: Typically this is created from within Zapier using the PostHog app there.",
     icon_url="/static/services/zapier.png",
     category=["Custom"],
     hog="""
-let res := fetch(f'https://hooks.zapier.com/{inputs.hook}', {
+let hook_path := inputs.hook;
+let prefix := 'https://hooks.zapier.com/';
+// Remove the prefix if it exists
+if (position(hook_path, prefix) == 1) {
+  hook_path := replaceOne(hook_path, prefix, '');
+}
+
+// Remove leading slash if present to avoid double slashes
+if (position(hook_path, '/') == 1) {
+  hook_path := replaceOne(hook_path, '/', '');
+}
+
+let res := fetch(f'https://hooks.zapier.com/{hook_path}', {
   'method': 'POST',
   'body': inputs.body
 });
@@ -26,9 +38,10 @@ if (inputs.debug) {
             "key": "hook",
             "type": "string",
             "label": "Zapier hook path",
-            "description": "The path of the Zapier webhook. You can create your own or use our native Zapier integration https://zapier.com/apps/posthog/integrations",
+            "description": "Your Zapier webhook URL or just the path. You can create your own or use our native Zapier integration https://zapier.com/apps/posthog/integrations",
             "secret": False,
             "required": True,
+            "hidden": False,
         },
         {
             "key": "body",
@@ -53,6 +66,7 @@ if (inputs.debug) {
             },
             "secret": False,
             "required": False,
+            "hidden": False,
         },
         {
             "key": "debug",
@@ -62,6 +76,7 @@ if (inputs.debug) {
             "secret": False,
             "required": False,
             "default": False,
+            "hidden": False,
         },
     ],
 )

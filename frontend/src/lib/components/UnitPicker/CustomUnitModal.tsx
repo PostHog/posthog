@@ -6,7 +6,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { RefCallback, useEffect, useState } from 'react'
 
-import { TrendsFilter } from '~/queries/schema'
+import { TrendsFilter } from '~/queries/schema/schema-general'
 
 function chooseFormativeElementValue(
     formativeElement: 'prefix' | 'postfix' | null,

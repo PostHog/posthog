@@ -10,6 +10,7 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
@@ -279,6 +280,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
             }
         },
         addDashboardSuccess: ({ dashboard }) => {
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFirstDashboard)
+
             if (router.values.location.pathname.includes('onboarding')) {
                 // don't send a toast if we're in onboarding
                 return

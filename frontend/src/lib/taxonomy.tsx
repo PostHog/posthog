@@ -46,6 +46,11 @@ const PERSON_PROPERTIES_ADAPTED_FROM_EVENT = new Set([
     '$os_version',
     '$referring_domain',
     '$referrer',
+    '$screen_height',
+    '$screen_width',
+    '$viewport_height',
+    '$viewport_width',
+    '$raw_user_agent',
     ...CAMPAIGN_PROPERTIES,
 ])
 
@@ -72,6 +77,14 @@ export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
     'rdt_cid',
     'irclid',
     '_kx',
+])
+
+export const SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = new Set([
+    '$current_url', // Gets renamed to just $url
+    '$host',
+    '$pathname',
+    '$referrer',
+    ...SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 ])
 
 // changing values in here you need to sync to python posthog/posthog/taxonomy/taxonomy.py
@@ -107,8 +120,8 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'When a user loads a screen in a mobile app.',
         },
         $set: {
-            label: 'Set',
-            description: 'Setting person properties.',
+            label: 'Set person properties',
+            description: 'Setting person properties. Sent as `$set`',
         },
         $opt_in: {
             label: 'Opt In',
@@ -169,7 +182,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $exception: {
             label: 'Exception',
-            description: 'Exceptions - an error or unexpected event in your application',
+            description: 'An unexpected error or unhandled exception in your application',
         },
         $web_vitals: {
             label: 'Web Vitals',
@@ -188,6 +201,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Span',
             description:
                 'A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs)',
+        },
+        $ai_embedding: {
+            label: 'AI Embedding',
+            description: 'A call to an embedding model',
         },
         $ai_metric: {
             label: 'AI Metric',
@@ -268,6 +285,36 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
     },
     event_properties: {
+        $python_runtime: {
+            label: 'Python Runtime',
+            description: 'The Python runtime that was used to capture the event.',
+            examples: ['CPython'],
+            system: true,
+        },
+        $python_version: {
+            label: 'Python Version',
+            description: 'The Python version that was used to capture the event.',
+            examples: ['3.11.5'],
+            system: true,
+        },
+        $sdk_debug_replay_internal_buffer_length: {
+            label: 'Replay internal buffer length',
+            description: 'Useful for debugging. The internal buffer length for replay.',
+            examples: ['100'],
+            system: true,
+        },
+        $sdk_debug_replay_internal_buffer_size: {
+            label: 'Replay internal buffer size',
+            description: 'Useful for debugging. The internal buffer size for replay.',
+            examples: ['100'],
+            system: true,
+        },
+        $sdk_debug_retry_queue_size: {
+            label: 'Retry queue size',
+            description: 'Useful for debugging. The size of the retry queue.',
+            examples: ['100'],
+            system: true,
+        },
         $last_posthog_reset: {
             label: 'Timestamp of last call to `Reset` in the web sdk',
             description: 'The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.',
@@ -314,12 +361,12 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The content that was selected when the user copied or cut.',
         },
         $set: {
-            label: 'Set',
-            description: 'Person properties to be set',
+            label: 'Set person properties',
+            description: 'Person properties to be set. Sent as `$set`',
         },
         $set_once: {
-            label: 'Set Once',
-            description: 'Person properties to be set if not set already (i.e. first-touch)',
+            label: 'Set person properties once',
+            description: 'Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`',
         },
         $pageview_id: {
             label: 'Pageview ID',
@@ -454,43 +501,35 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The status of session recording at the time the event was captured',
         },
         // exception tracking
-        $cymbal_errors: {
-            label: 'Exception processing errors',
-            description: 'Errors encountered while trying to process exceptions',
-            system: true,
-        },
         $exception_list: {
             label: 'Exception list',
             description: 'List of one or more associated exceptions',
         },
-        // TODO - most of the rest of these are legacy, I think?
-        $sentry_exception: {
-            label: 'Sentry exception',
-            description: 'Raw Sentry exception data',
-            system: true,
-        },
-        $sentry_exception_message: {
-            label: 'Sentry exception message',
-        },
-        $sentry_exception_type: {
-            label: 'Sentry exception type',
-            description: 'Class name of the exception object',
-        },
-        $sentry_tags: {
-            label: 'Sentry tags',
-            description: 'Tags sent to Sentry along with the exception',
-        },
         $exception_type: {
             label: 'Exception type',
-            description: 'Exception categorized into types. E.g. "Error"',
+            description: 'Exception categorized into types',
+            examples: ['Error'],
         },
         $exception_message: {
             label: 'Exception Message',
-            description: 'The message detected on the error.',
+            description: 'The message detected on the error',
+        },
+        $exception_fingerprint: {
+            label: 'Exception fingerprint',
+            description: 'A fingerprint used to group issues, can be set clientside',
+        },
+        $exception_proposed_fingerprint: {
+            label: 'Exception proposed fingerprint',
+            description: 'The fingerprint used to group issues. Auto generated unless provided clientside',
+        },
+        $exception_issue_id: {
+            label: 'Exception issue ID',
+            description: 'The id of the issue the fingerprint was associated with at ingest time',
         },
         $exception_source: {
             label: 'Exception source',
-            description: 'The source of the exception. E.g. JS file.',
+            description: 'The source of the exception',
+            examples: ['JS file'],
         },
         $exception_lineno: {
             label: 'Exception source line number',
@@ -510,7 +549,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $exception_stack_trace_raw: {
             label: 'Exception raw stack trace',
-            description: "The exception's stack trace, as a string.",
+            description: 'The exceptions stack trace, as a string.',
         },
         $exception_handled: {
             label: 'Exception was handled',
@@ -519,6 +558,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $exception_personURL: {
             label: 'Exception person URL',
             description: 'The PostHog person that experienced the exception',
+        },
+        $cymbal_errors: {
+            label: 'Exception processing errors',
+            description: 'Errors encountered while trying to process exceptions',
+            system: true,
         },
         $exception_capture_endpoint: {
             label: 'Exception capture endpoint',
@@ -533,6 +577,23 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $exception_capture_enabled_server_side: {
             label: 'Exception capture enabled server side',
             description: 'Whether exception autocapture was enabled in remote config.',
+        },
+        // TODO - most of the rest of these are legacy, I think?
+        $sentry_exception: {
+            label: 'Sentry exception',
+            description: 'Raw Sentry exception data',
+            system: true,
+        },
+        $sentry_exception_message: {
+            label: 'Sentry exception message',
+        },
+        $sentry_exception_type: {
+            label: 'Sentry exception type',
+            description: 'Class name of the exception object',
+        },
+        $sentry_tags: {
+            label: 'Sentry tags',
+            description: 'Tags sent to Sentry along with the exception',
         },
 
         // GeoIP
@@ -1001,6 +1062,28 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
                 'Keys and multivariate values of the feature flags that were active while this event was sent.',
             examples: ['{"flag": "value"}'],
         },
+        $feature_flag_reason: {
+            label: 'Feature Flag Evaluation Reason',
+            description: 'The reason the feature flag was matched or not matched.',
+            examples: ['Matched condition set 1'],
+        },
+        $feature_flag_request_id: {
+            label: 'Feature Flag Request ID',
+            description: (
+                <>
+                    The unique identifier for the request that retrieved this feature flag result.
+                    <br />
+                    <br />
+                    Note: Primarily used by PostHog support for debugging issues with feature flags.
+                </>
+            ),
+            examples: ['01234567-89ab-cdef-0123-456789abcdef'],
+        },
+        $feature_flag_version: {
+            label: 'Feature Flag Version',
+            description: 'The version of the feature flag that was called.',
+            examples: ['3'],
+        },
         $feature_flag_response: {
             label: 'Feature Flag Response',
             description: 'What the call to feature flag responded with.',
@@ -1426,6 +1509,21 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The number of tokens in the output from the LLM API',
             examples: [23],
         },
+        $ai_cache_read_input_tokens: {
+            label: 'AI Cache Read Input Tokens (LLM)',
+            description: 'The number of tokens read from the cache for the input prompt',
+            examples: [23],
+        },
+        $ai_cache_creation_input_tokens: {
+            label: 'AI Cache Creation Input Tokens (LLM)',
+            description: 'The number of tokens created in the cache for the input prompt (anthropic only)',
+            examples: [23],
+        },
+        $ai_reasoning_tokens: {
+            label: 'AI Reasoning Tokens (LLM)',
+            description: 'The number of tokens in the reasoning output from the LLM API',
+            examples: [23],
+        },
         $ai_input_cost_usd: {
             label: 'AI Input Cost USD (LLM)',
             description: 'The cost in USD of the input tokens sent to the LLM API',
@@ -1455,6 +1553,13 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Model Parameters (LLM)',
             description: 'The parameters used to configure the model in the LLM API, in JSON',
             examples: ['{"temperature": 0.5, "max_tokens": 50}'],
+        },
+        $ai_tools: {
+            label: 'AI Tools (LLM)',
+            description: 'The tools available to the LLM',
+            examples: [
+                '[{"type": "function", "function": {"name": "tool1", "arguments": {"arg1": "value1", "arg2": "value2"}}}]',
+            ],
         },
         $ai_stream: {
             label: 'AI Stream (LLM)',
@@ -1557,12 +1662,12 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             examples: ['/interesting-article?parameter=true'],
         },
         $end_current_url: {
-            label: 'Entry URL',
+            label: 'End URL',
             description: 'The last URL visited in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $end_pathname: {
-            label: 'Entry pathname',
+            label: 'End pathname',
             description: 'The last pathname visited in this session.',
             examples: ['/interesting-article'],
         },
@@ -1702,6 +1807,20 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
                 'description' in value
                     ? `${value.description} Data from the first event in this session.`
                     : 'Data from the first event in this session.',
+        }
+    }
+}
+
+for (const key of SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS) {
+    const mappedKey = key !== '$current_url' ? key.replace(/^\$/, '') : 'url'
+
+    if (key in CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties) {
+        const eventProps = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties as Record<string, CoreFilterDefinition>
+
+        eventProps[`$session_entry_${mappedKey}`] = {
+            ...eventProps[key],
+            label: `Session entry ${eventProps[key].label}`,
+            description: `${eventProps[key].description}. Captured at the start of the session and remains constant for the duration of the session.`,
         }
     }
 }
@@ -1892,6 +2011,15 @@ export function getCoreFilterDefinition(
                 description: `Whether the user has interacted with "${featureFlagKey}".`,
                 examples: ['true', 'false'],
             }
+        }
+    }
+    return null
+}
+
+export function getFirstFilterTypeFor(propertyKey: string): TaxonomicFilterGroupType | null {
+    for (const type of Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP) as TaxonomicFilterGroupType[]) {
+        if (propertyKey in CORE_FILTER_DEFINITIONS_BY_GROUP[type]) {
+            return type
         }
     }
     return null

@@ -45,6 +45,14 @@ def get_team_allow_list(_ttl: int) -> list[str]:
     return get_list(get_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS"))
 
 
+def team_is_allowed_to_bypass_throttle(team_id: Optional[int]) -> bool:
+    """
+    Check if a given team_id belongs to a throttle bypass allow list.
+    """
+    allow_list = get_team_allow_list(round(time.time() / 60))
+    return team_id is not None and str(team_id) in allow_list
+
+
 @lru_cache(maxsize=1)
 def is_rate_limit_enabled(_ttl: int) -> bool:
     """
@@ -121,7 +129,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                 path = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
                 path = path_by_org_pattern.sub("/api/organizations/ORG_ID/", path)
 
-            if self.team_is_allowed_to_bypass_throttle(team_id):
+            if team_is_allowed_to_bypass_throttle(team_id):
                 statsd.incr(
                     "team_allowed_to_bypass_rate_limit_exceeded",
                     tags={"team_id": team_id, "path": path},
@@ -179,10 +187,6 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             ident = self.get_ident(request)
 
         return self.cache_format % {"scope": self.scope, "ident": ident}
-
-    def team_is_allowed_to_bypass_throttle(self, team_id: Optional[int]) -> bool:
-        allow_list = get_team_allow_list(round(time.time() / 60))
-        return team_id is not None and str(team_id) in allow_list
 
 
 class DecideRateThrottle(BaseThrottle):
@@ -346,3 +350,22 @@ class UserAuthenticationThrottle(UserOrEmailRateThrottle):
 class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
     scope = "user_email_verification"
     rate = "6/day"
+
+
+class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
+    # Throttle class that is applied for authenticating the setup wizard
+    # This is more aggressive than other throttles because the wizard makes OpenAI calls
+    scope = "wizard_authentication"
+    rate = "20/day"
+
+
+class SetupWizardQueryRateThrottle(SimpleRateThrottle):
+    rate = "20/day"
+
+    # Throttle per wizard hash
+    def get_cache_key(self, request, view):
+        hash = request.headers.get("X-PostHog-Wizard-Hash")
+
+        if not hash:
+            return self.get_ident(request)
+        return f"throttle_wizard_query_{hash}"

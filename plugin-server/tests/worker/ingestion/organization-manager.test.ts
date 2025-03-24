@@ -6,7 +6,7 @@ import { OrganizationManager } from '../../../src/worker/ingestion/organization-
 import { commonOrganizationId } from '../../helpers/plugins'
 import { resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 
 describe('OrganizationManager()', () => {
     let hub: Hub

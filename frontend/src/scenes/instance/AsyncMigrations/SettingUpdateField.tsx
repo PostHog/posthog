@@ -15,7 +15,7 @@ export function SettingUpdateField({ setting }: { setting: InstanceSetting }): J
         <div key={setting.key}>
             <h4>{setting.key}</h4>
             <p>{setting.description}</p>
-            <div className="flex space-x-2">
+            <div className="flex deprecated-space-x-2">
                 <div className="w-1/3">
                     <LemonInput value={inputValue} onChange={setInputValue} />
                 </div>

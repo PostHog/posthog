@@ -133,15 +133,24 @@ const constructValuesEndpoint = (
     type: PropertyDefinitionType,
     propertyKey: string,
     eventNames: string[] | undefined,
-    newInput: string | undefined
+    newInput: string | undefined,
+    properties?: { key: string; values: string | string[] }[]
 ): string => {
     const basePath =
-        type === PropertyDefinitionType.Session ? `api/projects/${teamId}/${type}s/values` : `api/${type}/values`
+        type === PropertyDefinitionType.Session ? `api/environments/${teamId}/${type}s/values` : `api/${type}/values`
     const path = endpoint ? endpoint : basePath + `?key=${encodeURIComponent(propertyKey)}`
 
     let eventParams = ''
     for (const eventName of eventNames || []) {
         eventParams += `&event_name=${eventName}`
+    }
+
+    // Add property filters
+    if (properties?.length) {
+        for (const prop of properties) {
+            const values = Array.isArray(prop.values) ? prop.values : [prop.values]
+            eventParams += `&properties_${prop.key}=${encodeURIComponent(JSON.stringify(values))}`
+        }
     }
 
     return path + (newInput ? '&value=' + encodeURIComponent(newInput) : '') + eventParams
@@ -169,6 +178,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             newInput: string | undefined
             propertyKey: string
             eventNames?: string[]
+            properties?: { key: string; values: string | string[] }[]
         }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
         setOptions: (key: string, values: PropValue[], allowCustomValues: boolean) => ({
@@ -337,7 +347,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             }
         },
 
-        loadPropertyValues: async ({ endpoint, type, newInput, propertyKey, eventNames }, breakpoint) => {
+        loadPropertyValues: async ({ endpoint, type, newInput, propertyKey, eventNames, properties }, breakpoint) => {
             if (['cohort'].includes(type)) {
                 return
             }
@@ -362,7 +372,15 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             }
 
             const propValues: PropValue[] = await api.get(
-                constructValuesEndpoint(endpoint, values.currentTeamId, type, propertyKey, eventNames, newInput),
+                constructValuesEndpoint(
+                    endpoint,
+                    values.currentTeamId,
+                    type,
+                    propertyKey,
+                    eventNames,
+                    newInput,
+                    properties
+                ),
                 methodOptions
             )
             breakpoint()

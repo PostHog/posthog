@@ -19,6 +19,14 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
     }
 
     public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
-        return await this.runManyWithHeartbeat(invocations, (item) => this.pluginExecutor.execute(item))
+        // Plugins fire fetch requests and so need to be run in true parallel
+        return await Promise.all(
+            invocations.map((item) =>
+                this.runInstrumented(
+                    'handleEachBatch.executePluginInvocation',
+                    async () => await this.pluginExecutor.execute(item)
+                )
+            )
+        )
     }
 }

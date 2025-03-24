@@ -68,6 +68,13 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
 
     return (
         <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+            {newAccessControl && (
+                <LemonBanner type="warning" className="mb-4">
+                    We've upgraded our access control system but this dashboard is using a legacy version that can't be
+                    automatically upgraded. Please reach out to support if you're interested in migrating to the new
+                    system.
+                </LemonBanner>
+            )}
             {(!canEditDashboard || !canRestrictDashboard) && (
                 <LemonBanner type="info" className="mb-4">
                     {canEditDashboard

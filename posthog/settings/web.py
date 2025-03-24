@@ -41,10 +41,6 @@ DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, t
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
 
-# Decide request logging settings
-
-DECIDE_REQUEST_LOGGING_SAMPLING_RATE = get_from_env("DECIDE_REQUEST_LOGGING_SAMPLING_RATE", 0.05, type_cast=float)
-
 # Decide regular request analytics
 # Takes 3 possible formats, all separated by commas:
 # A number: "2"
@@ -59,6 +55,9 @@ DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
 
 # if `true` we disable session replay if over quota
 DECIDE_SESSION_REPLAY_QUOTA_CHECK = get_from_env("DECIDE_SESSION_REPLAY_QUOTA_CHECK", False, type_cast=str_to_bool)
+
+# if `true` we disable feature flags if over quota
+DECIDE_FEATURE_FLAG_QUOTA_CHECK = get_from_env("DECIDE_FEATURE_FLAG_QUOTA_CHECK", False, type_cast=str_to_bool)
 
 # Application definition
 
@@ -154,7 +153,7 @@ ROOT_URLCONF = "posthog.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": ["frontend/dist", "posthog/templates", "posthog/year_in_posthog"],
+        "DIRS": ["frontend/dist", "posthog/templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -247,7 +246,6 @@ STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "frontend/dist"),
-    os.path.join(BASE_DIR, "posthog/year_in_posthog/images"),
 ]
 STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
 
@@ -300,7 +298,7 @@ SPECTACULAR_SETTINGS = {
     "ENUM_NAME_OVERRIDES": {
         "DashboardRestrictionLevel": "posthog.models.dashboard.Dashboard.RestrictionLevel",
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
-        "SurveyType": "posthog.models.feedback.survey.Survey.SurveyType",
+        "SurveyType": "posthog.models.surveys.survey.Survey.SurveyType",
     },
 }
 
@@ -353,7 +351,6 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/projects/\\d+/activity_log/important_changes/?$",
                 "^/?api/projects/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
-                "^/year_in_posthog/.*$",
                 "^/api/element/stats/?$",
                 "^/api/projects/\\d+/groups/property_definitions/?$",
                 "^/api/projects/\\d+/cohorts/?$",
@@ -419,8 +416,7 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DO
 # Teams allowed to modify transformation code (comma-separated list of team IDs),
 # keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
 HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", ""))
+CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
 
-# Whether to use HOG transformations instead of plugins for GeoIP
-USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION: bool = get_from_env(
-    "USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION", False, type_cast=str_to_bool
-)
+# Passed to the frontend for the web app to know where to connect to
+LIVESTREAM_HOST = get_from_env("LIVESTREAM_HOST", "")

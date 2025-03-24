@@ -22,7 +22,7 @@ export function PreviewingCustomCssModal(): JSX.Element | null {
     return (
         <dialog
             open={open}
-            className="absolute bottom-0 mb-4 px-3 py-2 space-y-2 border rounded shadow min-w-[34rem] z-[var(--z-popover)]"
+            className="absolute bottom-0 mb-4 px-3 py-2 deprecated-space-y-2 border rounded shadow-sm min-w-[34rem] z-[var(--z-popover)]"
         >
             {editingInline && (
                 <CodeEditor
@@ -36,9 +36,9 @@ export function PreviewingCustomCssModal(): JSX.Element | null {
                     }}
                 />
             )}
-            <div className="flex justify-between items-center space-x-2">
+            <div className="flex justify-between items-center deprecated-space-x-2">
                 <h3 className="mb-0">Custom CSS</h3>
-                <div className="flex space-x-2">
+                <div className="flex deprecated-space-x-2">
                     <LemonButton type="secondary" onClick={() => setEditingInline(!editingInline)}>
                         {editingInline ? 'Minimize editor' : 'Edit'}
                     </LemonButton>

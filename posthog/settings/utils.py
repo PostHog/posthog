@@ -3,7 +3,6 @@ from typing import Any, Optional
 from collections.abc import Callable
 
 from django.core.exceptions import ImproperlyConfigured
-
 from posthog.utils import str_to_bool
 
 __all__ = ["get_from_env", "get_list", "str_to_bool"]

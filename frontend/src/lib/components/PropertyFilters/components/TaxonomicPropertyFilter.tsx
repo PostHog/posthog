@@ -46,6 +46,7 @@ export function TaxonomicPropertyFilter({
     hasRowOperator,
     metadataSource,
     propertyAllowList,
+    excludedProperties,
     taxonomicFilterOptionsFromProp,
     allowRelativeDateOptions,
     exactMatchFeatureFlagCohortOperators,
@@ -60,12 +61,13 @@ export function TaxonomicPropertyFilter({
         TaxonomicFilterGroupType.Elements,
         TaxonomicFilterGroupType.HogQLExpression,
     ]
-    const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
-        taxonomicGroup,
-        value,
-        item
-    ) => {
-        selectItem(taxonomicGroup, value, item?.propertyFilterType)
+    const taxonomicOnChange: (
+        group: TaxonomicFilterGroup,
+        value: TaxonomicFilterValue,
+        item: any,
+        originalQuery?: string
+    ) => void = (taxonomicGroup, value, item, originalQuery) => {
+        selectItem(taxonomicGroup, value, item?.propertyFilterType, item, originalQuery)
         if (taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression) {
             onComplete?.()
         }
@@ -80,8 +82,9 @@ export function TaxonomicPropertyFilter({
         taxonomicOnChange,
         eventNames,
         propertyAllowList,
+        excludedProperties,
     })
-    const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
+    const { filter, dropdownOpen, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
     const valuePresent = filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
@@ -114,6 +117,7 @@ export function TaxonomicPropertyFilter({
             eventNames={eventNames}
             schemaColumns={schemaColumns}
             propertyAllowList={propertyAllowList}
+            excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
         />
@@ -205,7 +209,7 @@ export function TaxonomicPropertyFilter({
                                 onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                             >
                                 {filter?.type === 'cohort' ? (
-                                    selectedCohortName || `Cohort #${filter?.value}`
+                                    filter.cohort_name || `Cohort #${filter?.value}`
                                 ) : filter?.key ? (
                                     <PropertyKeyInfo
                                         value={filter.key}

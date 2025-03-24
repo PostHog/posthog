@@ -29,10 +29,6 @@
 }
 
 .ActivityLogRow {
-    display: flex;
-    gap: 0.5rem;
-    max-width: 50rem;
-    padding: 0.5rem;
     line-height: 24px;
     overflow-wrap: anywhere;
 
@@ -46,8 +42,6 @@
     }
 
     .ActivityLogRow__details {
-        flex-grow: 1;
-
         .highlighted-activity {
             display: inline;
             background-color: var(--mark);

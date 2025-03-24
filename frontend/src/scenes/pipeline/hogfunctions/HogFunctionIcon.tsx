@@ -59,7 +59,7 @@ export function HogFunctionIconEditable({
             visible={showPopover}
             onClickOutside={() => setShowPopover(false)}
             overlay={
-                <div className="p-1 w-100 space-y-2">
+                <div className="p-1 w-100 deprecated-space-y-2">
                     <div className="flex items-center gap-2 justify-between">
                         <h2 className="m-0">Choose an icon</h2>
 

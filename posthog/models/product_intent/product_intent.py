@@ -3,9 +3,10 @@ from datetime import UTC, datetime
 from celery import shared_task
 from django.db import models
 
+from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.feedback.survey import Survey
+from posthog.models.surveys.survey import Survey
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
@@ -85,6 +86,10 @@ class ProductIntent(UUIDModel):
         # the team has any launched experiments
         return Experiment.objects.filter(team=self.team, start_date__isnull=False).exists()
 
+    def has_activated_error_tracking(self) -> bool:
+        # the team has resolved any issues
+        return ErrorTrackingIssue.objects.filter(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED).exists()
+
     def has_activated_feature_flags(self) -> bool:
         # Get feature flags that have at least one filter group, excluding ones used by experiments and surveys
         experiment_flags = Experiment.objects.filter(team=self.team).values_list("feature_flag_id", flat=True)
@@ -116,6 +121,7 @@ class ProductIntent(UUIDModel):
             "data_warehouse": self.has_activated_data_warehouse,
             "experiments": self.has_activated_experiments,
             "feature_flags": self.has_activated_feature_flags,
+            "error_tracking": self.has_activated_error_tracking,
         }
 
         if self.product_type in activation_checks and activation_checks[self.product_type]():

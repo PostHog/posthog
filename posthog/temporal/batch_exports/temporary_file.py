@@ -689,8 +689,18 @@ class CSVBatchExportWriter(BatchExportWriter):
         await super().close_temporary_file()
 
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
-        """Write records to a temporary file as CSV."""
-        self.csv_writer.writerows(record_batch.to_pylist())
+        """Write records to a temporary file as CSV.
+
+        Since this writer is only used in the PostgreSQL batch export, we do a
+        replacement of [] for {} to support PostgreSQL literal arrays when writing
+        a list.
+        """
+        rows = []
+        for record in record_batch.to_pylist():
+            rows.append(
+                {k: str(v).replace("[", "{").replace("]", "}") if isinstance(v, list) else v for k, v in record.items()}
+            )
+        self.csv_writer.writerows(rows)
 
 
 class ParquetBatchExportWriter(BatchExportWriter):
@@ -737,7 +747,7 @@ class ParquetBatchExportWriter(BatchExportWriter):
             self._parquet_writer = pq.ParquetWriter(
                 self.batch_export_file,
                 schema=self.schema,
-                compression="none" if self.compression is None else self.compression,
+                compression="none" if self.compression is None else self.compression,  # type: ignore
                 compression_level=self.compression_level,
             )
         return self._parquet_writer

@@ -347,9 +347,17 @@ class FOSSCohortQuery(EventQuery):
 
         query, params = "", {}
         if self._should_join_behavioral_query:
-            _fields = [
-                f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonsOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
-            ]
+            _fields = []
+            if not self._should_join_distinct_ids:
+                _fields.append(f"{self.EVENT_TABLE_ALIAS}.person_id AS person_id")
+            elif self._person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+                _fields.append(
+                    f"if(not(empty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.distinct_id)), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id) AS person_id"
+                )
+            else:
+                _fields.append(
+                    f"if(not(empty({self.DISTINCT_ID_TABLE_ALIAS}.distinct_id)), {self.DISTINCT_ID_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id) AS person_id"
+                )
             _fields.extend(self._fields)
 
             if self.should_pushdown_persons and self._person_on_events_mode != PersonsOnEventsMode.DISABLED:

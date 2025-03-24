@@ -1,6 +1,6 @@
 from django.utils import timezone
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Plugin, PluginConfig
 from posthog.models.plugin import (
     PluginLogEntrySource,

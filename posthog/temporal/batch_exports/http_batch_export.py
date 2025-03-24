@@ -11,12 +11,11 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import (
     BatchExportField,
-    BatchExportModel,
-    BatchExportSchema,
+    BatchExportInsertInputs,
     HttpBatchExportInputs,
 )
 from posthog.models import BatchExportRun
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -94,21 +93,12 @@ class HeartbeatDetails:
         return HeartbeatDetails(last_uploaded_timestamp)
 
 
-@dataclasses.dataclass
-class HttpInsertInputs:
+@dataclasses.dataclass(kw_only=True)
+class HttpInsertInputs(BatchExportInsertInputs):
     """Inputs for HTTP insert activity."""
 
-    team_id: int
     url: str
     token: str
-    data_interval_start: str | None
-    data_interval_end: str
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
 
 async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str | None:
@@ -185,6 +175,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsComplete
 
         interval_start = await maybe_resume_from_heartbeat(inputs)
 
+        is_backfill = inputs.get_is_backfill()
+
         record_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
@@ -194,7 +186,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsComplete
             include_events=inputs.include_events,
             fields=fields,
             extra_query_parameters=None,
-            is_backfill=inputs.is_backfill,
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
         )
 
         last_uploaded_timestamp: str | None = None
@@ -319,8 +312,10 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: HttpBatchExportInputs):
         """Workflow implementation to export data to an HTTP Endpoint."""
+        is_backfill = inputs.get_is_backfill()
+        is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
+        should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -329,7 +324,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            is_backfill=inputs.is_backfill,
+            backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -360,7 +355,8 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
-            is_backfill=inputs.is_backfill,
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
         )
 

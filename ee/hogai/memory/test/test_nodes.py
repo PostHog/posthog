@@ -358,7 +358,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
                     AssistantMessage(content="Product description"),
                     HumanMessage(content=prompts.SCRAPING_CONFIRMATION_MESSAGE),
                 ],
-                resumed=True,
+                graph_status="resumed",
             )
 
             new_state = self.node.run(state, {})
@@ -380,7 +380,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
                 AssistantMessage(content="Product description"),
                 HumanMessage(content=prompts.SCRAPING_REJECTION_MESSAGE),
             ],
-            resumed=True,
+            graph_status="resumed",
         )
 
         new_state = self.node.run(state, {})
@@ -398,7 +398,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
     def test_error_when_last_message_not_human(self):
         state = AssistantState(
             messages=[AssistantMessage(content="Product description")],
-            resumed=True,
+            graph_status="resumed",
         )
 
         with self.assertRaises(ValueError) as e:
@@ -413,7 +413,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
                 AssistantMessage(content="Product description"),
                 HumanMessage(content=prompts.SCRAPING_CONFIRMATION_MESSAGE),
             ],
-            resumed=True,
+            graph_status="resumed",
         )
 
         with self.assertRaises(ValueError) as e:
@@ -423,7 +423,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
     def test_error_when_no_memory_message(self):
         state = AssistantState(
             messages=[HumanMessage(content=prompts.SCRAPING_CONFIRMATION_MESSAGE)],
-            resumed=True,
+            graph_status="resumed",
         )
 
         with self.assertRaises(ValueError) as e:

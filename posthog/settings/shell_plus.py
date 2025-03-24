@@ -16,7 +16,7 @@ SHELL_PLUS_POST_IMPORTS = [
     ("infi.clickhouse_orm.utils", ("import_submodules",)),
     ("posthog.models.filters", ("Filter",)),
     ("posthog.models.property", ("Property",)),
-    ("posthog.client", ("sync_execute",)),
+    ("posthog.clickhouse.client", ("sync_execute",)),
     ("posthog.hogql", ("ast")),
     ("posthog.hogql.parser", ("parse_select", "parse_expr")),
     ("posthog.hogql.query", ("execute_hogql_query")),

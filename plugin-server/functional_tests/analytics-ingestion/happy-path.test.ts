@@ -151,7 +151,14 @@ test.concurrent(`liveness check endpoint works`, async () => {
         const body = await response.json()
         expect(body).toEqual(
             expect.objectContaining({
-                checks: expect.objectContaining({ 'analytics-ingestion': 'ok' }),
+                checks: expect.objectContaining({
+                    'ingestion-consumer-client_iwarnings_ingestion': 'ok',
+                    'ingestion-consumer-events_plugin_ingestion': 'ok',
+                    'ingestion-consumer-events_plugin_ingestion_historical': 'ok',
+                    'ingestion-consumer-events_plugin_ingestion_overflow': 'ok',
+                    'ingestion-consumer-exceptions_ingestion': 'ok',
+                    'ingestion-consumer-heatmaps_ingestion': 'ok',
+                }),
             })
         )
     })
@@ -523,7 +530,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
     const metricBefore = await getMetric({
         name: 'latest_processed_timestamp_ms',
         type: 'GAUGE',
-        labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
+        labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'clickhouse-ingestion' },
     })
 
     await capture({ teamId, distinctId, uuid: new UUIDT().toString(), event: 'custom event', properties: {} })
@@ -532,7 +539,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         const metricAfter = await getMetric({
             name: 'latest_processed_timestamp_ms',
             type: 'GAUGE',
-            labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
+            labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'clickhouse-ingestion' },
         })
         expect(metricAfter).toBeGreaterThan(metricBefore)
         expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds

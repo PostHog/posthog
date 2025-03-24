@@ -31,7 +31,7 @@ export function BillingSection(): JSX.Element {
     return (
         <div className="flex gap-8 items-start mt-0">
             <div className="sticky top-16 flex-shrink-0 w-1/5 min-w-56 max-w-80 [.SidePanel3000_&]:top-0">
-                <ul className="space-y-px">
+                <ul className="deprecated-space-y-px">
                     <li>
                         <LemonButton
                             onClick={() => push(urls.organizationBillingSection('overview'))}
@@ -54,7 +54,7 @@ export function BillingSection(): JSX.Element {
                     </li>
                 </ul>
             </div>
-            <div className="flex-1 w-full space-y-2 min-w-0">
+            <div className="flex-1 w-full deprecated-space-y-2 min-w-0">
                 {activeSection === 'overview' ? <BillingOverview /> : <BillingUsage />}
             </div>
         </div>

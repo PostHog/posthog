@@ -24,7 +24,7 @@ export function SharedMetricModal({
 }): JSX.Element {
     const {
         experiment,
-        sharedMetrics,
+        compatibleSharedMetrics,
         isPrimarySharedMetricModalOpen,
         isSecondarySharedMetricModalOpen,
         editingSharedMetricId,
@@ -44,7 +44,7 @@ export function SharedMetricModal({
 
     const { hasAvailableFeature } = useValues(userLogic)
 
-    if (!sharedMetrics) {
+    if (!compatibleSharedMetrics) {
         return <></>
     }
 
@@ -66,7 +66,7 @@ export function SharedMetricModal({
         }
     }
 
-    const availableSharedMetrics = sharedMetrics.filter(
+    const availableSharedMetrics = compatibleSharedMetrics.filter(
         (metric: SharedMetric) =>
             !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
     )
@@ -78,7 +78,7 @@ export function SharedMetricModal({
                 .flatMap((metric: SharedMetric) => metric.tags)
                 .filter(Boolean)
         )
-    ).sort() as string[]
+    ).sort()
 
     return (
         <LemonModal
@@ -127,7 +127,7 @@ export function SharedMetricModal({
             }
         >
             {mode === 'create' && (
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     {availableSharedMetrics.length > 0 ? (
                         <>
                             {experiment.saved_metrics.length > 0 && (
@@ -205,8 +205,14 @@ export function SharedMetricModal({
                                     {
                                         title: 'Type',
                                         key: 'type',
-                                        render: (_, metric: SharedMetric) =>
-                                            metric.query.kind === NodeKind.ExperimentTrendsQuery ? 'Trend' : 'Funnel',
+                                        render: (_, metric: SharedMetric) => {
+                                            if (metric.query.kind === NodeKind.ExperimentMetric) {
+                                                return metric.query.metric_type
+                                            }
+                                            return metric.query.kind === NodeKind.ExperimentTrendsQuery
+                                                ? 'Trend'
+                                                : 'Funnel'
+                                        },
                                     },
                                 ]}
                                 footer={
@@ -227,7 +233,7 @@ export function SharedMetricModal({
                                 to: urls.experimentsSharedMetric('new'),
                             }}
                         >
-                            {sharedMetrics.length > 0
+                            {compatibleSharedMetrics.length > 0
                                 ? 'All of your shared metrics are already in this experiment.'
                                 : "You don't have any shared metrics that match the experiment type. Shared metrics let you create reusable metrics that you can quickly add to any experiment."}
                         </LemonBanner>
@@ -238,13 +244,13 @@ export function SharedMetricModal({
             {editingSharedMetricId && (
                 <div>
                     {(() => {
-                        const metric = sharedMetrics.find((m: SharedMetric) => m.id === editingSharedMetricId)
+                        const metric = compatibleSharedMetrics.find((m: SharedMetric) => m.id === editingSharedMetricId)
                         if (!metric) {
                             return <></>
                         }
 
                         return (
-                            <div className="space-y-2">
+                            <div className="deprecated-space-y-2">
                                 <div className="flex items-center gap-2">
                                     <h3 className="font-semibold m-0 flex items-center">{metric.name}</h3>
                                     <Link

@@ -4,7 +4,7 @@ import pytest
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from django.test.client import Client as TestClient
 from posthog.warehouse.models import (
     ExternalDataSchema,

@@ -3,7 +3,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useMemo } from 'react'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode } from '~/queries/schema'
+import { DataNode } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import { DEFAULT_PAGE_SIZE } from '../DataVisualization/Components/Table'
@@ -68,12 +68,20 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
 }
 
 export function LoadPreviewText(): JSX.Element {
-    const { numberOfRows, hasMoreData } = useValues(dataNodeLogic)
+    const { response, hasMoreData, responseLoading } = useValues(dataNodeLogic)
+
+    if (responseLoading) {
+        return <div />
+    }
+
+    const resultCount = response?.results?.length ?? 0
+    const isSingleEntry = resultCount === 1
+    const showFirstPrefix = hasMoreData && resultCount > 1
 
     return (
         <>
-            Showing {hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : ' '}
-            {numberOfRows === 1 ? 'one' : numberOfRows} {numberOfRows === 1 ? 'entry' : 'entries'}
+            Showing {showFirstPrefix ? 'first ' : ' '}
+            {isSingleEntry ? 'one' : resultCount} {isSingleEntry ? 'entry' : 'entries'}
         </>
     )
 }

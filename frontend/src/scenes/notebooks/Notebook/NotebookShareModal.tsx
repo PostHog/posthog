@@ -43,7 +43,7 @@ export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.El
                 </LemonButton>
             }
         >
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <FlaggedFeature flag="role-based-access-control">
                     <>
                         <AccessControlPopoutCTA

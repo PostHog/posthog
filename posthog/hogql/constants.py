@@ -1,9 +1,10 @@
 from datetime import date, datetime
-from enum import StrEnum
 import sys
-from typing import Optional, Literal, TypeAlias
+from enum import StrEnum
+from typing import Literal, Optional, TypeAlias
 from uuid import UUID
-from pydantic import ConfigDict, BaseModel
+
+from pydantic import BaseModel, ConfigDict
 
 ConstantDataType: TypeAlias = Literal[
     "int",
@@ -108,6 +109,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
     readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60
+    max_memory_usage: Optional[int] = None  # default value coming from cloud config
     allow_experimental_object_type: Optional[bool] = True
     format_csv_allow_double_quotes: Optional[bool] = False
     max_ast_elements: Optional[int] = 4_000_000  # default value 50000

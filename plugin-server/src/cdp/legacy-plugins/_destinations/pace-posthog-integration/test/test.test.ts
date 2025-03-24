@@ -37,7 +37,7 @@ describe('Pace: onEvent', () => {
                 debug: jest.fn(),
             },
             fetch: fetchMock as unknown,
-        } as PaceMetaInput
+        } as unknown as PaceMetaInput
 
         await onEvent(mockEvent, meta)
 

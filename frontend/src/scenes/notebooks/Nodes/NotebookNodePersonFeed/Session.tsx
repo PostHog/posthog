@@ -5,7 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
 import { useState } from 'react'
 
-// import { TimelineEntry } from '~/queries/schema'
+// import { TimelineEntry } from '~/queries/schema/schema-general'
 import { NotebookNodeType } from '~/types'
 
 import { notebookNodeLogic } from '../notebookNodeLogic'
@@ -77,7 +77,7 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
                 </div>
             </div>
             {!isFolded && (
-                <div className="p-1 border-t space-y-1">
+                <div className="p-1 border-t deprecated-space-y-1">
                     {session.events.map((event: any) => (
                         <SessionEvent key={event.id} event={event} />
                     ))}

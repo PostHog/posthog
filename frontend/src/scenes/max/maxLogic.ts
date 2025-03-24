@@ -4,10 +4,13 @@ import { createParser } from 'eventsource-parser'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
-import { isAssistantMessage, isHumanMessage, isVisualizationMessage } from 'scenes/max/utils'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { projectLogic } from 'scenes/projectLogic'
+import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
+import { actionsModel } from '~/models/actionsModel'
 import {
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -23,6 +26,7 @@ import { Conversation } from '~/types'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
+import { isAssistantMessage, isHumanMessage, isReasoningMessage, isVisualizationMessage } from './utils'
 
 export interface MaxLogicProps {
     conversationId?: string
@@ -36,7 +40,7 @@ export type ThreadMessage = RootAssistantMessage & {
 
 const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     type: AssistantMessageType.Failure,
-    content: 'Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?',
+    content: 'Oops! It looks like I’m having trouble answering this. Could you please try again?',
     status: 'completed',
 }
 
@@ -45,10 +49,21 @@ export const maxLogic = kea<maxLogicType>([
     props({} as MaxLogicProps),
     key(({ conversationId }) => conversationId || 'new-conversation'),
     connect({
-        values: [projectLogic, ['currentProject'], maxGlobalLogic, ['dataProcessingAccepted']],
+        values: [
+            projectLogic,
+            ['currentProject'],
+            maxGlobalLogic,
+            ['dataProcessingAccepted'],
+            maxSettingsLogic,
+            ['coreMemory'],
+            // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
+            actionsModel({ params: 'include_count=1' }),
+            ['actions'],
+        ],
     }),
     actions({
-        askMax: (prompt: string) => ({ prompt }),
+        askMax: (prompt: string, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
+        stopGeneration: true,
         setThreadLoaded: (testOnlyOverride = false) => ({ testOnlyOverride }),
         addMessage: (message: ThreadMessage) => ({ message }),
         replaceMessage: (index: number, message: ThreadMessage) => ({ index, message }),
@@ -60,6 +75,9 @@ export const maxLogic = kea<maxLogicType>([
         scrollThreadToBottom: true,
         setConversation: (conversation: Conversation) => ({ conversation }),
         setTraceId: (traceId: string) => ({ traceId }),
+        resetThread: true,
+        cleanThread: true,
+        startNewConversation: true,
     }),
     reducers({
         question: [
@@ -67,12 +85,14 @@ export const maxLogic = kea<maxLogicType>([
             {
                 setQuestion: (_, { question }) => question,
                 askMax: () => '',
+                cleanThread: () => '',
             },
         ],
         conversation: [
             (_, props) => (props.conversationId ? ({ id: props.conversationId } as Conversation) : null),
             {
                 setConversation: (_, { conversation }) => conversation,
+                cleanThread: () => null,
             },
         ],
         threadRaw: [
@@ -92,6 +112,8 @@ export const maxLogic = kea<maxLogicType>([
                     },
                     ...state.slice(index + 1),
                 ],
+                resetThread: (state) => state.filter((message) => !isReasoningMessage(message)),
+                cleanThread: () => [] as ThreadMessage[],
             },
         ],
         threadLoading: [
@@ -99,6 +121,7 @@ export const maxLogic = kea<maxLogicType>([
             {
                 askMax: () => true,
                 setThreadLoaded: (_, { testOnlyOverride }) => testOnlyOverride,
+                cleanThread: () => false,
             },
         ],
         visibleSuggestions: [
@@ -107,7 +130,7 @@ export const maxLogic = kea<maxLogicType>([
                 setVisibleSuggestions: (_, { suggestions }) => suggestions,
             },
         ],
-        traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId }],
+        traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId, cleanThread: () => null }],
     }),
     loaders({
         // TODO: Move question suggestions to `maxGlobalLogic`, which will make this logic `maxThreadLogic`
@@ -126,22 +149,12 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        [projectLogic.actionTypes.updateCurrentProjectSuccess]: ({ payload }) => {
-            // Load suggestions anew after product description is changed on the project
-            // Most important when description is set for the first time, but also when updated,
-            // which is why we always want to load fresh suggestions here
-            if (payload?.product_description) {
-                actions.loadSuggestions({ refresh: 'blocking' })
-            }
+    listeners(({ actions, values, cache }) => ({
+        [maxSettingsLogic.actionTypes.updateCoreMemorySuccess]: () => {
+            actions.loadSuggestions({ refresh: 'blocking' })
         },
-        [projectLogic.actionTypes.loadCurrentProjectSuccess]: ({ currentProject }) => {
-            // Load cached suggestions if we have just loaded the current project. This should not occur
-            // _normally_ in production, as the current project is preloaded in POSTHOG_APP_CONTEXT,
-            // but necessary in e.g. Storybook
-            if (currentProject?.product_description) {
-                actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
-            }
+        [maxSettingsLogic.actionTypes.loadCoreMemorySuccess]: () => {
+            actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
         },
         loadSuggestionsSuccess: () => {
             actions.shuffleVisibleSuggestions()
@@ -163,18 +176,32 @@ export const maxLogic = kea<maxLogicType>([
                 allSuggestionsWithoutCurrentlyVisible.slice(0, 3).sort((a, b) => a.length - b.length)
             )
         },
-        askMax: async ({ prompt }) => {
-            actions.addMessage({ type: AssistantMessageType.Human, content: prompt, status: 'completed' })
+        askMax: async ({ prompt, generationAttempt }, breakpoint) => {
+            if (generationAttempt === 0) {
+                actions.addMessage({
+                    type: AssistantMessageType.Human,
+                    content: prompt,
+                    status: 'completed',
+                })
+            }
+
             try {
                 // Generate a trace ID for the conversation run
                 const traceId = uuid()
                 actions.setTraceId(traceId)
 
-                const response = await api.conversations.create({
-                    content: prompt,
-                    conversation: values.conversation?.id,
-                    trace_id: traceId,
-                })
+                cache.generationController = new AbortController()
+
+                const response = await api.conversations.stream(
+                    {
+                        content: prompt,
+                        conversation: values.conversation?.id,
+                        trace_id: traceId,
+                    },
+                    {
+                        signal: cache.generationController.signal,
+                    }
+                )
                 const reader = response.body?.getReader()
 
                 if (!reader) {
@@ -234,21 +261,46 @@ export const maxLogic = kea<maxLogicType>([
                     }
                 }
             } catch (e) {
-                const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
-                if (e instanceof ApiError && e.status === 429) {
-                    relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
-                } else {
-                    captureException(e) // Unhandled error, log to Sentry
-                }
+                // Exclude AbortController exceptions
+                if (!(e instanceof DOMException) || e.name !== 'AbortError') {
+                    // Prevents parallel generation attempts. Total wait time is: 21 seconds.
+                    if (e instanceof ApiError && e.status === 409 && generationAttempt < 6) {
+                        await breakpoint(1000 * (generationAttempt + 1))
+                        actions.askMax(prompt, generationAttempt + 1)
+                        return
+                    }
 
-                if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
-                    actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
-                } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
-                    actions.addMessage(relevantErrorMessage)
+                    const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
+                    if (e instanceof ApiError && e.status === 429) {
+                        relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
+                    } else {
+                        captureException(e) // Unhandled error, log to Sentry
+                        console.error(e)
+                    }
+
+                    if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
+                        actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
+                    } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
+                        actions.addMessage(relevantErrorMessage)
+                    }
                 }
             }
 
             actions.setThreadLoaded()
+            cache.generationController = undefined
+        },
+        stopGeneration: async () => {
+            if (!values.conversation?.id) {
+                return
+            }
+
+            try {
+                await api.conversations.cancel(values.conversation.id)
+                cache.generationController?.abort()
+                actions.resetThread()
+            } catch (e: any) {
+                lemonToast.error(e?.data?.detail || 'Failed to cancel the generation.')
+            }
         },
         retryLastMessage: () => {
             const lastMessage = values.threadRaw.filter(isHumanMessage).pop() as HumanMessage | undefined
@@ -269,12 +321,27 @@ export const maxLogic = kea<maxLogicType>([
         scrollThreadToBottom: () => {
             requestAnimationFrame(() => {
                 // On next frame so that the message has been rendered
-                const mainEl = document.querySelector('main')
-                mainEl?.scrollTo({
-                    top: mainEl?.scrollHeight,
-                    behavior: 'smooth',
-                })
+                const threadEl = document.getElementsByClassName('@container/thread')[0]
+                let scrollableEl = threadEl?.parentElement // .Navigation3000__scene or .SidePanel3000__content
+                if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
+                    // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
+                    scrollableEl = scrollableEl.parentElement
+                }
+                if (scrollableEl) {
+                    scrollableEl.scrollTo({
+                        top: threadEl.scrollHeight,
+                        behavior: 'smooth',
+                    })
+                }
             })
+        },
+        startNewConversation: () => {
+            if (values.conversation) {
+                if (values.threadLoading) {
+                    actions.stopGeneration()
+                }
+                actions.cleanThread()
+            }
         },
     })),
     selectors({
@@ -333,25 +400,35 @@ export const maxLogic = kea<maxLogicType>([
         inputDisabled: [(s) => [s.formPending], (formPending) => formPending],
         submissionDisabledReason: [
             (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.threadLoading],
-            (formPending, dataProcessingAccepted, question, threadLoading): string | undefined =>
-                !dataProcessingAccepted
-                    ? 'Please accept OpenAI processing data'
-                    : formPending
-                    ? 'Please choose one of the options above'
-                    : !question
-                    ? 'I need some input first'
-                    : threadLoading
-                    ? 'Thinking…'
-                    : undefined,
+            (formPending, dataProcessingAccepted, question, threadLoading): string | undefined => {
+                if (threadLoading) {
+                    return undefined
+                }
+
+                if (!dataProcessingAccepted) {
+                    return 'Please accept OpenAI processing data'
+                }
+
+                if (formPending) {
+                    return 'Please choose one of the options above'
+                }
+
+                if (!question) {
+                    return 'I need some input first'
+                }
+
+                return undefined
+            },
         ],
     }),
     afterMount(({ actions, values }) => {
-        // We only load suggestions on mount if the product description is already set
-        if (values.currentProject?.product_description) {
+        // We only load suggestions on mount if core memory is present
+        if (values.coreMemory) {
             // In this case we're fine with even really old cached values
             actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
         }
     }),
+    permanentlyMount(), // Prevent state from being reset when Max is unmounted, especially key in the side panel
 ])
 
 /**

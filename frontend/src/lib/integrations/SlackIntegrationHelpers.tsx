@@ -13,8 +13,8 @@ const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): Lemo
               key: `${x.id}|#${x.name}`,
               labelComponent: (
                   <span className="flex items-center">
-                      {x.is_private ? `🔒${x.name}` : `#${x.name}`}
-                      {x.is_ext_shared ? <IconSlackExternal className="ml-2" /> : null}
+                      <span>{x.is_private ? `🔒${x.name}` : `#${x.name}`}</span>
+                      <span>{x.is_ext_shared ? <IconSlackExternal className="ml-2" /> : null}</span>
                   </span>
               ),
               label: `${x.id} #${x.name}`,
@@ -30,10 +30,10 @@ export type SlackChannelPickerProps = {
 }
 
 export function SlackChannelPicker({ onChange, value, integration, disabled }: SlackChannelPickerProps): JSX.Element {
-    const { slackChannels, slackChannelsLoading, isMemberOfSlackChannel } = useValues(
+    const { slackChannels, allSlackChannelsLoading, slackChannelByIdLoading, isMemberOfSlackChannel } = useValues(
         slackIntegrationLogic({ id: integration.id })
     )
-    const { loadSlackChannels } = useActions(slackIntegrationLogic({ id: integration.id }))
+    const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
     const slackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
@@ -43,7 +43,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
 
     const modifiedValue = useMemo(() => {
         if (value?.split('|').length === 1) {
-            const channel = slackChannels?.find((x) => x.id === value)
+            const channel = slackChannels.find((x: SlackChannelType) => x.id === value)
 
             if (channel) {
                 return `${channel.id}|#${channel.name}`
@@ -55,20 +55,33 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
 
     useEffect(() => {
         if (!disabled) {
-            loadSlackChannels()
+            loadAllSlackChannels()
         }
-    }, [loadSlackChannels, disabled])
+    }, [loadAllSlackChannels, disabled])
 
     return (
         <>
             <LemonInputSelect
                 onChange={(val) => onChange?.(val[0] ?? null)}
+                onInputChange={(val) => {
+                    if (val) {
+                        loadSlackChannelById(val)
+                    }
+                }}
                 value={modifiedValue ? [modifiedValue] : []}
-                onFocus={() => !slackChannels && !slackChannelsLoading && loadSlackChannels()}
+                onFocus={() => !slackChannels.length && !allSlackChannelsLoading && loadAllSlackChannels()}
                 disabled={disabled}
                 mode="single"
                 data-attr="select-slack-channel"
                 placeholder="Select a channel..."
+                emptyStateComponent={
+                    <p className="text-secondary italic p-1">
+                        No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
+                        <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
+                            See the docs for more information.
+                        </Link>
+                    </p>
+                }
                 options={
                     slackChannelOptions ??
                     (modifiedValue
@@ -80,7 +93,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                           ]
                         : [])
                 }
-                loading={slackChannelsLoading}
+                loading={allSlackChannelsLoading || slackChannelByIdLoading}
             />
 
             {showSlackMembershipWarning ? (
@@ -93,7 +106,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                                 See the Docs for more information
                             </Link>
                         </span>
-                        <LemonButton type="secondary" onClick={loadSlackChannels} loading={slackChannelsLoading}>
+                        <LemonButton type="secondary" onClick={loadAllSlackChannels} loading={allSlackChannelsLoading}>
                             Check again
                         </LemonButton>
                     </div>

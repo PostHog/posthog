@@ -12,18 +12,26 @@ from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
 from uuid import UUID
 
 
+class ErrorTrackingIssueManager(models.Manager):
+    def with_first_seen(self):
+        return self.annotate(first_seen=models.Min("fingerprints__first_seen"))
+
+
 class ErrorTrackingIssue(UUIDModel):
     class Status(models.TextChoices):
         ARCHIVED = "archived", "Archived"
         ACTIVE = "active", "Active"
         RESOLVED = "resolved", "Resolved"
         PENDING_RELEASE = "pending_release", "Pending release"
+        SUPPRESSED = "suppressed", "Suppressed"
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     status = models.TextField(choices=Status.choices, default=Status.ACTIVE, null=False)
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
+
+    objects = ErrorTrackingIssueManager()
 
     def merge(self, issue_ids: list[str]) -> None:
         fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
@@ -59,10 +67,11 @@ class ErrorTrackingIssueAssignment(UUIDModel):
 
 class ErrorTrackingIssueFingerprintV2(UUIDModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE)
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="fingerprints")
     fingerprint = models.TextField(null=False, blank=False)
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for overrides ClickHouse table
     version = models.BigIntegerField(blank=True, default=0)
+    first_seen = models.DateTimeField(null=True, auto_now_add=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

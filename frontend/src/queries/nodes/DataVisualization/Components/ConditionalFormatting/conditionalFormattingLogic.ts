@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 
-import { ConditionalFormattingRule } from '~/queries/schema'
+import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { FORMATTING_TEMPLATES, FormattingTemplate } from '../../types'
