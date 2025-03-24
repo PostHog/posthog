@@ -360,10 +360,6 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
-        openMaxChatInterface: true,
-        closeMaxChatInterface: true,
-        openInKeepMaxChatInterface: true,
-        closeInKeepMaxChatInterface: true,
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -371,8 +367,6 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openSupportForm: () => true,
                 closeSupportForm: () => false,
-                openMaxChatInterface: () => false,
-                openInKeepMaxChatInterface: () => false,
             },
         ],
         isEmailFormOpen: [
@@ -380,24 +374,6 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
-            },
-        ],
-        isMaxChatInterfaceOpen: [
-            false,
-            {
-                openMaxChatInterface: () => true,
-                closeMaxChatInterface: () => false,
-                openEmailForm: () => false,
-                openInKeepMaxChatInterface: () => false,
-            },
-        ],
-        isInKeepMaxChatInterfaceOpen: [
-            false,
-            {
-                openInKeepMaxChatInterface: () => true,
-                closeInKeepMaxChatInterface: () => false,
-                openEmailForm: () => false,
-                openMaxChatInterface: () => false,
             },
         ],
     })),
@@ -621,32 +597,6 @@ export const supportLogic = kea<supportLogicType>([
         },
 
         setSendSupportRequestValue: () => {
-            actions.updateUrlParams()
-        },
-        openMaxChatInterface: async () => {
-            const panelOptions = [
-                'max-chat',
-                '', // No target area needed for Max (yet)
-                '', // No severity level needed for Max
-                'false', // Make sure we don't open the email form instead
-            ].join(':')
-
-            if (values.sidePanelAvailable) {
-                actions.setSidePanelOptions(panelOptions)
-            }
-            actions.updateUrlParams()
-        },
-        openInKeepMaxChatInterface: async () => {
-            const panelOptions = [
-                'inkeep-max-chat',
-                '', // No target area needed for InKeep Max (yet)
-                '', // No severity level needed for InKeep Max
-                'false', // Make sure we don't open the email form instead
-            ].join(':')
-
-            if (values.sidePanelAvailable) {
-                actions.setSidePanelOptions(panelOptions)
-            }
             actions.updateUrlParams()
         },
     })),

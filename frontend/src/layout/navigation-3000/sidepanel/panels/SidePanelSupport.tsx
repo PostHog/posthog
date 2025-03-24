@@ -35,9 +35,8 @@ import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
 import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
-import { InKeepMaxChatInterface } from './sidePanelInKeepMaxChatInterface'
-import { MaxChatInterface } from './sidePanelMaxChatInterface'
 import { sidePanelStatusLogic } from './sidePanelStatusLogic'
+
 const PRODUCTS = [
     {
         name: 'Product OS',
@@ -205,43 +204,18 @@ export const SidePanelSupport = (): JSX.Element => {
     const { status } = useValues(sidePanelStatusLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
-    const { openEmailForm, closeEmailForm, openMaxChatInterface, closeMaxChatInterface, openInKeepMaxChatInterface } =
-        useActions(theLogic)
-    const { isEmailFormOpen, isMaxChatInterfaceOpen, isInKeepMaxChatInterfaceOpen } = useValues(theLogic)
+    const { openEmailForm, closeEmailForm } = useActions(theLogic)
+    const { isEmailFormOpen } = useValues(theLogic)
 
     const region = preflight?.region
 
     return (
         <>
-            <div
-                className={`${isInKeepMaxChatInterfaceOpen ? 'h-full flex flex-col' : 'overflow-y-auto'}`}
-                data-attr="side-panel-support-container"
-            >
+            <div className="overflow-y-auto" data-attr="side-panel-support-container">
                 <SidePanelPaneHeader title="Help" />
-                <div
-                    className={`${
-                        isInKeepMaxChatInterfaceOpen ? 'flex-1 flex flex-col' : 'p-3 max-w-160 w-full mx-auto'
-                    }`}
-                >
+                <div className="p-3 max-w-160 w-full mx-auto">
                     {isEmailFormOpen ? (
                         <SupportFormBlock onCancel={() => closeEmailForm()} />
-                    ) : isMaxChatInterfaceOpen ? (
-                        <div className="deprecated-space-y-4">
-                            <MaxChatInterface />
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => closeMaxChatInterface()}
-                                fullWidth
-                                center
-                                className="mt-2"
-                            >
-                                End Chat
-                            </LemonButton>
-                        </div>
-                    ) : isInKeepMaxChatInterfaceOpen ? (
-                        <div className="h-full flex flex-col flex-1">
-                            <InKeepMaxChatInterface />
-                        </div>
                     ) : (
                         <>
                             <Section title="Search docs & community questions">
@@ -306,7 +280,10 @@ export const SidePanelSupport = (): JSX.Element => {
                                                 fullWidth
                                                 center
                                                 onClick={() => {
-                                                    openMaxChatInterface()
+                                                    openSidePanel(
+                                                        SidePanelTab.Docs,
+                                                        '/docs/new-to-posthog/understand-posthog?chat=open'
+                                                    )
                                                 }}
                                                 targetBlank={false}
                                                 className="mt-2"
@@ -333,7 +310,10 @@ export const SidePanelSupport = (): JSX.Element => {
                                                 fullWidth
                                                 center
                                                 onClick={() => {
-                                                    openInKeepMaxChatInterface()
+                                                    openSidePanel(
+                                                        SidePanelTab.Docs,
+                                                        '/docs/new-to-posthog/understand-posthog?chat=open'
+                                                    )
                                                 }}
                                                 targetBlank={false}
                                                 className="mt-2"
