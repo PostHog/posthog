@@ -5,6 +5,7 @@ from django.db import close_old_connections
 from temporalio import activity
 
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.data_imports.pipelines.bigquery import get_schemas as get_bigquery_schemas
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
@@ -17,7 +18,6 @@ from posthog.warehouse.models.external_data_schema import (
     get_sql_schemas_for_source_type,
 )
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
-from posthog.temporal.data_imports.pipelines.bigquery import get_schemas as get_bigquery_schemas
 
 
 @dataclasses.dataclass
@@ -142,6 +142,7 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             private_key_id=private_key_id,
             client_email=client_email,
             token_uri=token_uri,
+            logger=logger,
         )
 
         schemas_to_sync = list(bq_schemas.keys())

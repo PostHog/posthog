@@ -7,13 +7,12 @@ import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { replayLandingPageLogic } from 'scenes/session-recordings/replayLandingPageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { Breadcrumb, OnboardingProduct, ProductKey, ReplayTabs, SidePanelTab } from '~/types'
+import { Breadcrumb, OnboardingProduct, ProductKey, SidePanelTab } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
@@ -52,14 +51,14 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
 
-export const getProductUri = (productKey: ProductKey, replayLandingPage: ReplayTabs): string => {
+export const getProductUri = (productKey: ProductKey): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
             return urls.insightNew()
         case ProductKey.WEB_ANALYTICS:
             return urls.webAnalytics()
         case ProductKey.SESSION_REPLAY:
-            return urls.replay(replayLandingPage)
+            return urls.replay()
         case ProductKey.FEATURE_FLAGS:
             return urls.featureFlag('new')
         case ProductKey.SURVEYS:
@@ -84,8 +83,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['user'],
             preflightLogic,
             ['isCloudOrDev'],
-            replayLandingPageLogic,
-            ['replayLandingPage'],
             sidePanelStateLogic,
             ['modalMode'],
             featureFlagLogic,
@@ -182,12 +179,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride, s.replayLandingPage],
-            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride, replayLandingPage) => {
+            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
+            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride) => {
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
-                return productKey ? getProductUri(productKey as ProductKey, replayLandingPage) : urls.default()
+                return productKey ? getProductUri(productKey as ProductKey) : urls.default()
             },
         ],
         totalOnboardingSteps: [

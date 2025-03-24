@@ -1,31 +1,31 @@
-from rest_framework import serializers
+from typing import Any, Optional
+
 import structlog
 import temporalio
-from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING
-from posthog.temporal.data_imports.pipelines.bigquery import (
-    get_schemas as get_bigquery_schemas,
-    filter_incremental_fields as filter_bigquery_incremental_fields,
-)
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataJob
-from typing import Optional, Any
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from rest_framework import viewsets, filters, status
-from posthog.api.utils import action
+from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from posthog.hogql.database.database import create_hogql_database
-from posthog.api.log_entries import LogEntryMixin
 
+from posthog.api.log_entries import LogEntryMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
+from posthog.hogql.database.database import create_hogql_database
+from posthog.temporal.data_imports.pipelines.bigquery import (
+    filter_incremental_fields as filter_bigquery_incremental_fields,
+    get_schemas as get_bigquery_schemas,
+)
+from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING
 from posthog.warehouse.data_load.service import (
+    cancel_external_data_workflow,
     external_data_workflow_exists,
     is_any_external_data_schema_paused,
-    sync_external_data_job_workflow,
     pause_external_data_schedule,
+    sync_external_data_job_workflow,
     trigger_external_data_workflow,
     unpause_external_data_schedule,
-    cancel_external_data_workflow,
 )
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 from posthog.warehouse.models.external_data_schema import (
     filter_mssql_incremental_fields,
     filter_mysql_incremental_fields,
@@ -402,6 +402,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 private_key_id=private_key_id,
                 client_email=client_email,
                 token_uri=token_uri,
+                logger=logger,
             )
 
             columns = bq_schemas.get(instance.name, [])
