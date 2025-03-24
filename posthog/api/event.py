@@ -345,11 +345,13 @@ class EventViewSet(
                 else:
                     conditions.append(event_conditions[0])
 
+            chain: list[str | int] = [key] if is_column else ["properties", key]
+
             if request.GET.get("value"):
                 conditions.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.ILike,
-                        left=ast.Call(name="toString", args=[ast.Field(chain=["properties", key])]),
+                        left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
                         right=ast.Constant(value=f"%{request.GET.get('value')}%"),
                     )
                 )
@@ -358,14 +360,10 @@ class EventViewSet(
             if request.GET.get("value"):
                 order_by = [
                     ast.OrderExpr(
-                        expr=ast.Call(
-                            name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=["properties", key])])]
-                        ),
+                        expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
                         order="ASC",
                     )
                 ]
-
-            chain: list[str | int] = [key] if is_column else ["properties", key]
 
             query = ast.SelectQuery(
                 select=[ast.Field(chain=chain)],

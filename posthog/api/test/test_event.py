@@ -264,6 +264,12 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response, [{"name": "another random event"}, {"name": "random event 1"}, {"name": "random event 2"}]
         )
 
+        # Search
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/values/?key=event&is_column=true&value=another"
+        ).json()
+        self.assertEqual(response, [{"name": "another random event"}])
+
     def test_custom_event_values(self):
         events = ["test", "new event", "another event"]
         for event in events:
