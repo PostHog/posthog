@@ -1,4 +1,4 @@
-import { IconPlusSmall, IconSort } from '@posthog/icons'
+import { IconFolderPlus, IconSort } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -97,7 +97,7 @@ export function ProjectTree(): JSX.Element {
                                 className="shrink-0"
                                 icon={
                                     <IconWrapper>
-                                        <IconPlusSmall />
+                                        <IconFolderPlus />
                                     </IconWrapper>
                                 }
                             />
