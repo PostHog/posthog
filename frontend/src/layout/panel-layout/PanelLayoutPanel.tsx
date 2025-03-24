@@ -55,7 +55,7 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                         {panelActions ?? null}
                     </div>
                 </div>
-                <div className="border-b border-secondary h-px" />
+                <div className="border-b border-primary h-px" />
                 <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary">
                     <div className="flex gap-1 p-1 items-center justify-between">
                         <LemonInput

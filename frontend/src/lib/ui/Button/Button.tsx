@@ -109,7 +109,7 @@ const buttonVariants = cva({
             false: '',
         },
         menuItem: {
-            true: 'w-full justify-between',
+            true: 'w-full',
             false: '',
         },
         disabled: {

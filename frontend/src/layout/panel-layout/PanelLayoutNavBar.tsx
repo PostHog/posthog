@@ -12,8 +12,8 @@ import {
     IconSearch,
     IconToolbar,
 } from '@posthog/icons'
-import { cva } from 'class-variance-authority'
 import clsx from 'clsx'
+import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
@@ -43,7 +43,8 @@ import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
-const panelStyles = cva('z-[var(--z-project-panel-layout)] h-screen left-0', {
+const panelStyles = cva({
+    base: 'z-[var(--z-project-panel-layout)] h-screen left-0',
     variants: {
         isLayoutPanelVisible: {
             true: 'block',
