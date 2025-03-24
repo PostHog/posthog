@@ -69,26 +69,38 @@ impl AggregateFunnelRowUnordered {
             }
         }
 
-        vars.interval_start_to_interval_data.iter().filter_map(|(&interval_start, interval_data)| {
-            if interval_data.max_step.step >= args.from_step {
-                Some((interval_start, ResultStruct(
-                    interval_start,
-                    if interval_data.max_step.step >= args.to_step {
-                        1
-                    } else {
-                        -1
-                    },
-                    prop_val.clone(),
-                    interval_data.max_step.event_uuid
-                )))
-            } else {
-                None
-            }
-        }).collect()
+        vars.interval_start_to_interval_data
+            .iter()
+            .filter_map(|(&interval_start, interval_data)| {
+                if interval_data.max_step.step >= args.from_step {
+                    Some((
+                        interval_start,
+                        ResultStruct(
+                            interval_start,
+                            if interval_data.max_step.step >= args.to_step {
+                                1
+                            } else {
+                                -1
+                            },
+                            prop_val.clone(),
+                            interval_data.max_step.event_uuid,
+                        ),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     #[inline(always)]
-    fn oldest_event_loop(&mut self, args: &Args, vars: &mut Vars, event: &Event, is_last_event: bool) {
+    fn oldest_event_loop(
+        &mut self,
+        args: &Args,
+        vars: &mut Vars,
+        event: &Event,
+        is_last_event: bool,
+    ) {
         // Find the latest event timestamp
         let latest_timestamp = event.timestamp;
 
@@ -118,8 +130,12 @@ impl AggregateFunnelRowUnordered {
             // from steps after this step. Try writing a test to compare them.
             let has_completed_funnel = vars.num_steps_completed >= args.num_steps;
 
-            if !(is_last_event || has_completed_funnel || ((oldest_event.timestamp + args.conversion_window_limit as f64) < latest_timestamp)) {
-                break
+            if !(is_last_event
+                || has_completed_funnel
+                || ((oldest_event.timestamp + args.conversion_window_limit as f64)
+                    < latest_timestamp))
+            {
+                break;
             }
             // If we're on the last event, if we're completed the funnel, or if we're outside the conversation window, process and delete the earliest event
             // Update max_step if we've completed more steps than before
@@ -190,7 +206,6 @@ impl AggregateFunnelRowUnordered {
 
     #[inline(always)]
     fn update_max_step(&self, vars: &mut Vars, interval_start: u64, event: &Event) {
-
         let greater_than_max_step = vars
             .interval_start_to_interval_data
             .get(&interval_start)

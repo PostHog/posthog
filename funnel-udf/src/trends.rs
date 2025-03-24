@@ -1,5 +1,5 @@
-use crate::PropVal;
 use crate::unordered_trends::AggregateFunnelRowUnordered;
+use crate::PropVal;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -121,7 +121,6 @@ impl AggregateFunnelRow {
             })
             .collect()
     }
-
 
     #[inline(always)]
     fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) -> ResultsMap {
