@@ -5,16 +5,18 @@ import { connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import { BasicListItem, ExtendedListItem, ListItemAccordion, SidebarCategory } from '~/layout/navigation-3000/types'
 import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery, PipelineStage } from '~/types'
+import { DataWarehouseSavedQuery, PipelineStage, ProductKey } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { DataWarehouseSourceIcon } from '../settings/DataWarehouseSourceIcon'
@@ -62,6 +64,8 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery'],
             viewLinkLogic,
             ['selectSourceTable', 'toggleJoinTableModal'],
+            teamLogic,
+            ['addProductIntent'],
         ],
     }),
     selectors(({ actions }) => ({
@@ -130,9 +134,16 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                             </p>
                             <LemonButton
                                 type="primary"
-                                onClick={() => router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))}
+                                onClick={() => {
+                                    actions.addProductIntent({
+                                        product_type: ProductKey.DATA_WAREHOUSE,
+                                        intent_context: ProductIntentContext.SQL_EDITOR_EMPTY_STATE,
+                                    })
+                                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                                }}
                                 center
                                 size="small"
+                                id="data-warehouse-sql-editor-add-data-source"
                             >
                                 Add data source
                             </LemonButton>

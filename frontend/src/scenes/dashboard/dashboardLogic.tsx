@@ -862,13 +862,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboard: DashboardType,
                 allVariables: Variable[],
                 temporaryVariables: Record<string, HogQLVariable>
-            ): Variable[] => {
+            ): { variable: Variable; insights: string[] }[] => {
                 const dataVizNodes = dashboard.tiles
-                    .map((n) => n.insight?.query)
-                    .filter((n) => n?.kind === NodeKind.DataVisualizationNode)
-                    .filter((n): n is DataVisualizationNode => Boolean(n))
+                    .map((n) => ({ query: n.insight?.query, title: n.insight?.name }))
+                    .filter((n) => n.query?.kind === NodeKind.DataVisualizationNode)
+                    .filter(
+                        (n): n is { query: DataVisualizationNode; title: string } =>
+                            Boolean(n.query) && Boolean(n.title)
+                    )
+
                 const hogQLVariables = dataVizNodes
-                    .map((n) => n.source.variables)
+                    .map((n) => n.query.source.variables)
                     .filter((n): n is Record<string, HogQLVariable> => Boolean(n))
                     .flatMap((n) => Object.values(n))
 
@@ -890,9 +894,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             isNull: overridenIsNull ?? v.isNull ?? foundVar.isNull,
                         }
 
-                        return resultVar
+                        const insightsUsingVariable = dataVizNodes
+                            .filter((n) => {
+                                const vars = n.query.source.variables
+                                if (!vars) {
+                                    return false
+                                }
+
+                                return !!vars[v.variableId]
+                            })
+                            .map((n) => n.title)
+
+                        return { variable: resultVar, insights: insightsUsingVariable }
                     })
-                    .filter((n): n is Variable => Boolean(n))
+                    .filter((n): n is { variable: Variable; insights: string[] } => Boolean(n?.variable))
             },
         ],
         asDashboardTemplate: [
