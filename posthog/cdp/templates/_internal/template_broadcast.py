@@ -9,8 +9,22 @@ template_new_broadcast: HogFunctionTemplate = HogFunctionTemplate(
     description="This is a broadcast",
     icon_url="/static/hedgehog/explorer-hog.png",
     category=["Email Marketing"],
-    hog="""import('provider/email').sendEmail(inputs.email)""".strip(),
+    hog="""sendEmail(inputs.api_key, inputs.secret_key, inputs.email)""".strip(),
     inputs_schema=[
+        {
+            "key": "api_key",
+            "type": "string",
+            "label": "Mailjet API Key",
+            "secret": True,
+            "required": True,
+        },
+        {
+            "key": "secret_key",
+            "type": "string",
+            "label": "Mailjet Secret Key",
+            "secret": True,
+            "required": True,
+        },
         {
             "key": "email",
             "type": "email",

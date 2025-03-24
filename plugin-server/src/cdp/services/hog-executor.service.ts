@@ -400,6 +400,7 @@ export class HogExecutorService {
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
+                        sendEmail: async () => Promise.resolve(),
                     },
                     functions: {
                         print: (...args) => {
@@ -503,7 +504,7 @@ export class HogExecutorService {
 
                 if (execRes.asyncFunctionName) {
                     switch (execRes.asyncFunctionName) {
-                        case 'fetch':
+                        case 'fetch': {
                             // Sanitize the args
                             const [url, fetchOptions] = args as [string | undefined, Record<string, any> | undefined]
 
@@ -533,6 +534,58 @@ export class HogExecutorService {
                             result.invocation.queue = 'fetch'
                             result.invocation.queueParameters = fetchQueueParameters
                             break
+                        }
+                        case 'sendEmail': {
+                            // Sanitize the args
+                            const [api_key, secret_key, email] = args as [
+                                string | undefined,
+                                string | undefined,
+                                Record<string, any> | undefined
+                            ]
+
+                            if (!email) {
+                                throw new Error('sendEmail: Invalid email object')
+                            }
+
+                            const url = 'https://api.mailjet.com/v3.1/send'
+
+                            const method = 'POST'
+                            const headers = {
+                                Authorization: `Basic ${Buffer.from(`${api_key}:${secret_key}`).toString('base64')}`,
+                                'Content-Type': 'application/json',
+                            }
+                            // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
+                            const body: string | undefined = JSON.stringify({
+                                Messages: [
+                                    {
+                                        From: {
+                                            Email: email.from,
+                                            Name: email.from_name || '',
+                                        },
+                                        To: [
+                                            {
+                                                Email: email.to,
+                                                Name: email.to_name || '',
+                                            },
+                                        ],
+                                        Subject: email.subject,
+                                        HTMLPart: email.html,
+                                    },
+                                ],
+                            })
+
+                            const fetchQueueParameters = this.enrichFetchRequest({
+                                url,
+                                method,
+                                body,
+                                headers,
+                                return_queue: 'hog',
+                            })
+
+                            result.invocation.queue = 'fetch'
+                            result.invocation.queueParameters = fetchQueueParameters
+                            break
+                        }
                         default:
                             throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
                     }
