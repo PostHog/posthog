@@ -1,7 +1,7 @@
 import collections.abc
 import contextlib
-from datetime import date, datetime
 import typing
+from datetime import date, datetime
 
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -136,6 +136,7 @@ def bigquery_source(
                 if (
                     incremental_field_type == IncrementalFieldType.Date
                     or incremental_field_type == IncrementalFieldType.DateTime
+                    or incremental_field_type == IncrementalFieldType.Timestamp
                 ):
                     last_value = f"'{last_value}'"
 
