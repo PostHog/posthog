@@ -309,7 +309,7 @@ DATA_WAREHOUSE_COMPACTION_TASK_QUEUE = "data-warehouse-compaction-task-queue"
 BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
 SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
-
+TEST_TASK_QUEUE = "test-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
