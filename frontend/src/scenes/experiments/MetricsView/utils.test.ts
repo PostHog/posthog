@@ -2,7 +2,7 @@ import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } 
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { ExperimentMetricMathType } from '~/types'
 
-import { getMetricTag } from './utils'
+import { getDefaultMetricTitle, getMetricTag } from './utils'
 
 describe('getMetricTag', () => {
     it('handles different metric types correctly', () => {
@@ -35,5 +35,33 @@ describe('getMetricTag', () => {
         expect(getMetricTag(experimentMetric)).toBe('Mean')
         expect(getMetricTag(funnelMetric)).toBe('Funnel')
         expect(getMetricTag(trendMetric)).toBe('Trend')
+    })
+})
+
+describe('getDefaultMetricTitle', () => {
+    it('handles ExperimentEventMetricConfig with math and math_property', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            metric_config: {
+                kind: NodeKind.ExperimentEventMetricConfig,
+                event: 'purchase completed',
+            },
+        }
+        expect(getDefaultMetricTitle(metric)).toBe('purchase completed')
+    })
+
+    it('returns action name for ExperimentActionMetricConfig', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            metric_config: {
+                kind: NodeKind.ExperimentActionMetricConfig,
+                action: 1,
+                name: 'purchase',
+            },
+        }
+
+        expect(getDefaultMetricTitle(metric)).toBe('purchase')
     })
 })
