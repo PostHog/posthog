@@ -1,7 +1,7 @@
 import collections.abc
 import contextlib
+from datetime import date, datetime
 import typing
-from datetime import datetime, date
 
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -129,14 +129,14 @@ def bigquery_source(
                     raise ValueError("incremental_field and incremental_field_type can't be None")
 
                 if db_incremental_field_last_value is None:
-                    last_value = incremental_type_to_initial_value(incremental_field_type)
+                    last_value: int | datetime | date | str = incremental_type_to_initial_value(incremental_field_type)
                 else:
                     last_value = db_incremental_field_last_value
 
-                # If the last value is a date or datetime, we need to quote it
-                # to avoid syntax errors in the query. See
-                # https://github.com/PostHog/posthog/issues/30326
-                if isinstance(last_value, date | datetime):
+                if (
+                    incremental_field_type == IncrementalFieldType.Date
+                    or incremental_field_type == IncrementalFieldType.DateTime
+                ):
                     last_value = f"'{last_value}'"
 
                 query = f"""
