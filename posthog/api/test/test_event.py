@@ -228,6 +228,21 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10")
     def test_event_column_values(self):
+        person1 = _create_person(
+            properties={"email": "joe@posthog.com"},
+            team=self.team,
+            distinct_ids=["bla"],
+        )
+        person2 = _create_person(
+            properties={"email": "bob@posthog.com"},
+            team=self.team,
+            distinct_ids=["blu"],
+        )
+        person3 = _create_person(
+            properties={"email": "bill@posthog.com"},
+            team=self.team,
+            distinct_ids=["ble"],
+        )
         _create_event(
             distinct_id="bla",
             event="random event 1",
@@ -256,12 +271,20 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
+        # distinct_id
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=distinct_id&is_column=true").json()
         self.assertEqual(response, [{"name": "ble"}, {"name": "bla"}, {"name": "blu"}])
 
+        # event
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=event&is_column=true").json()
         self.assertEqual(
             response, [{"name": "another random event"}, {"name": "random event 1"}, {"name": "random event 2"}]
+        )
+
+        # person_id
+        response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=person_id&is_column=true").json()
+        self.assertEqual(
+            response, [{"name": str(person3.uuid)}, {"name": str(person2.uuid)}, {"name": str(person1.uuid)}]
         )
 
         # Search

@@ -1,5 +1,6 @@
 import json
 import urllib
+import uuid
 from datetime import datetime
 from typing import Any, List, Optional, Union  # noqa: UP035
 from posthog.hogql.query import execute_hogql_query
@@ -377,7 +378,7 @@ class EventViewSet(
             result = execute_hogql_query(query, team=team)
             values = []
             for value in result.results:
-                if isinstance(value[0], float | int | bool):
+                if isinstance(value[0], float | int | bool | uuid.UUID):
                     values.append(value[0])
                 else:
                     try:
