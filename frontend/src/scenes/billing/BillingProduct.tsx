@@ -43,8 +43,6 @@ export const getTierDescription = (
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing, redirectPath, isUnlicensedDebug } = useValues(billingLogic)
     const {
@@ -64,6 +62,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         setSurveyResponse,
         setBillingProductLoading,
     } = useActions(billingProductLogic({ product, productRef }))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { upgradePlan, currentPlan } = currentAndUpgradePlans
 
