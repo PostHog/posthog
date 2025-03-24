@@ -23,7 +23,7 @@ function IconWithBadge({ icon, verified, hidden, tooltipTitle, className }: Icon
         <div className="relative inline-flex">
             {React.cloneElement(icon, { className: className || icon.props.className })}
             {(verified || hidden) && (
-                <div className="absolute -bottom-1 -left-2 flex items-center justify-center rounded-full bg-white shadow-md p-[1px]">
+                <div className="absolute -bottom-1 -left-2 flex items-center justify-center rounded-full bg-primary-light shadow-md p-[1px]">
                     {hidden ? (
                         <IconEyeHidden className="text-danger text-xs" />
                     ) : (
@@ -42,7 +42,7 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[definition.name]) {
         return (
             <IconWithBadge
-                icon={<IconList />}
+                icon={<IconLogomark />}
                 tooltipTitle="PostHog event property"
                 className="taxonomy-icon taxonomy-icon-muted"
                 verified={definition.verified}

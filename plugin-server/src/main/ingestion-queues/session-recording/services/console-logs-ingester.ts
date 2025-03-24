@@ -4,8 +4,8 @@ import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
+import { logger } from '../../../../utils/logger'
 import { captureException } from '../../../../utils/posthog'
-import { status } from '../../../../utils/status'
 import { eventDroppedCounter } from '../../metrics'
 import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
@@ -76,7 +76,7 @@ export class ConsoleLogsIngester {
             try {
                 await produceRequest
             } catch (error) {
-                status.error('🔁', '[console-log-events-ingester] main_loop_error', { error })
+                logger.error('🔁', '[console-log-events-ingester] main_loop_error', { error })
 
                 if (error?.isRetriable) {
                     // We assume that if the error is retriable, then we
@@ -164,7 +164,7 @@ export class ConsoleLogsIngester {
                 }),
             ]
         } catch (error) {
-            status.error('⚠️', '[console-log-events-ingester] processing_error', {
+            logger.error('⚠️', '[console-log-events-ingester] processing_error', {
                 error: error,
             })
             captureException(error, {

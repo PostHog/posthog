@@ -105,7 +105,7 @@ export interface LemonButtonWithoutSideActionProps extends LemonButtonPropsBase 
 }
 /** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
 export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
-    sideAction: SideAction
+    sideAction?: SideAction
     sideIcon?: null
 }
 export type LemonButtonProps = LemonButtonWithoutSideActionProps | LemonButtonWithSideActionProps

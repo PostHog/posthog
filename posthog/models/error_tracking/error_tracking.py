@@ -23,6 +23,7 @@ class ErrorTrackingIssue(UUIDModel):
         ACTIVE = "active", "Active"
         RESOLVED = "resolved", "Resolved"
         PENDING_RELEASE = "pending_release", "Pending release"
+        SUPPRESSED = "suppressed", "Suppressed"
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)

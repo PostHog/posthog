@@ -1,24 +1,40 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from typing import Any, Optional
 import posthoganalytics
 from celery import shared_task
 from django.conf import settings
 from prometheus_client import Counter, Histogram
+from pydantic import ValidationError
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
 from posthog.tasks.utils import CeleryQueue
 from posthog.redis import get_client
-from posthog.schema import RecordingsQuery, FilterLogicalOperator, PropertyOperator, PropertyFilterType
+from posthog.schema import (
+    RecordingsQuery,
+    FilterLogicalOperator,
+    PropertyOperator,
+    PropertyFilterType,
+    RecordingPropertyFilter,
+)
+from django.db.models import F, Q
+from django.utils import timezone
 
 from structlog import get_logger
 
 logger = get_logger(__name__)
 
 THIRTY_SIX_HOURS_IN_SECONDS = 36 * 60 * 60
-TASK_EXPIRATION_TIME = settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS or THIRTY_SIX_HOURS_IN_SECONDS
+TASK_EXPIRATION_TIME = (
+    # we definitely want to expire this task after a while
+    # but we don't want to expire it too quickly
+    # so we multiply the schedule by some factor or fallback to a long time
+    settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS * 15
+    if settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS
+    else THIRTY_SIX_HOURS_IN_SECONDS
+)
 
 REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT = Counter(
     "replay_playlist_with_filters_in_team_count",
@@ -73,6 +89,14 @@ DEFAULT_RECORDING_FILTERS = {
     ],
     "order": "start_time",
 }
+
+
+def asRecordingPropertyFilter(filter: dict[str, Any]) -> RecordingPropertyFilter:
+    return RecordingPropertyFilter(
+        key=filter["key"],
+        operator=filter["operator"],
+        value=filter["value"],
+    )
 
 
 def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -185,7 +209,7 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
     order = filters.get("order")
     duration_filters = filters.get("duration", [])
     if duration_filters and len(duration_filters) > 0:
-        having_predicates.append(duration_filters[0])
+        having_predicates.append(asRecordingPropertyFilter(duration_filters[0]))
 
     # Process each filter
     for f in extracted_filters:
@@ -224,26 +248,43 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
             # For any other property filter
             properties.append(f)
 
-    # Construct the RecordingsQuery
-    return RecordingsQuery(
-        order=order,
-        date_from=filters.get("date_from"),
-        date_to=filters.get("date_to"),
-        properties=properties,
-        events=events,
-        actions=actions,
-        console_log_filters=console_log_filters,
-        having_predicates=having_predicates,
-        filter_test_accounts=filters.get("filter_test_accounts"),
-        operand=filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
-    )
+    try:
+        # Construct the RecordingsQuery
+        return RecordingsQuery(
+            order=order,
+            date_from=filters.get("date_from"),
+            date_to=filters.get("date_to"),
+            properties=properties,
+            events=events,
+            actions=actions,
+            console_log_filters=console_log_filters,
+            having_predicates=having_predicates,
+            filter_test_accounts=filters.get("filter_test_accounts"),
+            operand=filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
+        )
+    except ValidationError as e:
+        # we were seeing errors here and it was hard to debug
+        # so we're logging all the data and the error
+        logger.exception(
+            "Failed to convert universal filters to RecordingsQuery",
+            filters=filters,
+            error=e,
+            having_predicates=having_predicates,
+            properties=properties,
+            events=events,
+            actions=actions,
+            console_log_filters=console_log_filters,
+            filter_test_accounts=filters.get("filter_test_accounts"),
+            operand=filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
+        )
+        raise
 
 
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
     # limit how many run per worker instance - if we have 10 workers, this will run 600 times per hour
-    rate_limit="60/h",
+    rate_limit="180/h",
     expires=TASK_EXPIRATION_TIME,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
     # will retry twice, once after 120 seconds (with jitter)
@@ -288,17 +329,20 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 query, user=None, team=playlist.team
             )
 
+            counted_at_date = datetime.now()
             value_to_set = json.dumps(
                 {
                     "session_ids": [r.session_id for r in recordings],
                     "has_more": more_recordings_available,
                     "previous_ids": existing_value.get("session_ids", None),
-                    "refreshed_at": datetime.now().isoformat(),
+                    "refreshed_at": counted_at_date.isoformat(),
                 }
             )
             redis_client.setex(
                 f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", THIRTY_SIX_HOURS_IN_SECONDS, value_to_set
             )
+            playlist.last_counted_at = counted_at_date
+            playlist.save(update_fields=["last_counted_at"])
 
             REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED.inc()
     except SessionRecordingPlaylist.DoesNotExist:
@@ -337,19 +381,15 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
 
 
 def enqueue_recordings_that_match_playlist_filters() -> None:
-    if not settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID or not isinstance(
-        settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID, int
-    ):
-        raise Exception("PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID is not set")
-
-    if settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID == 0:
-        # If we're not processing any teams, we don't need to enqueue anything
-        return
-
-    all_playlists = SessionRecordingPlaylist.objects.filter(
-        team_id__lte=int(settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID), deleted=False, filters__isnull=False
+    all_playlists = (
+        SessionRecordingPlaylist.objects.filter(
+            deleted=False,
+            filters__isnull=False,
+        )
+        .filter(Q(last_counted_at__isnull=True) | Q(last_counted_at__lt=timezone.now() - timedelta(hours=2)))
+        .order_by(F("last_counted_at").asc(nulls_first=True))[:60000]
     )
-    REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc(all_playlists.count())
 
     for playlist in all_playlists:
         count_recordings_that_match_playlist_filters.delay(playlist.id)
+        REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc()

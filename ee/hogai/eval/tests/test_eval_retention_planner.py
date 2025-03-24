@@ -8,6 +8,7 @@ from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 
 from ee.hogai.assistant import AssistantGraph
+from ee.hogai.eval.metrics import time_and_interval_correctness
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.schema import HumanMessage
 
@@ -39,13 +40,18 @@ def call_node(team, runnable_config: RunnableConfig) -> Callable[[str], str]:
     graph: CompiledStateGraph = (
         AssistantGraph(team)
         .add_edge(AssistantNodeName.START, AssistantNodeName.RETENTION_PLANNER)
-        .add_retention_planner(AssistantNodeName.END)
+        .add_retention_planner(AssistantNodeName.END, AssistantNodeName.END)
         .compile()
     )
 
     def callable(query: str) -> str:
         raw_state = graph.invoke(
-            AssistantState(messages=[HumanMessage(content=query)]),
+            AssistantState(
+                messages=[HumanMessage(content=query)],
+                root_tool_insight_plan=query,
+                root_tool_call_id="eval_test",
+                root_tool_insight_type="retention",
+            ),
             runnable_config,
         )
         state = AssistantState.model_validate(raw_state)
@@ -116,3 +122,74 @@ def test_needle_in_a_haystack(metric, call_node):
         actual_output=call_node(query),
     )
     assert_test(test_case, [metric])
+
+
+def test_retention_planner_sets_time_period_and_granularity(metric, call_node):
+    query = "Show retention for users who have paid a bill from 2025-02-15 to 2025-02-21"
+    test_case = LLMTestCase(
+        input=query,
+        expected_output="""
+        Target event:
+        - paid_bill
+
+        Returning event:
+        - downloaded_file
+
+        Time period: from 2025-02-15 to 2025-02-21
+        Granularity: day
+        """,
+        actual_output=call_node(query),
+    )
+    assert_test(test_case, [metric])
+
+
+@pytest.mark.parametrize(
+    "time_period",
+    [
+        "for yesterday",
+        "for the last 1 week",
+        "for the last 1 month",
+        "for the last 80 days",
+        "for the last 6 months",
+        "from 2020 to 2025",
+    ],
+)
+def test_retention_planner_handles_time_intervals(call_node, time_period):
+    query = f"show retention of uploading files {time_period}"
+    plan = call_node(query)
+
+    test_case = LLMTestCase(
+        input=query,
+        expected_output=f"""
+        Target event:
+        - uploaded_file
+
+        Returning event:
+        - uploaded_file
+
+        Time period: {time_period}
+        """,
+        actual_output=plan,
+    )
+    assert_test(test_case, [time_and_interval_correctness("funnel")])
+
+
+def test_trends_planner_uses_default_time_period_and_interval(call_node):
+    query = "show retention of uploading files"
+    plan = call_node(query)
+
+    test_case = LLMTestCase(
+        input=query,
+        expected_output=f"""
+        Target event:
+        - uploaded_file
+
+        Returning event:
+        - uploaded_file
+
+        Time period: last 30 days
+        Time interval: day
+        """,
+        actual_output=plan,
+    )
+    assert_test(test_case, [time_and_interval_correctness("funnel")])

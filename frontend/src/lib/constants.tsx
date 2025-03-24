@@ -167,14 +167,13 @@ export const FEATURE_FLAGS = {
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_CUSTOM_FONTS: 'surveys-custom-fonts', // owner: #team-surveys
-    YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
+    SURVEYS_PARTIAL_RESPONSES: 'surveys-partial-responses', // owner: #team-surveys
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: @daibhin @benjackwhite
     REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-insight-creation-product-analytics-onboarding', // owner: @biancayang
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
     AI_SESSION_PERMISSIONS: 'ai-session-permissions', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
-    SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
     HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
@@ -216,6 +215,7 @@ export const FEATURE_FLAGS = {
     SITE_DESTINATIONS: 'site-destinations', // owner: @mariusandra #team-cdp
     SITE_APP_FUNCTIONS: 'site-app-functions', // owner: @mariusandra #team-cdp
     HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED: 'hog-transformation-custom-hog-code', // owner: #team-cdp
+    HOG_TRANSFORMATIONS_WITH_FILTERS: 'hog-transformations-with-filters', // owner: #team-cdp
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
     SUPPORT_SIDEBAR_MAX: 'support-sidebar-max', // owner: @steven #team-max
@@ -227,7 +227,6 @@ export const FEATURE_FLAGS = {
     INSIGHT_COLORS: 'insight-colors', // owner: @thmsobrmlr #team-product-analytics
     WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner: @robbie-c #team-web-analytics
     REPLAY_FLAGS_FILTERS: 'replay-flags-filters', // owner: @pauldambra #team-replay
-    REPLAY_LANDING_PAGE: 'replay-landing-page', // owner :#team-replay
     WEB_REVENUE_TRACKING: 'web-revenue-tracking', // owner: @robbie-c #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
     ONBOARDING_SESSION_REPLAY_SEPARATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
@@ -247,8 +246,15 @@ export const FEATURE_FLAGS = {
     ONBOARDING_NEW_INSTALLATION_STEP: 'onboarding-new-installation-step', // owner: @joshsny #team-growth
     WEB_ANALYTICS_TREND_VIZ_TOGGLE: 'web-analytics-trend-viz-toggle', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_HIDE_MODAL_ACTORS: 'web-analytics-hide-modal-actors', // owner: @lricoy #team-web-analytics
+    WEB_ANALYTICS_PAGE_REPORTS: 'web-analytics-page-reports', // owner: @lricoy #team-web-analytics
+    SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny #team-growth
     AI_SETUP_WIZARD: 'ai-setup-wizard', // owner: @joshsny #team-growth
     CRM_BLOCKING_QUERIES: 'crm-blocking-queries', // owner: @danielbachhuber #team-crm
+    CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @danielbachhuber #team-crm
+    RECORDINGS_SIMILAR_RECORDINGS: 'recordings-similar-recordings', // owner: @veryayskiy #team-replay
+    RECORDINGS_BLOBBY_V2_REPLAY: 'recordings-blobby-v2-replay', // owner: @pl #team-cdp
+    SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
+    WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS: 'web-analytics-data-warehouse-revenue-settings', // owner: @rafaeelaudibert #team-web-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

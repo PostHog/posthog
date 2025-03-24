@@ -395,7 +395,6 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
             )}
             {showForm && (
                 <SyncMethodForm
-                    showRefreshMessageOnChange={currentSyncMethodModalSchema.sync_type !== null}
                     saveButtonIsLoading={saveButtonIsLoading}
                     schema={{
                         table: currentSyncMethodModalSchema.name,

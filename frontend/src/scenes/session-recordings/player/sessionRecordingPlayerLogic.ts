@@ -19,6 +19,8 @@ import {
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, objectsEqual } from 'lib/utils'
@@ -36,7 +38,13 @@ import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sess
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
+import {
+    AvailableFeature,
+    RecordingSegment,
+    SessionPlayerData,
+    SessionPlayerState,
+    SessionRecordingType,
+} from '~/types'
 
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -46,7 +54,7 @@ import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLo
 import { deleteRecording } from './utils/playerUtils'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
-export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
+export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
 
 export interface RecordingViewedSummaryAnalytics {
@@ -92,8 +100,53 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLo
     setPinned?: (pinned: boolean) => void
 }
 
+// weights should add up to 1
+const smoothingWeights = [
+    0.01,
+    0.02,
+    0.03,
+    0.06,
+    0.07,
+    0.09,
+    0.12,
+    0.2, // center point
+    0.12,
+    0.09,
+    0.07,
+    0.06,
+    0.03,
+    0.02,
+    0.01,
+]
+
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
     !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
+
+/**
+ * returns the relative second in the recording
+ * e.g. if the player starts at 1000ms and the snapshot is at 2000ms or 1500ms, the relative second is 1
+ */
+function toRelativeSecondInRecording(timestamp: number, playerStartTime: number): number {
+    return Math.trunc((timestamp - playerStartTime) / 1000)
+}
+
+const INCREMENTAL_SNAPSHOT_EVENT_TYPE = 3
+const ACTIVE_SOURCES = [
+    IncrementalSource.MouseMove,
+    IncrementalSource.MouseInteraction,
+    IncrementalSource.Scroll,
+    IncrementalSource.ViewportResize,
+    IncrementalSource.Input,
+    IncrementalSource.TouchMove,
+    IncrementalSource.MediaInteraction,
+    IncrementalSource.Drag,
+]
+function isUserActivity(snapshot: eventWithTime): boolean {
+    return (
+        snapshot.type === INCREMENTAL_SNAPSHOT_EVENT_TYPE &&
+        ACTIVE_SOURCES.indexOf(snapshot.data?.source as IncrementalSource) !== -1
+    )
+}
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
@@ -190,6 +243,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
         setPlayNextAnimationInterrupted: (interrupted: boolean) => ({ interrupted }),
         setMaskWindow: (shouldMaskWindow: boolean) => ({ shouldMaskWindow }),
+        loadSimilarRecordings: true,
+        loadSimilarRecordingsSuccess: (count: number) => ({ count }),
+        showNextRecordingConfirmation: true,
+        hideNextRecordingConfirmation: true,
+        confirmNextRecording: true,
+        loadRecordingMeta: true,
+        setSimilarRecordings: (results: string[]) => ({ results }),
     }),
     reducers(() => ({
         maskingWindow: [
@@ -419,12 +479,103 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setDebugSnapshotIncrementalSources: (s, { incrementalSources }) => ({ ...s, incrementalSources }),
             },
         ],
+        showingNextRecordingConfirmation: [
+            false,
+            {
+                showNextRecordingConfirmation: () => true,
+                hideNextRecordingConfirmation: () => false,
+                confirmNextRecording: () => false,
+            },
+        ],
+        similarRecordingsCount: [
+            0,
+            {
+                loadSimilarRecordingsSuccess: (_, { count }) => count,
+            },
+        ],
+        similarRecordings: [
+            [] as string[],
+            {
+                setSimilarRecordings: (_, { results }) => results,
+            },
+        ],
     })),
     selectors({
         // Prop references for use by other logics
         sessionRecordingId: [() => [(_, props) => props], (props): string => props.sessionRecordingId],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
         playlistLogic: [() => [(_, props) => props], (props) => props.playlistLogic],
+
+        hasSnapshots: [
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData: SessionPlayerData) => {
+                return Object.keys(sessionPlayerData.snapshotsByWindowId).length > 0
+            },
+        ],
+
+        activityPerSecond: [
+            (s) => [s.sessionPlayerData, s.hasSnapshots],
+            (sessionPlayerData: SessionPlayerData, hasSnapshots: boolean) => {
+                const start = sessionPlayerData.start
+                if (start === null || !hasSnapshots) {
+                    return {}
+                }
+
+                // First add a 0 for every second in the recording
+                const rawActivity: Record<number, { y: number }> = {}
+                Array.from({ length: Math.ceil(sessionPlayerData.durationMs / 1000 + 1) }, (_, i) => i).forEach(
+                    (second) => {
+                        rawActivity[second] = { y: 0 }
+                    }
+                )
+
+                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([_, snapshots]) => {
+                    snapshots.forEach((snapshot) => {
+                        const timestamp = toRelativeSecondInRecording(snapshot.timestamp, start.valueOf())
+
+                        if (!rawActivity[timestamp]) {
+                            rawActivity[timestamp] = { y: 0 }
+                        }
+
+                        if (isUserActivity(snapshot)) {
+                            rawActivity[timestamp].y += 5000
+                        } else if (
+                            snapshot.type === EventType.IncrementalSnapshot &&
+                            'source' in snapshot.data &&
+                            snapshot.data.source === IncrementalSource.Mutation
+                        ) {
+                            rawActivity[timestamp].y +=
+                                snapshot.data.adds.length +
+                                snapshot.data.removes.length +
+                                snapshot.data.attributes.length +
+                                snapshot.data.texts.length
+                        }
+                    })
+                })
+
+                // Apply smoothing
+                const sortedSeconds = Object.keys(rawActivity)
+                    .map(Number)
+                    .sort((a, b) => a - b)
+
+                const smoothedActivity: typeof rawActivity = {}
+
+                sortedSeconds.forEach((second) => {
+                    let smoothedY = 0
+                    for (let i = -7; i <= 7; i++) {
+                        const neighborSecond = second + i
+                        if (rawActivity[neighborSecond]) {
+                            smoothedY += rawActivity[neighborSecond].y * smoothingWeights[i + 7]
+                        }
+                    }
+                    smoothedActivity[second] = {
+                        y: smoothedY,
+                    }
+                })
+
+                return smoothedActivity
+            },
+        ],
 
         roughAnimationFPS: [(s) => [s.playerSpeed], (playerSpeed) => playerSpeed * (1000 / 60)],
         currentPlayerState: [
@@ -819,12 +970,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 currentSegment: values.currentSegment,
             })
         },
-        setEndReached: ({ reached }) => {
+        setEndReached: async ({ reached }) => {
             if (reached) {
                 actions.setPause()
                 // TODO: this will be time-gated so won't happen immediately, but we need it to
                 if (!values.wasMarkedViewed) {
                     actions.markViewed(0)
+                }
+                if (values.similarRecordingsCount > 0) {
+                    actions.showNextRecordingConfirmation()
                 }
             }
         },
@@ -1095,6 +1249,51 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             } else if (document.fullscreenElement === props.playerRef?.current) {
                 await document.exitFullscreen()
+            }
+        },
+        showNextRecordingConfirmation: () => {
+            if (props.playlistLogic) {
+                props.playlistLogic.actions.loadNext()
+            }
+        },
+        confirmNextRecording: async () => {
+            // Mark all similar recordings as viewed
+            await Promise.all(
+                values.similarRecordings.map((recordingId: SessionRecordingType['id']) =>
+                    api.recordings.update(recordingId, {
+                        viewed: true,
+                    })
+                )
+            )
+            actions.hideNextRecordingConfirmation()
+            if (props.playlistLogic) {
+                props.playlistLogic.actions.loadNext()
+            }
+        },
+        loadSimilarRecordings: async () => {
+            if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_SIMILAR_RECORDINGS]) {
+                const response = await api.recordings.getSimilarRecordings(values.sessionRecordingId)
+                actions.loadSimilarRecordingsSuccess(response.count)
+                actions.setSimilarRecordings(response.results)
+            }
+        },
+        maybeLoadRecordingMeta: async (_, breakpoint) => {
+            if (!values.sessionRecordingId) {
+                return
+            }
+
+            breakpoint()
+
+            try {
+                actions.loadSimilarRecordings()
+            } catch (e) {
+                console.error('Failed to load recording meta', e)
+                actions.setPlayerError('Failed to load recording meta')
+            }
+        },
+        loadRecordingMeta: async () => {
+            if (!values.sessionRecordingId) {
+                return
             }
         },
     })),

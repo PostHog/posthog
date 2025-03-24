@@ -3,6 +3,7 @@ from typing import cast
 from django.test import override_settings
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.test.utils import create_data_warehouse_table
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -46,14 +47,9 @@ from datetime import datetime, timedelta
 from posthog.test.test_journeys import journeys_for
 from posthog.models.experiment import Experiment
 from parameterized import parameterized
-import s3fs
-from pyarrow import parquet as pq
-import pyarrow as pa
 from boto3 import resource
 from botocore.config import Config
-from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.join import DataWarehouseJoin
-from posthog.warehouse.models.table import DataWarehouseTable
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.experiments.queryrunner" + XDIST_SUFFIX
 
@@ -124,81 +120,36 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def create_data_warehouse_table_with_usage(self):
-        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
-            raise Exception("Missing vars")
-
-        fs = s3fs.S3FileSystem(
-            client_kwargs={
-                "region_name": "us-east-1",
-                "endpoint_url": OBJECT_STORAGE_ENDPOINT,
-                "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
-                "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            },
-        )
-
-        path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
-
         table_data = [
-            {"id": "1", "ds": "2023-01-01", "userid": "user_control_0", "usage": 1000},
-            {"id": "2", "ds": "2023-01-02", "userid": "user_test_1", "usage": 500},
-            {"id": "3", "ds": "2023-01-03", "userid": "user_test_2", "usage": 750},
-            {"id": "4", "ds": "2023-01-04", "userid": "internal_test_1", "usage": 100000},
-            {"id": "5", "ds": "2023-01-06", "userid": "user_test_3", "usage": 800},
-            {"id": "6", "ds": "2023-01-07", "userid": "user_extra", "usage": 900},
+            {"id": "1", "ds": "2023-01-01", "userid": "user_control_0", "usage": "1000"},
+            {"id": "2", "ds": "2023-01-02", "userid": "user_test_1", "usage": "500"},
+            {"id": "3", "ds": "2023-01-03", "userid": "user_test_2", "usage": "750"},
+            {"id": "4", "ds": "2023-01-04", "userid": "internal_test_1", "usage": "100000"},
+            {"id": "5", "ds": "2023-01-06", "userid": "user_test_3", "usage": "800"},
+            {"id": "6", "ds": "2023-01-07", "userid": "user_extra", "usage": "900"},
         ]
 
-        pq.write_to_dataset(
-            pa.Table.from_pylist(table_data),
-            path_to_s3_object,
-            filesystem=fs,
-            use_dictionary=True,
-            compression="snappy",
-        )
+        columns = {
+            "id": "String",
+            "ds": "Date",
+            "userid": "String",
+            "usage": "String",
+        }
 
         table_name = "usage"
 
-        credential = DataWarehouseCredential.objects.create(
-            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
-            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            team=self.team,
-        )
+        create_data_warehouse_table(self.team, table_name, table_data, columns)
 
-        DataWarehouseTable.objects.create(
-            name=table_name,
-            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            columns={
-                "id": "String",
-                "ds": "Date",
-                "userid": "String",
-                "usage": "Int64",
-            },
-            credential=credential,
-        )
         return table_name
 
     def create_data_warehouse_table_with_subscriptions(self):
-        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
-            raise Exception("Missing vars")
-
-        fs = s3fs.S3FileSystem(
-            client_kwargs={
-                "region_name": "us-east-1",
-                "endpoint_url": OBJECT_STORAGE_ENDPOINT,
-                "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
-                "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            },
-        )
-
-        path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
-
-        credential = DataWarehouseCredential.objects.create(
-            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
-            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            team=self.team,
-        )
-
+        subscription_table_name = "subscriptions"
+        subscription_columns = {
+            "subscription_id": "String",
+            "subscription_created_at": "DateTime64(3, 'UTC')",
+            "subscription_customer_id": "String",
+            "subscription_amount": "Int64",
+        }
         subscription_table_data = [
             {
                 "subscription_id": "1",
@@ -231,31 +182,15 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "subscription_amount": 90,
             },
         ]
+        create_data_warehouse_table(self.team, subscription_table_name, subscription_table_data, subscription_columns)
 
-        pq.write_to_dataset(
-            pa.Table.from_pylist(subscription_table_data),
-            path_to_s3_object,
-            filesystem=fs,
-            use_dictionary=True,
-            compression="snappy",
-        )
-
-        subscription_table_name = "subscriptions"
-
-        DataWarehouseTable.objects.create(
-            name=subscription_table_name,
-            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            columns={
-                "subscription_id": "String",
-                "subscription_created_at": "DateTime64(3, 'UTC')",
-                "subscription_customer_id": "String",
-                "subscription_amount": "Int64",
-            },
-            credential=credential,
-        )
-
+        customer_table_name = "customers"
+        customer_columns = {
+            "customer_id": "String",
+            "customer_created_at": "DateTime64(3, 'UTC')",
+            "customer_name": "String",
+            "customer_email": "String",
+        }
         customer_table_data = [
             {
                 "customer_id": "1",
@@ -288,30 +223,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "customer_email": "john.doejr@example.com",
             },
         ]
-
-        pq.write_to_dataset(
-            pa.Table.from_pylist(customer_table_data),
-            path_to_s3_object,
-            filesystem=fs,
-            use_dictionary=True,
-            compression="snappy",
-        )
-
-        customer_table_name = "customers"
-
-        DataWarehouseTable.objects.create(
-            name=customer_table_name,
-            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            columns={
-                "customer_id": "String",
-                "customer_created_at": "DateTime64(3, 'UTC')",
-                "customer_name": "String",
-                "customer_email": "String",
-            },
-            credential=credential,
-        )
+        create_data_warehouse_table(self.team, customer_table_name, customer_table_data, customer_columns)
 
         DataWarehouseJoin.objects.create(
             team=self.team,
@@ -1393,15 +1305,99 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_variant.absolute_exposure, 10)
         self.assertEqual(test_variant.absolute_exposure, 10)
 
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_custom_exposure_on_feature_flag_called_event(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
+        )
+
+        feature_flag_property = "$feature_flag_response"
+
+        for variant, purchase_count in [("control", 6), ("test", 8)]:
+            for i in range(10):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                if i < purchase_count:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={
+                            feature_flag_property: variant,
+                            "$feature_flag": feature_flag.key,
+                            "amount": 10 if i < 2 else "",
+                        },
+                    )
+
+        # Extra exposure that should be excluded
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=f"user_extra_1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+                "plan": "free",
+            },
+        )
+
+        flush_persons_and_events()
+
+        exposure_config = ExperimentEventExposureConfig(
+            event="$feature_flag_called",
+            properties=[
+                {"key": "plan", "operator": "is_not", "value": "free", "type": "event"},
+            ],
+        )
+        experiment.exposure_criteria = {
+            "exposure_config": exposure_config.model_dump(mode="json"),
+        }
+        experiment.save()
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=ExperimentMetric(
+                metric_type=ExperimentMetricType.MEAN,
+                metric_config=ExperimentEventMetricConfig(event="purchase"),
+            ),
+        )
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.count, 6)
+        self.assertEqual(test_variant.count, 8)
+        self.assertEqual(control_variant.absolute_exposure, 10)
+        self.assertEqual(test_variant.absolute_exposure, 10)
+
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_invalid_feature_flag_property(self):
+    def test_query_runner_without_feature_flag_property(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag, end_date=datetime(2020, 2, 1, 12, 0, 0))
         experiment.stats_config = {"version": 2}
         experiment.save()
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.MEAN,
@@ -1425,7 +1421,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_id="user_invalid_id",
             timestamp="2020-01-15T12:00:00Z",
             properties={
-                feature_flag_property: "",  # Intentionally empty
+                # No $feature/<key> property, should still be included as some SDKs don't include this
                 "$feature_flag_response": "control",
                 "$feature_flag": feature_flag.key,
             },
@@ -1447,7 +1443,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_variant.count, 6)
         self.assertEqual(test_variant.count, 8)
-        self.assertEqual(control_variant.absolute_exposure, 10)
+        self.assertEqual(control_variant.absolute_exposure, 11)
         self.assertEqual(test_variant.absolute_exposure, 10)
 
     @freeze_time("2020-01-01T12:00:00Z")

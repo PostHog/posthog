@@ -1,12 +1,11 @@
-use std::sync::Arc;
-use tracing::instrument;
-
 use crate::{
     api::errors::FlagError,
     client::database::Client as DatabaseClient,
-    client::redis::Client as RedisClient,
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
+use common_redis::Client as RedisClient;
+use std::sync::Arc;
+use tracing::instrument;
 
 impl Team {
     /// Validates a token, and returns a team if it exists.
@@ -26,7 +25,7 @@ impl Team {
             FlagError::RedisDataParsingError
         })?;
         if team.project_id == 0 {
-            // If `project_id` is 0, this means the payload is from before December 2025, which we correct for here
+            // If `project_id` is 0, this means the payload is from before December 2024, which we correct for here
             team.project_id = team.id as i64;
         }
 

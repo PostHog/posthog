@@ -47,6 +47,38 @@ export const getResponseFieldWithId = (
     }
 }
 
+// Helper function to generate the HogQL condition for checking survey responses in both formats
+export const getResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
+    const ids = getResponseFieldWithId(questionIndex, questionId)
+
+    if (!ids.idBasedKey) {
+        return `JSONExtractString(properties, '${ids.indexBasedKey}')`
+    }
+
+    // For ClickHouse, we need to use coalesce to check both fields
+    // This will return the first non-null value, prioritizing the ID-based format if available
+    return `coalesce(
+        nullIf(JSONExtractString(properties, '${ids.idBasedKey}'), ''),
+        nullIf(JSONExtractString(properties, '${ids.indexBasedKey}'), '')
+    )`
+}
+
+// Helper function to generate the HogQL condition for checking multiple choice survey responses in both formats
+export const getMultipleChoiceResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
+    const ids = getResponseFieldWithId(questionIndex, questionId)
+
+    if (!ids.idBasedKey) {
+        return `JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')`
+    }
+
+    // For multiple choice, we need to check if either field has a value and use that one
+    return `if(
+        JSONHas(properties, '${ids.idBasedKey}') AND length(JSONExtractArrayRaw(properties, '${ids.idBasedKey}')) > 0,
+        JSONExtractArrayRaw(properties, '${ids.idBasedKey}'),
+        JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')
+    )`
+}
+
 export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): SurveyAppearance | null {
     if (!appearance) {
         return null

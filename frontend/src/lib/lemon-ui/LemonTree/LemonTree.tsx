@@ -24,6 +24,8 @@ export type TreeDataItem = {
     id: string
     /** The name of the item. */
     name: string
+    /** What to show as the name. */
+    displayName?: React.ReactElement
     /** Passthrough metadata */
     record?: Record<string, any>
     /** The side action to render for the item. */
@@ -35,7 +37,16 @@ export type TreeDataItem = {
     /** Disabled: The reason the item is disabled. */
     disabledReason?: string
 
+    /** The icon to use for the side action. */
+    sideIcon?: React.ReactNode
+
+    /** The type of item.
+     *
+     * Type node, normal behavior
+     * Type separator, render as separator
+     */
     type?: 'node' | 'separator'
+
     /**
      * Handle a click on the item.
      * @param open - boolean to indicate if it's a folder and it's open state
@@ -56,6 +67,9 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     showFolderActiveState?: boolean
     /** Whether to enable drag and drop of items. */
     enableDragAndDrop?: boolean
+    /** Whether the item is active, useful for highlighting the current item against a URL path,
+     * this takes precedence over showFolderActiveState, and selectedId state */
+    isItemActive?: (item: TreeDataItem) => boolean
     /** Whether the item is draggable */
     isItemDraggable?: (item: TreeDataItem) => boolean
     /** Whether the item can accept drops */
@@ -72,7 +86,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     /** Set the IDs of the expanded items. */
     onSetExpandedItemIds?: (ids: string[]) => void
-    /** Pass true if you need to wait for async events to populate the tree. If present and true will trigger: scrolling to focused item */
+    /** Pass true if you need to wait for async events to populate the tree.
+     * If present and true will trigger: scrolling to focused item */
     isFinishedBuildingTreeData?: boolean
 }
 
@@ -120,6 +135,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             onSetExpandedItemIds,
             defaultNodeIcon,
             showFolderActiveState,
+            isItemActive,
             isItemDraggable,
             isItemDroppable,
             depth = 0,
@@ -134,6 +150,15 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         const DEPTH_OFFSET = depth === 0 ? 0 : 6 * depth
 
         const [isContextMenuOpenForItem, setIsContextMenuOpenForItem] = useState<string | undefined>(undefined)
+
+        const getItemActiveState = (item: TreeDataItem): boolean => {
+            if (typeof isItemActive === 'function') {
+                return isItemActive(item)
+            }
+            return Boolean(
+                selectedId === item.id || (showFolderActiveState && item.children && expandedItemIds?.includes(item.id))
+            )
+        }
 
         if (!(data instanceof Array)) {
             data = [data]
@@ -151,7 +176,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             <ul className={cn('list-none m-0 p-0', className)} role="group">
                 {data.map((item) => {
                     // Clean up display name by replacing escaped characters
-                    const displayName = item.name.replace(/\\\//g, '/').replace(/\\/g, '')
+                    const displayName = item.displayName ?? item.name
 
                     if (item.type === 'separator') {
                         return (
@@ -172,7 +197,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             key={item.id}
                             disabled={!!item.disabledReason}
                         >
-                            <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full">
+                            <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full gap-y-px">
                                 <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
                                     <ContextMenu
                                         onOpenChange={(open) => {
@@ -182,13 +207,13 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         <ContextMenuTrigger asChild>
                                             <LemonButton
                                                 className={cn(
-                                                    'group/lemon-tree-button',
-                                                    'flex-1 flex items-center gap-2 font-normal',
-                                                    'cursor-pointer',
-                                                    (focusedId === item.id || isContextMenuOpenForItem === item.id) &&
-                                                        'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary',
-                                                    selectedId === item.id &&
-                                                        'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
+                                                    'group/lemon-tree-button flex-1 flex items-center gap-2 font-normal cursor-pointer',
+                                                    {
+                                                        'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary':
+                                                            focusedId === item.id ||
+                                                            isContextMenuOpenForItem === item.id,
+                                                        'bg-fill-highlight-100': getItemActiveState(item),
+                                                    }
                                                 )}
                                                 onClick={() => {
                                                     handleClick(item)
@@ -200,12 +225,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 size="small"
                                                 fullWidth
                                                 data-id={item.id}
-                                                active={
-                                                    selectedId === item.id ||
-                                                    (showFolderActiveState &&
-                                                        item.children &&
-                                                        expandedItemIds?.includes(item.id))
-                                                }
+                                                active={getItemActiveState(item)}
                                                 icon={getIcon({
                                                     item,
                                                     expandedItemIds: expandedItemIds ?? [],
@@ -215,6 +235,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 tooltipPlacement="right"
                                                 style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
                                                 truncate
+                                                to={item.record?.href ? item.record.href : undefined}
                                                 sideAction={itemSideAction ? itemSideAction(item) : undefined}
                                                 buttonWrapper={
                                                     enableDragAndDrop && isItemDraggable?.(item) && item.record?.path
@@ -237,11 +258,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 ) : (
                                                     <span
                                                         className={cn('', {
-                                                            'font-bold': selectedId === item.id,
+                                                            'font-bold': getItemActiveState(item),
                                                             'text-secondary': item.disabledReason,
+                                                            'flex items-center justify-between gap-2': item.sideIcon,
                                                         })}
                                                     >
+                                                        {/* {item.hint ? <div className='flex flex-col gap-1'>{displayName}<div className='text-xxs font-normal'>{item.hint}</div></div> : displayName} */}
                                                         {displayName}
+                                                        {item.sideIcon}
                                                     </span>
                                                 )}
                                             </LemonButton>
@@ -268,6 +292,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             itemSideAction={itemSideAction}
                                             className="deprecated-space-y-px"
                                             depth={depth + 1}
+                                            isItemActive={isItemActive}
                                             isItemDraggable={isItemDraggable}
                                             isItemDroppable={isItemDroppable}
                                             enableDragAndDrop={enableDragAndDrop}
@@ -345,9 +370,14 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         // Scrollable container
         const containerRef = useRef<HTMLDivElement>(null)
 
+        // Current state (when matching defaultSelectedFolderOrNodeId)
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
+
+        // Focused state
         const [focusedId, setFocusedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
+
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
+
         // Add new state for type-ahead
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
         const typeAheadTimeoutRef = useRef<NodeJS.Timeout>()
@@ -536,15 +566,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
         const handleClick = useCallback(
             (item: TreeDataItem | undefined, isKeyboardAction = false): void => {
-                // Update focusedId when clicking
                 setFocusedId(item?.id)
-
                 const isFolder = (item?.children && item?.children?.length >= 0) || item?.record?.type === 'folder'
 
                 // Handle click on a node
                 if (!isFolder) {
                     if (onNodeClick) {
-                        setSelectedId(item?.id)
                         onNodeClick(item)
                         // Only focus content if this was triggered by a keyboard action
                         if (isKeyboardAction) {
@@ -607,6 +634,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         ) {
                             // If folder is not expanded, expand it
                             if (!expandedItemIdsState.includes(currentItem.id)) {
+                                onFolderClick?.(currentItem, false)
                                 const newExpandedIds = [...new Set([...expandedItemIdsState, currentItem.id])]
                                 setExpandedItemIdsState(newExpandedIds)
                                 onSetExpandedItemIds && onSetExpandedItemIds(newExpandedIds)
@@ -876,9 +904,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         setFocusedId(undefined)
                     }}
                     className="flex-1"
-                    innerClassName="p-2"
+                    innerClassName="p-1"
+                    styledScrollbars
                 >
-                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} className="h-full pb-32">
+                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} className="h-full">
                         <LemonTreeNode
                             data={data}
                             selectedId={selectedId}

@@ -385,15 +385,9 @@ def render_template(
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
 
-    try:
-        year_in_hog_url = f"/year_in_posthog/2024/{str(request.user.uuid)}"  # type: ignore
-    except:
-        year_in_hog_url = None
-
     posthog_app_context: dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
-        "year_in_hog_url": year_in_hog_url,
     }
 
     posthog_bootstrap: dict[str, Any] = {}
@@ -523,7 +517,7 @@ async def initialize_self_capture_api_token():
         )
         # Get the current user's team (or first team in the instance) to set self capture configs
         team = None
-        if user and getattr(user, "team", None):
+        if user and getattr(user, "current_team", None):
             team = user.current_team
         else:
             team = await Team.objects.only("api_token").aget()
@@ -1274,7 +1268,7 @@ def is_json(val):
     return True
 
 
-def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:
+def cast_timestamp_or_now(timestamp: Optional[Union[datetime.datetime, str]]) -> str:
     if not timestamp:
         timestamp = timezone.now()
 

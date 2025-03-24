@@ -39,12 +39,13 @@ import type {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
+    FileSystemImport,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
-    InsightVizNode,
     Node,
     NodeKind,
+    QuerySchema,
     QueryStatus,
     RecordingOrder,
     RecordingsQuery,
@@ -107,6 +108,7 @@ export enum AvailableFeature {
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
+    ENVIRONMENTS = 'environments',
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
@@ -132,7 +134,6 @@ export enum AvailableFeature {
     TARGETING_BY_GROUP = 'targeting_by_group',
     LOCAL_EVALUATION_AND_BOOTSTRAPPING = 'local_evaluation_and_bootstrapping',
     FLAG_USAGE_STATS = 'flag_usage_stats',
-    MULTIPLE_ENVIRONMENTS = 'multiple_environments',
     USER_OPT_IN = 'user_opt_in',
     INSTANT_ROLLBACKS = 'instant_rollbacks',
     EXPERIMENTATION = 'experimentation',
@@ -526,6 +527,7 @@ export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-lo
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
+    blockSelector?: string
 }
 
 export enum ActivationTaskStatus {
@@ -734,9 +736,10 @@ export enum SavedInsightsTabs {
 }
 
 export enum ReplayTabs {
-    Templates = 'templates',
     Home = 'home',
     Playlists = 'playlists',
+    Templates = 'templates',
+    Settings = 'settings',
 }
 
 export enum ExperimentsTabs {
@@ -910,6 +913,8 @@ export type AnyPersonScopeFilter =
     | HogQLPropertyFilter
     | EmptyPropertyFilter
 
+export type AnyGroupScopeFilter = GroupPropertyFilter | HogQLPropertyFilter
+
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
 export type SessionRecordingId = SessionRecordingType['id']
@@ -973,6 +978,7 @@ export const SnapshotSourceType = {
     blob: 'blob',
     realtime: 'realtime',
     file: 'file',
+    blob_v2: 'blob_v2',
 } as const
 
 export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
@@ -987,6 +993,10 @@ export interface SessionRecordingSnapshotSource {
 export type SessionRecordingSnapshotParams =
     | {
           source: 'blob'
+          blob_key?: string
+      }
+    | {
+          source: 'blob_v2'
           blob_key?: string
       }
     | {
@@ -1448,6 +1458,7 @@ export interface PlaylistSavedFiltersCount {
     watched_count: number
     has_more?: boolean
     increased?: boolean
+    last_refreshed_at?: string
 }
 
 export interface PlaylistRecordingsCounts {
@@ -1803,6 +1814,10 @@ export interface BillingType {
         status: 'active' | 'expired' | 'cancelled' | 'converted'
         target: 'paid' | 'teams' | 'enterprise'
         expires_at: string
+    }
+    account_owner?: {
+        email?: string
+        name?: string
     }
 }
 
@@ -2788,7 +2803,7 @@ export interface HistogramGraphDatum {
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
-export interface InsightLogicProps<T = InsightVizNode> {
+export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
@@ -2800,8 +2815,8 @@ export interface InsightLogicProps<T = InsightVizNode> {
     loadPriority?: number
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** query when used as ad-hoc insight */
-    query?: T
-    setQuery?: (node: T) => void
+    query?: Q
+    setQuery?: (node: Q) => void
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
@@ -2825,6 +2840,11 @@ export enum SurveySchedule {
     Always = 'always',
 }
 
+export enum SurveyPartialResponses {
+    Yes = 'true',
+    No = 'false',
+}
+
 export interface Survey {
     /** UUID */
     id: string
@@ -2838,7 +2858,7 @@ export interface Survey {
     targeting_flag_filters?: FeatureFlagFilters
     conditions: {
         url: string
-        selector: string
+        selector?: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyMatchType
         deviceTypes?: string[]
@@ -2875,6 +2895,7 @@ export interface Survey {
     response_sampling_interval?: number | null
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
+    enable_partial_responses?: boolean | null
 }
 
 export enum SurveyMatchType {
@@ -3324,6 +3345,7 @@ export interface EventDefinition {
     verified_by?: string
     is_action?: boolean
     hidden?: boolean
+    default_columns?: string[]
 }
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
@@ -3390,6 +3412,7 @@ export interface GroupType {
     group_type_index: GroupTypeIndex
     name_singular?: string | null
     name_plural?: string | null
+    detail_dashboard?: number | null
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
@@ -3526,7 +3549,6 @@ export interface AppContext {
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
-    year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
     livestream_host?: string
@@ -4072,6 +4094,7 @@ export enum ActivityScope {
     ACTION = 'Action',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
+    GROUP = 'Group',
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
@@ -4450,6 +4473,23 @@ export type BatchExportConfiguration = {
     model: string
     filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
+}
+
+export type BatchExportConfigurationTestStepStatus = 'Passed' | 'Failed'
+
+export type BatchExportConfigurationTestStepResult = {
+    status: BatchExportConfigurationTestStepStatus
+    message: string
+}
+
+export type BatchExportConfigurationTestStep = {
+    name: string
+    description: string
+    result: BatchExportConfigurationTestStepResult | null
+}
+
+export type BatchExportConfigurationTest = {
+    steps: BatchExportConfigurationTestStep[]
 }
 
 export type RawBatchExportRun = {
@@ -4943,7 +4983,7 @@ export type HogFunctionInvocationGlobals = {
 }
 
 export type HogFunctionTestInvocationResult = {
-    status: 'success' | 'error'
+    status: 'success' | 'error' | 'skipped'
     logs: LogEntry[]
     result: any
     errors?: string[]
@@ -5062,10 +5102,17 @@ export interface CoreMemory {
     text: string
 }
 
+export interface FileSystemType {
+    icon?: JSX.Element
+    href?: (ref: string) => string
+}
+
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>
     routes?: Record<string, [string /** Scene */, string /** Scene Key (unique for layout tabs) */]>
     redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
     urls?: Record<string, string | ((...args: any[]) => string)>
+    fileSystemTypes?: Record<string, FileSystemType>
+    treeItems?: FileSystemImport[]
 }

@@ -1,4 +1,5 @@
-import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { IconCode } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -6,7 +7,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { getPropertyKey } from 'lib/taxonomy'
 import { allOperatorsMapping } from 'lib/utils'
-import React from 'react'
+import React, { useState } from 'react'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
@@ -20,6 +21,7 @@ import {
 } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
+import { SurveySQLHelper } from './SurveySQLHelper'
 
 type OperatorOption = { label: string; value: PropertyOperator }
 
@@ -56,6 +58,7 @@ const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
 function _SurveyResponseFilters(): JSX.Element {
     const { survey, answerFilters, propertyFilters } = useValues(surveyLogic)
     const { setAnswerFilters, setPropertyFilters } = useActions(surveyLogic)
+    const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
 
     const handleUpdateFilter = (questionIndex: number, field: 'operator' | 'value', value: any): void => {
         const newFilters = [...answerFilters]
@@ -101,7 +104,12 @@ function _SurveyResponseFilters(): JSX.Element {
 
     return (
         <div className="deprecated-space-y-2">
-            <div className="text-sm font-medium">Filter survey results</div>
+            <div className="flex justify-between items-center">
+                <div className="text-sm font-medium">Filter survey results</div>
+                <LemonButton size="small" type="secondary" icon={<IconCode />} onClick={() => setSqlHelperOpen(true)}>
+                    Get SQL Query
+                </LemonButton>
+            </div>
             {questionWithFiltersAvailable.length > 0 && (
                 <div className="border rounded">
                     <div className="grid grid-cols-6 gap-2 px-2 py-2 border-b bg-bg-light">
@@ -180,6 +188,8 @@ function _SurveyResponseFilters(): JSX.Element {
                     buttonText={questionWithFiltersAvailable.length > 1 ? 'More filters' : 'Add filters'}
                 />
             </div>
+
+            <SurveySQLHelper isOpen={sqlHelperOpen} onClose={() => setSqlHelperOpen(false)} />
         </div>
     )
 }

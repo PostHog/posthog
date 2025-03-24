@@ -122,7 +122,7 @@ export function SidePanel(): JSX.Element | null {
 
     const activeTab = sidePanelOpen && selectedTab
 
-    const PanelConent = activeTab ? SIDE_PANEL_TABS[activeTab]?.Content : null
+    const PanelConent = activeTab && visibleTabs.includes(activeTab) ? SIDE_PANEL_TABS[activeTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 

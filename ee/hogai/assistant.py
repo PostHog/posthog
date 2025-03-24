@@ -18,6 +18,7 @@ from ee.hogai.graph import AssistantGraph
 from ee.hogai.memory.nodes import MemoryInitializerNode
 from ee.hogai.retention.nodes import RetentionGeneratorNode
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
+from ee.hogai.sql.nodes import SQLGeneratorNode
 from ee.hogai.trends.nodes import TrendsGeneratorNode
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.exceptions import GenerationCanceled
@@ -35,7 +36,7 @@ from ee.hogai.utils.state import (
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
-from posthog.models import Team, User
+from posthog.models import Action, Team, User
 from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -53,6 +54,7 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
     AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
+    AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
 }
 
 STREAMING_NODES: set[AssistantNodeName] = {
@@ -79,6 +81,7 @@ class Assistant:
     _latest_message: HumanMessage
     _state: Optional[AssistantState]
     _callback_handler: Optional[BaseCallbackHandler]
+    _trace_id: Optional[str | UUID]
 
     def __init__(
         self,
@@ -110,6 +113,7 @@ class Assistant:
             if posthoganalytics.default_client
             else None
         )
+        self._trace_id = trace_id
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -186,7 +190,11 @@ class Assistant:
         config: RunnableConfig = {
             "recursion_limit": 48,
             "callbacks": callbacks,
-            "configurable": {"thread_id": self._conversation.id},
+            "configurable": {
+                "thread_id": self._conversation.id,
+                "trace_id": self._trace_id,
+                "distinct_id": self._user.distinct_id if self._user else None,
+            },
         }
         return config
 
@@ -220,6 +228,8 @@ class Assistant:
                 | AssistantNodeName.FUNNEL_PLANNER_TOOLS
                 | AssistantNodeName.RETENTION_PLANNER
                 | AssistantNodeName.RETENTION_PLANNER_TOOLS
+                | AssistantNodeName.SQL_PLANNER
+                | AssistantNodeName.SQL_PLANNER_TOOLS
             ):
                 substeps: list[str] = []
                 if input:
@@ -240,6 +250,25 @@ class Assistant:
                                     substeps.append(
                                         f"Analyzing {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
                                     )
+                                case "retrieve_action_properties" | "retrieve_action_property_values":
+                                    id = (
+                                        action.tool_input
+                                        if isinstance(action.tool_input, str)
+                                        else action.tool_input["action_id"]
+                                    )
+                                    try:
+                                        action_model = Action.objects.get(pk=id, team__project_id=self._team.project_id)
+                                        if action.tool == "retrieve_action_properties":
+                                            substeps.append(f"Exploring `{action_model.name}` action properties")
+                                        elif action.tool == "retrieve_action_property_values" and isinstance(
+                                            action.tool_input, dict
+                                        ):
+                                            substeps.append(
+                                                f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
+                                            )
+                                    except Action.DoesNotExist:
+                                        pass
+
                 return ReasoningMessage(content="Picking relevant events and properties", substeps=substeps)
             case AssistantNodeName.TRENDS_GENERATOR:
                 return ReasoningMessage(content="Creating trends query")
@@ -247,6 +276,8 @@ class Assistant:
                 return ReasoningMessage(content="Creating funnel query")
             case AssistantNodeName.RETENTION_GENERATOR:
                 return ReasoningMessage(content="Creating retention query")
+            case AssistantNodeName.SQL_GENERATOR:
+                return ReasoningMessage(content="Creating SQL query")
             case AssistantNodeName.INKEEP_DOCS:
                 return ReasoningMessage(content="Checking PostHog docs")
             case _:

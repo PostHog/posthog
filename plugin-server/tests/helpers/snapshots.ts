@@ -1,7 +1,7 @@
 const UUID_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 
 /**
- * Helper method that takes an object and replaces all UUIDs or given keyswith placeholders
+ * Helper method that takes an object and replaces all UUIDs or given keys with placeholders
  */
 export const forSnapshot = (
     obj: any,

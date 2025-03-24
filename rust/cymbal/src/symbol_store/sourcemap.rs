@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use axum::async_trait;
 use base64::Engine;
-use common_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
+use posthog_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
 use reqwest::Url;
 use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
 use tracing::{info, warn};

@@ -1,7 +1,12 @@
 import { kea } from 'kea'
+import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
+
+export type PanelLayoutNavIdentifier = 'Project' // Add more identifiers here for more panels
+export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
+export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>({
     path: ['layout', 'panel-layout', 'panelLayoutLogic'],
@@ -14,7 +19,12 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
         toggleLayoutPanelPinned: (pinned: boolean) => ({ pinned }),
         // TODO: This is a temporary action to set the active navbar item
         // We should remove this once we have a proper way to handle the navbar item
-        setActiveLayoutNavBarItem: (item: 'project' | 'activity') => ({ item }),
+        setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => ({ identifier }),
+        clearActivePanelIdentifier: true,
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        clearSearch: true,
+        setPanelTreeRef: (ref: PanelLayoutTreeRef) => ({ ref }),
+        setMainContentRef: (ref: PanelLayoutMainContentRef) => ({ ref }),
     },
     reducers: {
         isLayoutNavbarVisibleForDesktop: [
@@ -31,6 +41,13 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
                 mobileLayout: () => true,
             },
         ],
+        isLayoutPanelCloseable: [
+            true,
+            {
+                showLayoutPanel: () => true,
+                toggleLayoutPanelPinned: () => false,
+            },
+        ],
         isLayoutPanelVisible: [
             false,
             {
@@ -38,7 +55,38 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
                 toggleLayoutPanelPinned: (_, { pinned }) => pinned || _,
             },
         ],
-        isLayoutPanelPinned: [false, { toggleLayoutPanelPinned: (_, { pinned }) => pinned }],
-        activeLayoutNavBarItem: ['project', { setActiveLayoutNavBarItem: (_, { item }) => item }],
+        isLayoutPanelPinned: [
+            false,
+            { persist: true },
+            {
+                toggleLayoutPanelPinned: (_, { pinned }) => pinned,
+            },
+        ],
+        activePanelIdentifier: [
+            '',
+            {
+                setActivePanelIdentifier: (_, { identifier }) => identifier,
+                clearActivePanelIdentifier: () => '',
+            },
+        ],
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+                clearSearch: () => '',
+            },
+        ],
+        panelTreeRef: [
+            null as PanelLayoutTreeRef,
+            {
+                setPanelTreeRef: (_, { ref }) => ref,
+            },
+        ],
+        mainContentRef: [
+            null as PanelLayoutMainContentRef,
+            {
+                setMainContentRef: (_, { ref }) => ref,
+            },
+        ],
     },
 })

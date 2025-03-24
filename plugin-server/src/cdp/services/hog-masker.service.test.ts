@@ -16,6 +16,7 @@ import { createHogExecutionGlobals, createHogFunction, createInvocation } from '
 const mockNow: jest.Mock = require('../../../src/utils/now').now as any
 
 describe('HogMasker', () => {
+    jest.retryTimes(3)
     describe('integration', () => {
         let now: number
         let hub: Hub

@@ -44,7 +44,7 @@ logger = structlog.get_logger(__name__)
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
-FLAG_MATCHING_QUERY_TIMEOUT_MS = 300  # 300 ms. Any longer and we'll just error out.
+FLAG_MATCHING_QUERY_TIMEOUT_MS = 500  # 500 ms. Any longer and we'll just error out.
 
 FLAG_EVALUATION_ERROR_COUNTER = Counter(
     "flag_evaluation_error_total",
@@ -110,6 +110,14 @@ class FeatureFlagMatch:
     payload: Optional[object] = None
 
 
+@dataclass(frozen=True)
+class FeatureFlagDetails:
+    match: FeatureFlagMatch
+    id: int = 0
+    version: int = 0
+    description: Optional[str] = None
+
+
 class FlagsMatcherCache:
     def __init__(self, project_id: int):
         self.project_id = project_id
@@ -125,7 +133,8 @@ class FlagsMatcherCache:
                     project_id=self.project_id
                 )
                 return {row.group_type: cast(GroupTypeIndex, row.group_type_index) for row in group_type_mapping_rows}
-        except DatabaseError:
+        except DatabaseError as e:
+            logger.exception("group_types_to_indexes database error", error=str(e), exc_info=True)
             self.failed_to_fetch_flags = True
             raise
 
@@ -267,7 +276,12 @@ class FeatureFlagMatcher:
             payload=None,
         )
 
-    def get_matches(self) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
+    def get_matches_with_details(
+        self,
+    ) -> tuple[
+        dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, Optional[dict[str, FeatureFlagDetails]]
+    ]:
+        flags_details = {}
         flag_values = {}
         flag_evaluation_reasons = {}
         faced_error_computing_flags = False
@@ -280,6 +294,14 @@ class FeatureFlagMatcher:
                     continue
             try:
                 flag_match = self.get_match(feature_flag)
+
+                flags_details[feature_flag.key] = FeatureFlagDetails(
+                    match=flag_match,
+                    id=feature_flag.id,
+                    version=feature_flag.version or 1,
+                    description=feature_flag.name,
+                )
+
                 if flag_match.match:
                     flag_values[feature_flag.key] = flag_match.variant or True
                 else:
@@ -301,14 +323,14 @@ class FeatureFlagMatcher:
             flag_evaluation_reasons,
             flag_payloads,
             faced_error_computing_flags,
+            flags_details,
         )
 
     def get_matching_variant(self, feature_flag: FeatureFlag) -> Optional[str]:
+        # Calculate hash once outside the loop since it's the same for all variants
+        variant_hash = self.get_hash(feature_flag, salt="variant")
         for variant in self.variant_lookup_table(feature_flag):
-            if (
-                self.get_hash(feature_flag, salt="variant") >= variant["value_min"]
-                and self.get_hash(feature_flag, salt="variant") < variant["value_max"]
-            ):
+            if variant_hash >= variant["value_min"] and variant_hash < variant["value_max"]:
                 return variant["key"]
         return None
 
@@ -668,7 +690,8 @@ class FeatureFlagMatcher:
                                     ), f"Expected 1 group query result, got {len(group_query)}"
                                     all_conditions = {**all_conditions, **group_query[0]}
                     return all_conditions
-        except DatabaseError:
+        except DatabaseError as e:
+            logger.exception("query_conditions database error", error=str(e), exc_info=True)
             self.failed_to_fetch_conditions = True
             raise
         except Exception:
@@ -705,16 +728,23 @@ class FeatureFlagMatcher:
     # uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     # we can do _hash(key, identifier) < 0.2
     def get_hash(self, feature_flag: FeatureFlag, salt="") -> float:
-        hash_key = f"{feature_flag.key}.{self.hashed_identifier(feature_flag)}{salt}"
-        hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
-        return hash_val / __LONG_SCALE__
+        return self.calculate_hash(f"{feature_flag.key}.", self.hashed_identifier(feature_flag), salt)
 
     # This function takes a identifier and a feature flag and returns a float between 0 and 1.
     # Given the same identifier and key, it'll always return the same float. These floats are
     # uniformly distributed between 0 and 1, and are keyed only on user's distinct id / group key.
     # Thus, irrespective of the flag, the same user will always get the same value.
     def get_holdout_hash(self, feature_flag: FeatureFlag, salt="") -> float:
-        hash_key = f"holdout-{self.hashed_identifier(feature_flag)}{salt}"
+        return self.calculate_hash("holdout-", self.hashed_identifier(feature_flag), salt)
+
+    @classmethod
+    def calculate_hash(cls, prefix: str, hash_identifier: str | None, salt="") -> float:
+        if hash_identifier is None:
+            # Return a hash value that will make the flag evaluate to false; since we
+            # can't evaluate a flag without an identifier.
+            # NB: A flag with 0.0 hash will always evaluate to false
+            return 0
+        hash_key = f"{prefix}{hash_identifier}{salt}"
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
@@ -808,7 +838,9 @@ def _get_all_feature_flags(
     property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
     group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
     skip_database_flags: bool = False,
-) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
+) -> tuple[
+    dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, Optional[dict[str, FeatureFlagDetails]]
+]:
     if group_property_value_overrides is None:
         group_property_value_overrides = {}
     if property_value_overrides is None:
@@ -829,9 +861,9 @@ def _get_all_feature_flags(
             property_value_overrides,
             group_property_value_overrides,
             skip_database_flags,
-        ).get_matches()
+        ).get_matches_with_details()
 
-    return {}, {}, {}, False
+    return {}, {}, {}, False, None
 
 
 # Return feature flags
@@ -844,6 +876,29 @@ def get_all_feature_flags(
     group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
     flag_keys: Optional[list[str]] = None,
 ) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
+    all_flags, reasons, payloads, errors, _ = get_all_feature_flags_with_details(
+        team,
+        distinct_id,
+        groups,
+        hash_key_override,
+        property_value_overrides,
+        group_property_value_overrides,
+        flag_keys,
+    )
+    return all_flags, reasons, payloads, errors
+
+
+def get_all_feature_flags_with_details(
+    team: Team,
+    distinct_id: str,
+    groups: Optional[dict[GroupTypeName, str]] = None,
+    hash_key_override: Optional[str] = None,
+    property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
+    group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
+    flag_keys: Optional[list[str]] = None,
+) -> tuple[
+    dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, Optional[dict[str, FeatureFlagDetails]]
+]:
     if group_property_value_overrides is None:
         group_property_value_overrides = {}
     if property_value_overrides is None:

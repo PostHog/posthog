@@ -18,6 +18,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models.team import Team
+from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
 
 
 EXAMPLE_FULL = {
@@ -1789,3 +1790,135 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert function.filters.get("events", None) is None
         assert function.filters.get("filter_test_accounts", None) is None
         assert function.filters.get("bytecode") is not None
+
+    def test_limits_transformation_functions_per_team(self):
+        """Test that we can create unlimited disabled transformations but only 20 enabled ones"""
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            # 1. Create several disabled transformations (more than the limit)
+            for i in range(5):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={
+                        "name": f"Disabled Transformation {i}",
+                        "type": "transformation",
+                        "hog": "return event",
+                        "enabled": False,
+                    },
+                )
+                assert response.status_code == status.HTTP_201_CREATED
+
+            # 2. Create enabled transformations up to the limit
+            for i in range(MAX_TRANSFORMATIONS_PER_TEAM):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={
+                        "name": f"Enabled Transformation {i}",
+                        "type": "transformation",
+                        "hog": "return event",
+                        "enabled": True,
+                    },
+                )
+                assert response.status_code == status.HTTP_201_CREATED
+
+            # 3. Verify we hit the limit when trying to create one more enabled transformation
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "One Too Many",
+                    "type": "transformation",
+                    "hog": "return event",
+                    "enabled": True,
+                },
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "Maximum of 20 enabled transformation functions" in response.json()["detail"]
+
+            # 4. Verify we can still create disabled transformations when at the limit
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Another Disabled",
+                    "type": "transformation",
+                    "hog": "return event",
+                    "enabled": False,
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED
+
+            # 5. Test that we can enable after deleting an enabled one
+            # First delete an enabled transformation
+            enabled_transformation = HogFunction.objects.filter(
+                team=self.team, type="transformation", deleted=False, enabled=True
+            ).first()
+
+            assert enabled_transformation is not None, "No enabled transformation found to delete"
+            self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{enabled_transformation.id}/",
+                data={"deleted": True},
+            )
+
+            # Then enable a disabled transformation
+            disabled_transformation = HogFunction.objects.filter(
+                team=self.team, type="transformation", deleted=False, enabled=False
+            ).first()
+
+            assert disabled_transformation is not None, "No disabled transformation found to enable"
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{disabled_transformation.id}/",
+                data={"enabled": True},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+    def test_validates_raw_hog_code_size(self):
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            """Test that we validate the raw HOG code size before compiling it."""
+            # Generate a large HOG code string that exceeds the maximum allowed size
+            large_hog_code = "return " + "x" * (MAX_HOG_CODE_SIZE_BYTES + 1000)
+
+            # Try to create a function with HOG code exceeding the size limit
+            # No need to mock compile_hog as we're checking the string size directly
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Large HOG Code Function",
+                    "type": "transformation",
+                    "hog": large_hog_code,
+                },
+            )
+
+            # Verify the creation was rejected with the correct error
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert "HOG code exceeds maximum size" in response.json()["detail"]
+            assert f"{MAX_HOG_CODE_SIZE_BYTES // 1024}KB" in response.json()["detail"]
+
+    def test_validates_raw_hog_code_size_during_update(self):
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            """Test that we validate the raw HOG code size when updating an existing function."""
+            # First create a hog function with small, valid code
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Valid HOG Code Function",
+                    "type": "transformation",
+                    "hog": "return event",
+                },
+            )
+
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            function_id = response.json()["id"]
+
+            # Generate a large HOG code string for the update that exceeds the limit
+            large_hog_code = "return " + "x" * (MAX_HOG_CODE_SIZE_BYTES + 1000)
+
+            # Update the function with large HOG code
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+                data={
+                    "hog": large_hog_code,
+                },
+            )
+
+            # Verify the update was rejected with the correct error
+            assert update_response.status_code == status.HTTP_400_BAD_REQUEST, update_response.json()
+            assert "HOG code exceeds maximum size" in update_response.json()["detail"]
+            assert f"{MAX_HOG_CODE_SIZE_BYTES // 1024}KB" in update_response.json()["detail"]
