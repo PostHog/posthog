@@ -69,6 +69,7 @@ jobs:
             - uses: ./.github/actions/python-code-quality
               with:
                   python-version: 3.11.9
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
     dagster:
         name: Dagster tests

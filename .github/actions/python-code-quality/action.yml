@@ -8,6 +8,9 @@ inputs:
         required: false
         description: Python version, e.g. 3.11.9
         default: 3.11.9
+    token:
+        required: false
+        description: GitHub token
 
 runs:
     using: 'composite'
@@ -22,7 +25,7 @@ runs:
               python-version: ${{ inputs.python-version }}
               cache: 'pip'
               cache-dependency-path: '**/requirements*.txt'
-              token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+              token: ${{ inputs.token }}
 
         # uv is a fast pip alternative: https://github.com/astral-sh/uv/
         - run: pip install uv
