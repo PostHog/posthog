@@ -326,7 +326,7 @@ class RootNodeTools(AssistantNode):
             if state.root_tool_insight_type:
                 return "insights"
             # For all other tools, we route based on tool name
-            return self._get_tool_call(state.messages, state.root_tool_call_id).name
+            return cast(RouteName, self._get_tool_call(state.messages, state.root_tool_call_id).name)
         return "end"
 
     def _construct_langchain_ai_message(self, message: AssistantMessage):
