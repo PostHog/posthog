@@ -11,13 +11,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
-from ee.hogai.thinking.prompts import THINKING_SYSTEM_PROMPT
+from ee.hogai.sql_assistant.prompts import SQL_ASSISTANT_SYSTEM_PROMPT
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantMessage, HumanMessage
 
 
-class ThinkingNode(AssistantNode):
+class SQLAssistantNode(AssistantNode):
     """
     A node that provides thinking/reasoning about how to approach a query before implementation.
     """
@@ -30,7 +30,7 @@ class ThinkingNode(AssistantNode):
         prompt = (
             ChatPromptTemplate.from_messages(
                 [
-                    ("system", THINKING_SYSTEM_PROMPT),
+                    ("system", SQL_ASSISTANT_SYSTEM_PROMPT),
                 ],
                 template_format="mustache",
             )
@@ -50,7 +50,6 @@ class ThinkingNode(AssistantNode):
         # Invoke the chain
         message = chain.invoke(
             {
-                "core_memory": self.core_memory_text,
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_timezone": self._team.timezone_info.tzname(utc_now),

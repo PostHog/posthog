@@ -14,7 +14,7 @@ from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
 from ee.hogai.funnels.nodes import FunnelGeneratorNode
-from ee.hogai.hogql_graph import HogQLGraph
+from ee.hogai.graph import AssistantGraph
 from ee.hogai.memory.nodes import MemoryInitializerNode
 from ee.hogai.retention.nodes import RetentionGeneratorNode
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
@@ -59,7 +59,7 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
 
 STREAMING_NODES: set[AssistantNodeName] = {
     AssistantNodeName.ROOT,
-    AssistantNodeName.THINKING,
+    AssistantNodeName.SQL_ASSISTANT,
     AssistantNodeName.INKEEP_DOCS,
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
@@ -92,13 +92,14 @@ class Assistant:
         user: Optional[User] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
+        graph: Optional[CompiledStateGraph] = None,
     ):
         self._team = team
         self._user = user
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())})
         self._is_new_conversation = is_new_conversation
-        self._graph = HogQLGraph(team).compile_full_graph()
+        self._graph = graph or AssistantGraph(team).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
         self._state = None
         self._callback_handler = (
