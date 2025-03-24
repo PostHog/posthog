@@ -92,9 +92,6 @@ function Header(): JSX.Element {
                             >
                                 Save as playlist
                             </LemonButton>
-                            <LemonButton type="secondary" icon={<IconGear />} to={urls.replaySettings()}>
-                                Configure
-                            </LemonButton>
                         </>
                     )}
 
