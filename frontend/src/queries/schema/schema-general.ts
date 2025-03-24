@@ -842,6 +842,11 @@ interface DataTableNodeViewProps {
     showResultsTable?: boolean
     /** Uses the embedded version of LemonTable */
     embedded?: boolean
+    /** Context for the table, used by components like ColumnConfigurator */
+    context?: {
+        type: 'event_definition' | 'team_columns'
+        eventDefinitionId?: string
+    }
 }
 
 // Saved insight node
@@ -1149,6 +1154,8 @@ export interface RetentionResult {
     label: string
     /** @format date-time */
     date: string
+    /** Optional breakdown value for retention cohorts */
+    breakdown_value?: string | number | null
 }
 
 export interface RetentionQueryResponse extends AnalyticsQueryResponseBase<RetentionResult[]> {}
@@ -1159,6 +1166,8 @@ export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse
     kind: NodeKind.RetentionQuery
     /** Properties specific to the retention insight */
     retentionFilter: RetentionFilter
+    /** Breakdown of the events and actions */
+    breakdownFilter?: BreakdownFilter
 }
 
 export type PathsLink = {
@@ -1289,7 +1298,6 @@ export type LifecycleFilter = {
 }
 
 export type RefreshType =
-    | boolean
     | 'async'
     | 'async_except_on_cache_miss'
     | 'blocking'

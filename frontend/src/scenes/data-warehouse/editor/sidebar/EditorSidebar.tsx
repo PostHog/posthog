@@ -53,7 +53,7 @@ export const EditorSidebar = ({
                     <div className="flex justify-center px-2 relative">
                         <IconBrackets className="text-xl" />
                         {variablesForInsight.length > 0 && (
-                            <div className="absolute -top-1 -right-1 flex items-center justify-center bg-danger rounded-full text-white text-[9px] h-3 w-3 min-w-3">
+                            <div className="absolute -top-1 -right-1 flex items-center justify-center bg-gray-700 rounded-full text-white text-[9px] h-3 w-3 min-w-3">
                                 {variablesForInsight.length}
                             </div>
                         )}
@@ -96,13 +96,13 @@ export const EditorSidebar = ({
                 width: `${sidebarWidth}px`,
             }}
         >
-            <div className="w-full pt-2">
+            <div className="w-full">
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={setActiveTab}
                     tabs={tabs}
                     size="small"
-                    barClassName="flex justify-center"
+                    barClassName="flex justify-center h-10 items-center"
                 />
             </div>
             {renderTabContent()}

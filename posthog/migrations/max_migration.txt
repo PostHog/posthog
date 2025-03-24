@@ -1,1 +1,1 @@
-0689_survey_enable_partial_responses
+0692_grouptypemapping_detail_dashboard

@@ -30,7 +30,6 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
         query: query.source,
         key: vizKey,
         dataNodeCollectionId: traceId,
-        refresh: false,
         cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps

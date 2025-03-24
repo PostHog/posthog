@@ -15,7 +15,7 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
 import { List, ListProps } from 'react-virtualized/dist/es/List'
 
-import SearchHighlight from '~/layout/navigation-3000/components/SearchHighlight'
+import { SearchHighlight } from '~/layout/navigation-3000/components/SearchHighlight'
 
 import { ITEM_KEY_PART_SEPARATOR, navigation3000Logic } from '../navigationLogic'
 import {

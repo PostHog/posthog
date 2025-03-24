@@ -107,11 +107,6 @@ export const TARGET_AREA_TO_NAME = [
         title: 'General',
         options: [
             {
-                value: 'apps',
-                'data-attr': `support-form-target-area-apps`,
-                label: 'Data pipelines',
-            },
-            {
                 value: 'login',
                 'data-attr': `support-form-target-area-login`,
                 label: 'Authentication (incl. login, sign-up, invites)',
@@ -142,6 +137,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Data management (incl. events, actions, properties)',
             },
             {
+                value: 'data_ingestion',
+                'data-attr': `support-form-target-area-data_ingestion`,
+                label: 'Data ingestion',
+            },
+            {
                 value: 'notebooks',
                 'data-attr': `support-form-target-area-notebooks`,
                 label: 'Notebooks',
@@ -164,12 +164,17 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'data_warehouse',
                 'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse',
+                label: 'Data warehouse (sources)',
             },
             {
                 value: 'batch_exports',
-                'data-attr': `support-form-target-area-batch-exports`,
-                label: 'Batch exports',
+                'data-attr': `support-form-target-area-batch_exports`,
+                label: 'Destinations (batch exports)',
+            },
+            {
+                value: 'cdp_destinations',
+                'data-attr': `support-form-target-area-cdp_destinations`,
+                label: 'Destinations (real-time)',
             },
             {
                 value: 'feature_flags',
@@ -250,6 +255,9 @@ export type SupportTicketTargetArea =
     | 'surveys'
     | 'web_analytics'
     | 'error_tracking'
+    | 'cdp_destinations'
+    | 'data_ingestion'
+    | 'batch_exports'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -283,6 +291,12 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     warehouse: 'data_warehouse',
     surveys: 'surveys',
     web: 'web_analytics',
+    destination: 'cdp_destinations',
+    destinations: 'cdp_destinations',
+    transformation: 'cdp_destinations',
+    transformations: 'cdp_destinations',
+    source: 'data_warehouse',
+    sources: 'data_warehouse',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
@@ -294,8 +308,19 @@ export const SUPPORT_TICKET_TEMPLATES = {
 }
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
-    const first_part = pathname.split('/')[1]
-    return URL_PATH_TO_TARGET_AREA[first_part] ?? null
+    const pathParts = pathname.split('/')
+
+    if (pathname.includes('pipeline/destinations/') && !pathname.includes('/hog-')) {
+        return 'batch_exports'
+    }
+
+    for (const part of pathParts) {
+        if (URL_PATH_TO_TARGET_AREA[part]) {
+            return URL_PATH_TO_TARGET_AREA[part]
+        }
+    }
+
+    return null
 }
 
 export type SupportFormLogicProps = {

@@ -42,11 +42,12 @@ export const VariablesForDashboard = (): JSX.Element => {
             <div className="flex gap-4 flex-wrap px-px mt-4">
                 {dashboardVariables.map((n) => (
                     <VariableComponent
-                        key={n.id}
-                        variable={n}
+                        key={n.variable.id}
+                        variable={n.variable}
                         showEditingUI={false}
                         onChange={overrideVariableValue}
                         variableOverridesAreSet={false}
+                        insightsUsingVariable={n.insights}
                     />
                 ))}
             </div>
@@ -211,7 +212,7 @@ const VariableInput = ({
                     </LemonButton>
                 )}
             </div>
-            {showEditingUI && (
+            {showEditingUI ? (
                 <>
                     <LemonDivider className="m1" />
 
@@ -268,6 +269,22 @@ const VariableInput = ({
                         )}
                     </div>
                 </>
+            ) : (
+                <>
+                    <LemonDivider className="m1" />
+                    <div className="flex p-1">
+                        <LemonSwitch
+                            size="xsmall"
+                            label="Set to null"
+                            checked={isNull}
+                            onChange={(value) => {
+                                setIsNull(value)
+                                onChange(variable.id, null, value)
+                            }}
+                            bordered
+                        />
+                    </div>
+                </>
             )}
         </div>
     )
@@ -280,6 +297,7 @@ interface VariableComponentProps {
     variableOverridesAreSet: boolean
     onRemove?: (variableId: string) => void
     variableSettingsOnClick?: () => void
+    insightsUsingVariable?: string[]
 }
 
 export const VariableComponent = ({
@@ -289,17 +307,20 @@ export const VariableComponent = ({
     variableOverridesAreSet,
     onRemove,
     variableSettingsOnClick,
+    insightsUsingVariable,
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
+
+    let tooltip = `Use this variable in your HogQL by referencing {variables.${variable.code_name}}`
+
+    if (insightsUsingVariable && insightsUsingVariable.length) {
+        tooltip += `. Insights using this variable: ${insightsUsingVariable.join(', ')}`
+    }
 
     // Dont show the popover overlay for list variables not in edit mode
     if (!showEditingUI && variable.type === 'List') {
         return (
-            <LemonField.Pure
-                label={variable.name}
-                className="gap-0"
-                info={`Use this variable in your HogQL by referencing {variables.${variable.code_name}}`}
-            >
+            <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
                 <LemonSelect
                     value={variable.value ?? variable.default_value}
                     onChange={(value) => onChange(variable.id, value, variable.isNull ?? false)}
@@ -333,11 +354,7 @@ export const VariableComponent = ({
             className="DataVizVariable_Popover"
         >
             <div>
-                <LemonField.Pure
-                    label={variable.name}
-                    className="gap-0"
-                    info={`Use this variable in your HogQL by referencing {variables.${variable.code_name}}`}
-                >
+                <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
                     <LemonButton
                         type="secondary"
                         className="min-w-32 DataVizVariable_Button"
