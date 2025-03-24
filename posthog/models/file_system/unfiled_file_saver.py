@@ -2,6 +2,7 @@
 
 from typing import Optional
 
+from posthog.models.action.action import Action
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.file_system.file_system import FileSystem, split_path, escape_path
@@ -12,13 +13,16 @@ from posthog.models.experiment import Experiment
 from posthog.models.insight import Insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.notebook import Notebook
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 MIXIN_MODELS = {
+    "action": Action,
     "feature_flag": FeatureFlag,
     "experiment": Experiment,
     "insight": Insight,
     "dashboard": Dashboard,
     "notebook": Notebook,
+    "replay_playlist": SessionRecordingPlaylist,
 }
 
 
