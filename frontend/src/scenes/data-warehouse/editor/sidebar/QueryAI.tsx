@@ -1,12 +1,13 @@
 import { LemonInput } from "lib/lemon-ui/LemonInput";
 import { IconMagicWand } from "@posthog/icons";
-import { useActions } from "kea";
+import { useActions, useValues } from "kea";
 import { multitabEditorLogic } from "../multitabEditorLogic";
 import { LemonButton } from "lib/lemon-ui/LemonButton";
 
 
 export function QueryAI(): JSX.Element {
-    const { prompt, setPrompt, draftFromPrompt, draftFromPromptComplete, promptError, promptLoading } = useActions(multitabEditorLogic)
+    const { prompt, promptLoading } = useValues(multitabEditorLogic)
+    const { setPrompt, draftFromPrompt } = useActions(multitabEditorLogic)
 
     return <div className="flex flex-col p-2 gap-2">
         <div className="flex gap-2">

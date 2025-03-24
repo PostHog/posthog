@@ -123,6 +123,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         draftFromPromptComplete: true,
         setPromptError: (error: string | null) => ({ error }),
         setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
+        onAcceptSuggestedQueryInput: true,
+        onRejectSuggestedQueryInput: true,
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -259,19 +261,31 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     listeners(({ values, props, actions, asyncActions }) => ({
         draftFromPrompt: async () => {
             try {
-                const result = await api.get(
-                    combineUrl(`api/projects/@current/query/draft_sql/`, {
-                        prompt: values.prompt,
-                        current_query: values.queryInput,
-                    }).url
-                )
-                const { sql } = result
-                actions.setSuggestedQueryInput(sql)
+                // const result = await api.get(
+                //     combineUrl(`api/projects/@current/query/draft_sql/`, {
+                //         prompt: values.prompt,
+                //         current_query: values.queryInput,
+                //     }).url
+                // )
+                // const { sql } = result
+
+                if (values.queryInput) {
+                    actions.setSuggestedQueryInput('SELECT * FROM events LIMIT 10')
+                } else {
+                    actions.setQueryInput('SELECT * FROM events LIMIT 10')
+                }
             } catch (e) {
                 actions.setPromptError((e as { code: string; detail: string }).detail)
             } finally {
                 actions.draftFromPromptComplete()
             }
+        },
+        onAcceptSuggestedQueryInput: () => {
+            actions.setQueryInput(values.suggestedQueryInput)
+            actions.setSuggestedQueryInput('')
+        },
+        onRejectSuggestedQueryInput: () => {
+            actions.setSuggestedQueryInput('')
         },
         editView: ({ query, view }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)

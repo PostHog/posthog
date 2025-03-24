@@ -37,6 +37,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadata,
         setMetadataLoading,
         saveAsView,
+        onAcceptSuggestedQueryInput,
+        onRejectSuggestedQueryInput,
     } = useActions(multitabEditorLogic)
 
     const { response } = useValues(dataNodeLogic)
@@ -44,6 +46,9 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
+
+    console.log('suggestedQueryInput', suggestedQueryInput)
+    console.log('queryInput', queryInput)
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
@@ -108,9 +113,11 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 )}
             </div>
             <QueryPane
-                originalValue={suggestedQueryInput != queryInput ? suggestedQueryInput : undefined}
-                queryInput={queryInput}
+                originalValue={suggestedQueryInput && suggestedQueryInput != queryInput ? (queryInput ?? ' ') : undefined}
+                queryInput={suggestedQueryInput && suggestedQueryInput != queryInput ? suggestedQueryInput : queryInput}
                 sourceQuery={sourceQuery.source}
+                onAccept={onAcceptSuggestedQueryInput}
+                onReject={onRejectSuggestedQueryInput}
                 promptError={null}
                 codeEditorProps={{
                     queryKey: codeEditorKey,
