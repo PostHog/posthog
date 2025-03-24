@@ -27,6 +27,8 @@ from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 from loginas.utils import is_impersonated_session
 
+from posthog.tasks.email import send_error_tracking_issue_assigned
+
 ONE_GIGABYTE = 1024 * 1024 * 1024
 JS_DATA_MAGIC = b"posthog_error_tracking"
 JS_DATA_VERSION = 1
@@ -236,6 +238,8 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
                 "user_group_id": None if assignee["type"] == "user" else assignee["id"],
             },
         )
+
+        send_error_tracking_issue_assigned(assignment_after, user)
 
         serialized_assignment_after = (
             ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None
