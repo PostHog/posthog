@@ -15,13 +15,13 @@ import {
     IconTestTube,
     IconToggle,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
-import { LemonCollapse } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -30,13 +30,14 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
+import { AvailableFeature, BillingFeatureType, BillingType, ProductKey, SidePanelTab } from '~/types'
 
 import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import { MaxChatInterface } from './sidePanelMaxChatInterface'
 import { sidePanelStatusLogic } from './sidePanelStatusLogic'
+
 const PRODUCTS = [
     {
         name: 'Product OS',
@@ -123,8 +124,15 @@ const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays �
 const SUPPORT_MESSAGE_OVERRIDE_BODY =
     "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (23rd December to the 6th January), and between the 25th and 27th of December we'll only be responding to critical issues. Thanks for your patience!"
 
-const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
-    const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
+const SupportFormBlock = ({
+    onCancel,
+    hasActiveTrial,
+    billing,
+}: {
+    onCancel: () => void
+    hasActiveTrial?: boolean
+    billing?: BillingType | null
+}): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
@@ -151,57 +159,174 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
             >
                 Cancel
             </LemonButton>
+
             <br />
+
             {featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE] ? (
                 <div className="border bg-surface-primary p-2 rounded gap-2">
                     <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
                     <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
                 </div>
             ) : (
-                <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-surface-primary pt-4">
-                    <div className="col-span-full flex justify-between py-1">
-                        {/* If placing a support message, replace the line below with explanation */}
-                        <strong>Avg support response times</strong>
-                        <div>
-                            <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
-                                Explore options
-                            </Link>
-                        </div>
+                <>
+                    <div className="mb-2">
+                        <strong>Support is open Monday - Friday:</strong>
                     </div>
-                    {/* If placing a support message, comment out (don't remove) the section below */}
-                    {supportPlans?.map((plan) => {
-                        // If they have an addon plan, only show the addon plan
-                        const currentPlan =
-                            plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
-                        return (
-                            <React.Fragment key={`support-panel-${plan.plan_key}`}>
-                                <div className={currentPlan ? 'font-bold' : undefined}>
-                                    {plan.name}
-                                    {currentPlan && (
-                                        <>
-                                            {' '}
-                                            <span className="font-normal opacity-60 text-sm">(your plan)</span>
-                                        </>
-                                    )}
-                                </div>
-                                <div className={currentPlan ? 'font-bold' : undefined}>
-                                    {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
-                                </div>
-                            </React.Fragment>
-                        )
-                    })}
-                </div>
+
+                    {/* Show response time information from billing plans */}
+                    <SupportResponseTimesTable billing={billing} hasActiveTrial={hasActiveTrial} isCompact={true} />
+                </>
             )}
         </Section>
     )
 }
 
+// Table shown to free users on Help panel, instead of email button
+// Support response times are pulled dynamically from billing plans (product.features) where available
+const SupportResponseTimesTable = ({
+    billing,
+    hasActiveTrial,
+    isCompact = false,
+}: {
+    billing?: BillingType | null
+    hasActiveTrial?: boolean
+    isCompact?: boolean
+}): JSX.Element => {
+    const { supportPlans } = useValues(billingLogic)
+
+    // Check if Teams add-on is active using both methods
+    const platformAndSupportProduct = billing?.products?.find((p) => p.type === 'platform_and_support')
+    const hasTeamsAddon = platformAndSupportProduct?.addons?.find((a) => a.type === 'teams' && a.subscribed)
+    const hasTeamsAddonAlt = supportPlans?.some((plan) => plan.name === 'Teams add-on' && plan.current_plan === true)
+    const teamsAddonActive = !!hasTeamsAddon || hasTeamsAddonAlt
+
+    // Check for enterprise plan
+    const hasEnterprisePlan =
+        billing?.products?.some((p) => p.type === 'enterprise') ||
+        platformAndSupportProduct?.plans?.some((a) => a.current_plan && a.plan_key?.includes('enterprise'))
+
+    // Check for expired trials
+    const hasExpiredTrial = billing?.trial?.status === 'expired'
+
+    // Get expiry date for expired trials
+    const expiredTrialDate = hasExpiredTrial ? dayjs(billing?.trial?.expires_at) : null
+
+    // Get support response time feature from plan
+    const getResponseTimeFeature = (planName: string): BillingFeatureType | undefined => {
+        // Find the plan in supportPlans
+        const plan = supportPlans?.find((p) => p.name === planName)
+
+        // Return the support_response_time feature if found
+        return plan?.features?.find((f) => f.key === AvailableFeature.SUPPORT_RESPONSE_TIME)
+    }
+
+    // Create plans array from billing data - directly determine current_plan status here
+    const plansToDisplay = [
+        {
+            name: 'Totally free',
+            current_plan: billing?.subscription_level === 'free' && !hasActiveTrial && !hasEnterprisePlan,
+            features: [{ note: 'Community support only' }],
+            plan_key: 'free',
+            link: 'https://posthog.com/questions',
+        },
+        {
+            name: 'Ridiculously cheap',
+            current_plan: billing?.subscription_level === 'paid' && !teamsAddonActive && !hasEnterprisePlan,
+            features: [{ note: getResponseTimeFeature('Ridiculously cheap')?.note || 'Contact sales' }],
+            plan_key: 'standard',
+        },
+        {
+            name: 'Teams add-on',
+            current_plan: teamsAddonActive,
+            features: [{ note: getResponseTimeFeature('Teams add-on')?.note || 'Contact sales' }],
+            plan_key: 'teams',
+        },
+        {
+            name: 'Enterprise',
+            current_plan: hasEnterprisePlan,
+            features: [{ note: getResponseTimeFeature('Enterprise')?.note || 'Contact sales' }],
+            plan_key: 'enterprise',
+        },
+    ]
+
+    return (
+        <div
+            className={`grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 ${
+                isCompact ? 'mb-4' : 'mb-6'
+            } bg-surface-primary ${isCompact ? 'pt-4' : ''}`}
+        >
+            <div
+                className={`col-span-full flex justify-between ${
+                    isCompact ? 'py-1' : 'items-center px-2 py-2 border-b'
+                }`}
+            >
+                <strong>Avg support response times</strong>
+                <div>
+                    <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
+                </div>
+            </div>
+
+            {plansToDisplay.map((plan) => {
+                const isBold = plan.current_plan
+
+                const responseNote = plan.features.find(
+                    (f: { key?: any; note?: string }) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME || f.note
+                )?.note
+
+                const formattedResponseTime = responseNote
+                    ? responseNote === '2 days' || responseNote === '24 hours'
+                        ? '2 business days'
+                        : responseNote === '1 day' || responseNote === '12 hours'
+                        ? '1 business day'
+                        : responseNote
+                    : 'Community support only'
+
+                return (
+                    <React.Fragment key={`support-panel-${plan.plan_key}`}>
+                        <div className={isBold ? 'font-bold' : undefined}>
+                            {plan.name}
+                            {isBold && plan.name !== 'Totally free' && (
+                                <span className="ml-1 text-sm opacity-60">(your plan)</span>
+                            )}
+                        </div>
+                        <div className={isBold ? 'font-bold' : undefined}>
+                            {plan.link ? <Link to={plan.link}>{formattedResponseTime}</Link> : formattedResponseTime}
+                        </div>
+                    </React.Fragment>
+                )
+            })}
+
+            {/* Display trial information integrated into the table */}
+            {hasActiveTrial && (
+                <>
+                    <div className="font-bold border-t">Your trial</div>
+                    <div className="font-bold border-t">1 business day</div>
+                    {billing?.trial?.expires_at && (
+                        <div className="col-span-2 text-sm">
+                            (Trial ends {dayjs(billing.trial.expires_at).format('MMMM D, YYYY')})
+                        </div>
+                    )}
+                </>
+            )}
+
+            {/* Display expired trial information */}
+            {!hasActiveTrial && hasExpiredTrial && expiredTrialDate && (
+                <>
+                    <div className="border-t text-muted">Trial expired</div>
+                    <div className="border-t text-muted">{expiredTrialDate.format('MMMM D, YYYY')}</div>
+                </>
+            )}
+        </div>
+    )
+}
+
 export const SidePanelSupport = (): JSX.Element => {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { preflight, isCloud } = useValues(preflightLogic)
+    const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { status } = useValues(sidePanelStatusLogic)
+    const { billing, billingLoading } = useValues(billingLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
     const { openEmailForm, closeEmailForm, openMaxChatInterface, closeMaxChatInterface } = useActions(theLogic)
@@ -209,13 +334,45 @@ export const SidePanelSupport = (): JSX.Element => {
 
     const region = preflight?.region
 
+    // In dev, show the support form for paid plans regardless of cloud status
+    // In production, only show it for cloud users with paid plans or active trials
+    // Note: The backend will validate access rights when processing support requests
+    const isDevelopment = process.env.NODE_ENV === 'development'
+
+    // Check if user has a paid subscription or is on an active trial
+    const hasActiveTrial = billing?.trial?.status === 'active'
+
+    const canEmailEngineer = billing?.subscription_level !== 'free' || hasActiveTrial
+
+    const showEmailSupport = isDevelopment ? canEmailEngineer : preflight?.cloud && canEmailEngineer
+
+    // Ensure billing data is loaded before showing support options
+    const isBillingLoaded = !billingLoading && billing !== undefined
+
+    // Prevent the email form from being opened by free or self-hosted
+    const handleOpenEmailForm = (): void => {
+        if (showEmailSupport && isBillingLoaded) {
+            openEmailForm()
+        }
+    }
+
+    React.useEffect(() => {
+        if (isEmailFormOpen && isBillingLoaded && !showEmailSupport) {
+            closeEmailForm()
+        }
+    }, [isEmailFormOpen, isBillingLoaded, showEmailSupport, closeEmailForm])
+
     return (
         <>
             <div className="overflow-y-auto" data-attr="side-panel-support-container">
                 <SidePanelPaneHeader title="Help" />
                 <div className="p-3 max-w-160 w-full mx-auto">
-                    {isEmailFormOpen ? (
-                        <SupportFormBlock onCancel={() => closeEmailForm()} />
+                    {isEmailFormOpen && showEmailSupport && isBillingLoaded ? (
+                        <SupportFormBlock
+                            onCancel={() => closeEmailForm()}
+                            hasActiveTrial={hasActiveTrial}
+                            billing={billing}
+                        />
                     ) : isMaxChatInterfaceOpen ? (
                         <div className="deprecated-space-y-4">
                             <MaxChatInterface />
@@ -258,13 +415,15 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </ul>
                             </Section>
 
-                            {status !== 'operational' ? (
+                            {status !== 'operational' && (
                                 <Section title="">
                                     <LemonBanner type={status.includes('outage') ? 'error' : 'warning'}>
                                         <div>
-                                            <span>
-                                                We are experiencing {status.includes('outage') ? 'major' : ''} issues.
-                                            </span>
+                                            {status.includes('outage') ? (
+                                                <span>We are experiencing major issues.</span>
+                                            ) : (
+                                                <span>We are experiencing issues.</span>
+                                            )}
                                             <LemonButton
                                                 type="secondary"
                                                 fullWidth
@@ -278,12 +437,12 @@ export const SidePanelSupport = (): JSX.Element => {
                                         </div>
                                     </LemonBanner>
                                 </Section>
-                            ) : null}
+                            )}
 
-                            {isCloud ? (
+                            {preflight?.cloud ? (
                                 <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
                                     <Section title="Ask Max the Hedgehog">
-                                        <>
+                                        <div>
                                             <p>
                                                 Max is PostHog's support AI who can answer support questions, help you
                                                 with troubleshooting, find info in our documentation, write HogQL
@@ -301,26 +460,42 @@ export const SidePanelSupport = (): JSX.Element => {
                                             >
                                                 ✨ Chat with Max
                                             </LemonButton>
-                                        </>
+                                        </div>
                                     </Section>
                                 </FlaggedFeature>
                             ) : null}
 
-                            {isCloud ? (
+                            {!showEmailSupport && isBillingLoaded && (
+                                <Section title="">
+                                    <h3>Can't find what you need in the docs?</h3>
+                                    <p>
+                                        With the totally free plan you can ask the community via the link below, or
+                                        explore your upgrade choices for the ability to email a support engineer.
+                                    </p>
+                                </Section>
+                            )}
+
+                            {showEmailSupport && isBillingLoaded && (
                                 <Section title="Contact us">
                                     <p>Can't find what you need in the docs?</p>
                                     <LemonButton
                                         type="primary"
                                         fullWidth
                                         center
-                                        onClick={() => openEmailForm()}
+                                        onClick={handleOpenEmailForm}
                                         targetBlank
                                         className="mt-2"
+                                        disabled={billingLoading}
                                     >
-                                        Email our support engineers
+                                        {billingLoading ? 'Loading...' : 'Email our support engineers'}
                                     </LemonButton>
                                 </Section>
-                            ) : null}
+                            )}
+
+                            {/* Display support plan options for users who can't email support */}
+                            {!showEmailSupport && isBillingLoaded && (
+                                <SupportResponseTimesTable billing={billing} hasActiveTrial={hasActiveTrial} />
+                            )}
 
                             <Section title="Ask the community">
                                 <p>
