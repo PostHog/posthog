@@ -1285,7 +1285,7 @@ describe('HogTransformer', () => {
     describe('transformEvent HogWatcher integration', () => {
         beforeEach(() => {
             hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED = true
-            hub.FILTER_TRANSFORMATIONS_ENABLED = true
+            hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS = [teamId]
         })
 
         it('should log but not skip functions that would be disabled', async () => {
