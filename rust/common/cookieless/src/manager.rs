@@ -5,6 +5,7 @@ use base64::{engine::general_purpose, Engine};
 use chrono::{DateTime, Utc};
 use common_types::TeamId;
 use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
@@ -121,12 +122,36 @@ pub struct EventData<'a> {
     pub distinct_id: &'a str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CookielessServerHashMode {
+    Disabled = 0,
+    Stateless = 1,
+    Stateful = 2,
+}
+
+impl From<i16> for CookielessServerHashMode {
+    fn from(value: i16) -> Self {
+        match value {
+            0 => Self::Disabled,
+            1 => Self::Stateless,
+            2 => Self::Stateful,
+            _ => Self::Disabled, // Default to disabled for unknown values
+        }
+    }
+}
+
+impl From<CookielessServerHashMode> for i16 {
+    fn from(mode: CookielessServerHashMode) -> Self {
+        mode as i16
+    }
+}
+
 /// Team information required for cookieless distinct ID computation
 #[derive(Debug, Clone)]
 pub struct TeamData {
     pub team_id: TeamId,
     pub timezone: String,
-    pub cookieless_server_hash_mode: i16,
+    pub cookieless_server_hash_mode: CookielessServerHashMode,
 }
 
 /// Manager for cookieless tracking
@@ -170,8 +195,10 @@ impl CookielessManager {
         event_data: EventData<'_>,
         team_data: TeamData,
     ) -> Result<String, CookielessManagerError> {
-        // If cookieless mode is disabled or team's hash mode is 0, return the original distinct id
-        if self.config.disabled || team_data.cookieless_server_hash_mode <= 0 {
+        // If cookieless mode is disabled or team's hash mode is Disabled, return the original distinct id
+        if self.config.disabled
+            || team_data.cookieless_server_hash_mode == CookielessServerHashMode::Disabled
+        {
             return Ok(event_data.distinct_id.to_string());
         }
 
@@ -560,7 +587,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: 1,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
                 },
             )
             .await
@@ -586,7 +613,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: 1,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
                 },
             )
             .await
@@ -608,7 +635,7 @@ mod tests {
 
         // Create a CookielessManager
         let config = CookielessConfig::default();
-        let manager = CookielessManager::new(config, redis_client.clone());
+        let manager = CookielessManager::new(config, redis_client);
 
         // Create an event with hash_extra
         let event_data1 = EventData {
@@ -639,7 +666,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: 1,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
                 },
             )
             .await
@@ -650,7 +677,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: 1,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
                 },
             )
             .await
@@ -692,7 +719,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: 1,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
                 },
             )
             .await
@@ -718,7 +745,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: 1,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
                 },
             )
             .await
@@ -753,7 +780,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: 1,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
                 },
             )
             .await;
@@ -778,7 +805,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: 1,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
                 },
             )
             .await;
@@ -803,7 +830,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: 1,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
                 },
             )
             .await;
@@ -929,7 +956,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: 1,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateful,
                 },
             )
             .await
@@ -988,7 +1015,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: 1,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
                 },
             )
             .await
@@ -1065,7 +1092,7 @@ mod tests {
                 TeamData {
                     team_id: 1,
                     timezone: "UTC".to_string(),
-                    cookieless_server_hash_mode: 1,
+                    cookieless_server_hash_mode: CookielessServerHashMode::Stateless,
                 },
             )
             .await

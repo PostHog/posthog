@@ -15,7 +15,7 @@ use axum::{extract::State, http::HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use chrono;
-use common_cookieless::{EventData, TeamData};
+use common_cookieless::{CookielessServerHashMode, EventData, TeamData};
 use common_geoip::GeoIpClient;
 use flate2::read::GzDecoder;
 use limiters::redis::ServiceName;
@@ -484,7 +484,9 @@ async fn handle_cookieless_distinct_id(
     let team_data = TeamData {
         team_id,
         timezone: team.timezone.clone(),
-        cookieless_server_hash_mode: team.cookieless_server_hash_mode,
+        cookieless_server_hash_mode: CookielessServerHashMode::from(
+            team.cookieless_server_hash_mode,
+        ),
     };
 
     context
