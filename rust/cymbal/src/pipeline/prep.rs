@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use common_types::{CapturedEvent, ClickHouseEvent, PersonMode, RawEvent, Team};
 use serde_json::Value;
 
@@ -33,10 +33,18 @@ pub fn prepare_events(
                     continue;
                 };
 
-                // If we get an event we can't deserialize at all, that indicates a pipeline bug,
-                // so return a PipelineFailure
-                let mut raw_event: Value =
-                    serde_json::from_str(&outer.data).map_err(|e| (i, e.into()))?;
+                // If we get an event we can't deserialize at all, we have to drop it. This is a rare
+                // case where we put the whole event into the error, so we can DLQ it later
+                let mut raw_event: Value = match serde_json::from_str(&outer.data) {
+                    Ok(event) => event,
+                    Err(e) => {
+                        buffer.push(Err(EventError::FailedToDeserialize(
+                            Box::new(outer.clone()),
+                            format!("{:?}", e),
+                        )));
+                        continue;
+                    }
+                };
 
                 // If we fail to sanitize the event, we should discard it as unprocessable
                 if let Err(e) = recursively_sanitize_properties(outer.uuid, &mut raw_event, 30) {
@@ -53,11 +61,12 @@ pub fn prepare_events(
                 // and store an event error if we can't. If the event has no timestamp, use the current time.
                 let timestamp = match &raw_event.timestamp {
                     Some(ts) => parse_ts_assuming_utc(ts),
-                    None => Ok(Utc::now()),
+                    None => Ok(parse_ts_assuming_utc(&outer.now)
+                        .expect("CapturedEvent::now is always valid")), // Set by capture, should always be valid
                 };
 
-                // TODO - should we drop these, or should we add an error to the event and then pass them through
-                // with the timestamp set to now?
+                // NOTE: we diverge from analytics ingestion here, by dropping events with an invalid timestamp,
+                // rather than passing them through. I think this is reasonable, because we're a new product.
                 let timestamp = match timestamp {
                     Ok(ts) => ts,
                     Err(e) => {
@@ -108,7 +117,26 @@ fn transform_event(
         );
     }
 
-    // TODO - offset and sent_at handling
+    let mut sent_at = outer
+        .get_sent_at_as_rfc3339()
+        .map(|sa| parse_ts_assuming_utc(&sa).expect("sent_at is a valid datetime"));
+
+    if raw_event
+        .properties
+        .get("$ignore_sent_at")
+        .map(|f| f.as_bool())
+        .flatten()
+        .unwrap_or_default()
+    {
+        sent_at = None;
+    }
+
+    let timestamp = resolve_timestamp(
+        timestamp,
+        sent_at,
+        parse_ts_assuming_utc(&outer.now).expect("CapturedEvent::now is always valid"),
+        raw_event.offset.clone(),
+    );
 
     ClickHouseEvent {
         uuid: outer.uuid,
@@ -153,4 +181,19 @@ fn get_person_mode(raw_event: &RawEvent, team: &Team) -> PersonMode {
     } else {
         PersonMode::Full
     }
+}
+
+// This function exists because of https://github.com/PostHog/posthog/blob/6c2f119571edb10a23ec711c6f6e2b6155d76ef9/plugin-server/src/worker/ingestion/timestamps.ts#L81.
+// It exclusively passes through the passed timestamp adjusted by the offset, because the behaviour of that function seems incorrect,
+// but I wanted to explicitly encode our timestamp expectations in relation to it.
+pub fn resolve_timestamp(
+    found_timestamp: DateTime<Utc>, // The instant the exception occurred, or was caught.
+    _sent_at: Option<DateTime<Utc>>, // The instant the exception was sent by the client. It can diverge from the timestamp in the case of e.g. offline event buffering.
+    _now: DateTime<Utc>,             // The moment capture received the event.
+    offset: Option<i64>, // An offset, in milliseconds, between the event's timestamp and UTC.
+) -> DateTime<Utc> {
+    // The function referenced above attempts to adjust for clock skew between the client sending the event and the
+    // server receiving it, but without a way to differentiate between transmission delay and clock skew, this
+    // is a bit of a fools errand. We simply do not try to do it, and don't apply any adjustment beyond the offset.
+    found_timestamp + Duration::milliseconds(offset.unwrap_or(0))
 }

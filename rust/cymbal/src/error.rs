@@ -1,7 +1,7 @@
 use aws_sdk_s3::primitives::ByteStreamError;
 use common_geoip::GeoIpError;
 use common_kafka::kafka_producer::KafkaProduceError;
-use common_types::ClickHouseEvent;
+use common_types::{CapturedEvent, ClickHouseEvent};
 use posthog_symbol_data::SymbolDataError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
@@ -140,6 +140,8 @@ pub enum EventError {
     FailedToSanitize(Uuid, String),
     #[error("Suppressed issue: {0}")]
     Suppressed(Uuid),
+    #[error("Could not deserialize event data: {1}")]
+    FailedToDeserialize(Box<CapturedEvent>, String),
 }
 
 impl From<JsResolveErr> for Error {

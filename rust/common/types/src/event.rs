@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::ops::Not;
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use time::OffsetDateTime;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::util::empty_string_is_none;
@@ -205,5 +206,12 @@ impl RawEvent {
         if let Some(value) = self.properties.get_mut(key) {
             *value = f(value.take());
         }
+    }
+}
+
+impl CapturedEvent {
+    pub fn get_sent_at_as_rfc3339(&self) -> Option<String> {
+        self.sent_at
+            .map(|sa| sa.format(&Rfc3339).expect("is a valid datetime"))
     }
 }
