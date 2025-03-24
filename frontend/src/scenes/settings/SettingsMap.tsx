@@ -3,6 +3,7 @@ import { dayjs } from 'lib/dayjs'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { Payouts, Webhooks } from 'scenes/payments/scenes/settings/PaymentSettings'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -660,6 +661,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'hedgehog-mode',
                 title: 'Hedgehog mode',
                 component: <HedgehogModeSettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-payments',
+        title: 'Payments',
+        settings: [
+            {
+                id: 'payments-webhooks',
+                title: 'Webhooks',
+                component: <Webhooks />,
+            },
+            {
+                id: 'payments-payouts',
+                title: 'Payouts',
+                component: <Payouts />,
             },
         ],
     },
