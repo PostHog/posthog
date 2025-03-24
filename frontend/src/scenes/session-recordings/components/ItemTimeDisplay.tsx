@@ -32,7 +32,7 @@ export function ItemTimeDisplay({
                 <>
                     {timeInRecording < 0 ? (
                         <Tooltip
-                            title="This event occured before the recording started, likely as the page was loading."
+                            title="This event occurred before the recording started, likely as the page was loading."
                             placement="left"
                         >
                             <span className="text-secondary">load</span>
