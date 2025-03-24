@@ -26,7 +26,7 @@ export function ItemTimeDisplay({
 
     return (
         <div className={cn('px-2 py-1 text-xs min-w-18 text-center', className)}>
-            {timestampFormat != TimestampFormat.Relative ? (
+            {timestampFormat !== TimestampFormat.Relative ? (
                 (timestampFormat === TimestampFormat.UTC ? timestamp.tz('UTC') : timestamp).format('DD, MMM HH:mm:ss')
             ) : (
                 <>
