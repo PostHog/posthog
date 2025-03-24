@@ -133,12 +133,8 @@ def bigquery_source(
                 else:
                     last_value = db_incremental_field_last_value
 
-                if (
-                    incremental_field_type == IncrementalFieldType.Date
-                    or incremental_field_type == IncrementalFieldType.DateTime
-                    or incremental_field_type == IncrementalFieldType.Timestamp
-                ):
-                    last_value = f"'{last_value}'"
+                if isinstance(last_value, datetime) or isinstance(last_value, date):
+                    last_value = f"'{last_value.isoformat()}'"
 
                 query = f"""
                 SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
