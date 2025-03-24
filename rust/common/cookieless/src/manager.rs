@@ -11,7 +11,7 @@ use url::Url;
 
 use crate::constants::{
     COOKIELESS_DISTINCT_ID_PREFIX, COOKIELESS_SENTINEL_VALUE, IDENTIFIES_TTL_SECONDS,
-    SALT_TTL_SECONDS, SESSION_INACTIVITY_MS, SESSION_TTL_SECONDS, TIMEZONE_FALLBACK,
+    SALT_TTL_SECONDS, TIMEZONE_FALLBACK,
 };
 use crate::hash::{do_hash, HashError};
 use crate::salt_cache::{SaltCache, SaltCacheError};
@@ -59,12 +59,8 @@ pub struct CookielessConfig {
     pub force_stateless_mode: bool,
     /// TTL for identifies (in seconds)
     pub identifies_ttl_seconds: u64,
-    /// TTL for sessions (in seconds)
-    pub session_ttl_seconds: u64,
     /// TTL for salts (in seconds)
     pub salt_ttl_seconds: u64,
-    /// Session inactivity timeout (in milliseconds)
-    pub session_inactivity_ms: u64,
 }
 
 impl Default for CookielessConfig {
@@ -73,9 +69,7 @@ impl Default for CookielessConfig {
             disabled: false,
             force_stateless_mode: false,
             identifies_ttl_seconds: IDENTIFIES_TTL_SECONDS,
-            session_ttl_seconds: SESSION_TTL_SECONDS,
             salt_ttl_seconds: SALT_TTL_SECONDS,
-            session_inactivity_ms: SESSION_INACTIVITY_MS,
         }
     }
 }

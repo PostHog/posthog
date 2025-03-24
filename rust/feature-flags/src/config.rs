@@ -106,6 +106,7 @@ pub struct Config {
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
 
+    // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
 
@@ -115,14 +116,8 @@ pub struct Config {
     #[envconfig(from = "COOKIELESS_IDENTIFIES_TTL_SECONDS", default = "7200")]
     pub cookieless_identifies_ttl_seconds: u64,
 
-    #[envconfig(from = "COOKIELESS_SESSION_TTL_SECONDS", default = "1800")]
-    pub cookieless_session_ttl_seconds: u64,
-
     #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "86400")]
     pub cookieless_salt_ttl_seconds: u64,
-
-    #[envconfig(from = "COOKIELESS_SESSION_INACTIVITY_MS", default = "1800000")]
-    pub cookieless_session_inactivity_ms: u64,
 }
 
 impl Config {
@@ -144,9 +139,7 @@ impl Config {
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 7200,
-            cookieless_session_ttl_seconds: 1800,
             cookieless_salt_ttl_seconds: 86400,
-            cookieless_session_inactivity_ms: 1800000,
         }
     }
 
@@ -169,9 +162,7 @@ impl Config {
             disabled: self.cookieless_disabled,
             force_stateless_mode: self.cookieless_force_stateless,
             identifies_ttl_seconds: self.cookieless_identifies_ttl_seconds,
-            session_ttl_seconds: self.cookieless_session_ttl_seconds,
             salt_ttl_seconds: self.cookieless_salt_ttl_seconds,
-            session_inactivity_ms: self.cookieless_session_inactivity_ms,
         }
     }
 }
