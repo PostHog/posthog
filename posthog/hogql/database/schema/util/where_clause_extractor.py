@@ -266,19 +266,19 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
                 return ast.And(
                     exprs=[
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.LtEq,
+                            op=ast.CompareOperationOp.GtEq,
                             left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
                             right=ast.ArithmeticOperation(
-                                op=ast.ArithmeticOperationOp.Add,
+                                op=ast.ArithmeticOperationOp.Sub,
                                 left=node.right,
                                 right=self.time_buffer,
                             ),
                         ),
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.GtEq,
+                            op=ast.CompareOperationOp.LtEq,
                             left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
                             right=ast.ArithmeticOperation(
-                                op=ast.ArithmeticOperationOp.Sub,
+                                op=ast.ArithmeticOperationOp.Add,
                                 left=node.right,
                                 right=self.time_buffer,
                             ),
