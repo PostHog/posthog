@@ -63,6 +63,8 @@ pub enum FlagError {
     CohortDependencyCycle(String),
     #[error("Person not found")]
     PersonNotFound,
+    #[error("Cookieless error: {0}")]
+    CookielessError(String),
 }
 
 impl IntoResponse for FlagError {
@@ -177,6 +179,9 @@ impl IntoResponse for FlagError {
             }
             FlagError::PersonNotFound => {
                 (StatusCode::BAD_REQUEST, "Person not found. Please check your distinct_id and try again.".to_string())
+            }
+            FlagError::CookielessError(msg) => {
+                (StatusCode::BAD_REQUEST, msg)
             }
         }
         .into_response()

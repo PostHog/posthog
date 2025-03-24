@@ -9,12 +9,13 @@ use crate::{
         flag_service::FlagService,
     },
     router,
+    team::team_models::Team,
 };
 use axum::{extract::State, http::HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use chrono;
-use common_cookieless::EventData;
+use common_cookieless::{EventData, TeamData};
 use common_geoip::GeoIpClient;
 use flate2::read::GzDecoder;
 use limiters::redis::ServiceName;
@@ -129,38 +130,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let team_id = team.id;
     let project_id = team.project_id;
 
-    let distinct_id = if team.cookieless_server_hash_mode > 0 {
-        let event_data = EventData {
-            ip: &context.ip.to_string(),
-            timestamp_ms: context
-                .meta
-                .sent_at
-                .unwrap_or_else(|| chrono::Utc::now().timestamp_millis())
-                as u64,
-            host: context
-                .headers
-                .get("host")
-                .map(|h| h.to_str().unwrap_or(""))
-                .unwrap_or(""),
-            user_agent: context
-                .headers
-                .get("user-agent")
-                .map(|h| h.to_str().unwrap_or(""))
-                .unwrap_or(""),
-            event_time_zone: None,
-            hash_extra: None,
-            team_id: team_id,
-            team_time_zone: Some(team.timezone.as_str()),
-        };
-
-        context
-            .state
-            .cookieless_manager
-            .compute_cookieless_distinct_id(event_data)
-            .await?
-    } else {
-        _distinct_id
-    };
+    let distinct_id = handle_cookieless_distinct_id(&context, team_id, &team, _distinct_id).await?;
 
     let filtered_flags = fetch_and_filter_flags(&flag_service, project_id, &request).await?;
 
@@ -481,6 +451,47 @@ fn decode_form_data(
             FlagRequest::from_bytes(Bytes::from(decoded_bytes))
         }
     }
+}
+
+async fn handle_cookieless_distinct_id(
+    context: &RequestContext,
+    team_id: i32,
+    team: &Team,
+    distinct_id: String,
+) -> Result<String, FlagError> {
+    let event_data = EventData {
+        ip: &context.ip.to_string(),
+        timestamp_ms: context
+            .meta
+            .sent_at
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()) as u64,
+        host: context
+            .headers
+            .get("host")
+            .map(|h| h.to_str().unwrap_or(""))
+            .unwrap_or(""),
+        user_agent: context
+            .headers
+            .get("user-agent")
+            .map(|h| h.to_str().unwrap_or(""))
+            .unwrap_or(""),
+        event_time_zone: None,
+        hash_extra: None,
+        distinct_id: &distinct_id,
+    };
+
+    let team_info = TeamData {
+        team_id: team_id,
+        timezone: team.timezone.clone(),
+        cookieless_server_hash_mode: team.cookieless_server_hash_mode,
+    };
+
+    context
+        .state
+        .cookieless_manager
+        .compute_cookieless_distinct_id(event_data, team_info)
+        .await
+        .map_err(|e| FlagError::CookielessError(e.to_string()))
 }
 
 #[cfg(test)]

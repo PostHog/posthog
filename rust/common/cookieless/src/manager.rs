@@ -9,8 +9,8 @@ use thiserror::Error;
 use url::Url;
 
 use crate::constants::{
-    COOKIELESS_DISTINCT_ID_PREFIX, IDENTIFIES_TTL_SECONDS, SALT_TTL_SECONDS, SESSION_INACTIVITY_MS,
-    SESSION_TTL_SECONDS, TIMEZONE_FALLBACK,
+    COOKIELESS_DISTINCT_ID_PREFIX, COOKIELESS_SENTINEL_VALUE, IDENTIFIES_TTL_SECONDS,
+    SALT_TTL_SECONDS, SESSION_INACTIVITY_MS, SESSION_TTL_SECONDS, TIMEZONE_FALLBACK,
 };
 use crate::hash::{do_hash, HashError};
 use crate::salt_cache::{SaltCache, SaltCacheError};
@@ -117,10 +117,16 @@ pub struct EventData<'a> {
     pub event_time_zone: Option<&'a str>,
     /// Additional data to include in the hash (optional)
     pub hash_extra: Option<&'a str>,
-    /// Team ID
+    /// Original distinct ID
+    pub distinct_id: &'a str,
+}
+
+/// Team information required for cookieless distinct ID computation
+#[derive(Debug, Clone)]
+pub struct TeamData {
     pub team_id: TeamId,
-    /// Team timezone (optional)
-    pub team_time_zone: Option<&'a str>,
+    pub timezone: String,
+    pub cookieless_server_hash_mode: i16,
 }
 
 /// Manager for cookieless tracking
@@ -162,10 +168,16 @@ impl CookielessManager {
     pub async fn compute_cookieless_distinct_id(
         &self,
         event_data: EventData<'_>,
+        team_data: TeamData,
     ) -> Result<String, CookielessManagerError> {
-        // If cookieless mode is disabled, return an error
-        if self.config.disabled {
-            return Err(CookielessManagerError::Disabled);
+        // If cookieless mode is disabled or team's hash mode is 0, return the original distinct id
+        if self.config.disabled || team_data.cookieless_server_hash_mode <= 0 {
+            return Ok(event_data.distinct_id.to_string());
+        }
+
+        // If the distinct_id is not the sentinel value, return it as is
+        if event_data.distinct_id != COOKIELESS_SENTINEL_VALUE {
+            return Ok(event_data.distinct_id.to_string());
         }
 
         // Validate required fields
@@ -185,8 +197,8 @@ impl CookielessManager {
         let hash_params = HashParams {
             timestamp_ms: event_data.timestamp_ms,
             event_time_zone: event_data.event_time_zone,
-            team_time_zone: event_data.team_time_zone,
-            team_id: event_data.team_id,
+            team_time_zone: Some(&team_data.timezone),
+            team_id: team_data.team_id,
             ip: event_data.ip,
             host: event_data.host,
             user_agent: event_data.user_agent,
@@ -204,7 +216,7 @@ impl CookielessManager {
 
         // Get the number of identify events for this hash
         let n = self
-            .get_identify_count(&base_hash, event_data.team_id)
+            .get_identify_count(&base_hash, team_data.team_id)
             .await?;
 
         // If n is 0, we can use the base hash
@@ -531,7 +543,7 @@ mod tests {
         let config = CookielessConfig::default();
         let manager = CookielessManager::new(config, redis_client);
 
-        // Create an event
+        // Test with non-sentinel distinct ID
         let event_data = EventData {
             ip: "127.0.0.1",
             timestamp_ms: Utc::now().timestamp_millis() as u64,
@@ -539,17 +551,48 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: "non_sentinel_id",
         };
 
-        // Process the event
         let result = manager
-            .compute_cookieless_distinct_id(event_data)
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: 1,
+                },
+            )
             .await
             .unwrap();
 
-        // Check that we got a distinct ID
+        // Check that we got back the original distinct ID
+        assert_eq!(result, "non_sentinel_id");
+
+        // Test with sentinel distinct ID
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
+        };
+
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: 1,
+                },
+            )
+            .await
+            .unwrap();
+
+        // Check that we got a cookieless distinct ID
         assert!(result.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
     }
 
@@ -575,8 +618,7 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: Some("extra1"),
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: "original_distinct_id",
         };
 
         // Create another event with different hash_extra
@@ -587,17 +629,30 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: Some("extra2"),
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: "original_distinct_id",
         };
 
         // Process the events
         let result1 = manager
-            .compute_cookieless_distinct_id(event_data1)
+            .compute_cookieless_distinct_id(
+                event_data1,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: 1,
+                },
+            )
             .await
             .unwrap();
         let result2 = manager
-            .compute_cookieless_distinct_id(event_data2)
+            .compute_cookieless_distinct_id(
+                event_data2,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: 1,
+                },
+            )
             .await
             .unwrap();
 
@@ -617,7 +672,7 @@ mod tests {
         };
         let manager = CookielessManager::new(config, redis_client);
 
-        // Create an event
+        // Test with sentinel distinct ID
         let event_data = EventData {
             ip: "127.0.0.1",
             timestamp_ms: Utc::now().timestamp_millis() as u64,
@@ -625,15 +680,50 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
         };
 
         // Process the event
-        let result = manager.compute_cookieless_distinct_id(event_data).await;
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: 1,
+                },
+            )
+            .await
+            .unwrap();
 
-        // Check that we got a Disabled error
-        assert!(matches!(result, Err(CookielessManagerError::Disabled)));
+        // Check that we got back the sentinel value
+        assert_eq!(result, COOKIELESS_SENTINEL_VALUE);
+
+        // Test with non-sentinel distinct ID
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            distinct_id: "non_sentinel_id",
+        };
+
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: 1,
+                },
+            )
+            .await
+            .unwrap();
+
+        // Check that we got back the original distinct ID
+        assert_eq!(result, "non_sentinel_id");
     }
 
     #[tokio::test]
@@ -653,10 +743,18 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: "original_distinct_id",
         };
-        let result = manager.compute_cookieless_distinct_id(event_data).await;
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: 1,
+                },
+            )
+            .await;
         assert!(matches!(
             result,
             Err(CookielessManagerError::MissingProperty(s)) if s == "ip"
@@ -670,10 +768,18 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: "original_distinct_id",
         };
-        let result = manager.compute_cookieless_distinct_id(event_data).await;
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: 1,
+                },
+            )
+            .await;
         assert!(matches!(
             result,
             Err(CookielessManagerError::MissingProperty(s)) if s == "host"
@@ -687,10 +793,18 @@ mod tests {
             user_agent: "",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: "original_distinct_id",
         };
-        let result = manager.compute_cookieless_distinct_id(event_data).await;
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: 1,
+                },
+            )
+            .await;
         assert!(matches!(
             result,
             Err(CookielessManagerError::MissingProperty(s)) if s == "user_agent"
@@ -774,8 +888,7 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: "original_distinct_id",
         };
 
         // Compute the base hash
@@ -784,8 +897,8 @@ mod tests {
         let hash_params = HashParams {
             timestamp_ms: event_data.timestamp_ms,
             event_time_zone: event_data.event_time_zone,
-            team_time_zone: event_data.team_time_zone,
-            team_id: event_data.team_id,
+            team_time_zone: None,
+            team_id: 1,
             ip: event_data.ip,
             host: event_data.host,
             user_agent: event_data.user_agent,
@@ -798,7 +911,7 @@ mod tests {
             .unwrap();
 
         // Get the Redis key for the identify count
-        let identifies_key = get_redis_identifies_key(&base_hash, event_data.team_id);
+        let identifies_key = get_redis_identifies_key(&base_hash, 1);
 
         // Set up the mock to return a count of 2
         mock_redis = mock_redis.get_ret(&identifies_key, Ok("2".to_string()));
@@ -809,7 +922,14 @@ mod tests {
 
         // Process the event
         let result = manager
-            .compute_cookieless_distinct_id(event_data)
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: 1,
+                },
+            )
             .await
             .unwrap();
 
@@ -856,13 +976,19 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: Some("UTC"),
+            distinct_id: "original_distinct_id",
         };
 
         // Process the event
         let result = manager
-            .compute_cookieless_distinct_id(event_data)
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: 1,
+                },
+            )
             .await
             .unwrap();
 
@@ -927,13 +1053,19 @@ mod tests {
             user_agent: "Mozilla/5.0",
             event_time_zone: None,
             hash_extra: None,
-            team_id: 1,
-            team_time_zone: None,
+            distinct_id: "original_distinct_id",
         };
 
         // Process the event - this should use the TIMEZONE_FALLBACK
         let result = manager
-            .compute_cookieless_distinct_id(event_data)
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: 1,
+                },
+            )
             .await
             .unwrap();
 
