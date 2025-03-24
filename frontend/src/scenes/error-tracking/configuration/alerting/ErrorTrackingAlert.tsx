@@ -52,5 +52,11 @@ export const scene: SceneExport = {
 
 export function ErrorTrackingAlertScene({ id }: Partial<ErrorTrackingAlertSceneLogicProps> = {}): JSX.Element {
     const props = id && ERROR_TRACKING_TEMPLATE_IDS.includes(id) ? { id: null, templateId: id } : { id }
-    return <HogFunctionConfiguration {...props} logicKey="errorTracking" />
+    return (
+        <HogFunctionConfiguration
+            {...props}
+            displayOptions={{ hideTestingConfiguration: true }}
+            logicKey="errorTracking"
+        />
+    )
 }

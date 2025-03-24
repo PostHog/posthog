@@ -135,7 +135,7 @@ const HogFunctionTestEditor = ({
     )
 }
 
-export function HogFunctionTest(): JSX.Element {
+export function HogFunctionTest({ configurable }: { configurable: boolean }): JSX.Element {
     const { logicProps } = useValues(hogFunctionConfigurationLogic)
     const {
         isTestInvocationSubmitting,
@@ -171,7 +171,8 @@ export function HogFunctionTest(): JSX.Element {
                 ref={testResultsRef}
                 className={clsx(
                     'border rounded p-3 deprecated-space-y-2',
-                    expanded ? 'bg-surface-secondary min-h-120' : 'bg-surface-primary'
+                    expanded ? 'bg-surface-secondary' : 'bg-surface-primary',
+                    expanded && configurable ? 'min-h-120' : ''
                 )}
             >
                 <div className="flex items-center justify-end gap-2">
@@ -240,58 +241,65 @@ export function HogFunctionTest(): JSX.Element {
                                                         />
                                                     )}
                                                 </LemonField>
-                                                <LemonDivider />
-                                                <LemonButton
-                                                    fullWidth
-                                                    onClick={loadSampleGlobals}
-                                                    loading={sampleGlobalsLoading && !fetchCancelled}
-                                                    tooltip="Find the last event matching filters, and use it to populate the globals below."
-                                                >
-                                                    Fetch new event
-                                                </LemonButton>
-                                                <LemonDivider />
-                                                {savedGlobals.map(({ name, globals }, index) => (
-                                                    <div className="flex justify-between w-full" key={index}>
+                                                {configurable ? (
+                                                    <>
+                                                        <LemonDivider />
                                                         <LemonButton
-                                                            data-attr="open-hog-test-data"
-                                                            key={index}
-                                                            onClick={() => setSampleGlobals(globals)}
                                                             fullWidth
-                                                            className="flex-1"
+                                                            onClick={loadSampleGlobals}
+                                                            loading={sampleGlobalsLoading && !fetchCancelled}
+                                                            tooltip="Find the last event matching filters, and use it to populate the globals below."
                                                         >
-                                                            {name}
+                                                            Fetch new event
                                                         </LemonButton>
-                                                        <LemonButton
-                                                            data-attr="delete-hog-test-data"
-                                                            size="small"
-                                                            icon={<IconX />}
-                                                            onClick={() => deleteSavedGlobals(index)}
-                                                            tooltip="Delete saved test data"
-                                                        />
-                                                    </div>
-                                                ))}
-                                                {testInvocation.globals && (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        data-attr="save-hog-test-data"
-                                                        onClick={() => {
-                                                            const name = prompt('Name this test data')
-                                                            if (name) {
-                                                                saveGlobals(name, JSON.parse(testInvocation.globals))
-                                                            }
-                                                        }}
-                                                        disabledReason={(() => {
-                                                            try {
-                                                                JSON.parse(testInvocation.globals)
-                                                            } catch (e) {
-                                                                return 'Invalid globals JSON'
-                                                            }
-                                                            return undefined
-                                                        })()}
-                                                    >
-                                                        Save test data
-                                                    </LemonButton>
-                                                )}
+                                                        <LemonDivider />
+                                                        {savedGlobals.map(({ name, globals }, index) => (
+                                                            <div className="flex justify-between w-full" key={index}>
+                                                                <LemonButton
+                                                                    data-attr="open-hog-test-data"
+                                                                    key={index}
+                                                                    onClick={() => setSampleGlobals(globals)}
+                                                                    fullWidth
+                                                                    className="flex-1"
+                                                                >
+                                                                    {name}
+                                                                </LemonButton>
+                                                                <LemonButton
+                                                                    data-attr="delete-hog-test-data"
+                                                                    size="small"
+                                                                    icon={<IconX />}
+                                                                    onClick={() => deleteSavedGlobals(index)}
+                                                                    tooltip="Delete saved test data"
+                                                                />
+                                                            </div>
+                                                        ))}
+                                                        {testInvocation.globals && (
+                                                            <LemonButton
+                                                                fullWidth
+                                                                data-attr="save-hog-test-data"
+                                                                onClick={() => {
+                                                                    const name = prompt('Name this test data')
+                                                                    if (name) {
+                                                                        saveGlobals(
+                                                                            name,
+                                                                            JSON.parse(testInvocation.globals)
+                                                                        )
+                                                                    }
+                                                                }}
+                                                                disabledReason={(() => {
+                                                                    try {
+                                                                        JSON.parse(testInvocation.globals)
+                                                                    } catch (e) {
+                                                                        return 'Invalid globals JSON'
+                                                                    }
+                                                                    return undefined
+                                                                })()}
+                                                            >
+                                                                Save test data
+                                                            </LemonButton>
+                                                        )}
+                                                    </>
+                                                ) : null}
                                             </>
                                         }
                                     />
@@ -436,7 +444,7 @@ export function HogFunctionTest(): JSX.Element {
                                     pagination={{ pageSize: 200, hideOnSinglePage: true }}
                                 />
                             </div>
-                        ) : (
+                        ) : configurable ? (
                             <div className="deprecated-space-y-2">
                                 <LemonField name="globals">
                                     {({ value, onChange }) => (
@@ -475,7 +483,7 @@ export function HogFunctionTest(): JSX.Element {
                                     )}
                                 </LemonField>
                             </div>
-                        )}
+                        ) : null}
                     </>
                 )}
             </div>
