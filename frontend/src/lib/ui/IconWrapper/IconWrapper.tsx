@@ -1,8 +1,9 @@
-import { cva, VariantProps } from 'class-variance-authority'
+import { cva, type VariantProps } from 'cva'
 import { cn } from 'lib/utils/css-classes'
 import { forwardRef } from 'react'
 
-const iconWrapperVariants = cva('flex place-items-center aspect-square', {
+const iconWrapperVariants = cva({
+    base: 'flex place-items-center aspect-square',
     variants: {
         size: {
             xs: 'size-3',
