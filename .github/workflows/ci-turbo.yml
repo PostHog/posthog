@@ -57,7 +57,7 @@ jobs:
                   cache: 'pnpm'
 
             - name: Cache node-gyp artifacts
-              uses: actions/cache@2f8e54208210a422b2efd51efaa6bd6d7ca8920f # v3
+              uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v3
               with:
                   path: ~/.cache/node-gyp
                   key: ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-${{ matrix.node-version }}-${{ hashFiles('**/pnpm-lock.yaml') }}
