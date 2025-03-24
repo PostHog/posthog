@@ -1,51 +1,35 @@
-import { TimeUnit } from 'chart.js'
 import { useValues } from 'kea'
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { useCallback, useMemo } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { ErrorTrackingIssueAggregations, ErrorTrackingSparklineConfig } from '~/queries/schema/schema-general'
+import { DateRange, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
-import { errorTrackingLogic } from './errorTrackingLogic'
-import { sparklineLabels } from './utils'
+import { SparklineSelectedPeriod } from './errorTrackingSceneLogic'
+import { generateSparklineLabels } from './utils'
 
 export function OccurrenceSparkline({
     values,
-    unit,
-    interval,
+    labels,
     className,
     displayXAxis = false,
 }: {
     values: number[]
-    unit: TimeUnit
-    interval: number
+    labels: string[]
     className?: string
     displayXAxis?: boolean
 }): JSX.Element {
     const colors = useSparklineColors()
 
-    const [data, labels, labelRenderer] = useMemo(() => {
+    const [data, labelRenderer] = useMemo(() => {
         return [
             wrapDataWithColor(values, colors),
-            sparklineLabels({ value: interval, interval: unit } as ErrorTrackingSparklineConfig),
             (label: string) => {
-                switch (unit) {
-                    case 'hour':
-                    case 'minute':
-                        return dayjs(label).format('D MMM YYYY HH:mm (UTC)')
-                    case 'day':
-                        return dayjs(label).format('D MMM YYYY (UTC)')
-                    case 'week':
-                        return dayjs(label).format('D MMM YYYY (UTC)')
-                    case 'month':
-                        return dayjs(label).format('MMM YYYY (UTC)')
-                    default:
-                        return dayjs(label).format('D MMM YYYY (UTC)')
-                }
+                return dayjs(label).format('D MMM YYYY HH:mm (UTC)')
             },
         ]
-    }, [values, unit, interval, colors])
+    }, [values, colors])
 
     const withXScale = useCallback((scale: AnyScaleOptions) => {
         return {
@@ -91,25 +75,27 @@ function useSparklineColors(): { color: string; hoverColor: string } {
     }, [isDarkModeOn])
 }
 
-export function useSparklineData(aggregations?: ErrorTrackingIssueAggregations): [number[], TimeUnit, number] {
-    const { sparklineSelectedPeriod, customSparklineConfig } = useValues(errorTrackingLogic)
-
-    const result: [number[], TimeUnit, number] = useMemo(() => {
+export function useSparklineData(
+    selectedPeriod: SparklineSelectedPeriod = 'day',
+    dateRange: DateRange,
+    aggregations?: ErrorTrackingIssueAggregations
+): [number[], string[]] {
+    const result: [number[], string[]] = useMemo(() => {
         if (!aggregations) {
-            return [[], 'hour', 0]
+            return [[], []]
         }
-        switch (sparklineSelectedPeriod) {
-            case '24h':
-                return [aggregations.volumeDay, 'hour', 24]
-            case '30d':
-                return [aggregations.volumeMonth, 'day', 31]
-            default:
-                if (customSparklineConfig && aggregations.customVolume) {
-                    return [aggregations.customVolume, customSparklineConfig.interval, customSparklineConfig.value]
-                }
-        }
-        return [[], 'hour', 0]
-    }, [aggregations, customSparklineConfig, sparklineSelectedPeriod])
+        const aggregationData = {
+            day: aggregations.volumeDay,
+            custom: aggregations.volumeRange,
+        }[selectedPeriod]
+        const aggregationDateRange = {
+            day: { date_from: '-24h' },
+            custom: dateRange,
+        }[selectedPeriod]
+        const resolution = aggregationData.length
+        const labels = generateSparklineLabels(aggregationDateRange, resolution)
+        return [aggregationData, labels]
+    }, [aggregations, selectedPeriod, dateRange])
 
     return result
 }

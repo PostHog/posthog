@@ -64,7 +64,6 @@ export function ErrorTrackingScene(): JSX.Element {
             volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
             assignee: { align: 'center', render: AssigneeColumn },
         },
-        refresh: 'blocking',
         showOpenEditorButton: false,
         insightProps: insightProps,
         emptyStateHeading: 'No issues found',
@@ -92,30 +91,32 @@ export function ErrorTrackingScene(): JSX.Element {
 }
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
+    const { dateRange } = useValues(errorTrackingLogic)
+    const { sparklineSelectedPeriod } = useValues(errorTrackingSceneLogic)
     const record = props.record as ErrorTrackingIssue
-    const [values, unit, interval] = useSparklineData(record.aggregations)
+    const [values, labels] = useSparklineData(sparklineSelectedPeriod, dateRange, record.aggregations)
     return (
         <div className="flex justify-end">
-            <OccurrenceSparkline className="h-8" unit={unit} interval={interval} displayXAxis={false} values={values} />
+            <OccurrenceSparkline className="h-8" values={values} labels={labels} displayXAxis={false} />
         </div>
     )
 }
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
-    const { sparklineSelectedPeriod, sparklineOptions } = useValues(errorTrackingLogic)
-    const { setSparklineSelectedPeriod: onChange } = useActions(errorTrackingLogic)
+    const { sparklineSelectedPeriod, sparklineOptions } = useValues(errorTrackingSceneLogic)
+    const { setSparklineSelectedPeriod } = useActions(errorTrackingSceneLogic)
 
-    return sparklineSelectedPeriod && sparklineOptions ? (
+    return (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
             <LemonSegmentedButton
                 size="xsmall"
                 value={sparklineSelectedPeriod}
-                options={Object.values(sparklineOptions)}
-                onChange={onChange}
+                options={sparklineOptions}
+                onChange={(newValue) => setSparklineSelectedPeriod(newValue)}
             />
         </div>
-    ) : null
+    )
 }
 
 const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }) => {

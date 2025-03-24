@@ -1,7 +1,6 @@
 import {
     DataTableNode,
     DateRange,
-    ErrorTrackingIssue,
     ErrorTrackingQuery,
     EventsQuery,
     InsightVizNode,
@@ -76,17 +75,17 @@ export const errorTrackingIssueQuery = ({
 }
 
 export const errorTrackingIssueEventsQuery = ({
-    issue,
+    issueId,
     filterTestAccounts,
     filterGroup,
     dateRange,
 }: {
-    issue: ErrorTrackingIssue | null
+    issueId: string | null
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
     dateRange: DateRange
 }): DataTableNode | null => {
-    if (!issue) {
+    if (!issueId) {
         return null
     }
 
@@ -96,7 +95,7 @@ export const errorTrackingIssueEventsQuery = ({
 
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = group.values as AnyPropertyFilter[]
-    const where = [`'${issue.id}' == issue_id`]
+    const where = [`'${issueId}' == issue_id`]
 
     const eventsQuery: EventsQuery = {
         kind: NodeKind.EventsQuery,
@@ -105,7 +104,7 @@ export const errorTrackingIssueEventsQuery = ({
         where,
         properties,
         filterTestAccounts: filterTestAccounts,
-        after: dateRange.date_from || issue.first_seen,
+        after: dateRange.date_from || '-7d',
         before: dateRange.date_to || undefined,
     }
 

@@ -8,10 +8,10 @@ import { getExceptionAttributes, hasAnyInAppFrames } from 'scenes/error-tracking
 import { ErrorTrackingIssueEventContent, ErrorTrackingIssueEventsPanel } from '../Events'
 
 const Content = ({ hasStack, isThirdPartyScript }: ErrorTrackingIssueEventContent): JSX.Element | null => {
-    const { issueProperties } = useValues(errorTrackingIssueSceneLogic)
+    const { properties } = useValues(errorTrackingIssueSceneLogic)
     const { showAllFrames } = useValues(stackFrameLogic)
 
-    const { exceptionList } = getExceptionAttributes(issueProperties)
+    const { exceptionList } = getExceptionAttributes(properties)
     const hasAnyInApp = hasAnyInAppFrames(exceptionList)
 
     return hasStack ? (
@@ -43,11 +43,11 @@ const Header = ({
     hasStack,
     isThirdPartyScript,
 }: { active: boolean } & ErrorTrackingIssueEventContent): JSX.Element | null => {
-    const { issueProperties } = useValues(errorTrackingIssueSceneLogic)
+    const { properties } = useValues(errorTrackingIssueSceneLogic)
     const { showAllFrames } = useValues(stackFrameLogic)
     const { setShowAllFrames } = useActions(stackFrameLogic)
 
-    const { exceptionList } = getExceptionAttributes(issueProperties)
+    const { exceptionList } = getExceptionAttributes(properties)
     const hasAnyInApp = hasAnyInAppFrames(exceptionList)
 
     return (

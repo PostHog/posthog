@@ -1,8 +1,8 @@
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
-import { range } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils'
 
-import { ErrorTrackingIssue, ErrorTrackingSparklineConfig } from '~/queries/schema/schema-general'
+import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
@@ -128,11 +128,12 @@ export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): bool
     return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
 }
 
-export const sparklineLabelsDay = sparklineLabels({ value: 24, interval: 'hour' })
-export const sparklineLabelsMonth = sparklineLabels({ value: 31, interval: 'day' })
-
-export function sparklineLabels({ value, interval }: ErrorTrackingSparklineConfig): string[] {
-    const now = dayjs().startOf(interval)
-    const dates = range(value).map((idx) => now.subtract(value - (idx + 1), interval))
-    return dates.map((d) => d.format())
+export function generateSparklineLabels(range: DateRange, resolution: number): string[] {
+    const labels = Array.from({ length: resolution }, (_, i) => {
+        const from = range.date_from ? dateStringToDayJs(range.date_from)! : dayjs()
+        const to = range.date_to ? dateStringToDayJs(range.date_to)! : dayjs()
+        const bin_size = Math.floor(to.diff(from, 'seconds') / resolution)
+        return from.add(i * bin_size, 'seconds').toISOString()
+    })
+    return labels
 }

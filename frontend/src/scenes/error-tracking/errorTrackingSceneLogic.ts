@@ -2,10 +2,11 @@ import equal from 'fast-deep-equal'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import { objectsEqual } from 'lib/utils'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { dateStringToDayJs, objectsEqual } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema/schema-general'
+import { DataTableNode, DateRange, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
 import {
     DEFAULT_ERROR_TRACKING_DATE_RANGE,
@@ -15,14 +16,13 @@ import {
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 import { errorTrackingQuery } from './queries'
 
+export type SparklineSelectedPeriod = 'custom' | 'day'
+
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
 
     connect({
-        values: [
-            errorTrackingLogic,
-            ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'customSparklineConfig', 'searchQuery'],
-        ],
+        values: [errorTrackingLogic, ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
         actions: [
             errorTrackingLogic,
             ['setAssignee', 'setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
@@ -34,6 +34,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         setOrderDirection: (orderDirection: ErrorTrackingQuery['orderDirection']) => ({ orderDirection }),
         setStatus: (status: ErrorTrackingQuery['status']) => ({ status }),
         setSelectedIssueIds: (ids: string[]) => ({ ids }),
+        setSparklineSelectedPeriod: (period: SparklineSelectedPeriod) => ({ period }),
     }),
 
     reducers({
@@ -64,6 +65,13 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 setSelectedIssueIds: (_, { ids }) => ids,
             },
         ],
+        sparklineSelectedPeriod: [
+            'custom' as SparklineSelectedPeriod,
+            { persist: true },
+            {
+                setSparklineSelectedPeriod: (_, { period }) => period,
+            },
+        ],
     }),
 
     selectors(() => ({
@@ -91,7 +99,12 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 errorTrackingQuery({
                     orderBy,
                     status,
-                    dateRange,
+                    dateRange: {
+                        date_from: dateStringToDayJs(dateRange.date_from || null)?.toISOString(),
+                        date_to: dateRange.date_to
+                            ? dateStringToDayJs(dateRange.date_to)?.toISOString()
+                            : dayjs().toISOString(),
+                    },
                     assignee,
                     filterTestAccounts,
                     filterGroup,
@@ -102,6 +115,21 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users', 'assignee'],
                     orderDirection,
                 }),
+        ],
+        sparklineOptions: [
+            () => [],
+            () => {
+                return [
+                    {
+                        value: 'custom',
+                        label: 'Custom',
+                    },
+                    {
+                        value: 'day',
+                        label: '24h',
+                    },
+                ]
+            },
         ],
     })),
 
@@ -187,3 +215,23 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         }
     }),
 ])
+
+export function sanitizeDateRange(dateRange: DateRange): DateRange {
+    return {
+        date_from: sanitizeDate(dateRange.date_from).toISOString(),
+        date_to: sanitizeDate(dateRange.date_to).toISOString(),
+    }
+}
+
+export function sanitizeDate(date?: string | null): Dayjs {
+    if (!date) {
+        return dayjs()
+    }
+
+    const parsedDate = dateStringToDayJs(date)
+    if (parsedDate) {
+        return parsedDate
+    }
+
+    return dayjs()
+}

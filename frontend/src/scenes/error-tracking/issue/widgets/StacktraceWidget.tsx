@@ -10,11 +10,11 @@ import { errorTrackingIssueSceneLogic } from '../../errorTrackingIssueSceneLogic
 import { getExceptionAttributes, hasAnyInAppFrames } from '../../utils'
 
 export function StacktraceWidget(): JSX.Element {
-    const { issueProperties, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { properties, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
 
     const { showAllFrames, frameOrderReversed } = useValues(stackFrameLogic)
     const { setShowAllFrames, reverseFrameOrder } = useActions(stackFrameLogic)
-    const { exceptionList } = getExceptionAttributes(issueProperties)
+    const { exceptionList } = getExceptionAttributes(properties)
 
     const hasStacktrace = exceptionList.length > 0
     const hasAnyInApp = hasAnyInAppFrames(exceptionList)
@@ -25,7 +25,7 @@ export function StacktraceWidget(): JSX.Element {
             title="Stacktrace"
             actions={
                 <div className="flex gap-2">
-                    {!issueLoading && hasStacktrace && (
+                    {!propertiesLoading && hasStacktrace && (
                         <LemonButton
                             className="space-x-2"
                             type="tertiary"
@@ -36,7 +36,7 @@ export function StacktraceWidget(): JSX.Element {
                             <IconSort />
                         </LemonButton>
                     )}
-                    {!issueLoading && hasAnyInApp && (
+                    {!propertiesLoading && hasAnyInApp && (
                         <LemonButton
                             className="space-x-2"
                             type="tertiary"
@@ -51,13 +51,13 @@ export function StacktraceWidget(): JSX.Element {
             }
         >
             <div className="p-2">
-                {!issueLoading && hasStacktrace && (
+                {!propertiesLoading && hasStacktrace && (
                     <ChainedStackTraces
                         showAllFrames={hasAnyInApp ? showAllFrames : true}
                         exceptionList={orderedExceptions}
                     />
                 )}
-                {!issueLoading && !hasStacktrace && (
+                {!propertiesLoading && !hasStacktrace && (
                     <EmptyMessage
                         title="No stacktrace available"
                         description="Make sure sdk is setup correctly or contact support if problem persists"
@@ -65,7 +65,7 @@ export function StacktraceWidget(): JSX.Element {
                         buttonTo="https://posthog.com/docs/error-tracking/installation"
                     />
                 )}
-                {issueLoading && (
+                {propertiesLoading && (
                     <div className="space-y-2">
                         <LemonSkeleton />
                         <LemonSkeleton.Row repeat={2} />

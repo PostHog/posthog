@@ -9,13 +9,12 @@ import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackin
 import { OccurrenceSparkline, useSparklineData } from '../OccurrenceSparkline'
 
 export const Metadata = (): JSX.Element => {
-    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
-    const [values, unit, interval] = useSparklineData(issue?.aggregations)
-
-    const hasSessionCount = issue && issue.aggregations && issue.aggregations.sessions !== 0
+    const { firstSeen, lastSeen, description, aggregations, issueDateRange } = useValues(errorTrackingIssueSceneLogic)
+    const [values, labels] = useSparklineData('custom', issueDateRange, aggregations || undefined)
+    const hasSessionCount = aggregations && aggregations.sessions !== 0
 
     const Count = ({ value }: { value: number | undefined }): JSX.Element => {
-        return issue && issue.aggregations ? (
+        return aggregations ? (
             <div className="text-2xl font-semibold">{value ? humanFriendlyLargeNumber(value) : '-'}</div>
         ) : (
             <div className="flex flex-1 items-center">
@@ -30,36 +29,32 @@ export const Metadata = (): JSX.Element => {
                 <span>Sessions</span>
                 {!hasSessionCount && <IconInfo className="mt-0.5" />}
             </div>
-            <Count value={issue?.aggregations?.sessions} />
+            <Count value={aggregations?.sessions} />
         </div>
     )
 
     return (
         <div className="space-y-2 pb-5">
-            {issue && issue.description ? <ClampedText text={issue.description} lines={2} /> : <LemonSkeleton />}
+            {description ? <ClampedText text={description} lines={2} /> : <LemonSkeleton />}
             <div className="flex flex-1 justify-between py-3">
                 <div className="flex items-end deprecated-space-x-6">
                     <div>
                         <div className="text-muted text-xs">First seen</div>
-                        {issue && !issueLoading ? (
-                            <TZLabel time={issue.first_seen} className="border-dotted border-b" />
+                        {firstSeen ? (
+                            <TZLabel time={firstSeen} className="border-dotted border-b" />
                         ) : (
                             <LemonSkeleton />
                         )}
                     </div>
                     <div>
                         <div className="text-muted text-xs">Last seen</div>
-                        {issue && !issueLoading && issue.last_seen ? (
-                            <TZLabel time={issue.last_seen} className="border-dotted border-b" />
-                        ) : (
-                            <LemonSkeleton />
-                        )}
+                        {lastSeen ? <TZLabel time={lastSeen} className="border-dotted border-b" /> : <LemonSkeleton />}
                     </div>
                 </div>
                 <div className="flex deprecated-space-x-2 gap-8 items-end">
                     <div className="flex flex-col flex-1">
                         <div className="text-muted text-xs">Occurrences</div>
-                        <Count value={issue?.aggregations?.occurrences} />
+                        <Count value={aggregations?.occurrences} />
                     </div>
                     {hasSessionCount ? (
                         Sessions
@@ -70,17 +65,11 @@ export const Metadata = (): JSX.Element => {
                     )}
                     <div className="flex flex-col flex-1">
                         <div className="text-muted text-xs">Users</div>
-                        <Count value={issue?.aggregations?.users} />
+                        <Count value={aggregations?.users} />
                     </div>
                 </div>
             </div>
-            <OccurrenceSparkline
-                className="h-32 w-full"
-                values={values}
-                unit={unit}
-                interval={interval}
-                displayXAxis={true}
-            />
+            <OccurrenceSparkline className="h-32 w-full" values={values} labels={labels} displayXAxis={true} />
         </div>
     )
 }

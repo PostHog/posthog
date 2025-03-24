@@ -1,6 +1,6 @@
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { mergeIssues } from './utils'
+import { generateSparklineLabels, mergeIssues } from './utils'
 
 describe('mergeIssues', () => {
     it('arbitrary values', async () => {
@@ -105,5 +105,43 @@ describe('mergeIssues', () => {
                 customVolume: [0, 0, 1, 1, 1],
             },
         })
+    })
+})
+
+describe('generate sparkline labels', () => {
+    it('generate labels from with hour resolution', async () => {
+        const labels = generateSparklineLabels(
+            {
+                date_from: '2025-01-01',
+                date_to: '2025-01-02',
+            },
+            24
+        )
+        expect(labels).toEqual([
+            '2025-01-01T00:00:00.000Z',
+            '2025-01-01T01:00:00.000Z',
+            '2025-01-01T02:00:00.000Z',
+            '2025-01-01T03:00:00.000Z',
+            '2025-01-01T04:00:00.000Z',
+            '2025-01-01T05:00:00.000Z',
+            '2025-01-01T06:00:00.000Z',
+            '2025-01-01T07:00:00.000Z',
+            '2025-01-01T08:00:00.000Z',
+            '2025-01-01T09:00:00.000Z',
+            '2025-01-01T10:00:00.000Z',
+            '2025-01-01T11:00:00.000Z',
+            '2025-01-01T12:00:00.000Z',
+            '2025-01-01T13:00:00.000Z',
+            '2025-01-01T14:00:00.000Z',
+            '2025-01-01T15:00:00.000Z',
+            '2025-01-01T16:00:00.000Z',
+            '2025-01-01T17:00:00.000Z',
+            '2025-01-01T18:00:00.000Z',
+            '2025-01-01T19:00:00.000Z',
+            '2025-01-01T20:00:00.000Z',
+            '2025-01-01T21:00:00.000Z',
+            '2025-01-01T22:00:00.000Z',
+            '2025-01-01T23:00:00.000Z',
+        ])
     })
 })

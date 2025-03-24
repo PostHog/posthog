@@ -15,7 +15,7 @@ from posthog.schema import (
     CachedErrorTrackingQueryResponse,
     DateRange,
 )
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.error_tracking import ErrorTrackingIssue
 
@@ -53,14 +53,14 @@ class ErrorTrackingQueryRunner(QueryRunner):
             offset=self.query.offset,
         )
         dayRange = DateRange(
-            date_from=(datetime.now() - timedelta(days=7)).isoformat(), date_to=datetime.now().isoformat()
+            date_from=(datetime.now() - timedelta(hours=24)).isoformat(), date_to=datetime.now().isoformat()
         )
         volumeResolution: int = (
             int(self.query.volumeResolution) if self.query.volumeResolution else DEFAULT_VOLUME_RESOLUTION
         )
         self.sparklineConfigs = {
             "volumeDay": VolumeOptions(date_range=dayRange, resolution=volumeResolution),
-            # "volumeRange": VolumeOptions(date_range=self.query.dateRange, resolution=volumeResolution),
+            "volumeRange": VolumeOptions(date_range=self.query.dateRange, resolution=volumeResolution),
         }
 
     def to_query(self) -> ast.SelectQuery:
@@ -121,19 +121,102 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return exprs
 
     def select_sparkline_array(self, alias: str, opts: VolumeOptions):
-        # toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
-        start_time = f"toDateTime('{opts.date_range.date_from}')"
-        end_time = f"toDateTime('{opts.date_range.date_to}')"
-        bin_size = f"dateDiff('seconds', {start_time}, {end_time}) / {opts.resolution}"
-        bin_times = (
-            f"arrayMap(i -> dateAdd({start_time}, toIntervalSecond(i * {bin_size})), range(0, {opts.resolution}))"
+        start_time = ast.Call(
+            name="toDateTime",
+            args=[
+                ast.Constant(value=opts.date_range.date_from),
+            ],
         )
-        hot_indices = f"arrayMap(bin -> if(timestamp > bin AND dateDiff('seconds', bin, timestamp) < {bin_size}, 1, 0), {bin_times})"
-        # isHotIndex = f"dateDiff('{intervalStr}', {toStartOfInterval}(timestamp), {toStartOfInterval}(now())) = x"
-        # isLiveIndexFn = f"if({isHotIndex}, 1, 0)"
-        # constructed = f"arrayMap(x -> {isLiveIndexFn}, range({config.value}))"
-        summed = f"sumForEach({hot_indices})"
-        return parse_expr(summed)
+        end_time = ast.Call(
+            name="toDateTime",
+            args=[
+                ast.Constant(value=opts.date_range.date_to),
+            ],
+        )
+        total_size = ast.Call(
+            name="dateDiff",
+            args=[
+                ast.Constant(value="seconds"),
+                start_time,
+                end_time,
+            ],
+        )
+        bin_size = ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Div,
+            left=total_size,
+            right=ast.Constant(value=opts.resolution),
+        )
+        bin_timestamps = ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["i"],
+                    expr=ast.Call(
+                        name="dateAdd",
+                        args=[
+                            start_time,
+                            ast.Call(
+                                name="toIntervalSecond",
+                                args=[
+                                    ast.ArithmeticOperation(
+                                        op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["i"]), right=bin_size
+                                    )
+                                ],
+                            ),
+                        ],
+                    ),
+                ),
+                ast.Call(
+                    name="range",
+                    args=[
+                        ast.Constant(value=0),
+                        ast.Constant(value=opts.resolution),
+                    ],
+                ),
+            ],
+        )
+        hot_indices = ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["bin"],
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.And(
+                                exprs=[
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Gt,
+                                        left=ast.Field(chain=["timestamp"]),
+                                        right=ast.Field(chain=["bin"]),
+                                    ),
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Lt,
+                                        left=ast.Call(
+                                            name="dateDiff",
+                                            args=[
+                                                ast.Constant(value="seconds"),
+                                                ast.Field(chain=["bin"]),
+                                                ast.Field(chain=["timestamp"]),
+                                            ],
+                                        ),
+                                        right=bin_size,
+                                    ),
+                                ]
+                            ),
+                            ast.Constant(value=1),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                ),
+                bin_timestamps,
+            ],
+        )
+        summed = ast.Call(
+            name="sumForEach",
+            args=[hot_indices],
+        )
+        return summed
 
     def where(self):
         exprs: list[ast.Expr] = [
@@ -238,7 +321,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
     def results(self, columns: list[str], query_results: list):
         results = []
         mapped_results = [dict(zip(columns, value)) for value in query_results]
-
         issue_ids = [result["id"] for result in mapped_results]
 
         with self.timings.measure("issue_fetching_execute"):
@@ -252,10 +334,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     results.append(
                         issue
                         | {
-                            ## First seen timestamp is bounded by date range when querying for the list (comes from clickhouse) but it is global when querying for a single issue
-                            "first_seen": (
-                                issue.get("first_seen") if self.query.issueId else result_dict.get("first_seen")
-                            ),
                             "last_seen": result_dict.get("last_seen"),
                             "earliest": result_dict.get("earliest") if self.query.issueId else None,
                             "aggregations": self.extract_aggregations(result_dict),
@@ -265,8 +343,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return results
 
     def extract_aggregations(self, result):
-        aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeDay")}
-        aggregations["volumeRange"] = [1]  ## result.get("customVolume") if "customVolume" in result else None
+        aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeDay", "volumeRange")}
         return aggregations
 
     @property
