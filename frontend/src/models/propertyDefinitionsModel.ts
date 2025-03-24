@@ -441,7 +441,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             },
         ],
         getPropertyDefinition: [
-            (s) => [s.propertyDefinitionStorage],
+            (s) => [s.propertyDefinitionStorage, s.eventMetadataPropertyDefinitions],
             (
                     propertyDefinitionStorage,
                     eventMetadataPropertyDefinitions
