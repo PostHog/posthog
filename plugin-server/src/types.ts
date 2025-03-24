@@ -27,7 +27,6 @@ import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { ObjectStorage } from './utils/object_storage'
-import { TeamManagerLazy } from './utils/team-manager-lazy'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
@@ -342,8 +341,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
     PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: string
     PROPERTY_DEFS_WRITE_DISABLED: boolean
-
-    LAZY_TEAM_MANAGER_COMPARISON: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -368,7 +365,6 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigSecretLookup: Map<string, PluginConfigId>
     // tools
     teamManager: TeamManager
-    teamManagerLazy: TeamManagerLazy
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
@@ -667,9 +663,6 @@ export interface Team {
         | null
     cookieless_server_hash_mode: CookielessServerHashMode | null
     timezone: string
-
-    // NOTE: Currently only created on the lazy loader
-    available_features?: string[]
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
