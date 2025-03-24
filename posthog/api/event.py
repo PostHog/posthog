@@ -269,7 +269,7 @@ class EventViewSet(
 
         key = request.GET.get("key")
         event_names = request.GET.getlist("event_name", None)
-        is_column = request.GET.get("is_column", False)
+        is_column = request.GET.get("is_column", "false").lower() == "true"
 
         if key == "custom_event":
             system_events = [
