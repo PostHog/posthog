@@ -343,7 +343,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 <DefinitionPopover.Grid cols={2}>
-                    <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
+                    <DefinitionPopover.Card title="Type" value={_definition.property_type ?? '-'} />
                 </DefinitionPopover.Grid>
                 <LemonDivider className="DefinitionPopover my-4" />
                 <DefinitionPopover.Section>
