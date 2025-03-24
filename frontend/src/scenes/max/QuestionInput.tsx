@@ -25,6 +25,14 @@ export function QuestionInput(): JSX.Element {
         }
     }, [threadLoading])
 
+    useEffect(() => {
+        if (textAreaRef.current) {
+            // Autofocus, but a version that also moves cursor to end of text
+            textAreaRef.current.focus()
+            textAreaRef.current.setSelectionRange(textAreaRef.current.value.length, textAreaRef.current.value.length)
+        }
+    }, [])
+
     return (
         <div
             className={clsx(
@@ -42,14 +50,7 @@ export function QuestionInput(): JSX.Element {
             >
                 <div className="relative w-full">
                     <LemonTextArea
-                        ref={(el) => {
-                            textAreaRef.current = el
-                            if (el) {
-                                // Different from plain autofocus in that we also move cursor to end of text
-                                el.focus()
-                                el.setSelectionRange(el.value.length, el.value.length)
-                            }
-                        }}
+                        ref={textAreaRef}
                         value={question}
                         onChange={(value) => setQuestion(value)}
                         placeholder={threadLoading ? 'Thinking…' : isFloating ? 'Ask follow-up' : 'Ask away'}
