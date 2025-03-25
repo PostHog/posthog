@@ -344,7 +344,7 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s), toIntervalDay(3)), %(hogql_val_2)s))
+        and(equals(sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s), minus(%(hogql_val_2)s, toIntervalDay(3))), 0))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS sessions
@@ -379,7 +379,7 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_0)s), toIntervalDay(3)), %(hogql_val_1)s))
+        and(equals(sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_0)s), minus(%(hogql_val_1)s, toIntervalDay(3))), 0))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS sessions ON equals(events.`$session_id`, sessions.session_id)
@@ -417,7 +417,7 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), today()), 0))
+        and(equals(sessions.team_id, <TEAM_ID>), ifNull(lessOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), plus(today(), toIntervalDay(3))), 0))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS events__session ON equals(events.`$session_id`, events__session.session_id)
@@ -495,7 +495,7 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_4)s, %(hogql_val_5)s)))), lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_6)s), toIntervalDay(3)), assumeNotNull(toDateTime(%(hogql_val_7)s, %(hogql_val_8)s))))
+        and(equals(sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), minus(toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_4)s, %(hogql_val_5)s))), toIntervalDay(3))), 0), ifNull(lessOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_6)s), plus(assumeNotNull(toDateTime(%(hogql_val_7)s, %(hogql_val_8)s)), toIntervalDay(3))), 0))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
@@ -537,7 +537,7 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_2)s), toIntervalDay(3)), %(hogql_val_3)s), lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_4)s), toIntervalDay(3)), now64(6, %(hogql_val_5)s)))
+        and(equals(sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_2)s), minus(%(hogql_val_3)s, toIntervalDay(3))), 0), ifNull(lessOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_4)s), plus(now64(6, %(hogql_val_5)s), toIntervalDay(3))), 0))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS s__session ON equals(s.session_id, s__session.session_id)
