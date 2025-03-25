@@ -87,7 +87,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.team,
             conversation or self.conversation,
             HumanMessage(content=message),
-            self.user,
+            user=self.user,
             is_new_conversation=is_new_conversation,
         )
         if test_graph:
@@ -1007,7 +1007,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root(
                 {
-                    "docs": AssistantNodeName.INKEEP_DOCS,
+                    "search_documentation": AssistantNodeName.INKEEP_DOCS,
                     "root": AssistantNodeName.ROOT,
                     "end": AssistantNodeName.END,
                 }
