@@ -4,6 +4,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { Scene } from 'scenes/sceneTypes'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 import { teamLogic } from 'scenes/teamLogic'
@@ -99,7 +100,7 @@ export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
         values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeam', 'currentTeamLoading']],
-        actions: [teamLogic, ['loadCurrentTeam']],
+        actions: [teamLogic, ['loadCurrentTeam', 'updateCurrentTeamSuccess']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -181,6 +182,21 @@ export const surveysLogic = kea<surveysLogicType>([
                 return surveysResponsesCount
             },
         },
+        surveysOptInLastChanged: {
+            __default: undefined as ActivityLogItem | undefined,
+            loadSurveysOptInLastChanged: async () => {
+                const response = await api.activity.list({
+                    scope: 'Team',
+                })
+                return response.results
+                    .filter(
+                        (item) =>
+                            item.activity === 'updated' &&
+                            item.detail?.changes?.some((change) => change.field === 'surveys_opt_in')
+                    )
+                    .at(0)
+            },
+        },
     })),
     reducers({
         tab: [
@@ -252,6 +268,9 @@ export const surveysLogic = kea<surveysLogicType>([
             if (searchTerm && values.data.surveysCount > SURVEY_PAGE_SIZE) {
                 actions.loadSearchResults()
             }
+        },
+        updateCurrentTeamSuccess: () => {
+            actions.loadSurveysOptInLastChanged()
         },
     })),
     selectors({
@@ -359,5 +378,6 @@ export const surveysLogic = kea<surveysLogicType>([
     afterMount(({ actions }) => {
         actions.loadSurveys()
         actions.loadResponsesCount()
+        actions.loadSurveysOptInLastChanged()
     }),
 ])

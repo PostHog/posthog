@@ -1,6 +1,7 @@
 import { LemonButton, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useState } from 'react'
@@ -22,6 +23,7 @@ interface Props {
 function SurveyPopupToggle(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const { surveysOptInLastChanged } = useValues(surveysLogic)
 
     return (
         <div className="flex flex-col gap-1">
@@ -39,24 +41,37 @@ function SurveyPopupToggle(): JSX.Element {
                 checked={!!currentTeam?.surveys_opt_in}
                 className="p-0"
             />
-            <span>
-                Please note your website needs to have the{' '}
-                <Link to={urls.settings('project', 'snippet')}>PostHog snippet</Link> or at least version 1.81.1 of{' '}
-                <Link
-                    to="https://posthog.com/docs/libraries/js?utm_campaign=surveys&utm_medium=in-product"
-                    target="_blank"
-                >
-                    posthog-js
-                </Link>{' '}
-                directly installed. For more details, check out our{' '}
-                <Link
-                    to="https://posthog.com/docs/surveys/installation?utm_campaign=surveys&utm_medium=in-product"
-                    target="_blank"
-                >
-                    docs
-                </Link>
-                .
-            </span>
+            <div className="flex justify-between gap-8">
+                <div className="flex flex-col">
+                    <p className="m-0">
+                        Please note your website needs to have the{' '}
+                        <Link to={urls.settings('project', 'snippet')}>PostHog snippet</Link> or at least version 1.81.1
+                        of{' '}
+                        <Link
+                            to="https://posthog.com/docs/libraries/js?utm_campaign=surveys&utm_medium=in-product"
+                            target="_blank"
+                        >
+                            posthog-js
+                        </Link>{' '}
+                        directly installed.
+                    </p>
+                    <p className="m-0">
+                        For more details, check out our{' '}
+                        <Link
+                            to="https://posthog.com/docs/surveys/installation?utm_campaign=surveys&utm_medium=in-product"
+                            target="_blank"
+                        >
+                            docs
+                        </Link>
+                        .
+                    </p>
+                </div>
+                {surveysOptInLastChanged?.created_at && (
+                    <span className="flex whitespace-nowrap gap-1">
+                        Last changed <TZLabel time={surveysOptInLastChanged.created_at} />
+                    </span>
+                )}
+            </div>
         </div>
     )
 }
