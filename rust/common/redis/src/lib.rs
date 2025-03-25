@@ -136,17 +136,14 @@ impl Client for RedisClient {
         }
 
         let raw_bytes = fut?;
-        tracing::info!("got raw bytes {:?}", raw_bytes);
 
         match format {
             RedisValueFormat::Pickle => {
                 let string_response: String = serde_pickle::from_slice(&raw_bytes, Default::default())?;
-                tracing::info!("got string_response {:?}", string_response);
                 Ok(string_response)
             }
             RedisValueFormat::Utf8 => {
                 let string_response = String::from_utf8(raw_bytes)?;
-                tracing::info!("got string_response {:?}", string_response);
                 Ok(string_response)
             }
         }
