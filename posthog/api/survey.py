@@ -863,7 +863,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return cached_data
 
         # Build query parameters
-        params = {"team_id": self.team_id}
+        params: dict[str, Any] = {"team_id": str(self.team_id)}
         date_filter = ""
 
         if date_from:
