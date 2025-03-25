@@ -217,9 +217,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         >
                                             <LemonButton
                                                 className={cn(
-                                                    (activePanelIdentifier === item.identifier ||
-                                                        activeScene === item.identifier ||
-                                                        sceneBreadcrumbKeys.includes(item.identifier)) &&
+                                                    activePanelIdentifier === item.identifier &&
                                                         'bg-fill-button-tertiary-active'
                                                 )}
                                                 icon={<IconWrapper>{item.icon}</IconWrapper>}
@@ -284,13 +282,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         >
                                                             <LemonButton
                                                                 key={item.identifier}
-                                                                className={cn(
-                                                                    (activeScene === item.identifier ||
-                                                                        sceneBreadcrumbKeys.includes(
-                                                                            item.identifier
-                                                                        )) &&
-                                                                        'bg-fill-button-tertiary-active'
-                                                                )}
                                                                 icon={<IconWrapper>{item.icon}</IconWrapper>}
                                                                 sideIcon={
                                                                     item.tag ? (
@@ -314,13 +305,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 // This makes it a link if it has a to
                                                                 // we handle routing in the handleStaticNavbarItemClick function
                                                                 to={'to' in item ? item.to : undefined}
-                                                                active={
-                                                                    (activePanelIdentifier === item.identifier ||
-                                                                        sceneBreadcrumbKeys.includes(
-                                                                            item.identifier
-                                                                        )) &&
-                                                                    activeScene === item.identifier
-                                                                }
                                                             >
                                                                 {item.label}
                                                             </LemonButton>
