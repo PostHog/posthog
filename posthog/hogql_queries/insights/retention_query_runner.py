@@ -239,7 +239,12 @@ class RetentionQueryRunner(QueryRunner):
         )
 
         start_entity_expr = entity_to_expr(self.start_event, self.team)
+        return_entity_expr = entity_to_expr(self.return_event, self.team)
         global_event_filters = self.events_where_clause(event_query_type)
+
+        # Pre-filter events to only those we care about
+        is_relevant_event = ast.Or(exprs=[start_entity_expr, return_entity_expr])
+        global_event_filters.append(is_relevant_event)
 
         start_event_timestamps = parse_expr(
             """
@@ -338,7 +343,7 @@ class RetentionQueryRunner(QueryRunner):
                         """,
                         {
                             "start_of_interval_timestamp": start_of_interval_sql,
-                            "returning_entity_expr": entity_to_expr(self.return_event, self.team),
+                            "returning_entity_expr": return_entity_expr,
                             "filter_timestamp": self.events_timestamp_filter,
                         },
                     ),
@@ -448,6 +453,7 @@ class RetentionQueryRunner(QueryRunner):
                 ]
             ),
         )
+
         if (
             self.query.samplingFactor is not None
             and isinstance(self.query.samplingFactor, float)
@@ -460,12 +466,18 @@ class RetentionQueryRunner(QueryRunner):
         breakdowns = []
 
         if self.query.breakdownFilter:
-            # multiple breakdowns
             if self.query.breakdownFilter.breakdowns:
-                # extract and group by all breakdowns
                 for i, breakdown in enumerate(self.query.breakdownFilter.breakdowns):
-                    breakdown_extract_expr = self.breakdown_extract_expr(
-                        breakdown.property, cast(str, breakdown.type), breakdown.group_type_index
+                    # Only extract breakdown values from relevant events (start or return)
+                    breakdown_extract_expr = ast.Call(
+                        name="if",
+                        args=[
+                            is_relevant_event,
+                            self.breakdown_extract_expr(
+                                breakdown.property, cast(str, breakdown.type), breakdown.group_type_index
+                            ),
+                            ast.Constant(value=None),
+                        ],
                     )
                     breakdown_label = f"breakdown_{i}"
                     breakdowns.append(breakdown_label)
