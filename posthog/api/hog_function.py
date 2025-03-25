@@ -32,6 +32,7 @@ from posthog.cdp.validation import (
 )
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail, Change
 from posthog.models.hog_functions.hog_function import (
     HogFunction,
@@ -455,6 +456,44 @@ class HogFunctionViewSet(
 
         if res.status_code != 200:
             return Response({"status": "error"}, status=res.status_code)
+
+        return Response(res.json())
+
+    @action(detail=True, methods=["POST"])
+    def broadcast(self, request: Request, *args, **kwargs):
+        hog_function = self.get_object()
+        actors_query = {
+            "kind": "ActorsQuery",
+            "properties": hog_function.filters.get("properties", None),
+            "select": ["id", "any(pdi.distinct_id)", "properties", "created_at"],
+        }
+
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        for result in response.results:
+            globals = {
+                "event": {
+                    "event": "$broadcast",
+                    "elements_chain": "",
+                    "distinct_id": str(result[1]),
+                    "timestamp": result[3].isoformat(),
+                },
+                "person": {
+                    "id": str(result[0]),
+                    "distinct_id": str(result[1]),
+                    "properties": json.loads(result[2]),
+                    "created_at": result[3].isoformat(),
+                },
+            }
+            res = create_hog_invocation_test(
+                team_id=hog_function.team_id,
+                hog_function_id=hog_function.id,
+                payload={
+                    "globals": globals,
+                    "configuration": HogFunctionSerializer(hog_function).data,
+                    "mock_async_functions": False,
+                },
+            )
 
         return Response(res.json())
 
