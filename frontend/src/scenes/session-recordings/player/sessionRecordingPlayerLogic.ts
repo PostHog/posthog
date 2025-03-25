@@ -100,8 +100,53 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLo
     setPinned?: (pinned: boolean) => void
 }
 
+// weights should add up to 1
+const smoothingWeights = [
+    0.01,
+    0.02,
+    0.03,
+    0.06,
+    0.07,
+    0.09,
+    0.12,
+    0.2, // center point
+    0.12,
+    0.09,
+    0.07,
+    0.06,
+    0.03,
+    0.02,
+    0.01,
+]
+
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
     !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
+
+/**
+ * returns the relative second in the recording
+ * e.g. if the player starts at 1000ms and the snapshot is at 2000ms or 1500ms, the relative second is 1
+ */
+function toRelativeSecondInRecording(timestamp: number, playerStartTime: number): number {
+    return Math.trunc((timestamp - playerStartTime) / 1000)
+}
+
+const INCREMENTAL_SNAPSHOT_EVENT_TYPE = 3
+const ACTIVE_SOURCES = [
+    IncrementalSource.MouseMove,
+    IncrementalSource.MouseInteraction,
+    IncrementalSource.Scroll,
+    IncrementalSource.ViewportResize,
+    IncrementalSource.Input,
+    IncrementalSource.TouchMove,
+    IncrementalSource.MediaInteraction,
+    IncrementalSource.Drag,
+]
+function isUserActivity(snapshot: eventWithTime): boolean {
+    return (
+        snapshot.type === INCREMENTAL_SNAPSHOT_EVENT_TYPE &&
+        ACTIVE_SOURCES.indexOf(snapshot.data?.source as IncrementalSource) !== -1
+    )
+}
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
@@ -460,6 +505,77 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         sessionRecordingId: [() => [(_, props) => props], (props): string => props.sessionRecordingId],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
         playlistLogic: [() => [(_, props) => props], (props) => props.playlistLogic],
+
+        hasSnapshots: [
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData: SessionPlayerData) => {
+                return Object.keys(sessionPlayerData.snapshotsByWindowId).length > 0
+            },
+        ],
+
+        activityPerSecond: [
+            (s) => [s.sessionPlayerData, s.hasSnapshots],
+            (sessionPlayerData: SessionPlayerData, hasSnapshots: boolean) => {
+                const start = sessionPlayerData.start
+                if (start === null || !hasSnapshots) {
+                    return {}
+                }
+
+                // First add a 0 for every second in the recording
+                const rawActivity: Record<number, { y: number }> = {}
+                Array.from({ length: Math.ceil(sessionPlayerData.durationMs / 1000 + 1) }, (_, i) => i).forEach(
+                    (second) => {
+                        rawActivity[second] = { y: 0 }
+                    }
+                )
+
+                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([_, snapshots]) => {
+                    snapshots.forEach((snapshot) => {
+                        const timestamp = toRelativeSecondInRecording(snapshot.timestamp, start.valueOf())
+
+                        if (!rawActivity[timestamp]) {
+                            rawActivity[timestamp] = { y: 0 }
+                        }
+
+                        if (isUserActivity(snapshot)) {
+                            rawActivity[timestamp].y += 5000
+                        } else if (
+                            snapshot.type === EventType.IncrementalSnapshot &&
+                            'source' in snapshot.data &&
+                            snapshot.data.source === IncrementalSource.Mutation
+                        ) {
+                            rawActivity[timestamp].y +=
+                                snapshot.data.adds.length +
+                                snapshot.data.removes.length +
+                                snapshot.data.attributes.length +
+                                snapshot.data.texts.length
+                        }
+                    })
+                })
+
+                // Apply smoothing
+                const sortedSeconds = Object.keys(rawActivity)
+                    .map(Number)
+                    .sort((a, b) => a - b)
+
+                const smoothedActivity: typeof rawActivity = {}
+
+                sortedSeconds.forEach((second) => {
+                    let smoothedY = 0
+                    for (let i = -7; i <= 7; i++) {
+                        const neighborSecond = second + i
+                        if (rawActivity[neighborSecond]) {
+                            smoothedY += rawActivity[neighborSecond].y * smoothingWeights[i + 7]
+                        }
+                    }
+                    smoothedActivity[second] = {
+                        y: smoothedY,
+                    }
+                })
+
+                return smoothedActivity
+            },
+        ],
 
         roughAnimationFPS: [(s) => [s.playerSpeed], (playerSpeed) => playerSpeed * (1000 / 60)],
         currentPlayerState: [

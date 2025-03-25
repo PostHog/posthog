@@ -11,8 +11,8 @@ version = 1
 [install]
 # Python
 python3 = { pkg-path = "python3", version = "3.11.9", pkg-group = "python" } # Same as in Dockerfile
-uv = { pkg-path = "uv", pkg-group = "python" }
 libtool = { pkg-path = "libtool", pkg-group = "python" }
+uv = { pkg-path = "uv", pkg-group = "uv" }
 # Node
 nodejs = { pkg-path = "nodejs_18", pkg-group = "nodejs", version = "18.19.1" } # Same as in Dockerfile
 corepack = { pkg-path = "corepack_18", pkg-group = "nodejs" }
