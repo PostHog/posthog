@@ -118,27 +118,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }),
         ],
 
-        issueDateRange: [
-            (s) => [s.issue, s.lastSeen],
-            (issue, lastSeen) => {
-                if (!issue?.first_seen || !lastSeen) {
-                    return {}
-                }
-                return {
-                    date_from: dayjs(issue.first_seen).startOf('hour').toISOString(),
-                    date_to: dayjs().endOf('hour').toISOString(),
-                }
-            },
-        ],
+        issueDateRange: [(s) => [s.issue], (issue) => (issue?.first_seen ? getIssueDateRange(issue) : {})],
 
         firstSeen: [
             (s) => [s.issue],
-            (issue: ErrorTrackingRelationalIssue | null) => {
-                if (!issue?.first_seen) {
-                    return null
-                }
-                return dayjs(issue.first_seen)
-            },
+            (issue: ErrorTrackingRelationalIssue | null) => (issue?.first_seen ? dayjs(issue.first_seen) : null),
         ],
     }),
 
@@ -194,15 +178,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     listeners(({ props, actions }) => {
         return {
             loadIssueSuccess: [
-                ({ issue }) => {
-                    actions.loadProperties(issue)
-                },
-                ({ issue }) => {
-                    actions.loadSummary({
-                        date_from: dayjs(issue.first_seen).startOf('day').toISOString(),
-                        date_to: dayjs().endOf('minute').toISOString(),
-                    })
-                },
+                ({ issue }) => actions.loadProperties(issue),
+                ({ issue }) => actions.loadSummary(getIssueDateRange(issue)),
             ],
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
@@ -222,3 +199,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         }
     }),
 ])
+
+function getIssueDateRange(issue: ErrorTrackingRelationalIssue): DateRange {
+    return {
+        date_from: dayjs(issue.first_seen).startOf('day').toISOString(),
+        date_to: dayjs().endOf('minute').toISOString(),
+    }
+}

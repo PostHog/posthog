@@ -1,6 +1,6 @@
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { componentsToDayJs, dateStringToComponents } from 'lib/utils'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -155,7 +155,7 @@ export function resolveDate(date?: string | null): Dayjs {
     if (date == 'all') {
         return dayjs().subtract(1, 'year')
     }
-    const parsedDate = dateStringToDayJs(date)
+    const parsedDate = datetimeStringToDayJs(date)
     if (parsedDate) {
         return parsedDate
     }
@@ -170,17 +170,29 @@ const customOptions: Record<string, string> = {
     all: 'All',
 }
 
+const isRelative = /-\d+[hdmy]/
+
 export function generateDateRangeLabel(dateRange: DateRange): string | undefined {
     const dateFrom = dateRange.date_from
     if (!dateFrom) {
         return undefined
     }
-    const isRelative = dateFrom.match(/-\d+[hdmy]/)
+    const isDateRelative = isRelative.test(dateFrom)
     if (dateFrom in customOptions) {
         return customOptions[dateFrom]
-    } else if (isRelative) {
-        const label = dateFrom?.replace('-', '')
-        return label
+    } else if (isDateRelative) {
+        return dateFrom?.replace('-', '')
     }
     return undefined
+}
+
+export function datetimeStringToDayJs(date: string | null): Dayjs | null {
+    if (!isRelative.test(date || '')) {
+        return dayjs(date)
+    }
+    const dateComponents = dateStringToComponents(date)
+    if (!dateComponents) {
+        return dayjs()
+    }
+    return componentsToDayJs(dateComponents)
 }

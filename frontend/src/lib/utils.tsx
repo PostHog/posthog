@@ -2,8 +2,8 @@ import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import posthog from 'posthog-js'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { CSSProperties } from 'react'
 
 import {
@@ -1027,11 +1027,13 @@ export function dateFromToText(dateFrom: string): string | undefined {
     return undefined
 }
 
-export function dateStringToComponents(date: string | null): {
+export type DateComponents = {
     amount: number
     unit: (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
     clip: 'Start' | 'End'
-} | null {
+}
+
+export function dateStringToComponents(date: string | null): DateComponents | null {
     if (!date) {
         return null
     }
@@ -1046,37 +1048,27 @@ export function dateStringToComponents(date: string | null): {
     return { amount, unit, clip: clip as 'Start' | 'End' }
 }
 
-/** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
-export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
-    if (isDate.test(date || '')) {
-        return dayjs(date)
-    }
-    const dateComponents = dateStringToComponents(date)
-    if (!dateComponents) {
-        return null
-    }
-
-    const { unit, amount, clip } = dateComponents
+export function componentsToDayJs({ amount, unit, clip }: DateComponents, offset?: Dayjs): Dayjs {
+    const dayjsInstance = offset ?? dayjs()
     let response: dayjs.Dayjs
-
     switch (unit) {
         case 'year':
-            response = dayjs().add(amount, 'year')
+            response = dayjsInstance.add(amount, 'year')
             break
         case 'quarter':
-            response = dayjs().add(amount * 3, 'month')
+            response = dayjsInstance.add(amount * 3, 'month')
             break
         case 'month':
-            response = dayjs().add(amount, 'month')
+            response = dayjsInstance.add(amount, 'month')
             break
         case 'week':
-            response = dayjs().add(amount * 7, 'day')
+            response = dayjsInstance.add(amount * 7, 'day')
             break
         case 'day':
-            response = dayjs().add(amount, 'day')
+            response = dayjsInstance.add(amount, 'day')
             break
         case 'hour':
-            response = dayjs().add(amount, 'hour')
+            response = dayjsInstance.add(amount, 'hour')
             break
         default:
             throw new UnexpectedNeverError(unit)
@@ -1087,7 +1079,21 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     } else if (clip === 'End') {
         return response.endOf(unit)
     }
-    return response.startOf('day')
+    return response
+}
+
+/** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
+export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
+    if (isDate.test(date || '')) {
+        return dayjs(date)
+    }
+    const dateComponents = dateStringToComponents(date)
+    if (!dateComponents) {
+        return null
+    }
+    const offset: dayjs.Dayjs = dayjs().startOf('day')
+    const response = componentsToDayJs(dateComponents, offset)
+    return response
 }
 
 export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {
