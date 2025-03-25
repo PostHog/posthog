@@ -70,6 +70,7 @@ export interface DataVisualizationLogicProps {
     insightLoading?: boolean
     dashboardId?: DashboardType['id']
     loadPriority?: number
+    defaultVisualizationType?: ChartDisplayType
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
 }
@@ -302,7 +303,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         visualizationType: [
-            ChartDisplayType.ActionsTable as ChartDisplayType,
+            props.defaultVisualizationType ?? ChartDisplayType.ActionsTable,
             {
                 setVisualizationType: (_, { visualizationType }) => visualizationType,
             },
