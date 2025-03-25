@@ -109,10 +109,10 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/ai-engineering/observability',
     },
-    MessagingAutomations: { name: 'Messaging', projectBased: true },
+    MessagingAutomations: { name: 'Automations', projectBased: true },
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
     MessagingProviders: { name: 'Messaging', projectBased: true },
-    MessagingLibrary: { name: 'Messaging', projectBased: true },
+    MessagingLibrary: { name: 'Library', projectBased: true },
 }
 
 /** This const is auto-generated, as is the whole file */

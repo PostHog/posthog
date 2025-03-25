@@ -1,8 +1,9 @@
 import enum
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from django.conf import settings
 from django.db import models
+from django.db.models import QuerySet
 from django.db.models.signals import post_save, post_delete
 from django.dispatch.dispatcher import receiver
 import structlog
@@ -10,6 +11,7 @@ import structlog
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
@@ -20,6 +22,10 @@ from posthog.plugins.plugin_server_api import (
     reload_hog_functions_on_workers,
 )
 from posthog.utils import absolute_uri
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 DEFAULT_STATE = {"state": 0, "tokens": 0, "rating": 0}
 
@@ -55,8 +61,10 @@ TYPES_WITH_COMPILED_FILTERS = (
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
+TYPES_IN_FILE_SYSTEM = (HogFunctionType.DESTINATION, HogFunctionType.SITE_APP, HogFunctionType.TRANSFORMATION)
 
-class HogFunction(UUIDModel):
+
+class HogFunction(FileSystemSyncMixin, UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["type", "enabled", "team"]),
@@ -90,6 +98,34 @@ class HogFunction(UUIDModel):
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
     execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["HogFunction"]:
+        base_qs = HogFunction.objects.filter(team=team, deleted=False)
+        return cls._filter_unfiled_queryset(base_qs, team, type=list(TYPES_IN_FILE_SYSTEM), ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        if self.type == HogFunctionType.SITE_APP:
+            folder = "Unfiled/Site apps"
+            url_type = "site-apps"
+        elif self.type == HogFunctionType.TRANSFORMATION:
+            folder = "Unfiled/Transformations"
+            url_type = "transformations"
+        else:
+            folder = "Unfiled/Destinations"
+            url_type = f"{self.type}s"
+        return FileSystemRepresentation(
+            base_folder=folder,
+            type=str(self.type),
+            ref=str(self.pk),
+            name=self.name or "Untitled",
+            href=f"/pipeline/{url_type}/hog-{self.pk}/configuration",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=self.deleted,
+        )
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
