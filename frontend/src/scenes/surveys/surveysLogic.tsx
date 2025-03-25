@@ -183,7 +183,7 @@ export const surveysLogic = kea<surveysLogicType>([
             },
         },
         surveysOptInLastChanged: {
-            __default: null as ActivityLogItem | null,
+            __default: undefined as ActivityLogItem | undefined,
             loadSurveysOptInLastChanged: async () => {
                 const response = await api.activity.list({
                     scope: 'Team',
