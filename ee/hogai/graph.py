@@ -313,7 +313,7 @@ class AssistantGraph:
 
         builder.add_conditional_edges(
             AssistantNodeName.START,
-            memory_onboarding.memory_onboarding_should_run,
+            memory_onboarding.should_run,
             path_map={True: AssistantNodeName.MEMORY_ONBOARDING, False: next_node},
         )
         builder.add_conditional_edges(
