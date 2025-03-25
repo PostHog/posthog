@@ -73,7 +73,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
     },
     [BillingPlan.Teams]: {
         title: 'Good call!',
-        subtitle: "You're on the Teams plan.",
+        subtitle: "You're on the Ridiculously Cheap™ plan (with Teams).",
         backgroundColor: 'bg-warning-highlight',
         getDescription: (_billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
             <p>

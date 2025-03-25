@@ -88,9 +88,14 @@ export const BillingSummary = (): JSX.Element => {
                         <div>
                             <p className="ml-0 mb-0 break-words">
                                 {billing?.has_active_subscription ? 'Billing period' : 'Cycle'}:{' '}
-                                <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
-                                <b>{billing.billing_period.current_period_end.format('LL')}</b> (
-                                {billing.billing_period.current_period_end.diff(dayjs(), 'days')} days remaining)
+                                <b className="whitespace-nowrap">
+                                    {billing.billing_period.current_period_start.format('LL')}
+                                </b>{' '}
+                                to{' '}
+                                <b className="whitespace-nowrap">
+                                    {billing.billing_period.current_period_end.format('LL')}
+                                </b>{' '}
+                                ({billing.billing_period.current_period_end.diff(dayjs(), 'days')} days remaining)
                             </p>
                             {!billing.has_active_subscription && (
                                 <p className="italic ml-0 text-secondary mb-0 break-words">
