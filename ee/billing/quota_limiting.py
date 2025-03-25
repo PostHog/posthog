@@ -194,7 +194,7 @@ def org_quota_limited_until(
         return None
 
     # 1b. never drop or high trust
-    if organization.never_drop_data or trust_score == 15:
+    if (organization.never_drop_data and resource != QuotaResource.QAAS_READ_BYTES) or trust_score == 15:
         report_organization_action(
             organization,
             "org_quota_limited_until",
