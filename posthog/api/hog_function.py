@@ -485,7 +485,7 @@ class HogFunctionViewSet(
                     "created_at": result[3].isoformat(),
                 },
             }
-            res = create_hog_invocation_test(
+            create_hog_invocation_test(
                 team_id=hog_function.team_id,
                 hog_function_id=hog_function.id,
                 payload={
@@ -495,7 +495,7 @@ class HogFunctionViewSet(
                 },
             )
 
-        return Response(res.json())
+        return Response({"success": True})
 
     def perform_create(self, serializer):
         serializer.save()
