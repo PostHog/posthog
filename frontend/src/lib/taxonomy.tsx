@@ -283,14 +283,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             examples: ['$pageview'],
             system: true,
         },
-    },
-    event_metadata: {
         person_id: {
             label: 'Person ID',
             description: 'The ID of the person, depending on the person properties mode.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
         },
-        // Other values are assigned below
+    },
+    event_metadata: {
+        // Values are copied from 'metadata' below.
     },
     event_properties: {
         $python_runtime: {
@@ -1785,7 +1785,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINI
 // add distinct_id to event properties before copying to person properties so it exists in person properties as well
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.distinct_id = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata.distinct_id
 // Copy meta properties to event_metadata
-for (const key of ['distinct_id', 'timestamp', 'event']) {
+for (const key of ['distinct_id', 'timestamp', 'event', 'person_id']) {
     CORE_FILTER_DEFINITIONS_BY_GROUP.event_metadata[key] = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata[key]
 }
 
