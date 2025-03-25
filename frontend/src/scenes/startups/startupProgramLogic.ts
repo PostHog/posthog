@@ -72,7 +72,7 @@ export interface StartupProgramLogicProps {
     isYC: boolean
 }
 
-function validateIncorporationDate(date: Dayjs | null): string | undefined {
+function validateIncorporationDate(date: Dayjs | null, isYC: boolean): string | undefined {
     if (!date) {
         return 'Please enter your incorporation date'
     }
@@ -82,8 +82,21 @@ function validateIncorporationDate(date: Dayjs | null): string | undefined {
     if (date.isAfter(dayjs())) {
         return 'Incorporation date cannot be in the future'
     }
-    if (date.isBefore(dayjs().subtract(2, 'year'))) {
+    if (!isYC && date.isBefore(dayjs().subtract(2, 'year'))) {
         return 'Company must be less than 2 years old to be eligible'
+    }
+    return undefined
+}
+
+function validateFunding(raised: string | undefined, isYC: boolean): string | undefined {
+    if (!raised) {
+        return 'Please select how much funding you have raised'
+    }
+    if (!isYC) {
+        const raisedAmount = parseInt(raised)
+        if (raisedAmount >= 5000000) {
+            return 'Companies that have raised $5M or more are not eligible for the startup program'
+        }
     }
     return undefined
 }
@@ -183,8 +196,8 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                     posthog_organization_name: !posthog_organization_name
                         ? 'Please enter your PostHog organization name'
                         : undefined,
-                    raised: !raised ? 'Please select how much funding you have raised' : undefined,
-                    incorporation_date: validateIncorporationDate(incorporation_date),
+                    raised: validateFunding(raised, props.isYC),
+                    incorporation_date: validateIncorporationDate(incorporation_date, props.isYC),
                     is_building_with_llms: !is_building_with_llms
                         ? 'Please select whether you are building with LLMs'
                         : undefined,

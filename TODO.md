@@ -27,9 +27,9 @@ Steps:
   - [x] Use billingLogic to determine
   - [x] If not on a paid plan, show CTA to upgrade (link to /organization/billing)
   - [x] Prevent submit if not on paid plan
-- [ ] Implement form validation and error handling
-  - [ ] Add validation for required fields, email format, domain format
-  - [ ] Add non-YC validation (company age < 2 years, funding < $5M) and show that they're not eligible upon submission attempt
+- [x] Implement form validation and error handling
+  - [x] Add validation for required fields, email format, domain format
+  - [x] Add non-YC validation (company age < 2 years, funding < $5M)
 - [ ] Implement form submission
   - [ ] Add loading states and success/error handling
   - [ ] Trigger webhook upon submission
