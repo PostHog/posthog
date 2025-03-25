@@ -1138,7 +1138,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         res, q, params = execute(filter, self.team)
-        self.assertEqual({p1.uuid, p2.uuid}, {r[0] for r in res})
+        self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
 
     @snapshot_clickhouse_queries
     def test_person_props_only(self):
@@ -3217,6 +3217,104 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res, q, params = execute(filter, self.team)
 
         self.assertCountEqual([p4.uuid], [r[0] for r in res])
+
+    def test_performed_event_regularly_long_term(self):
+        """Test for a long-term (30 year) regular event filter requiring at least 2 occurrences."""
+        # Person 1: Matches the condition - has 2 "Application Opened" events
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test1", "email": "test1@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        # Person 2: Doesn't match - has only 1 "Application Opened" event
+        p2 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"name": "test2", "email": "test2@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        # Person 3: Doesn't match - has different events, no "Application Opened"
+        p3 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p3"],
+            properties={"name": "test3", "email": "test3@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        flush_persons_and_events()
+
+        # Create the filter exactly as specified in the request
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "Application Opened",
+                                    "type": "behavioral",
+                                    "value": "performed_event_regularly",
+                                    "negation": False,
+                                    "operator": "gte",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "min_periods": 1,
+                                    "time_interval": "year",
+                                    "total_periods": 1,
+                                    "operator_value": 2,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            }
+        )
+
+        # Execute the filter
+        res, q, params = execute(filter, self.team)
+
+        # Only person 1 should match
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0][0], p1.uuid)
+        self.assertNotIn(p2.uuid, [r[0] for r in res])
+        self.assertNotIn(p3.uuid, [r[0] for r in res])
 
 
 class TestCohortNegationValidation(BaseTest):
