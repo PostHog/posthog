@@ -61,6 +61,11 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
     property: str = Field(..., description="Property name from the plan to break down by.")
 
 
+class AssistantContextualTool(StrEnum):
+    SEARCH_SESSION_RECORDINGS = "search_session_recordings"
+    FIELD_ = "_"
+
+
 class AssistantDateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -225,6 +230,13 @@ class AssistantToolCallMessage(BaseModel):
     id: Optional[str] = None
     tool_call_id: str
     type: Literal["tool"] = "tool"
+    ui_payload: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages"
+            " without a ui_payload are not passed through to the frontend."
+        ),
+    )
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -1561,6 +1573,17 @@ class ReasoningMessage(BaseModel):
     type: Literal["ai/reasoning"] = "ai/reasoning"
 
 
+class RecordingDurationFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: DurationType
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["recording"] = "recording"
+    value: float
+
+
 class RecordingOrder(StrEnum):
     DURATION = "duration"
     RECORDING_DURATION = "recording_duration"
@@ -1675,6 +1698,23 @@ class RevenueTrackingEventItem(BaseModel):
         default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
     )
     revenueProperty: str
+
+
+class RootAssistantMessage1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    tool_call_id: str
+    type: Literal["tool"] = "tool"
+    ui_payload: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages"
+            " without a ui_payload are not passed through to the frontend."
+        ),
+    )
 
 
 class SamplingRate(BaseModel):
@@ -7594,6 +7634,34 @@ class InsightFilter(
     root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
 
 
+class MaxInnerUniversalFiltersGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: FilterLogicalOperator
+    values: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, RecordingPropertyFilter]]
+
+
+class MaxOuterUniversalFiltersGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: FilterLogicalOperator
+    values: list[MaxInnerUniversalFiltersGroup]
+
+
+class MaxRecordingUniversalFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    duration: list[RecordingDurationFilter]
+    filter_group: MaxOuterUniversalFiltersGroup
+    filter_test_accounts: Optional[bool] = None
+    order: Optional[RecordingOrder] = RecordingOrder.START_TIME
+
+
 class PropertyGroupFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7707,9 +7775,20 @@ class RetentionQueryResponse(BaseModel):
 
 
 class RootAssistantMessage(
-    RootModel[Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]]
+    RootModel[
+        Union[
+            VisualizationMessage,
+            ReasoningMessage,
+            AssistantMessage,
+            HumanMessage,
+            FailureMessage,
+            RootAssistantMessage1,
+        ]
+    ]
 ):
-    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]
+    root: Union[
+        VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RootAssistantMessage1
+    ]
 
 
 class StickinessQuery(BaseModel):
