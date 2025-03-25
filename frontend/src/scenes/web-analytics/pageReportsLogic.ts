@@ -520,7 +520,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 actions.setPageUrl(searchParams.pageURL)
             }
 
-            if (Boolean(searchParams.stripQueryParams) !== values.stripQueryParams) {
+            if (!!searchParams.stripQueryParams !== values.stripQueryParams) {
                 actions.toggleStripQueryParams()
             }
         },
