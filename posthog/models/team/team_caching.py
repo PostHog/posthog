@@ -44,9 +44,10 @@ def set_team_in_cache(token: str, team: Optional["Team"] = None) -> None:
     # the serialized team should have many settings... if there are less than 6, something is wrong
     if len(serialized_team.keys()) <= 6:
         logger.error(
-            f"Team {team.id} has no session recording URL config. It might be using an incorrectly serialized team.",
+            f"Team {team.id} has suspiciously few keys. It might be using an incorrectly serialized team.",
             team_id=team.id,
             token=token,
+            number_of_keys=len(serialized_team.keys()),
             serialized_team=serialized_team,
             stack_info=True,
         )
