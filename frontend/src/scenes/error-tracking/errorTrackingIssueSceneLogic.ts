@@ -1,7 +1,8 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import api, { ApiError } from 'lib/api'
+import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { posthog } from 'posthog-js'
 import { Scene } from 'scenes/sceneTypes'
@@ -9,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import {
+    DateRange,
     ErrorTrackingIssue,
     ErrorTrackingIssueAggregations,
     ErrorTrackingIssueAssignee,
@@ -39,7 +41,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     actions({
         loadIssue: true,
-        loadAggregations: true,
+        loadProperties: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
+        loadSummary: (dateRange: DateRange) => ({ dateRange }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         setSummary: (
             lastSeen: string,
@@ -48,63 +51,38 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ) => ({ lastSeen, properties, aggregations }),
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
-        setIssueLoading: (loading: boolean) => ({ loading }),
-        setSummaryLoading: (loading: boolean) => ({ loading }),
     }),
 
     defaults({
-        name: null as string | null,
-        description: null as string | null,
-        status: null as ErrorTrackingIssueStatus | null,
-        assignee: null as ErrorTrackingIssueAssignee | null,
-        firstSeen: null as Dayjs | null,
-        lastSeen: null as Dayjs | null,
+        issue: null as ErrorTrackingRelationalIssue | null,
         properties: {} as Record<string, string>,
+        lastSeen: null as Dayjs | null,
         aggregations: null as ErrorTrackingIssueAggregations | null,
-        issueLoading: false,
-        summaryLoading: false,
     }),
 
     reducers({
-        name: {
-            setIssue: (_, { issue: { name } }) => name,
-        },
-        description: {
-            setIssue: (_, { issue: { description } }) => description,
-        },
-        status: {
-            setIssue: (_, { issue: { status } }) => status,
-            updateStatus: (_, { status }) => status,
-        },
-        assignee: {
-            setIssue: (_, { issue: { assignee } }) => assignee,
-            updateAssignee: (_, { assignee }) => assignee,
-        },
-        firstSeen: {
-            setIssue: (_, { issue: { first_seen } }) => dayjs(first_seen),
+        issue: {
+            setIssue: (_, { issue }: { issue: ErrorTrackingRelationalIssue }) => issue,
+            updateAssignee: (state, { assignee }) => {
+                return state ? { ...state, assignee } : null
+            },
+            updateStatus: (state, { status }) => {
+                return state ? { ...state, status } : null
+            },
         },
         lastSeen: {
             setSummary: (_, { lastSeen }) => dayjs(lastSeen),
         },
-        properties: {
-            setSummary: (_, { properties }) => properties,
-        },
         aggregations: {
             setSummary: (_, { aggregations }) => aggregations,
-        },
-        issueLoading: {
-            setIssueLoading: (_, { loading }) => loading,
-        },
-        summaryLoading: {
-            setSummaryLoading: (_, { loading }) => loading,
         },
     }),
 
     selectors({
         breadcrumbs: [
-            (s) => [s.name],
-            (name: string | null): Breadcrumb[] => {
-                const exceptionType: string = name || 'Unknown Type'
+            (s) => [s.issue],
+            (issue: ErrorTrackingRelationalIssue): Breadcrumb[] => {
+                const exceptionType: string = issue.name || 'Unknown Type'
                 return [
                     {
                         key: Scene.ErrorTracking,
@@ -141,37 +119,65 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
 
         issueDateRange: [
-            (s) => [s.firstSeen, s.lastSeen],
-            (firstSeen, lastSeen) => {
-                if (!firstSeen || !lastSeen) {
-                    return null
+            (s) => [s.issue, s.lastSeen],
+            (issue, lastSeen) => {
+                if (!issue?.first_seen || !lastSeen) {
+                    return {}
                 }
                 return {
-                    date_from: firstSeen.startOf('hour').toISOString(),
+                    date_from: dayjs(issue.first_seen).startOf('hour').toISOString(),
                     date_to: dayjs().endOf('hour').toISOString(),
                 }
             },
         ],
+
+        firstSeen: [
+            (s) => [s.issue],
+            (issue: ErrorTrackingRelationalIssue | null) => {
+                if (!issue?.first_seen) {
+                    return null
+                }
+                return dayjs(issue.first_seen)
+            },
+        ],
     }),
 
-    listeners(({ props, values, actions }) => {
-        function onFailure(error: any, message: string): void {
-            posthog.captureException(error)
-            lemonToast.error(message)
-        }
-        const loadAggregations = async (): Promise<void> => {
-            try {
-                if (!values.firstSeen) {
-                    throw new Error('First seen date is required')
-                }
-                actions.setSummaryLoading(true)
+    loaders(({ actions, props }) => ({
+        issue: {
+            loadIssue: async () => {
+                const issue = await api.errorTracking.getIssue(props.id, props.fingerprint)
+                return issue
+            },
+        },
+        properties: [
+            {} as Record<string, string>,
+            {
+                loadProperties: async ({ issue }) => {
+                    const firstSeen = dayjs(issue.first_seen)
+                    const response = await api.query(
+                        errorTrackingIssueQuery({
+                            issueId: props.id,
+                            dateRange: {
+                                date_from: firstSeen.startOf('hour').toISOString(),
+                                date_to: firstSeen.endOf('hour').toISOString(),
+                            },
+                            volumeResolution: 0,
+                        }),
+                        {},
+                        undefined,
+                        'blocking'
+                    )
+                    const issueAgg = response.results[0]
+                    return JSON.parse(issueAgg.earliest!)
+                },
+            },
+        ],
+        summary: {
+            loadSummary: async ({ dateRange }) => {
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,
-                        dateRange: {
-                            date_from: values.firstSeen.startOf('hour').toISOString(),
-                            date_to: dayjs().endOf('hour').toISOString(),
-                        },
+                        dateRange,
                         volumeResolution: 40,
                     }),
                     {},
@@ -180,33 +186,31 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 )
                 const issue = response.results[0]
                 actions.setSummary(issue.last_seen!, JSON.parse(issue.earliest!), issue.aggregations!)
-            } catch (error) {
-                onFailure(error, 'Failed to load aggregation metrics')
-            } finally {
-                actions.setSummaryLoading(false)
-            }
-        }
+                return null
+            },
+        },
+    })),
 
-        const loadIssue = async (): Promise<void> => {
-            try {
-                actions.setIssueLoading(true)
-                const response = await api.errorTracking.getIssue(props.id, props.fingerprint)
-                actions.setIssue(response)
-                actions.loadAggregations()
-            } catch (error) {
-                if (error instanceof ApiError && error.status == 308 && 'issue_id' in error.data) {
-                    router.actions.replace(urls.errorTrackingIssue(error.data.issue_id))
-                } else {
-                    onFailure(error, 'Failed to load issue')
-                }
-            } finally {
-                actions.setIssueLoading(false)
-            }
-        }
-
+    listeners(({ props, actions }) => {
         return {
-            loadIssue,
-            loadAggregations,
+            loadIssueSuccess: [
+                ({ issue }) => {
+                    actions.loadProperties(issue)
+                },
+                ({ issue }) => {
+                    actions.loadSummary({
+                        date_from: dayjs(issue.first_seen).startOf('day').toISOString(),
+                        date_to: dayjs().endOf('minute').toISOString(),
+                    })
+                },
+            ],
+            loadIssueFailure: ({ errorObject: { status, data } }) => {
+                if (status == 308 && 'issue_id' in data) {
+                    router.actions.replace(urls.errorTrackingIssue(data.issue_id))
+                } else {
+                    lemonToast.error('Failed to load issue')
+                }
+            },
             updateStatus: async ({ status }) => {
                 posthog.capture('error_tracking_issue_status_updated', { status, issue_id: props.id })
                 await api.errorTracking.updateIssue(props.id, { status })

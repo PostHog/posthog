@@ -9,7 +9,8 @@ import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackin
 import { OccurrenceSparkline, useSparklineData } from '../OccurrenceSparkline'
 
 export const Metadata = (): JSX.Element => {
-    const { firstSeen, lastSeen, description, aggregations, issueDateRange } = useValues(errorTrackingIssueSceneLogic)
+    const { firstSeen, lastSeen, issue, issueLoading, aggregations, issueDateRange } =
+        useValues(errorTrackingIssueSceneLogic)
     const [values, labels] = useSparklineData('custom', issueDateRange, aggregations || undefined)
     const hasSessionCount = aggregations && aggregations.sessions !== 0
 
@@ -35,7 +36,7 @@ export const Metadata = (): JSX.Element => {
 
     return (
         <div className="space-y-2 pb-5">
-            {description ? <ClampedText text={description} lines={2} /> : <LemonSkeleton />}
+            {!issueLoading ? <ClampedText text={issue?.description || ''} lines={2} /> : <LemonSkeleton />}
             <div className="flex flex-1 justify-between py-3">
                 <div className="flex items-end deprecated-space-x-6">
                     <div>

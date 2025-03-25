@@ -1,12 +1,12 @@
 import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
-const volumePeriods: ('customVolume' | 'volumeDay' | 'volumeMonth')[] = ['customVolume', 'volumeDay', 'volumeMonth']
+const volumePeriods: ('volumeRange' | 'volumeDay')[] = ['volumeRange', 'volumeDay']
 const sumVolumes = (...arrays: number[][]): number[] =>
     arrays[0].map((_, i) => arrays.reduce((sum, arr) => sum + arr[i], 0))
 
@@ -129,11 +129,35 @@ export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): bool
 }
 
 export function generateSparklineLabels(range: DateRange, resolution: number): string[] {
+    const resolvedDateRange = resolveDateRange(range)
+    const from = dayjs(resolvedDateRange.date_from)
+    const to = dayjs(resolvedDateRange.date_to)
     const labels = Array.from({ length: resolution }, (_, i) => {
-        const from = range.date_from ? dateStringToDayJs(range.date_from)! : dayjs()
-        const to = range.date_to ? dateStringToDayJs(range.date_to)! : dayjs()
         const bin_size = Math.floor(to.diff(from, 'seconds') / resolution)
         return from.add(i * bin_size, 'seconds').toISOString()
     })
     return labels
+}
+
+// Converts relative date range to absolute date range
+export function resolveDateRange(dateRange: DateRange): DateRange {
+    return {
+        date_from: resolveDate(dateRange.date_from).toISOString(),
+        date_to: resolveDate(dateRange.date_to).toISOString(),
+    }
+}
+
+// Converts relative date to absolute date.
+export function resolveDate(date?: string | null): Dayjs {
+    if (!date) {
+        return dayjs()
+    }
+    if (date == 'all') {
+        return dayjs().subtract(1, 'year')
+    }
+    const parsedDate = dateStringToDayJs(date)
+    if (parsedDate) {
+        return parsedDate
+    }
+    throw new Error(`Invalid date: ${date}`)
 }

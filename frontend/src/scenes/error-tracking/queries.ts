@@ -8,6 +8,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
+import { resolveDateRange } from './utils'
+
 export const errorTrackingQuery = ({
     orderBy,
     status,
@@ -41,7 +43,7 @@ export const errorTrackingQuery = ({
             kind: NodeKind.ErrorTrackingQuery,
             orderBy,
             status,
-            dateRange,
+            dateRange: resolveDateRange(dateRange),
             assignee,
             volumeResolution,
             filterGroup: filterGroup as PropertyGroupFilter,
@@ -68,7 +70,7 @@ export const errorTrackingIssueQuery = ({
     return {
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
-        dateRange,
+        dateRange: resolveDateRange(dateRange),
         filterTestAccounts: false,
         volumeResolution,
     }

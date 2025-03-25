@@ -7,7 +7,7 @@ import { ChainedStackTraces } from 'lib/components/Errors/StackTraces'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 
 import { errorTrackingIssueSceneLogic } from '../../errorTrackingIssueSceneLogic'
-import { getExceptionAttributes, hasAnyInAppFrames } from '../../utils'
+import { getExceptionAttributes, hasAnyInAppFrames, hasStacktrace } from '../../utils'
 
 export function StacktraceWidget(): JSX.Element {
     const { properties, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
@@ -16,7 +16,7 @@ export function StacktraceWidget(): JSX.Element {
     const { setShowAllFrames, reverseFrameOrder } = useActions(stackFrameLogic)
     const { exceptionList } = getExceptionAttributes(properties)
 
-    const hasStacktrace = exceptionList.length > 0
+    const showStacktrace = hasStacktrace(exceptionList)
     const hasAnyInApp = hasAnyInAppFrames(exceptionList)
     const orderedExceptions = applyFrameOrder(exceptionList, frameOrderReversed)
 
@@ -25,7 +25,7 @@ export function StacktraceWidget(): JSX.Element {
             title="Stacktrace"
             actions={
                 <div className="flex gap-2">
-                    {!propertiesLoading && hasStacktrace && (
+                    {!propertiesLoading && showStacktrace && (
                         <LemonButton
                             className="space-x-2"
                             type="tertiary"
@@ -51,13 +51,13 @@ export function StacktraceWidget(): JSX.Element {
             }
         >
             <div className="p-2">
-                {!propertiesLoading && hasStacktrace && (
+                {!propertiesLoading && showStacktrace && (
                     <ChainedStackTraces
                         showAllFrames={hasAnyInApp ? showAllFrames : true}
                         exceptionList={orderedExceptions}
                     />
                 )}
-                {!propertiesLoading && !hasStacktrace && (
+                {!propertiesLoading && !showStacktrace && (
                     <EmptyMessage
                         title="No stacktrace available"
                         description="Make sure sdk is setup correctly or contact support if problem persists"

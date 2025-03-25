@@ -37,7 +37,7 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { status, assignee, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
     const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
     const [activeTab, setActiveTab] = useState('stacktrace')
 
@@ -51,9 +51,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 <PageHeader
                     buttons={
                         <div className="flex gap-x-2">
-                            {status == 'active' && (
+                            {!issueLoading && issue?.status == 'active' && (
                                 <AssigneeSelect
-                                    assignee={assignee}
+                                    assignee={issue?.assignee}
                                     onChange={updateAssignee}
                                     type="secondary"
                                     showName
@@ -62,7 +62,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                             {!issueLoading && (
                                 <GenericSelect
                                     size="small"
-                                    current={status}
+                                    current={issue?.status}
                                     values={['active', 'resolved', 'suppressed']}
                                     placeholder="Mark as"
                                     renderValue={(value) => (

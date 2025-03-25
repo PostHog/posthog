@@ -4,9 +4,9 @@ import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackin
 import { getExceptionAttributes } from 'scenes/error-tracking/utils'
 
 export const Overview = (): JSX.Element => {
-    const { properties, summaryLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { properties, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
 
-    if (summaryLoading) {
+    if (propertiesLoading) {
         return (
             <div className="space-y-2 p-2">
                 <LemonSkeleton />
@@ -31,7 +31,9 @@ export const Overview = (): JSX.Element => {
                 .map((row, index) => (
                     <div key={index} className="flex items-center justify-between">
                         <span className="font-semibold w-full">{row.label}</span>
-                        <span className="w-full truncate">{row.value + ''}</span>
+                        <span className="w-full truncate" title={row.value}>
+                            {row.value + ''}
+                        </span>
                     </div>
                 ))}
         </div>
