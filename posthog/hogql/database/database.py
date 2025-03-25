@@ -555,6 +555,8 @@ def create_hogql_database(
             except Exception as e:
                 capture_exception(e)
 
+    database.__setattr__("hello.events", EventsTable())
+
     return database
 
 
