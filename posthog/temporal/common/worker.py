@@ -69,13 +69,13 @@ async def start_worker(
 
     # catch the TERM and INT signals, and stop the worker gracefully
     # https://github.com/temporalio/sdk-python#worker-shutdown
-    async def shutdown_worker(s: signal.Signals):
+    async def shutdown_worker(s: str):
         logger.info("%s received, initiating Temporal worker shutdown", s)
         await worker.shutdown()
         logger.info("Finished Temporal worker shutdown")
 
     loop = asyncio.get_event_loop()
-    for s in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(s, lambda s=s: asyncio.create_task(shutdown_worker(s)))
+    loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(shutdown_worker("SIGINT")))
+    loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(shutdown_worker("SIGTERM")))
 
     await worker.run()
