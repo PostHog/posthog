@@ -13,8 +13,9 @@ use metrics_consts::{
 };
 use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{self, error::TrySendError};
+use tokio::task::JoinHandle;
 use tracing::{error, warn};
-use types::{Event, Update};
+use types::{Event, EventDefinitionsBatch, EventPropertiesBatch, PropertyDefinitionsBatch, Update};
 
 pub mod api;
 pub mod app_context;
@@ -24,6 +25,7 @@ pub mod types;
 
 const BATCH_UPDATE_MAX_ATTEMPTS: u64 = 2;
 const UPDATE_RETRY_DELAY_MS: u64 = 50;
+const MAX_V2_BATCH_RETRY_ATTEMPTS: u64 = 3;
 
 pub async fn update_consumer_loop(
     config: Config,
@@ -77,68 +79,305 @@ pub async fn update_consumer_loop(
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
-        // We split our update batch into chunks, one per transaction. We know each update touches
-        // exactly one row, so we can issue the chunks in parallel, and smaller batches issue faster,
-        // which helps us with inter-pod deadlocking and retries.
-        let chunk_size = batch.len() / config.max_concurrent_transactions;
-        let mut chunks = vec![Vec::with_capacity(chunk_size); config.max_concurrent_transactions];
-        for (i, update) in batch.drain(..).enumerate() {
-            chunks[i % config.max_concurrent_transactions].push(update);
+        if config.v2_enabled {
+            process_batch_v2(&config, cache.clone(), context.clone(), batch).await;
+        } else {
+            process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
         }
-
-        metrics::gauge!(CHUNK_SIZE).set(chunk_size as f64);
-
-        let mut handles = Vec::new();
-        let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
-        for mut chunk in chunks {
-            let m_context = context.clone();
-            let m_cache = cache.clone();
-            let handle = tokio::spawn(async move {
-                let mut tries: u64 = 0;
-                // We occasionally encounter deadlocks while issuing updates, so we retry a few times, and
-                // if we still fail, we drop the batch and clear it's content from the cached update set, because
-                // we assume everything in it will be seen again.
-                while let Err(e) = m_context.issue(&mut chunk, cache_utilization).await {
-                    tries += 1;
-                    if tries > BATCH_UPDATE_MAX_ATTEMPTS {
-                        let chunk_len = chunk.len() as u64;
-                        metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);
-                        metrics::counter!(UPDATES_DROPPED, &[("reason", "batch_write_fail")])
-                            .increment(chunk_len);
-                        error!(
-                            "Issue failed: retries exhausted, dropping batch of size {} with error: {:?}",
-                            chunk_len, e,
-                        );
-                        // We clear any updates that were in this batch from the cache, so that
-                        // if we see them again we'll try again to issue them.
-                        chunk.iter().for_each(|u| {
-                            if m_cache.remove(u).is_some() {
-                                metrics::counter!(UPDATES_CACHE, &[("action", "removed")])
-                                    .increment(1);
-                            } else {
-                                metrics::counter!(UPDATES_CACHE, &[("action", "not_cached")])
-                                    .increment(1);
-                            }
-                        });
-                        return;
-                    }
-
-                    let jitter = rand::random::<u64>() % 50;
-                    let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
-                    metrics::counter!(ISSUE_FAILED, &[("attempt", format!("retry_{}", tries))])
-                        .increment(1);
-                    warn!("Issue failed: {:?}, sleeping for {}ms", e, delay);
-                    tokio::time::sleep(Duration::from_millis(delay)).await;
-                }
-            });
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            handle.await.expect("Issue task failed, exiting");
-        }
-        issue_time.fin();
     }
+}
+
+async fn process_batch_v2(
+    config: &Config,
+    cache: Arc<Cache<Update, ()>>,
+    context: Arc<AppContext>,
+    batch: Vec<Update>,
+) {
+    let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
+    metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
+
+    // prep reshaped, isolated data batch bufffers and async join handles
+    let mut event_defs = EventDefinitionsBatch::new();
+    let mut event_props = EventPropertiesBatch::new();
+    let mut prop_defs = PropertyDefinitionsBatch::new();
+    let mut handles: Vec<JoinHandle<Result<(), sqlx::Error>>> = vec![];
+
+    // loop on the Update batch, splitting into smaller vectorized PG write batches
+    // and submitted async
+    for update in batch {
+        match update {
+            Update::Event(ed) => {
+                if event_defs.append(ed) {
+                    let cloned_ctx = context.clone();
+                    handles.push(tokio::spawn(async move {
+                        write_event_definitions_batch(event_defs, cloned_ctx).await
+                    }));
+                    event_defs = EventDefinitionsBatch::new();
+                }
+            }
+            Update::EventProperty(ep) => {
+                if event_props.append(ep) {
+                    let cloned_ctx = context.clone();
+                    handles.push(tokio::spawn(async move {
+                        write_event_properties_batch(event_props, cloned_ctx).await
+                    }));
+                    event_props = EventPropertiesBatch::new();
+                }
+            }
+            Update::Property(pd) => {
+                if prop_defs.append(pd) {
+                    let cloned_ctx = context.clone();
+                    handles.push(tokio::spawn(async move {
+                        write_property_definitions_batch(prop_defs, cloned_ctx).await
+                    }));
+                    prop_defs = PropertyDefinitionsBatch::new();
+                }
+            }
+        }
+    }
+
+    // ensure partial batches are flushed to Postgres too
+    if !event_defs.is_empty() {
+        let cloned_ctx = context.clone();
+        handles.push(tokio::spawn(async move {
+            write_event_definitions_batch(event_defs, cloned_ctx).await
+        }));
+    }
+    if !prop_defs.is_empty() {
+        let cloned_ctx = context.clone();
+        handles.push(tokio::spawn(async move {
+            write_property_definitions_batch(prop_defs, cloned_ctx).await
+        }));
+    }
+    if !event_props.is_empty() {
+        handles.push(tokio::spawn(async move {
+            let cloned_ctx = context.clone();
+            write_event_properties_batch(event_props, cloned_ctx).await
+        }));
+    }
+
+    for handle in handles {
+        match handle.await {
+            Ok(result) => match result {
+                Ok(_) => continue,
+                Err(_db_err) => {
+                    // TODO(eli): log/stat this error
+                }
+            },
+            Err(_join_err) => {
+                // TODO(eli): log/stat this error
+            }
+        }
+    }
+}
+
+async fn write_event_properties_batch(
+    batch: EventPropertiesBatch,
+    context: Arc<AppContext>,
+) -> Result<(), sqlx::Error> {
+    let mut tries = 1;
+
+    loop {
+        let result = sqlx::query(r#"
+            INSERT INTO posthog_eventproperty (event, property, team_id, project_id)
+                VALUES (UNNEST($1::text[]), UNNEST($2::text[]), UNNEST($3::int[]), UNNEST($4::int[]))
+                ON CONFLICT DO NOTHING"#,
+        )
+        .bind(&batch.event_names)
+        .bind(&batch.property_names)
+        .bind(&batch.team_ids)
+        .bind(&batch.project_ids)
+        .execute(&context.pool).await;
+
+        match result {
+            Err(e) => {
+                if tries == MAX_V2_BATCH_RETRY_ATTEMPTS {
+                    // TODO(eli): add logging & counter for hard fail here
+                    return Err(e);
+                }
+
+                let jitter = rand::random::<u64>() % 50;
+                let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
+                let _unused = tokio::time::sleep(Duration::from_millis(delay));
+
+                tries += 1;
+                // TODO(eli): add logging & counter increment here for retry attempt
+            }
+            Ok(pgq_result) => {
+                let _count = pgq_result.rows_affected();
+                // TODO(eli): increment rows written counter!
+                return Ok(());
+            }
+        }
+    }
+}
+
+async fn write_property_definitions_batch(
+    batch: PropertyDefinitionsBatch,
+    context: Arc<AppContext>,
+) -> Result<(), sqlx::Error> {
+    let mut tries: u64 = 1;
+
+    loop {
+        // what if we just ditch properties without a property_type set? why update on conflict at all?
+        let result = sqlx::query(r#"
+            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, team_id, project_id, property_type, volume_30_day, query_usage_30_day)
+                VALUES (UNNEST($1::uuid[]), UNNEST($2::text[]), UNNEST($3::smallint[]), UNNEST($4::smallint[]), UNNEST($5::boolean[]), UNNEST($6::int[]), UNNEST($7::int[]), UNNEST($8::text[]), NULL, NULL)
+                ON CONFLICT (coalesce(project_id, team_id::bigint), name, type, coalesce(group_type_index, -1))
+                DO UPDATE SET property_type=EXCLUDED.property_type
+                WHERE posthog_propertydefinition.property_type IS NULL"#,
+            )
+            .bind(&batch.ids)
+            .bind(&batch.names)
+            .bind(&batch.event_types)
+            .bind(&batch.group_type_indices)
+            .bind(&batch.are_numerical)
+            .bind(&batch.team_ids)
+            .bind(&batch.project_ids)
+            .bind(&batch.property_types)
+            .execute(&context.pool).await;
+
+        match result {
+            Err(e) => {
+                if tries == MAX_V2_BATCH_RETRY_ATTEMPTS {
+                    // TODO(eli): add logging & counter for hard fail here
+                    return Err(e);
+                }
+
+                let jitter = rand::random::<u64>() % 50;
+                let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
+                let _unused = tokio::time::sleep(Duration::from_millis(delay));
+
+                tries += 1;
+                // TODO(eli): add logging & counter increment here for retry attempt
+            }
+            Ok(pgq_result) => {
+                let _count = pgq_result.rows_affected();
+                // TODO(eli): increment rows written counter!
+                return Ok(());
+            }
+        }
+    }
+}
+
+async fn write_event_definitions_batch(
+    batch: EventDefinitionsBatch,
+    context: Arc<AppContext>,
+) -> Result<(), sqlx::Error> {
+    let mut tries: u64 = 1;
+
+    loop {
+        // TODO: is last_seen_at critical to the product UX? "ON CONFLICT DO NOTHING" may be much cheaper...
+        let result = sqlx::query(
+            r#"
+            INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day,
+                team_id, project_id, last_seen_at, created_at)
+            VALUES (UNNEST($1::[]uuid), UNNEST($2::text[]), NULL, NULL, UNNEST($3::int[]),
+                    UNNEST($4::int[]), UNNEST($5::timestamptz[]), UNNEST($5::timestamptz[]))
+            ON CONFLICT (coalesce(project_id, team_id::bigint), name) DO UPDATE
+                SET last_seen_at=EXCLUDED.last_seen_at
+                WHERE posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at"#,
+        )
+        .bind(&batch.ids)
+        .bind(&batch.names)
+        .bind(&batch.team_ids)
+        .bind(&batch.project_ids)
+        .bind(&batch.last_seen_ats)
+        .execute(&context.pool)
+        .await;
+
+        match result {
+            Err(e) => {
+                if tries == MAX_V2_BATCH_RETRY_ATTEMPTS {
+                    // TODO(eli): add logging & counter for hard fail here
+                    return Err(e);
+                }
+
+                let jitter = rand::random::<u64>() % 50;
+                let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
+                let _unused = tokio::time::sleep(Duration::from_millis(delay));
+
+                tries += 1;
+                // TODO(eli): add logging & counter increment here for retry attempt
+            }
+            Ok(pgq_result) => {
+                let _count = pgq_result.rows_affected();
+                // TODO(eli): increment rows written counter!
+                return Ok(());
+            }
+        }
+    }
+}
+
+async fn process_batch_v1(
+    config: &Config,
+    cache: Arc<Cache<Update, ()>>,
+    context: Arc<AppContext>,
+    mut batch: Vec<Update>,
+) {
+    let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
+    metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
+
+    // We split our update batch into chunks, one per transaction. We know each update touches
+    // exactly one row, so we can issue the chunks in parallel, and smaller batches issue faster,
+    // which helps us with inter-pod deadlocking and retries.
+    let chunk_size = batch.len() / config.max_concurrent_transactions;
+    let mut chunks = vec![Vec::with_capacity(chunk_size); config.max_concurrent_transactions];
+    for (i, update) in batch.drain(..).enumerate() {
+        chunks[i % config.max_concurrent_transactions].push(update);
+    }
+
+    metrics::gauge!(CHUNK_SIZE).set(chunk_size as f64);
+
+    let mut handles = Vec::new();
+    let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
+    for mut chunk in chunks {
+        let m_context = context.clone();
+        let m_cache = cache.clone();
+        let handle = tokio::spawn(async move {
+            let mut tries: u64 = 0;
+            // We occasionally encounter deadlocks while issuing updates, so we retry a few times, and
+            // if we still fail, we drop the batch and clear it's content from the cached update set, because
+            // we assume everything in it will be seen again.
+            while let Err(e) = m_context.issue(&mut chunk, cache_utilization).await {
+                tries += 1;
+                if tries > BATCH_UPDATE_MAX_ATTEMPTS {
+                    let chunk_len = chunk.len() as u64;
+                    metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);
+                    metrics::counter!(UPDATES_DROPPED, &[("reason", "batch_write_fail")])
+                        .increment(chunk_len);
+                    error!(
+                        "Issue failed: retries exhausted, dropping batch of size {} with error: {:?}",
+                        chunk_len, e,
+                    );
+                    // We clear any updates that were in this batch from the cache, so that
+                    // if we see them again we'll try again to issue them.
+                    chunk.iter().for_each(|u| {
+                        if m_cache.remove(u).is_some() {
+                            metrics::counter!(UPDATES_CACHE, &[("action", "removed")]).increment(1);
+                        } else {
+                            metrics::counter!(UPDATES_CACHE, &[("action", "not_cached")])
+                                .increment(1);
+                        }
+                    });
+                    return;
+                }
+
+                let jitter = rand::random::<u64>() % 50;
+                let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
+                metrics::counter!(ISSUE_FAILED, &[("attempt", format!("retry_{}", tries))])
+                    .increment(1);
+                warn!("Issue failed: {:?}, sleeping for {}ms", e, delay);
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+            }
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.await.expect("Issue task failed, exiting");
+    }
+    issue_time.fin();
 }
 
 pub async fn update_producer_loop(
