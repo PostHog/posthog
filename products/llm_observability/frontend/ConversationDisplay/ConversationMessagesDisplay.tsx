@@ -90,13 +90,15 @@ export function ConversationMessagesDisplay({
 export const ImageMessageDisplay = ({
     message,
 }: {
-    message: { content: string | { type: string; image: string } }
+    message: { content?: string | { type?: string; image?: string } }
 }): JSX.Element => {
     const { content } = message
     if (typeof content === 'string') {
         return <span>{content}</span>
+    } else if (content?.image) {
+        return <img src={content.image} alt="User sent image" />
     }
-    return <img src={content.image} alt="User sent image" />
+    return <span>{content}</span>
 }
 
 export const LLMMessageDisplay = React.memo(
