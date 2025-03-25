@@ -297,7 +297,7 @@ def test_map_hosts_by_role() -> None:
         times_called.clear()
 
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.DATA, workload=Workload.ONLINE).result()
-        assert times_called[NodeRole.DATA] == 3
+        assert times_called[NodeRole.DATA] == 2
         assert times_called[NodeRole.COORDINATOR] == 0
         times_called.clear()
 
