@@ -653,6 +653,7 @@ export function metricToQuery(
                 kind: NodeKind.EventsNode,
                 id: '$pageview',
                 event: '$pageview',
+                name: '$pageview',
                 properties: [],
                 order: 0,
             })

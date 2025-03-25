@@ -830,8 +830,14 @@ describe('metricToQuery', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.FUNNEL,
             metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                event: 'purchase',
+                kind: NodeKind.ExperimentFunnelMetricConfig,
+                funnel: [
+                    {
+                        event: 'purchase',
+                        order: 0,
+                        kind: NodeKind.ExperimentFunnelStepConfig,
+                    },
+                ],
             },
         }
 
@@ -850,11 +856,13 @@ describe('metricToQuery', () => {
             series: [
                 {
                     kind: NodeKind.EventsNode,
-                    event: '$feature_flag_called',
+                    event: '$pageview',
+                    name: '$pageview',
                 },
                 {
                     kind: NodeKind.EventsNode,
                     event: 'purchase',
+                    name: 'purchase',
                 },
             ],
         })
