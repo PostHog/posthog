@@ -1,6 +1,5 @@
 import { IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
-import { ProfilePicture } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
@@ -12,7 +11,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingPlanType, ProductKey, SidePanelTab } from '~/types'
 
@@ -115,7 +113,6 @@ export const SidePanelSupport = (): JSX.Element => {
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { status } = useValues(sidePanelStatusLogic)
-    const { user } = useValues(userLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
     const { openEmailForm, closeEmailForm } = useActions(theLogic)
@@ -202,18 +199,6 @@ export const SidePanelSupport = (): JSX.Element => {
                                             }}
                                             targetBlank={false}
                                             className="mt-2"
-                                            icon={
-                                                <ProfilePicture
-                                                    user={{
-                                                        hedgehog_config: {
-                                                            ...user?.hedgehog_config,
-                                                            use_as_profile: true,
-                                                        },
-                                                    }}
-                                                    size="sm"
-                                                    className="border bg-bg-light"
-                                                />
-                                            }
                                         >
                                             Chat with Max AI
                                         </LemonButton>
