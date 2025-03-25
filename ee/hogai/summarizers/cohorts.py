@@ -389,12 +389,8 @@ class CohortSummarizer(Summarizer):
 
         # Add cohort type information
         if cohort.is_static:
-            summary_parts.append("Type: Static (manually created list)")
-        else:
-            summary_parts.append("Type: Dynamic (based on filters)")
-
-        # Add property filters
-        if properties_summary := self._summarize_property_filters():
+            summary_parts.append("Filters:\nStatic (manually created list)")
+        elif properties_summary := self._summarize_property_filters():
             summary_parts.append("Filters:")
             summary_parts.append(properties_summary)
 
