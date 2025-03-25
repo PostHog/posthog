@@ -1,4 +1,4 @@
-import { IconArrowRight, IconCheck } from '@posthog/icons'
+import { IconArrowRight, IconCheck, IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -7,6 +7,7 @@ import { SpaceHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -24,6 +25,7 @@ export function StartupProgram(): JSX.Element {
 
     const logic = startupProgramLogic({ isYC })
     const { formSubmitted, isAlreadyOnStartupPlan, isUserOrganizationOwnerOrAdmin } = useValues(logic)
+    const { billing } = useValues(billingLogic)
     const programName = isYC ? 'YC Program' : 'Startup Program'
 
     if (formSubmitted) {
@@ -150,71 +152,110 @@ export function StartupProgram(): JSX.Element {
                     )}
                 </div>
 
-                <div className="bg-surface-secondary rounded-lg p-6">
-                    <h2 className="text-xl mb-4">Apply Now</h2>
-                    <Form
-                        logic={startupProgramLogic}
-                        props={{ isYC }}
-                        formKey="startupProgram"
-                        enableFormOnSubmit
-                        className="space-y-3"
-                    >
-                        <div className="grid md:grid-cols-2 gap-3">
-                            <LemonField name="first_name" label="First name">
-                                <LemonInput placeholder="Jane" />
-                            </LemonField>
-
-                            <LemonField name="last_name" label="Last name">
-                                <LemonInput placeholder="Doe" />
-                            </LemonField>
+                <div className="space-y-4">
+                    {/* Step 1: Upgrade to a paid plan */}
+                    <div className="bg-surface-secondary rounded-lg p-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl m-0">Step 1: Upgrade to a paid plan</h2>
+                            {billing?.has_active_subscription && <IconCheckCircle className="text-success text-2xl" />}
                         </div>
-
-                        <LemonField name="email" label="Email">
-                            <LemonInput placeholder="your@email.com" />
-                        </LemonField>
-
-                        <LemonField name="startup_domain" label="Company domain">
-                            <LemonInput placeholder="example.com" />
-                        </LemonField>
-
-                        <LemonField name="posthog_organization_name" label="PostHog organization name">
-                            <LemonInput placeholder="Your PostHog organization" />
-                        </LemonField>
-
-                        <LemonField name="raised" label="How much in total funding have you raised (USD)">
-                            <LemonSelect options={RAISED_OPTIONS} />
-                        </LemonField>
-
-                        <LemonField name="incorporation_date" label="The date that your company was incorporated">
-                            <LemonCalendarSelectInput clearable={false} format="YYYY-MM-DD" />
-                        </LemonField>
-
-                        <LemonField name="is_building_with_llms" label="Are you building LLM-powered features?">
-                            <LemonSelect
-                                options={[
-                                    { label: 'Yes', value: 'true' },
-                                    { label: 'No', value: 'false' },
-                                ]}
-                            />
-                        </LemonField>
-
-                        {isYC && (
-                            <LemonField name="yc_batch" label="Which YC batch are you?">
-                                <LemonSelect options={YC_BATCH_OPTIONS} />
-                            </LemonField>
+                        {billing?.has_active_subscription ? (
+                            <div className="flex items-center gap-2 text-success">
+                                <IconCheck className="shrink-0" />
+                                <span>You're on a paid plan</span>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-start gap-2">
+                                <p className="text-muted mb-2">
+                                    To be eligible for the startup program, you need to be on a paid plan. Don't worry -
+                                    you'll only pay for what you use and can set billing limits as low as $0 to control
+                                    your spend.
+                                </p>
+                                <p className="text-muted mb-4 italic">
+                                    P.S. You still keep the monthly free allowance for every product!
+                                </p>
+                                <LemonButton type="primary" to={urls.organizationBilling()}>
+                                    Add billing details
+                                </LemonButton>
+                            </div>
                         )}
+                    </div>
 
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            className="mt-3"
-                            fullWidth
-                            center
-                            data-attr="startup-program-submit"
+                    {/* Step 2: Submit application form */}
+                    <div className="bg-surface-secondary rounded-lg p-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl m-0">Step 2: Submit application</h2>
+                            {formSubmitted && <IconCheckCircle className="text-success text-2xl" />}
+                        </div>
+                        <Form
+                            logic={startupProgramLogic}
+                            props={{ isYC }}
+                            formKey="startupProgram"
+                            enableFormOnSubmit
+                            className="space-y-3"
                         >
-                            Submit Application
-                        </LemonButton>
-                    </Form>
+                            <div className="grid md:grid-cols-2 gap-3">
+                                <LemonField name="first_name" label="First name">
+                                    <LemonInput placeholder="Jane" />
+                                </LemonField>
+
+                                <LemonField name="last_name" label="Last name">
+                                    <LemonInput placeholder="Doe" />
+                                </LemonField>
+                            </div>
+
+                            <LemonField name="email" label="Email">
+                                <LemonInput placeholder="your@email.com" />
+                            </LemonField>
+
+                            <LemonField name="startup_domain" label="Company domain">
+                                <LemonInput placeholder="example.com" />
+                            </LemonField>
+
+                            <LemonField name="posthog_organization_name" label="PostHog organization name">
+                                <LemonInput placeholder="Your PostHog organization" />
+                            </LemonField>
+
+                            <LemonField name="raised" label="How much in total funding have you raised (USD)">
+                                <LemonSelect options={RAISED_OPTIONS} />
+                            </LemonField>
+
+                            <LemonField name="incorporation_date" label="The date that your company was incorporated">
+                                <LemonCalendarSelectInput clearable={false} format="YYYY-MM-DD" />
+                            </LemonField>
+
+                            <LemonField name="is_building_with_llms" label="Are you building LLM-powered features?">
+                                <LemonSelect
+                                    options={[
+                                        { label: 'Yes', value: 'true' },
+                                        { label: 'No', value: 'false' },
+                                    ]}
+                                />
+                            </LemonField>
+
+                            {isYC && (
+                                <LemonField name="yc_batch" label="Which YC batch are you?">
+                                    <LemonSelect options={YC_BATCH_OPTIONS} />
+                                </LemonField>
+                            )}
+
+                            <LemonButton
+                                type="primary"
+                                htmlType="submit"
+                                className="mt-3"
+                                fullWidth
+                                center
+                                data-attr="startup-program-submit"
+                            >
+                                Submit Application
+                            </LemonButton>
+
+                            <LemonField name="_form">
+                                {/* This will display a form error if user is not on a paid plan. Kea forms requires a child element */}
+                                <span />
+                            </LemonField>
+                        </Form>
+                    </div>
                 </div>
             </div>
         </div>

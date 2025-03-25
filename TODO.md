@@ -23,6 +23,10 @@ Steps:
     - [x] On submission console.log the submitted values
 - [x] Implement a startupProgramScence in frontend
   - [x] Basic form using Kea form component and fields described below using components from lemon-ui
+- [x] Implement a check on whether their already on a paid plan
+  - [x] Use billingLogic to determine
+  - [x] If not on a paid plan, show CTA to upgrade (link to /organization/billing)
+  - [x] Prevent submit if not on paid plan
 - [ ] Implement form validation and error handling
   - [ ] Add validation for required fields, email format, domain format
   - [ ] Add non-YC validation (company age < 2 years, funding < $5M) and show that they're not eligible upon submission attempt

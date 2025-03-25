@@ -142,21 +142,29 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 incorporation_date,
                 is_building_with_llms,
                 yc_batch,
-            }) => ({
-                email: !email ? 'Please enter your email' : undefined,
-                first_name: !first_name ? 'Please enter your first name' : undefined,
-                last_name: !last_name ? 'Please enter your last name' : undefined,
-                startup_domain: !startup_domain ? 'Please enter your company domain' : undefined,
-                posthog_organization_name: !posthog_organization_name
-                    ? 'Please enter your PostHog organization name'
-                    : undefined,
-                raised: !raised ? 'Please select how much funding you have raised' : undefined,
-                incorporation_date: !incorporation_date ? 'Please enter your incorporation date' : undefined,
-                is_building_with_llms: !is_building_with_llms
-                    ? 'Please select whether you are building with LLMs'
-                    : undefined,
-                yc_batch: props.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
-            }),
+            }) => {
+                if (!values.billing?.has_active_subscription) {
+                    return {
+                        _form: 'You need to upgrade to a paid plan before submitting your application',
+                    }
+                }
+
+                return {
+                    email: !email ? 'Please enter your email' : undefined,
+                    first_name: !first_name ? 'Please enter your first name' : undefined,
+                    last_name: !last_name ? 'Please enter your last name' : undefined,
+                    startup_domain: !startup_domain ? 'Please enter your company domain' : undefined,
+                    posthog_organization_name: !posthog_organization_name
+                        ? 'Please enter your PostHog organization name'
+                        : undefined,
+                    raised: !raised ? 'Please select how much funding you have raised' : undefined,
+                    incorporation_date: !incorporation_date ? 'Please enter your incorporation date' : undefined,
+                    is_building_with_llms: !is_building_with_llms
+                        ? 'Please select whether you are building with LLMs'
+                        : undefined,
+                    yc_batch: props.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
+                }
+            },
             submit: async (formValues) => {
                 const valuesToSubmit = {
                     ...formValues,
