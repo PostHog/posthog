@@ -9,6 +9,7 @@ import {
 
 import { RecordingsQuery } from './schema-general'
 
+// Subset of RecordingUniversalFilters that is more tractable for the AI assistant
 export interface MaxRecordingUniversalFilters {
     date_from?: string | null
     date_to?: string | null
