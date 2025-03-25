@@ -1,7 +1,9 @@
-import { LemonButton, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { IconArrowRight, IconCheck } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { SpaceHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -26,7 +28,7 @@ export function StartupProgram(): JSX.Element {
 
     if (formSubmitted) {
         return (
-            <div className="mx-auto max-w-160 mt-10 px-4">
+            <div className="mx-auto max-w-200 mt-6 px-4">
                 <LemonBanner type="success">
                     <h2 className="mb-2">Thank you for your application!</h2>
                     <p>
@@ -43,7 +45,7 @@ export function StartupProgram(): JSX.Element {
 
     if (isAlreadyOnStartupPlan) {
         return (
-            <div className="mx-auto max-w-160 mt-10 px-4">
+            <div className="mx-auto max-w-200 mt-6 px-4">
                 <LemonBanner type="info">
                     <h2 className="mb-2">You're already in the {programName}</h2>
                     <p>
@@ -60,7 +62,7 @@ export function StartupProgram(): JSX.Element {
 
     if (!isUserOrganizationOwnerOrAdmin) {
         return (
-            <div className="mx-auto max-w-160 mt-10 px-4">
+            <div className="mx-auto max-w-200 mt-6 px-4">
                 <LemonBanner type="warning">
                     <h2 className="mb-2">Admin or owner permission required</h2>
                     <p>
@@ -76,89 +78,145 @@ export function StartupProgram(): JSX.Element {
     }
 
     return (
-        <div className="mx-auto max-w-160 mt-10 px-4">
-            <h1 className="text-center mb-8">{`PostHog ${programName} Application`}</h1>
-
-            <div className="mb-8">
-                <h2 className="mb-2">Program Benefits</h2>
-                <ul className="list-disc pl-6">
-                    <li className="mb-2">$50,000 in PostHog credits (valid for 1 year)</li>
-                    <li className="mb-2">Founder merch (stickers, t-shirts, and more)</li>
-                    <li className="mb-2">$25,000 in DigitalOcean credit through their Hatch program</li>
-                </ul>
-
-                <h3 className="mt-4 mb-2">Eligibility Requirements</h3>
-                <ul className="list-disc pl-6">
-                    <li className="mb-2">Company must be less than 2 years old</li>
-                    <li className="mb-2">Less than $5 million in funding</li>
-                </ul>
+        <div className="mx-auto max-w-[1200px] mt-6 px-4">
+            <div className="flex flex-col items-center mb-8">
+                <SpaceHog className="w-[200px] h-auto mb-3" />
+                <h1 className="text-center text-3xl mb-3">
+                    {isYC ? 'Welcome to PostHog for YC Companies' : 'PostHog for Startups'}
+                </h1>
+                <p className="text-center text-base text-muted max-w-160">
+                    {isYC
+                        ? 'Get started with PostHog, the all-in-one Product OS built for YC founders. Enjoy $50,000 in credits and exclusive benefits.'
+                        : 'Get $50,000 in credits and exclusive benefits to help you build a better product with PostHog.'}
+                </p>
             </div>
 
-            <LemonDivider className="my-6" />
+            <div className="grid md:grid-cols-2 gap-8 mb-8">
+                <div className="bg-surface-secondary rounded-lg p-6">
+                    <h2 className="text-xl mb-4">Program Benefits</h2>
+                    <div className="space-y-3">
+                        <div className="flex items-start">
+                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <div>
+                                <h4 className="font-semibold">$50,000 in PostHog credits</h4>
+                                <p className="text-muted text-sm">
+                                    Valid for 1 year to use across all PostHog products
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex items-start">
+                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <div>
+                                <h4 className="font-semibold">Founder merch</h4>
+                                <p className="text-muted text-sm">
+                                    Exclusive PostHog swag pack with stickers, t-shirts, and more
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex items-start">
+                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <div>
+                                <h4 className="font-semibold">$25,000 in DigitalOcean credits</h4>
+                                <p className="text-muted text-sm">Through their Hatch program for startups</p>
+                            </div>
+                        </div>
+                        {isYC && (
+                            <div className="flex items-start">
+                                <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                                <div>
+                                    <h4 className="font-semibold">Priority support</h4>
+                                    <p className="text-muted text-sm">
+                                        Direct access to our engineering team for technical support
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
-            <Form
-                logic={startupProgramLogic}
-                props={{ isYC }}
-                formKey="startupProgram"
-                enableFormOnSubmit
-                className="space-y-4"
-            >
-                <div className="grid md:grid-cols-2 gap-4">
-                    <LemonField name="first_name" label="First name">
-                        <LemonInput placeholder="Jane" />
-                    </LemonField>
-
-                    <LemonField name="last_name" label="Last name">
-                        <LemonInput placeholder="Doe" />
-                    </LemonField>
+                    {!isYC && (
+                        <div className="mt-6">
+                            <h3 className="text-lg mb-3">Eligibility Requirements</h3>
+                            <ul className="space-y-2">
+                                <li className="flex items-center text-sm">
+                                    <IconArrowRight className="text-muted shrink-0 mr-2" />
+                                    Company must be less than 2 years old
+                                </li>
+                                <li className="flex items-center text-sm">
+                                    <IconArrowRight className="text-muted shrink-0 mr-2" />
+                                    Less than $5 million in funding
+                                </li>
+                            </ul>
+                        </div>
+                    )}
                 </div>
 
-                <LemonField name="email" label="Email">
-                    <LemonInput placeholder="your@email.com" />
-                </LemonField>
+                <div className="bg-surface-secondary rounded-lg p-6">
+                    <h2 className="text-xl mb-4">Apply Now</h2>
+                    <Form
+                        logic={startupProgramLogic}
+                        props={{ isYC }}
+                        formKey="startupProgram"
+                        enableFormOnSubmit
+                        className="space-y-3"
+                    >
+                        <div className="grid md:grid-cols-2 gap-3">
+                            <LemonField name="first_name" label="First name">
+                                <LemonInput placeholder="Jane" />
+                            </LemonField>
 
-                <LemonField name="startup_domain" label="Company domain">
-                    <LemonInput placeholder="example.com" />
-                </LemonField>
+                            <LemonField name="last_name" label="Last name">
+                                <LemonInput placeholder="Doe" />
+                            </LemonField>
+                        </div>
 
-                <LemonField name="posthog_organization_name" label="PostHog organization name">
-                    <LemonInput placeholder="Your PostHog organization" />
-                </LemonField>
+                        <LemonField name="email" label="Email">
+                            <LemonInput placeholder="your@email.com" />
+                        </LemonField>
 
-                <LemonField name="raised" label="How much in total funding have you raised (USD)">
-                    <LemonSelect options={RAISED_OPTIONS} />
-                </LemonField>
+                        <LemonField name="startup_domain" label="Company domain">
+                            <LemonInput placeholder="example.com" />
+                        </LemonField>
 
-                <LemonField name="incorporation_date" label="The date that your company was incorporated">
-                    <LemonCalendarSelectInput clearable={false} format="YYYY-MM-DD" />
-                </LemonField>
+                        <LemonField name="posthog_organization_name" label="PostHog organization name">
+                            <LemonInput placeholder="Your PostHog organization" />
+                        </LemonField>
 
-                <LemonField name="is_building_with_llms" label="Are you building LLM-powered features?">
-                    <LemonSelect
-                        options={[
-                            { label: 'Yes', value: 'true' },
-                            { label: 'No', value: 'false' },
-                        ]}
-                    />
-                </LemonField>
+                        <LemonField name="raised" label="How much in total funding have you raised (USD)">
+                            <LemonSelect options={RAISED_OPTIONS} />
+                        </LemonField>
 
-                {isYC && (
-                    <LemonField name="yc_batch" label="Which YC batch are you?">
-                        <LemonSelect options={YC_BATCH_OPTIONS} />
-                    </LemonField>
-                )}
+                        <LemonField name="incorporation_date" label="The date that your company was incorporated">
+                            <LemonCalendarSelectInput clearable={false} format="YYYY-MM-DD" />
+                        </LemonField>
 
-                <LemonButton
-                    type="primary"
-                    htmlType="submit"
-                    className="mt-4"
-                    fullWidth
-                    center
-                    data-attr="startup-program-submit"
-                >
-                    Submit Application
-                </LemonButton>
-            </Form>
+                        <LemonField name="is_building_with_llms" label="Are you building LLM-powered features?">
+                            <LemonSelect
+                                options={[
+                                    { label: 'Yes', value: 'true' },
+                                    { label: 'No', value: 'false' },
+                                ]}
+                            />
+                        </LemonField>
+
+                        {isYC && (
+                            <LemonField name="yc_batch" label="Which YC batch are you?">
+                                <LemonSelect options={YC_BATCH_OPTIONS} />
+                            </LemonField>
+                        )}
+
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            className="mt-3"
+                            fullWidth
+                            center
+                            data-attr="startup-program-submit"
+                        >
+                            Submit Application
+                        </LemonButton>
+                    </Form>
+                </div>
+            </div>
         </div>
     )
 }
