@@ -101,7 +101,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     content: (
                                         <div className="space-y-2">
                                             <ErrorTrackingFilters />
-                                            <div className="border-1 overflow-hidden border-accent-primary border-primary rounded bg-surface-primary relative">
+                                            <div className="border-1 overflow-hidden border-accent border-primary rounded bg-surface-primary relative">
                                                 <EventsTab />
                                             </div>
                                         </div>

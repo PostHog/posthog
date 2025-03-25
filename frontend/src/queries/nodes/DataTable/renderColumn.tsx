@@ -275,7 +275,7 @@ export function renderColumn(
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
-                iconStyle={{ color: 'var(--accent-primary)' }}
+                iconStyle={{ color: 'var(--accent)' }}
                 description="person id"
             >
                 {String(value)}
@@ -285,7 +285,7 @@ export function renderColumn(
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
-                iconStyle={{ color: 'var(--accent-primary)' }}
+                iconStyle={{ color: 'var(--accent)' }}
                 description="group id"
             >
                 {String(value)}

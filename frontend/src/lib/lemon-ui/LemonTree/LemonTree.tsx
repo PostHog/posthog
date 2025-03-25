@@ -209,7 +209,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 className={cn(
                                                     'group/lemon-tree-button flex-1 flex items-center gap-2 font-normal cursor-pointer',
                                                     {
-                                                        'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary':
+                                                        'ring-2 ring-inset ring-offset-[-1px] ring-accent':
                                                             focusedId === item.id ||
                                                             isContextMenuOpenForItem === item.id,
                                                         'bg-fill-highlight-100': getItemActiveState(item),
