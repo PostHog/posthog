@@ -463,7 +463,10 @@ class ExperimentQueryRunner(QueryRunner):
         num_steps = len(funnel_config.funnel)
         conversion_time_window = 6048000000000000
         funnel_steps_str = ", ".join(
-            [f"event = '{step.event}'" for step in sorted(funnel_config.funnel, key=lambda x: x.order)]
+            [
+                f"event = {ast.Constant(value=step.event).to_hogql()}"
+                for step in sorted(funnel_config.funnel, key=lambda x: x.order)
+            ]
         )
         return parse_expr(
             f"windowFunnel({conversion_time_window})(toDateTime(timestamp), {funnel_steps_str}) = {num_steps}",
