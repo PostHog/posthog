@@ -93,6 +93,7 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "user_access_level",
         ]
         read_only_fields = fields
 
