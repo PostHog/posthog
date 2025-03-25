@@ -1,7 +1,9 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { TeamMembershipLevel } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { DOMAIN_REGEX } from 'lib/constants'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { isEmail } from 'lib/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -61,13 +63,29 @@ export interface StartupProgramFormValues {
     startup_domain: string
     posthog_organization_name: string
     raised: string
-    incorporation_date: dayjs.Dayjs | null
+    incorporation_date: Dayjs | null
     is_building_with_llms: string
     yc_batch?: string
 }
 
 export interface StartupProgramLogicProps {
     isYC: boolean
+}
+
+function validateIncorporationDate(date: Dayjs | null): string | undefined {
+    if (!date) {
+        return 'Please enter your incorporation date'
+    }
+    if (!dayjs.isDayjs(date)) {
+        return 'Invalid date format'
+    }
+    if (date.isAfter(dayjs())) {
+        return 'Incorporation date cannot be in the future'
+    }
+    if (date.isBefore(dayjs().subtract(2, 'year'))) {
+        return 'Company must be less than 2 years old to be eligible'
+    }
+    return undefined
 }
 
 export const startupProgramLogic = kea<startupProgramLogicType>([
@@ -150,25 +168,35 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 }
 
                 return {
-                    email: !email ? 'Please enter your email' : undefined,
+                    email: !email
+                        ? 'Please enter your email'
+                        : !isEmail(email)
+                        ? 'Please enter a valid email address'
+                        : undefined,
                     first_name: !first_name ? 'Please enter your first name' : undefined,
                     last_name: !last_name ? 'Please enter your last name' : undefined,
-                    startup_domain: !startup_domain ? 'Please enter your company domain' : undefined,
+                    startup_domain: !startup_domain
+                        ? 'Please enter your company domain'
+                        : !DOMAIN_REGEX.test(startup_domain)
+                        ? 'Please enter a valid domain (e.g. example.com)'
+                        : undefined,
                     posthog_organization_name: !posthog_organization_name
                         ? 'Please enter your PostHog organization name'
                         : undefined,
                     raised: !raised ? 'Please select how much funding you have raised' : undefined,
-                    incorporation_date: !incorporation_date ? 'Please enter your incorporation date' : undefined,
+                    incorporation_date: validateIncorporationDate(incorporation_date),
                     is_building_with_llms: !is_building_with_llms
                         ? 'Please select whether you are building with LLMs'
                         : undefined,
                     yc_batch: props.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
                 }
             },
-            submit: async (formValues) => {
+            submit: async (formValues: StartupProgramFormValues) => {
                 const valuesToSubmit = {
                     ...formValues,
-                    incorporation_date: formValues.incorporation_date?.format('YYYY-MM-DD'),
+                    incorporation_date: dayjs.isDayjs(formValues.incorporation_date)
+                        ? formValues.incorporation_date.format('YYYY-MM-DD')
+                        : null,
                 }
                 // eslint-disable-next-line no-console
                 console.log('Form submitted with values:', valuesToSubmit)

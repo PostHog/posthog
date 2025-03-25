@@ -157,7 +157,6 @@ export function StartupProgram(): JSX.Element {
                     <div className="bg-surface-secondary rounded-lg p-6">
                         <div className="flex items-center justify-between mb-4">
                             <h2 className="text-xl m-0">Step 1: Upgrade to a paid plan</h2>
-                            {billing?.has_active_subscription && <IconCheckCircle className="text-success text-2xl" />}
                         </div>
                         {billing?.has_active_subscription ? (
                             <div className="flex items-center gap-2 text-success">
@@ -205,7 +204,7 @@ export function StartupProgram(): JSX.Element {
                             </div>
 
                             <LemonField name="email" label="Email">
-                                <LemonInput placeholder="your@email.com" />
+                                <LemonInput placeholder="you@example.com" />
                             </LemonField>
 
                             <LemonField name="startup_domain" label="Company domain">
@@ -250,8 +249,8 @@ export function StartupProgram(): JSX.Element {
                                 Submit Application
                             </LemonButton>
 
+                            {/* This will display a form error if user is not on a paid plan. Kea forms requires a child element */}
                             <LemonField name="_form">
-                                {/* This will display a form error if user is not on a paid plan. Kea forms requires a child element */}
                                 <span />
                             </LemonField>
                         </Form>
