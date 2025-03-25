@@ -250,7 +250,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                     targetBlank
                                     className="mt-2"
                                 >
-                                    Ask a question
+                                    Ask the community
                                 </LemonButton>
                             </Section>
 
