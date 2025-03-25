@@ -540,7 +540,8 @@ export class HogExecutorService {
                             const [inputs] = args as [
                                 | {
                                       provider: string | undefined
-                                      credentials: Record<string, any> | undefined
+                                      api_key: string | undefined
+                                      secret_key: string | undefined
                                       email: Record<string, any> | undefined
                                   }
                                 | undefined
@@ -550,9 +551,9 @@ export class HogExecutorService {
                                 throw new Error('sendEmail: Invalid inputs')
                             }
 
-                            const { provider, credentials, email } = inputs
+                            const { provider, api_key, secret_key, email } = inputs
 
-                            if (!provider || !credentials || !email) {
+                            if (!provider || !api_key || !secret_key || !email) {
                                 throw new Error('sendEmail: Invalid inputs')
                             }
 
@@ -560,8 +561,6 @@ export class HogExecutorService {
                             if (provider !== 'mailjet') {
                                 throw new Error('sendEmail: Invalid provider')
                             }
-
-                            const { api_key, secret_key } = credentials
 
                             if (!api_key || !secret_key) {
                                 throw new Error('sendEmail: Invalid credentials')

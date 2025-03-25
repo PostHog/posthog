@@ -238,7 +238,7 @@ export class HogFunctionManagerService {
 
         this.sanitize(hogFunctions)
         await this.enrichWithIntegrations(hogFunctions)
-        this.enrichWithSharedInputs(hogFunctions)
+        await this.enrichWithSharedInputs(hogFunctions)
 
         return hogFunctions.reduce<Record<string, HogFunctionType | undefined>>((acc, hogFunction) => {
             acc[hogFunction.id] = hogFunction
@@ -284,18 +284,26 @@ export class HogFunctionManagerService {
         })
     }
 
-    public enrichWithSharedInputs(items: HogFunctionType[]): void {
+    public async enrichWithSharedInputs(items: HogFunctionType[]): Promise<void> {
         logger.info('[HogFunctionManager]', 'Enriching with import functions', { functionCount: items.length })
 
-        items.forEach((item) => {
+        for (const item of items) {
             // Grab all the global functions used in this function's bytecode
-            const sharedInputFunctionsUsed = item.bytecode.filter((x) =>
-                Object.keys(SHARED_INPUT_FUNCTIONS).includes(x)
+            const sharedInputFunctionsUsed = item.bytecode.filter(
+                (x) => Object.keys(SHARED_INPUT_FUNCTIONS).includes(x) && SHARED_INPUT_FUNCTIONS[x] !== item.type
             )
 
-            sharedInputFunctionsUsed.forEach((functionName) => {
+            for (const functionName of sharedInputFunctionsUsed) {
                 const functionType = SHARED_INPUT_FUNCTIONS[functionName]
-                const func = items.find((x) => x.type === functionType)
+                let func = items.find((x) => x.type === functionType)
+
+                if (!func) {
+                    // If the function is not found in the local cache, fetch it from the database
+                    // This is typically only needed for new functions being tested in the PostHog UI
+                    const teamHogFunctions = await this.getHogFunctionsForTeam(item.team_id, [functionType])
+                    func = teamHogFunctions?.find((x) => x.type === functionType)
+                }
+
                 if (func) {
                     item.inputs = {
                         ...item.inputs,
@@ -304,8 +312,8 @@ export class HogFunctionManagerService {
                     }
                     item.inputs_schema = [...(item.inputs_schema ?? []), ...(func.inputs_schema ?? [])]
                 }
-            })
-        })
+            }
+        }
     }
 
     public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
