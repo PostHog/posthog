@@ -1,6 +1,5 @@
 use std::{sync::Arc, time::Duration};
 
-use ahash::AHashSet;
 use app_context::AppContext;
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::{Config, TeamFilterMode, TeamList};
@@ -9,13 +8,18 @@ use metrics_consts::{
     EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
     RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_DROPPED,
     UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
-    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
+    UPDATE_PRODUCER_OFFSET, V2_EVENT_DEFS_BATCH_ATTEMPT, V2_EVENT_DEFS_BATCH_ROWS_AFFECTED,
+    V2_EVENT_DEFS_BATCH_TIME, V2_EVENT_PROPS_BATCH_ATTEMPT, V2_EVENT_PROPS_BATCH_ROWS_AFFECTED,
+    V2_EVENT_PROPS_BATCH_TIME, V2_PROP_DEFS_BATCH_ATTEMPT, V2_PROP_DEFS_BATCH_ROWS_AFFECTED,
+    V2_PROP_DEFS_BATCH_TIME, WORKER_BLOCKED,
 };
+use types::{Event, EventDefinitionsBatch, EventPropertiesBatch, PropertyDefinitionsBatch, Update};
+
+use ahash::AHashSet;
 use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio::task::JoinHandle;
 use tracing::{error, warn};
-use types::{Event, EventDefinitionsBatch, EventPropertiesBatch, PropertyDefinitionsBatch, Update};
 
 pub mod api;
 pub mod app_context;
@@ -161,12 +165,12 @@ async fn process_batch_v2(
         match handle.await {
             Ok(result) => match result {
                 Ok(_) => continue,
-                Err(_db_err) => {
-                    // TODO(eli): log/stat this error
+                Err(db_err) => {
+                    warn!("Batch write exhausted retries: {:?}", db_err);
                 }
             },
-            Err(_join_err) => {
-                // TODO(eli): log/stat this error
+            Err(join_err) => {
+                warn!("Batch query JoinError: {:?}", join_err);
             }
         }
     }
@@ -176,6 +180,7 @@ async fn write_event_properties_batch(
     batch: EventPropertiesBatch,
     context: Arc<AppContext>,
 ) -> Result<(), sqlx::Error> {
+    let total_time = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_TIME, &[]);
     let mut tries = 1;
 
     loop {
@@ -193,20 +198,23 @@ async fn write_event_properties_batch(
         match result {
             Err(e) => {
                 if tries == MAX_V2_BATCH_RETRY_ATTEMPTS {
-                    // TODO(eli): add logging & counter for hard fail here
+                    metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "failed")]);
+                    total_time.fin();
                     return Err(e);
                 }
 
+                metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "retry")]);
                 let jitter = rand::random::<u64>() % 50;
                 let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
                 let _unused = tokio::time::sleep(Duration::from_millis(delay));
-
                 tries += 1;
-                // TODO(eli): add logging & counter increment here for retry attempt
             }
+
             Ok(pgq_result) => {
-                let _count = pgq_result.rows_affected();
-                // TODO(eli): increment rows written counter!
+                let count = pgq_result.rows_affected();
+                metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "success")]);
+                common_metrics::inc(V2_EVENT_PROPS_BATCH_ROWS_AFFECTED, &[], count);
+                total_time.fin();
                 return Ok(());
             }
         }
@@ -217,6 +225,7 @@ async fn write_property_definitions_batch(
     batch: PropertyDefinitionsBatch,
     context: Arc<AppContext>,
 ) -> Result<(), sqlx::Error> {
+    let total_time = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_TIME, &[]);
     let mut tries: u64 = 1;
 
     loop {
@@ -241,20 +250,23 @@ async fn write_property_definitions_batch(
         match result {
             Err(e) => {
                 if tries == MAX_V2_BATCH_RETRY_ATTEMPTS {
-                    // TODO(eli): add logging & counter for hard fail here
+                    metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "failed")]);
+                    total_time.fin();
                     return Err(e);
                 }
 
+                metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "retry")]);
                 let jitter = rand::random::<u64>() % 50;
                 let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
                 let _unused = tokio::time::sleep(Duration::from_millis(delay));
-
                 tries += 1;
-                // TODO(eli): add logging & counter increment here for retry attempt
             }
+
             Ok(pgq_result) => {
-                let _count = pgq_result.rows_affected();
-                // TODO(eli): increment rows written counter!
+                let count = pgq_result.rows_affected();
+                metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "success")]);
+                common_metrics::inc(V2_PROP_DEFS_BATCH_ROWS_AFFECTED, &[], count);
+                total_time.fin();
                 return Ok(());
             }
         }
@@ -265,6 +277,7 @@ async fn write_event_definitions_batch(
     batch: EventDefinitionsBatch,
     context: Arc<AppContext>,
 ) -> Result<(), sqlx::Error> {
+    let total_time = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_TIME, &[]);
     let mut tries: u64 = 1;
 
     loop {
@@ -290,20 +303,22 @@ async fn write_event_definitions_batch(
         match result {
             Err(e) => {
                 if tries == MAX_V2_BATCH_RETRY_ATTEMPTS {
-                    // TODO(eli): add logging & counter for hard fail here
+                    metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "failed")]);
+                    total_time.fin();
                     return Err(e);
                 }
 
+                metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "retry")]);
                 let jitter = rand::random::<u64>() % 50;
                 let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
                 let _unused = tokio::time::sleep(Duration::from_millis(delay));
-
                 tries += 1;
-                // TODO(eli): add logging & counter increment here for retry attempt
             }
             Ok(pgq_result) => {
-                let _count = pgq_result.rows_affected();
-                // TODO(eli): increment rows written counter!
+                let count = pgq_result.rows_affected();
+                metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "success")]);
+                common_metrics::inc(V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, &[], count);
+                total_time.fin();
                 return Ok(());
             }
         }
