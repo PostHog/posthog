@@ -424,6 +424,12 @@
     --bg-fill-success-tertiary: var(--color-green-50);
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-500) 10%, transparent);
 
+    // Buttons
+    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-100);
+    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-100);
+    --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
+    --bg-fill-button-tertiary-active-inverse: var(--bg-fill-highlight-inverse-50);
+
     // Inputs
     --bg-fill-input: var(--color-white);
     --bg-fill-switch: var(--primitive-neutral-cool-250);
@@ -516,6 +522,8 @@
     --font-sans: 'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
         'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     --font-title: 'Emoji Flags Polyfill', 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-button: 'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
         'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     --font-mono: 'Emoji Flags Polyfill', ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas',
         'Liberation Mono', monospace;
@@ -846,6 +854,10 @@
     --bg-fill-success-tertiary: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
+    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-100);
+    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-100);
+    --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
+    --bg-fill-button-tertiary-active-inverse: var(--bg-fill-highlight-inverse-50);
     --bg-fill-input: var(--primitive-neutral-cool-850);
     --bg-fill-switch: var(--primitive-neutral-cool-900);
     --bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
@@ -1045,7 +1057,6 @@
 
                 &::-webkit-scrollbar-thumb {
                     background: var(--bg-fill-scroll-thumb);
-                    border: 6px solid blue;
                     border-radius: 8px;
                 }
             }

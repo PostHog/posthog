@@ -12,7 +12,14 @@ import {
 } from 'lib/utils'
 import { useEffect, useState } from 'react'
 
-import { PropertyDefinition, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
+import {
+    GroupTypeIndex,
+    PropertyDefinition,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 
 import { PropertyValue } from './PropertyValue'
 
@@ -29,6 +36,7 @@ export interface OperatorValueSelectProps {
     propertyDefinitions: PropertyDefinition[]
     defaultOpen?: boolean
     addRelativeDateTimeOptions?: boolean
+    groupTypeIndex?: GroupTypeIndex
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -70,6 +78,7 @@ export function OperatorValueSelect({
     eventNames = [],
     defaultOpen,
     addRelativeDateTimeOptions,
+    groupTypeIndex = undefined,
 }: OperatorValueSelectProps): JSX.Element {
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propertyKey)
 
@@ -188,6 +197,7 @@ export function OperatorValueSelect({
                         // open automatically only if new filter
                         autoFocus={!isMobile() && value === null}
                         addRelativeDateTimeOptions={addRelativeDateTimeOptions}
+                        groupTypeIndex={groupTypeIndex}
                     />
                 </div>
             )}
