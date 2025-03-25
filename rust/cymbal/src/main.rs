@@ -6,9 +6,13 @@ use common_metrics::{serve, setup_metrics_routes};
 use cymbal::{
     app_context::AppContext,
     config::Config,
-    metric_consts::{DROPPED_EVENTS, ERRORS, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME},
+    metric_consts::{
+        DROPPED_EVENTS, EMIT_EVENTS_TIME, ERRORS, EVENTS_WRITTEN, EVENT_BATCH_SIZE,
+        EVENT_PROCESSED, EVENT_RECEIVED, HANDLE_BATCH_TIME, MAIN_LOOP_TIME,
+    },
     pipeline::{errors::handle_errors, handle_batch, IncomingEvent},
 };
+use metrics::histogram;
 use rdkafka::types::RDKafkaErrorCode;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
@@ -112,6 +116,8 @@ async fn main() {
             metrics::counter!(EVENT_RECEIVED).increment(1);
         }
 
+        histogram!(EVENT_BATCH_SIZE).record(to_process.len() as f64);
+        let handle_batch_start = common_metrics::timing_guard(HANDLE_BATCH_TIME, &[]);
         let processed = match handle_batch(to_process, context.clone()).await {
             Ok(events) => events,
             Err(failure) => {
@@ -121,6 +127,7 @@ async fn main() {
                 panic!("Unhandled error: {:?}; offset: {:?}", err, offset);
             }
         };
+        handle_batch_start.label("outcome", "completed").fin();
 
         metrics::counter!(EVENT_PROCESSED).increment(processed.len() as u64);
 
@@ -134,6 +141,9 @@ async fn main() {
 
         let to_emit = handle_errors(processed, context.clone()).await;
 
+        metrics::counter!(EVENTS_WRITTEN).increment(to_emit.len() as u64);
+
+        let emit_time = common_metrics::timing_guard(EMIT_EVENTS_TIME, &[]);
         let results = txn
             .send_keyed_iter_to_kafka(
                 &context.config.events_topic,
@@ -171,6 +181,7 @@ async fn main() {
                 }
             }
         }
+        emit_time.label("outcome", "completed").fin();
 
         let metadata = context.kafka_consumer.metadata();
 

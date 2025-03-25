@@ -34,7 +34,8 @@ pub fn prepare_events(
                 };
 
                 // If we get an event we can't deserialize at all, we have to drop it. This is a rare
-                // case where we put the whole event into the error, so we can DLQ it later
+                // case where we put the whole event into the error, so we can DLQ it later for offline
+                // analysis
                 let mut raw_event: Value = match serde_json::from_str(&outer.data) {
                     Ok(event) => event,
                     Err(e) => {
@@ -52,13 +53,15 @@ pub fn prepare_events(
                     continue;
                 }
 
-                // Now parse it out into the relevant structure. Same reasoning as above re:
-                // returning a PipelineFailure
+                // Now parse it out into the relevant structure. At this point, failure to convert from
+                // the raw json object to a RawEvent indicates some pipeline error, and we should fail and
+                // take lag until it's fixed (so we return an UnhandledError here)
                 let raw_event: RawEvent =
                     serde_json::from_value(raw_event).map_err(|e| (i, e.into()))?;
 
                 // Bit of a mouthful, but basically, if the event has a timestamp, try to parse it,
-                // and store an event error if we can't. If the event has no timestamp, use the current time.
+                // and store an event error if we can't. If the event has no timestamp, use the instant
+                // the event was captured.
                 let timestamp = match &raw_event.timestamp {
                     Some(ts) => parse_ts_assuming_utc(ts),
                     None => Ok(parse_ts_assuming_utc(&outer.now)
@@ -151,7 +154,7 @@ fn transform_event(
         person_id: None,
         timestamp: format_ch_timestamp(timestamp),
         created_at: format_ch_timestamp(Utc::now()),
-        elements_chain: None,
+        elements_chain: None, // TODO - we skip elements chain extraction for now, but should implement it eventually
         person_created_at: None,
         person_properties: None,
         group0_properties: None,

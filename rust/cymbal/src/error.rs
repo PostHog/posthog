@@ -128,16 +128,12 @@ pub enum EventError {
     NoProperties(Uuid),
     #[error("Invalid properties: {0}, serde error: {1}")]
     InvalidProperties(Uuid, String),
-    #[error("No exception list: {0}")]
-    NoExceptionList(Uuid),
     #[error("Empty exception list: {0}")]
     EmptyExceptionList(Uuid),
     #[error("Invalid event timestamp: {0}, {1}")]
     InvalidTimestamp(String, String),
     #[error("No team for token: {0}")]
     NoTeamForToken(String),
-    #[error("Failed to sanitize event: {0}, {1}")]
-    FailedToSanitize(Uuid, String),
     #[error("Suppressed issue: {0}")]
     Suppressed(Uuid),
     #[error("Could not deserialize event data: {1}")]
