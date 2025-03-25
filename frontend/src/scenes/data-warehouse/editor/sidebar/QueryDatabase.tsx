@@ -30,7 +30,11 @@ const EditorSidebarOverlay = (): JSX.Element => {
     const { sidebarOverlayTreeItems, selectedSchema } = useValues(editorSceneLogic)
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
 
-    const copy = (): void => selectedSchema?.name && void copyToClipboard(selectedSchema.name, 'schema')
+    const copy = (): void => {
+        if (selectedSchema?.name) {
+            void copyToClipboard(selectedSchema.name, 'schema')
+        }
+    }
 
     return (
         <div className="flex flex-col h-full">
