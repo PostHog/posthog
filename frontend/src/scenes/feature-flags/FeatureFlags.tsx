@@ -30,6 +30,7 @@ import { groupsModel, Noun } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ProductKey } from '~/types'
 import {
+    AccessControlLevel,
     ActivityScope,
     AnyPropertyFilter,
     AvailableFeature,
@@ -209,7 +210,7 @@ export function OverViewTab({
 
                                 <AccessControlledLemonButton
                                     userAccessLevel={featureFlag.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.FeatureFlag}
                                     data-attr={`feature-flag-${featureFlag.key}-switch`}
                                     onClick={() => {
@@ -248,7 +249,7 @@ export function OverViewTab({
                                 {featureFlag.id && (
                                     <AccessControlledLemonButton
                                         userAccessLevel={featureFlag.user_access_level}
-                                        minAccessLevel="editor"
+                                        minAccessLevel={AccessControlLevel.Editor}
                                         resourceType={AccessControlResourceType.FeatureFlag}
                                         fullWidth
                                         disabled={!featureFlag.can_edit}
@@ -277,7 +278,7 @@ export function OverViewTab({
                                 {featureFlag.id && (
                                     <AccessControlledLemonButton
                                         userAccessLevel={featureFlag.user_access_level}
-                                        minAccessLevel="editor"
+                                        minAccessLevel={AccessControlLevel.Editor}
                                         resourceType={AccessControlResourceType.FeatureFlag}
                                         status="danger"
                                         onClick={() => {
@@ -454,16 +455,23 @@ export function OverViewTab({
 }
 
 export function FeatureFlags(): JSX.Element {
-    const { activeTab } = useValues(featureFlagsLogic)
+    const { activeTab, featureFlags } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
 
     return (
         <div className="feature_flags">
             <PageHeader
                 buttons={
-                    <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
+                    <AccessControlledLemonButton
+                        type="primary"
+                        to={urls.featureFlag('new')}
+                        data-attr="new-feature-flag"
+                        minAccessLevel={AccessControlLevel.Editor}
+                        resourceType={AccessControlResourceType.FeatureFlag}
+                        userAccessLevel={featureFlags?.user_access_level}
+                    >
                         New feature flag
-                    </LemonButton>
+                    </AccessControlledLemonButton>
                 }
             />
             <LemonTabs

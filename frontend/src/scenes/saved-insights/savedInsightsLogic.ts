@@ -26,11 +26,7 @@ import type { savedInsightsLogicType } from './savedInsightsLogicType'
 
 export const INSIGHTS_PER_PAGE = 30
 
-export interface InsightsResult {
-    results: QueryBasedInsightModel[]
-    count: number
-    previous?: string
-    next?: string
+export interface InsightsResult extends CountedPaginatedResponse<QueryBasedInsightModel> {
     /* not in the API response */
     filters?: SavedInsightFilters | null
     /* not in the API response */

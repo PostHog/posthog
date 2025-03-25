@@ -2,10 +2,13 @@ import { PaginationManual, Sorting } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 
 import { notebooksModel } from '~/models/notebooksModel'
-import { NotebookListItemType, NotebookNodeType } from '~/types'
+import { AccessControlResourceType, NotebookListItemType, NotebookNodeType } from '~/types'
 
 import type { notebooksTableLogicType } from './notebooksTableLogicType'
 
@@ -36,7 +39,7 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
         setPage: (page: number) => ({ page }),
     }),
     connect({
-        values: [notebooksModel, ['notebookTemplates']],
+        values: [notebooksModel, ['notebookTemplates'], featureFlagLogic, ['featureFlags']],
         actions: [notebooksModel, ['deleteNotebookSuccess']],
     }),
     reducers({
@@ -133,6 +136,22 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
                     onBackward: () => actions.setPage(page - 1),
                     onForward: () => actions.setPage(page + 1),
                 }
+            },
+        ],
+
+        canEditNotebooks: [
+            (s) => [s.notebooksResponse, s.featureFlags],
+            (notebooksResponse, featureFlags) => {
+                if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
+                    return notebooksResponse?.user_access_level
+                        ? accessLevelSatisfied(
+                              AccessControlResourceType.Notebook,
+                              notebooksResponse?.user_access_level,
+                              'editor'
+                          )
+                        : true
+                }
+                return true
             },
         ],
     })),

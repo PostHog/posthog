@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
@@ -12,6 +12,7 @@ import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DashboardTemplateChooser } from '../DashboardTemplateChooser'
 
@@ -21,7 +22,7 @@ export const scene: SceneExport = {
 }
 
 export function Dashboards(): JSX.Element {
-    const { dashboardsLoading } = useValues(dashboardsModel)
+    const { dashboardsLoading, pagedDashboards } = useValues(dashboardsModel)
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
@@ -44,15 +45,18 @@ export function Dashboards(): JSX.Element {
             <DeleteDashboardModal />
             <PageHeader
                 buttons={
-                    <LemonButton
+                    <AccessControlledLemonButton
                         data-attr="new-dashboard"
                         onClick={() => {
                             showNewDashboardModal()
                         }}
                         type="primary"
+                        minAccessLevel={AccessControlLevel.Editor}
+                        resourceType={AccessControlResourceType.Dashboard}
+                        userAccessLevel={pagedDashboards?.user_access_level}
                     >
                         New dashboard
-                    </LemonButton>
+                    </AccessControlledLemonButton>
                 }
             />
             <LemonTabs activeKey={currentTab} onChange={(newKey) => setCurrentTab(newKey)} tabs={enabledTabs} />

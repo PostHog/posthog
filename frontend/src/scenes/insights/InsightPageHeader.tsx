@@ -41,6 +41,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     ExporterFormat,
     InsightLogicProps,
@@ -327,7 +328,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <LemonDivider />
                                             <AccessControlledLemonButton
                                                 userAccessLevel={insight.user_access_level}
-                                                minAccessLevel="editor"
+                                                minAccessLevel={AccessControlLevel.Editor}
                                                 resourceType={AccessControlResourceType.Insight}
                                                 status="danger"
                                                 onClick={() =>
@@ -389,7 +390,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             canEditInsight && (
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     type="primary"
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}
