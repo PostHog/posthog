@@ -147,7 +147,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         },
         ref
     ): JSX.Element => {
-        const DEPTH_OFFSET = depth === 0 ? 0 : 6 * depth
+        const DEPTH_OFFSET = depth === 0 ? 0 : 16 * depth
 
         const [isContextMenuOpenForItem, setIsContextMenuOpenForItem] = useState<string | undefined>(undefined)
 
@@ -207,10 +207,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     >
                                         {/* Folder lines */}
                                         {depth !== 0 && (
-                                            // eslint-disable-next-line react/forbid-dom-props
                                             <div
                                                 className="absolute border-l border-secondary h-[calc(100%+2px)] w-px -top-px pointer-events-none z-0"
-                                                style={{ left: `${DEPTH_OFFSET * 1.1}px` }}
+                                                // eslint-disable-next-line react/forbid-dom-props
+                                                style={{ left: `${DEPTH_OFFSET}px` }}
                                             />
                                         )}
 
