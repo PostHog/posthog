@@ -103,7 +103,7 @@ uv pip install -q --no-binary=pymssql -r requirements.txt -r requirements-dev.tx
 # This also sets up pre-commit hooks via Husky
 if [ ! -d "node_modules" ]; then
   echo "Installing Node dependencies..."
-  pnpm install -s
+  pnpm install --silent
   echo "Node dependencies installed"
 fi
 

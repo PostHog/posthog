@@ -22,7 +22,9 @@ export function ItemTimeDisplay({
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { durationMs } = useValues(playerInspectorLogic(logicProps))
 
-    const fixedUnits = durationMs / 1000 > 3600 ? 3 : 2
+    // if the recording is less than an hour we can save space by not showing the hours zeroes
+    const isLongerThanAnHour = durationMs / 1000 > 3600
+    const fixedUnits = isLongerThanAnHour ? 3 : 2
 
     return (
         <div className={cn('px-2 py-1 text-xs min-w-18 text-center', className)}>
