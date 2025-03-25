@@ -161,3 +161,26 @@ export function resolveDate(date?: string | null): Dayjs {
     }
     throw new Error(`Invalid date: ${date}`)
 }
+
+const customOptions: Record<string, string> = {
+    dStart: 'Today', // today
+    '-24h': '24h',
+    mStart: 'Month',
+    yStart: 'Year',
+    all: 'All',
+}
+
+export function generateDateRangeLabel(dateRange: DateRange): string | undefined {
+    const dateFrom = dateRange.date_from
+    if (!dateFrom) {
+        return undefined
+    }
+    const isRelative = dateFrom.match(/-\d+[hdmy]/)
+    if (dateFrom in customOptions) {
+        return customOptions[dateFrom]
+    } else if (isRelative) {
+        const label = dateFrom?.replace('-', '')
+        return label
+    }
+    return undefined
+}

@@ -14,6 +14,7 @@ import {
 } from './errorTrackingLogic'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 import { errorTrackingQuery } from './queries'
+import { generateDateRangeLabel } from './utils'
 
 export type SparklineSelectedPeriod = 'custom' | 'day'
 
@@ -109,17 +110,20 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 }),
         ],
         sparklineOptions: [
-            () => [],
-            () => [
-                {
-                    value: 'custom',
-                    label: 'Custom',
-                },
-                {
-                    value: 'day',
-                    label: '24h',
-                },
-            ],
+            (state) => [state.dateRange],
+            (dateRange) => {
+                const customLabel = generateDateRangeLabel(dateRange)
+                return [
+                    {
+                        value: 'custom',
+                        label: customLabel || 'Custom',
+                    },
+                    {
+                        value: 'day',
+                        label: '24h',
+                    },
+                ]
+            },
         ],
     })),
 
