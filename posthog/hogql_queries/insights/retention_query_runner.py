@@ -189,38 +189,32 @@ class RetentionQueryRunner(QueryRunner):
         self, property_name: str, breakdown_type: str, group_type_index: int | None = None
     ) -> ast.Expr:
         if breakdown_type == "person":
-            return ast.Call(
-                name="JSONExtractString",
-                args=[
-                    ast.Field(chain=["person", "properties"]),
-                    ast.Constant(value=property_name),
-                ],
-            )
+            properties_chain = ["person", "properties", property_name]
         elif breakdown_type == "group":
-            return ast.Call(
-                name="JSONExtractString",
-                args=[
-                    ast.Field(chain=[f"groups_{group_type_index}", "properties"]),
-                    ast.Constant(value=property_name),
-                ],
-            )
+            properties_chain = [f"groups_{group_type_index}", "properties", property_name]
+        else:
+            # Default to event properties
+            properties_chain = ["events", "properties", property_name]
 
-        # Default to event properties
+        # Just use the field chain directly, ClickHouse will handle the property access efficiently
         return ast.Call(
-            name="JSONExtractString",
+            name="toString",
             args=[
-                ast.Field(chain=["events", "properties"]),
-                ast.Constant(value=property_name),
+                ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Call(
+                            name="nullIf",
+                            args=[
+                                ast.Field(chain=properties_chain),
+                                ast.Constant(value=""),
+                            ],
+                        ),
+                        ast.Constant(value=""),
+                    ],
+                ),
             ],
         )
-
-    def concat_breakdowns(self, fields: list[ast.Expr]) -> ast.Expr:
-        if not fields:
-            return ast.Constant(value="")
-
-        string_fields: list[ast.Expr] = [ast.Call(name="toString", args=[field]) for field in fields]
-
-        return ast.Call(name="arrayStringConcat", args=[ast.Array(exprs=string_fields), ast.Constant(value="::")])
 
     def actor_query(
         self,
@@ -463,35 +457,21 @@ class RetentionQueryRunner(QueryRunner):
                 sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
             )
 
-        breakdowns = []
-
         if self.query.breakdownFilter:
             if self.query.breakdownFilter.breakdowns:
-                for i, breakdown in enumerate(self.query.breakdownFilter.breakdowns):
-                    # Only extract breakdown values from relevant events (start or return)
-                    breakdown_extract_expr = ast.Call(
-                        name="if",
-                        args=[
-                            is_relevant_event,
-                            self.breakdown_extract_expr(
-                                breakdown.property, cast(str, breakdown.type), breakdown.group_type_index
-                            ),
-                            ast.Constant(value=None),
-                        ],
-                    )
-                    breakdown_label = f"breakdown_{i}"
-                    breakdowns.append(breakdown_label)
+                # supporting only single breakdowns for now
+                breakdown = self.query.breakdownFilter.breakdowns[0]
+                breakdown_expr = self.breakdown_extract_expr(
+                    breakdown.property, cast(str, breakdown.type), breakdown.group_type_index
+                )
 
-                    # update both select and group by
-                    inner_query.select.append(ast.Alias(alias=breakdown_label, expr=breakdown_extract_expr))
-                    cast(list[ast.Expr], inner_query.group_by).append(ast.Field(chain=[breakdown_label]))
+                # update both select and group by
+                inner_query.select.append(ast.Alias(alias="breakdown_value", expr=breakdown_expr))
+                cast(list[ast.Expr], inner_query.group_by).append(ast.Field(chain=["breakdown_value"]))
             elif self.query.breakdownFilter.breakdown is not None:
                 raise ValueError(
                     "Single breakdowns are deprecated, make sure multiple-breakdowns feature flag is enabled"
                 )
-
-        concat_expr = self.concat_breakdowns([ast.Field(chain=[prop]) for prop in breakdowns])
-        inner_query.select.append(ast.Alias(alias="breakdown_value", expr=concat_expr))
 
         return inner_query
 
