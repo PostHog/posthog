@@ -182,22 +182,14 @@ class UserAccessControl:
                 "resource_id": resource_id,
             }
 
-        return {
-            "team_id": self._team.id,
-            "resource": resource,
-            "resource_id": resource_id,
-        }  # type: ignore
+        return {"team_id": self._team.id, "resource": resource, "resource_id": resource_id}  # type: ignore
 
     def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
         """
         Used when checking overall access to a resource
         """
 
-        return {
-            "team_id": self._team.id,
-            "resource": resource,
-            "resource_id": None,
-        }  # type: ignore
+        return {"team_id": self._team.id, "resource": resource, "resource_id": None}  # type: ignore
 
     def _access_controls_filters_for_queryset(self, resource: APIScopeObject) -> dict:
         """
