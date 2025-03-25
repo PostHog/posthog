@@ -52,35 +52,35 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
     def test_handles_select_with_eq(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp = '2021-01-01'")))
         expected = f(
-            "((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')"
+            "raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3)) AND raw_sessions.min_timestamp <= ('2021-01-01' + toIntervalDay(3))"
         )
         assert expected == actual
 
     def test_handles_select_with_eq_flipped(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE '2021-01-01' = $start_timestamp")))
         expected = f(
-            "((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')"
+            "raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3)) AND raw_sessions.min_timestamp <= ('2021-01-01' + toIntervalDay(3))"
         )
         assert expected == actual
 
     def test_handles_select_with_simple_gt(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp > '2021-01-01'")))
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
+        expected = f("raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3))")
         assert expected == actual
 
     def test_handles_select_with_simple_gte(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp >= '2021-01-01'")))
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
+        expected = f("raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3))")
         assert expected == actual
 
     def test_handles_select_with_simple_lt(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp < '2021-01-01'")))
-        expected = f("((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01')")
+        expected = f("raw_sessions.min_timestamp <= ('2021-01-01' + toIntervalDay(3))")
         assert expected == actual
 
     def test_handles_select_with_simple_lte(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp <= '2021-01-01'")))
-        expected = f("((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01')")
+        expected = f("raw_sessions.min_timestamp <= ('2021-01-01' + toIntervalDay(3))")
         assert expected == actual
 
     def test_select_with_placeholder(self):
@@ -92,7 +92,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
                 )
             )
         )
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
+        expected = f("raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3))")
         assert expected == actual
 
     def test_unrelated_equals(self):
@@ -110,7 +110,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01') AND ((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-03')"
+            "(raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3))) AND (raw_sessions.min_timestamp <= ('2021-01-03' + toIntervalDay(3)))"
         )
         assert expected == actual
 
@@ -121,7 +121,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03')"
+            "(raw_sessions.min_timestamp <= ('2021-01-01' + toIntervalDay(3))) AND (raw_sessions.min_timestamp >= ('2021-01-03' - toIntervalDay(3)))"
         )
         assert expected == actual
 
@@ -159,7 +159,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
                 )
             )
         )
-        assert actual == f("(raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03'")
+        assert actual == f("raw_sessions.min_timestamp  >= ('2021-01-03' - toIntervalDay(3))")
 
     def test_join(self):
         actual = f(
@@ -169,7 +169,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
                 )
             )
         )
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03')")
+        expected = f("raw_sessions.min_timestamp >= ('2021-01-03' - toIntervalDay(3))")
         assert expected == actual
 
     def test_join_using_events_timestamp_filter(self):
@@ -180,29 +180,29 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
                 )
             )
         )
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03')")
+        expected = f("raw_sessions.min_timestamp >= ('2021-01-03' - toIntervalDay(3))")
         assert expected == actual
 
     def test_minus(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp >= today() - 2")))
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= (today() - 2))")
+        expected = f("raw_sessions.min_timestamp >= ((today() - 2) - toIntervalDay(3))")
         assert expected == actual
 
     def test_minus_function(self):
         actual = f(
             self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp >= minus(today() , 2)"))
         )
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= minus(today(), 2))")
+        expected = f("raw_sessions.min_timestamp >= (minus(today(), 2) - toIntervalDay(3))")
         assert expected == actual
 
     def test_less_function(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE less($start_timestamp, today())")))
-        expected = f("((raw_sessions.min_timestamp - toIntervalDay(3)) <= today())")
+        expected = f("raw_sessions.min_timestamp <= (today() + toIntervalDay(3))")
         assert expected == actual
 
     def test_less_function_second_arg(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE less(today(), $start_timestamp)")))
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= today())")
+        expected = f("raw_sessions.min_timestamp >= (today() - toIntervalDay(3))")
         assert expected == actual
 
     def test_subquery_args(self):
@@ -211,7 +211,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
                 parse("SELECT * FROM sessions WHERE true = (select false) and less(today(), min_timestamp)")
             )
         )
-        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= today())")
+        expected = f("raw_sessions.min_timestamp >= (today() - toIntervalDay(3))")
         assert expected == actual
 
     def test_real_example(self):
@@ -223,7 +223,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "(toTimeZone(raw_sessions.min_timestamp, 'US/Pacific') + toIntervalDay(3)) >= toDateTime('2024-03-12 00:00:00', 'US/Pacific') AND (toTimeZone(raw_sessions.min_timestamp, 'US/Pacific') - toIntervalDay(3)) <= toDateTime('2024-03-19 23:59:59', 'US/Pacific') "
+            "toTimeZone(raw_sessions.min_timestamp, 'US/Pacific') >= (toDateTime('2024-03-12 00:00:00', 'US/Pacific') - toIntervalDay(3)) AND toTimeZone(raw_sessions.min_timestamp, 'US/Pacific') <= (toDateTime('2024-03-19 23:59:59', 'US/Pacific') + toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -235,7 +235,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
                 )
             )
         )
-        expected = f("(raw_sessions.min_timestamp + toIntervalDay(3)) >= '2024-03-12'")
+        expected = f("raw_sessions.min_timestamp >= ('2024-03-12' - toIntervalDay(3))")
         assert expected == actual
 
     def test_select_query(self):
@@ -274,7 +274,7 @@ SELECT
             )
         )
         expected = f(
-            "((raw_sessions.min_timestamp + toIntervalDay(3)) >= toStartOfDay(assumeNotNull(toDateTime('2024-04-13 00:00:00'))) AND (raw_sessions.min_timestamp - toIntervalDay(3)) <= assumeNotNull(toDateTime('2024-04-20 23:59:59')))"
+            "raw_sessions.min_timestamp >= (toStartOfDay(assumeNotNull(toDateTime('2024-04-13 00:00:00'))) - toIntervalDay(3)) AND raw_sessions.min_timestamp <= (assumeNotNull(toDateTime('2024-04-20 23:59:59')) + toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -310,7 +310,7 @@ SELECT
         )
         select = ast.SelectQuery(select=[], where=where)
         actual = f(self.inliner.get_inner_where(select))
-        expected = f("(raw_sessions.min_timestamp + toIntervalDay(3)) >= '2024-03-12'")
+        expected = f("raw_sessions.min_timestamp >= ('2024-03-12' - toIntervalDay(3))")
         assert expected == actual
 
 
