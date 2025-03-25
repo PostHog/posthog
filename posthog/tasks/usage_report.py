@@ -840,9 +840,9 @@ def get_teams_with_recording_bytes_in_period(
     return result
 
 
+@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def capture_report(
     *,
-    pha_client: PostHogClient,
     organization_id: Optional[str] = None,
     full_report_dict: dict[str, Any],
     at_date: Optional[str] = None,
@@ -850,6 +850,7 @@ def capture_report(
     if not organization_id:
         raise ValueError("Organization_id must be provided")
     try:
+        pha_client = get_ph_client(sync_mode=True)
         capture_event(
             pha_client=pha_client,
             name="organization usage report",
@@ -1338,8 +1339,7 @@ def send_all_org_usage_reports(
             if not skip_capture_event:
                 try:
                     at_date_str = at_date.isoformat() if at_date else None
-                    capture_report(
-                        pha_client=pha_client,
+                    capture_report.delay(
                         organization_id=organization_id,
                         full_report_dict=full_report_dict,
                         at_date=at_date_str,
