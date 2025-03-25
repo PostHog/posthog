@@ -13,7 +13,7 @@
          if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -21,6 +21,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -83,7 +84,7 @@
          if(1, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -91,6 +92,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -153,7 +155,7 @@
          if(1, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -161,6 +163,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -223,7 +226,7 @@
          if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -231,6 +234,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -293,7 +297,7 @@
          if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -301,6 +305,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -363,7 +368,7 @@
          if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -371,6 +376,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -433,7 +439,7 @@
          if(1, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -441,6 +447,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -504,7 +511,7 @@
          if(1, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -512,6 +519,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -575,7 +583,7 @@
          if(1, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -583,6 +591,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -646,7 +655,7 @@
          if(1, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -654,6 +663,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -716,7 +726,7 @@
          if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -724,6 +734,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -787,7 +798,7 @@
          if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -795,6 +806,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -858,7 +870,7 @@
          if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -866,6 +878,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
