@@ -232,33 +232,39 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             properties={"email": "joe@posthog.com"},
             team=self.team,
             distinct_ids=["bla"],
+            uuid="016ff262-4301-0000-0000-000000000001",
         )
         person2 = _create_person(
             properties={"email": "bob@posthog.com"},
             team=self.team,
             distinct_ids=["blu"],
+            uuid="016ff262-4301-0000-0000-000000000002",
         )
         person3 = _create_person(
             properties={"email": "bill@posthog.com"},
             team=self.team,
             distinct_ids=["ble"],
+            uuid="016ff262-4301-0000-0000-000000000003",
         )
         _create_event(
             distinct_id="bla",
             event="random event 1",
             team=self.team,
+            timestamp="2020-01-10T00:01:00Z",
         )
         _create_event(
             distinct_id="blu",
             event="random event 2",
             team=self.team,
             properties={"random_prop": "asdf"},
+            timestamp="2020-01-10T00:02:00Z",
         )
         _create_event(
             distinct_id="ble",
             event="another random event",
             team=self.team,
             properties={"random_prop": "qwerty"},
+            timestamp="2020-01-10T00:03:00Z",
         )
 
         team2 = Organization.objects.bootstrap(None)[2]
@@ -267,6 +273,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             event="random event",
             team=team2,
             properties={"random_prop": "abcd"},
+            timestamp="2020-01-10T00:04:00Z",
         )
 
         flush_persons_and_events()
