@@ -4,6 +4,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { Scene } from 'scenes/sceneTypes'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 import { teamLogic } from 'scenes/teamLogic'
@@ -179,6 +180,21 @@ export const surveysLogic = kea<surveysLogicType>([
             loadResponsesCount: async () => {
                 const surveysResponsesCount = await api.surveys.getResponsesCount()
                 return surveysResponsesCount
+            },
+        },
+        surveysOptInLastChanged: {
+            __default: null as ActivityLogItem | null,
+            loadSurveysOptInLastChanged: async () => {
+                const response = await api.activity.list({
+                    scope: 'Team',
+                })
+                return response.results
+                    .filter(
+                        (item) =>
+                            item.activity === 'updated' &&
+                            item.detail?.changes?.some((change) => change.field === 'surveys_opt_in')
+                    )
+                    .at(0)
             },
         },
     })),
@@ -359,5 +375,6 @@ export const surveysLogic = kea<surveysLogicType>([
     afterMount(({ actions }) => {
         actions.loadSurveys()
         actions.loadResponsesCount()
+        actions.loadSurveysOptInLastChanged()
     }),
 ])
