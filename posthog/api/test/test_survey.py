@@ -3183,7 +3183,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
 class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @freeze_time("2024-05-01 14:40:09")
-    def test_survey_stats_returns_all_events(self):
+    def test_individual_survey_stats(self):
         survey = Survey.objects.create(
             team=self.team,
             name="My Survey",
@@ -3221,6 +3221,67 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(stats["survey dismissed"]["unique_persons"], 1)
         self.assertEqual(stats["survey sent"]["total_count"], 1)
         self.assertEqual(stats["survey sent"]["unique_persons"], 1)
+
+        rates = data["rates"]
+        self.assertEqual(rates["response_rate"], 50.0)  # 1 sent / 2 shown
+        self.assertEqual(rates["dismissal_rate"], 50.0)  # 1 dismissed / 2 shown
+
+    @freeze_time("2024-05-01 14:40:09")
+    def test_global_survey_stats(self):
+        # Create two surveys
+        survey1 = Survey.objects.create(
+            team=self.team,
+            name="Survey 1",
+            type="popover",
+            questions=[{"type": "open", "question": "Question 1?"}],
+        )
+        survey2 = Survey.objects.create(
+            team=self.team,
+            name="Survey 2",
+            type="popover",
+            questions=[{"type": "open", "question": "Question 2?"}],
+        )
+
+        # Insert events for both surveys
+        events = [
+            # Survey 1 events
+            ("survey shown", "2024-05-01 12:00:00", "user1", survey1.id),
+            ("survey shown", "2024-05-01 12:01:00", "user2", survey1.id),
+            ("survey dismissed", "2024-05-01 12:02:00", "user1", survey1.id),
+            ("survey sent", "2024-05-01 12:03:00", "user2", survey1.id),
+            # Survey 2 events
+            ("survey shown", "2024-05-01 13:00:00", "user3", survey2.id),
+            ("survey shown", "2024-05-01 13:01:00", "user4", survey2.id),
+            ("survey sent", "2024-05-01 13:02:00", "user3", survey2.id),
+            ("survey sent", "2024-05-01 13:03:00", "user4", survey2.id),
+        ]
+
+        for event, timestamp, distinct_id, survey_id in events:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={"$survey_id": str(survey_id)},
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        stats = data["stats"]
+
+        # Check combined stats
+        self.assertEqual(stats["survey shown"]["total_count"], 4)
+        self.assertEqual(stats["survey shown"]["unique_persons"], 4)
+        self.assertEqual(stats["survey dismissed"]["total_count"], 1)
+        self.assertEqual(stats["survey dismissed"]["unique_persons"], 1)
+        self.assertEqual(stats["survey sent"]["total_count"], 3)
+        self.assertEqual(stats["survey sent"]["unique_persons"], 3)
+
+        rates = data["rates"]
+        self.assertEqual(rates["response_rate"], 75.0)  # 3 sent / 4 shown
+        self.assertEqual(rates["dismissal_rate"], 25.0)  # 1 dismissed / 4 shown
 
     @freeze_time("2024-05-01 14:40:09")
     def test_survey_stats_with_date_filtering(self):
@@ -3262,6 +3323,10 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(stats["survey dismissed"]["total_count"], 1)
         self.assertEqual(stats["survey sent"]["total_count"], 0)
 
+        rates = data["rates"]
+        self.assertEqual(rates["response_rate"], 0.0)  # 0 sent / 1 shown
+        self.assertEqual(rates["dismissal_rate"], 100.0)  # 1 dismissed / 1 shown
+
     def test_survey_stats_nonexistent_survey(self):
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/12345/stats/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -3284,6 +3349,70 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(stats[event_type]["unique_persons"], 0)
             self.assertEqual(stats[event_type]["first_seen"], None)
             self.assertEqual(stats[event_type]["last_seen"], None)
+
+        rates = data["rates"]
+        self.assertEqual(rates["response_rate"], 0.0)
+        self.assertEqual(rates["dismissal_rate"], 0.0)
+
+    def test_global_stats_no_surveys(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        stats = data["stats"]
+        self.assertEqual(stats, {})
+        rates = data["rates"]
+        self.assertEqual(rates["response_rate"], 0.0)
+        self.assertEqual(rates["dismissal_rate"], 0.0)
+
+    def test_global_stats_archived_surveys(self):
+        # Create one active and one archived survey
+        active_survey = Survey.objects.create(
+            team=self.team,
+            name="Active Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Question?"}],
+        )
+        archived_survey = Survey.objects.create(
+            team=self.team,
+            name="Archived Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Question?"}],
+            archived=True,
+        )
+
+        # Insert events for both surveys
+        events = [
+            # Active survey events
+            ("survey shown", "2024-05-01 12:00:00", "user1", active_survey.id),
+            ("survey sent", "2024-05-01 12:01:00", "user1", active_survey.id),
+            # Archived survey events
+            ("survey shown", "2024-05-01 13:00:00", "user2", archived_survey.id),
+            ("survey sent", "2024-05-01 13:01:00", "user2", archived_survey.id),
+        ]
+
+        for event, timestamp, distinct_id, survey_id in events:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={"$survey_id": str(survey_id)},
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        stats = data["stats"]
+
+        # Should only include stats from active survey
+        self.assertEqual(stats["survey shown"]["total_count"], 1)
+        self.assertEqual(stats["survey sent"]["total_count"], 1)
+
+        rates = data["rates"]
+        self.assertEqual(rates["response_rate"], 100.0)  # 1 sent / 1 shown
+        self.assertEqual(rates["dismissal_rate"], 0.0)  # 0 dismissed / 1 shown
 
 
 @pytest.mark.parametrize(
