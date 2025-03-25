@@ -751,8 +751,199 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(counts)
 
+    def _validate_dates(self, date_from: str | None, date_to: str | None) -> None:
+        """Validate that date_from and date_to are in ISO 8601 format.
+
+        Args:
+            date_from: Optional ISO timestamp for start date
+            date_to: Optional ISO timestamp for end date
+
+        Raises:
+            ValidationError: If dates are not in ISO 8601 format
+        """
+        if date_from or date_to:
+            try:
+                if date_from:
+                    datetime.fromisoformat(date_from.replace("Z", "+00:00"))
+                if date_to:
+                    datetime.fromisoformat(date_to.replace("Z", "+00:00"))
+            except ValueError:
+                raise exceptions.ValidationError(
+                    "Invalid date format. Please use ISO 8601 format (e.g. 2024-01-01T00:00:00Z)"
+                )
+
+    def _process_survey_results(self, results) -> dict:
+        """Process raw survey event results into stats format.
+
+        Args:
+            results: Raw results from ClickHouse query containing event stats
+
+        Returns:
+            Dictionary containing processed stats for each event type
+        """
+        # Initialize stats with zero values for all event types
+        stats = {
+            "survey shown": {
+                "total_count": 0,
+                "unique_persons": 0,
+                "first_seen": None,
+                "last_seen": None,
+            },
+            "survey dismissed": {
+                "total_count": 0,
+                "unique_persons": 0,
+                "first_seen": None,
+                "last_seen": None,
+            },
+            "survey sent": {
+                "total_count": 0,
+                "unique_persons": 0,
+                "first_seen": None,
+                "last_seen": None,
+            },
+        }
+
+        # Update stats with actual results
+        for event_name, total_count, unique_persons, first_seen, last_seen in results:
+            stats[event_name] = {
+                "total_count": total_count,
+                "unique_persons": unique_persons,
+                "first_seen": first_seen.isoformat() + "Z" if first_seen else None,
+                "last_seen": last_seen.isoformat() + "Z" if last_seen else None,
+            }
+        return stats
+
+    def _calculate_rates(self, stats: dict) -> dict:
+        """Calculate response and dismissal rates from stats.
+
+        Args:
+            stats: Dictionary containing event stats
+
+        Returns:
+            Dictionary containing calculated rates
+        """
+        rates = {
+            "response_rate": 0.0,
+            "dismissal_rate": 0.0,
+        }
+
+        shown_count = stats.get("survey shown", {}).get("total_count", 0)
+        if shown_count > 0:
+            sent_count = stats.get("survey sent", {}).get("total_count", 0)
+            dismissed_count = stats.get("survey dismissed", {}).get("total_count", 0)
+            rates = {
+                "response_rate": round(sent_count / shown_count * 100, 2),
+                "dismissal_rate": round(dismissed_count / shown_count * 100, 2),
+            }
+        return rates
+
+    def _get_survey_stats(self, date_from: str | None, date_to: str | None, survey_id: str | None = None) -> dict:
+        """Get survey statistics from ClickHouse.
+
+        Args:
+            date_from: Optional ISO timestamp for start date
+            date_to: Optional ISO timestamp for end date
+            survey_id: Optional survey ID to filter for. If None, gets stats for all surveys.
+
+        Returns:
+            Dictionary containing survey statistics and rates
+        """
+        self._validate_dates(date_from, date_to)
+
+        # Build cache key based on parameters
+        cache_key_parts = [f"survey_stats_{self.team_id}"]
+        if survey_id:
+            cache_key_parts.append(str(survey_id))
+        cache_key_parts.extend([str(date_from), str(date_to)])
+        cache_key = "_".join(cache_key_parts)
+
+        # Try to get cached results first
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return cached_data
+
+        # Build query parameters
+        params = {"team_id": self.team_id}
+        date_filter = ""
+
+        if date_from:
+            date_filter += " AND timestamp >= parseDateTimeBestEffort(%(date_from)s)"
+            params["date_from"] = date_from
+        if date_to:
+            date_filter += " AND timestamp <= parseDateTimeBestEffort(%(date_to)s)"
+            params["date_to"] = date_to
+
+        # Add survey filter if specific survey
+        survey_filter = ""
+        if survey_id:
+            survey_filter = "AND JSONExtractString(properties, '$survey_id') = %(survey_id)s"
+            params["survey_id"] = str(survey_id)
+        else:
+            # For global stats, only include non-archived surveys
+            active_survey_ids = list(
+                Survey.objects.filter(team_id=self.team_id, archived=False).values_list("id", flat=True)
+            )
+            if not active_survey_ids:
+                return {"stats": {}, "rates": {"response_rate": 0.0, "dismissal_rate": 0.0}}
+            survey_filter = "AND JSONExtractString(properties, '$survey_id') IN %(survey_ids)s"
+            params["survey_ids"] = [str(id) for id in active_survey_ids]
+
+        results = sync_execute(
+            f"""
+            SELECT
+                event as event_name,
+                count() as total_count,
+                count(DISTINCT person_id) as unique_persons,
+                if(count() > 0, min(timestamp), null) as first_seen,
+                if(count() > 0, max(timestamp), null) as last_seen
+            FROM events
+            WHERE team_id = %(team_id)s
+            AND event IN ('survey shown', 'survey dismissed', 'survey sent')
+            {survey_filter}
+            {date_filter}
+            GROUP BY event
+            """,
+            params,
+        )
+
+        stats = self._process_survey_results(results)
+        rates = self._calculate_rates(stats)
+
+        response_data = {
+            "stats": stats,
+            "rates": rates,
+        }
+
+        # Cache results with appropriate timeout
+        if date_to:
+            try:
+                to_dt = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
+                # Cache for 1 hour if looking at historical data
+                if to_dt < datetime.now(UTC):
+                    cache.set(cache_key, response_data, timeout=3600)  # 1 hour cache
+                else:
+                    # Cache for 1 minute if looking at recent/current data
+                    cache.set(cache_key, response_data, timeout=60)
+            except ValueError:
+                # If date parsing fails, use short cache
+                cache.set(cache_key, response_data, timeout=60)
+        else:
+            # No end date means current data, use short cache
+            cache.set(cache_key, response_data, timeout=60)
+
+        return response_data
+
     @action(methods=["GET"], detail=True, url_path="stats", required_scopes=["survey:read"])
-    def survey_stats(self, request: request.Request, **kwargs):
+    def survey_stats(self, request: request.Request, **kwargs) -> Response:
+        """Get survey response statistics for a specific survey.
+
+        Args:
+            date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+            date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+
+        Returns:
+            Survey statistics including event counts, unique respondents, and conversion rates
+        """
         survey_id = kwargs["pk"]
         date_from = request.query_params.get("date_from", None)
         date_to = request.query_params.get("date_to", None)
@@ -762,76 +953,30 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Survey.DoesNotExist:
             raise exceptions.NotFound("Survey not found")
 
-        date_filter = ""
-        params = {"team_id": self.team_id, "survey_id": str(survey_id)}
+        response_data = self._get_survey_stats(date_from, date_to, survey_id)
 
-        if date_from:
-            date_filter += " AND timestamp >= parseDateTimeBestEffort(%(date_from)s)"
-            params["date_from"] = date_from
-        if date_to:
-            date_filter += " AND timestamp <= parseDateTimeBestEffort(%(date_to)s)"
-            params["date_to"] = date_to
+        # Add survey metadata
+        response_data["survey_id"] = survey_id
+        response_data["start_date"] = survey.start_date
+        response_data["end_date"] = survey.end_date
 
-        results = sync_execute(
-            f"""
-            SELECT
-                'survey shown' as event_name,
-                count() as total_count,
-                count(DISTINCT person_id) as unique_persons,
-                if(count() > 0, min(timestamp), null) as first_seen,
-                if(count() > 0, max(timestamp), null) as last_seen
-            FROM events
-            WHERE team_id = %(team_id)s
-            AND event = 'survey shown'
-            AND JSONExtractString(properties, '$survey_id') = %(survey_id)s
-            {date_filter}
+        return Response(response_data)
 
-            UNION ALL
+    @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["survey:read"])
+    def global_stats(self, request: request.Request, **kwargs) -> Response:
+        """Get aggregated response statistics across all surveys.
 
-            SELECT
-                'survey dismissed' as event_name,
-                count() as total_count,
-                count(DISTINCT person_id) as unique_persons,
-                if(count() > 0, min(timestamp), null) as first_seen,
-                if(count() > 0, max(timestamp), null) as last_seen
-            FROM events
-            WHERE team_id = %(team_id)s
-            AND event = 'survey dismissed'
-            AND JSONExtractString(properties, '$survey_id') = %(survey_id)s
-            {date_filter}
+        Args:
+            date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+            date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
 
-            UNION ALL
+        Returns:
+            Aggregated statistics across all surveys including total counts and rates
+        """
+        date_from = request.query_params.get("date_from", None)
+        date_to = request.query_params.get("date_to", None)
 
-            SELECT
-                'survey sent' as event_name,
-                count() as total_count,
-                count(DISTINCT person_id) as unique_persons,
-                if(count() > 0, min(timestamp), null) as first_seen,
-                if(count() > 0, max(timestamp), null) as last_seen
-            FROM events
-            WHERE team_id = %(team_id)s
-            AND event = 'survey sent'
-            AND JSONExtractString(properties, '$survey_id') = %(survey_id)s
-            {date_filter}
-        """,
-            params,
-        )
-
-        response_data = {
-            "survey_id": survey_id,
-            "start_date": survey.start_date,
-            "end_date": survey.end_date,
-            "stats": {},
-        }
-
-        for event_name, total_count, unique_persons, first_seen, last_seen in results:
-            response_data["stats"][event_name] = {
-                "total_count": total_count,
-                "unique_persons": unique_persons,
-                "first_seen": first_seen.isoformat() + "Z" if first_seen else None,
-                "last_seen": last_seen.isoformat() + "Z" if last_seen else None,
-            }
-
+        response_data = self._get_survey_stats(date_from, date_to)
         return Response(response_data)
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
