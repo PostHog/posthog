@@ -15,7 +15,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import LimitContext, HogQLGlobalSettings
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
@@ -423,6 +423,9 @@ def _recalculate_cohortpeople_for_team_hogql(
             "send_timeout": 600,
             "receive_timeout": 600,
             "optimize_on_insert": 0,
+            "max_ast_elements": HogQLGlobalSettings.max_ast_elements,
+            "max_expanded_ast_elements": HogQLGlobalSettings.max_expanded_ast_elements,
+            "max_bytes_before_external_group_by": HogQLGlobalSettings.max_bytes_before_external_group_by,
         },
         workload=Workload.OFFLINE,
     )
