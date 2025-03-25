@@ -64,6 +64,13 @@ export function ensureTooltip(): [Root, HTMLElement] {
     return [tooltipRoot, tooltipEl]
 }
 
+export function hideTooltip(): void {
+    const tooltipEl = document.getElementById('InsightTooltipWrapper')
+    if (tooltipEl) {
+        tooltipEl.style.opacity = '0'
+    }
+}
+
 function truncateString(str: string, num: number): string {
     if (str.length > num) {
         return str.slice(0, num) + ' ...'
@@ -266,6 +273,7 @@ export interface LineGraphProps {
     showMultipleYAxes?: boolean | null
     goalLines?: GoalLine[]
     isStacked?: boolean
+    hideTooltipOnScroll?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -309,6 +317,7 @@ export function LineGraph_({
     legend = { display: false },
     goalLines: _goalLines,
     isStacked = true,
+    hideTooltipOnScroll,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -338,6 +347,20 @@ export function LineGraph_({
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
+
+    // Add window scroll event listener to hide tooltips when scrolling
+    useEffect(() => {
+        if (!hideTooltipOnScroll) {
+            return
+        }
+
+        const main = document.getElementsByTagName('main')[0]
+        main.addEventListener('scrollend', hideTooltip)
+
+        return () => {
+            main.removeEventListener('scrollend', hideTooltip)
+        }
+    }, [hideTooltipOnScroll])
 
     // Remove tooltip element on unmount
     useEffect(() => {
