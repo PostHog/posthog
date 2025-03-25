@@ -23,6 +23,23 @@
   GROUP BY survey_id
   '''
 # ---
+# name: TestSurveyStats.test_individual_survey_stats
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT event as event_name,
+         count() as total_count,
+         count(DISTINCT person_id) as unique_persons,
+         if(count() > 0, min(timestamp), null) as first_seen,
+         if(count() > 0, max(timestamp), null) as last_seen
+  FROM events
+  WHERE team_id = 99999
+    AND event IN ('survey shown',
+                  'survey dismissed',
+                  'survey sent')
+    AND JSONExtractString(properties, '$survey_id') = '018f3499-3d28-0005-859f-92bb1fd949e5'
+  GROUP BY event
+  '''
+# ---
 # name: TestSurveysAPIList.test_list_surveys
   '''
   SELECT "posthog_filesystem"."team_id",
