@@ -97,12 +97,14 @@ class CompareRecordingMetadataActivityInputs:
 
     started_after: str = dataclasses.field()
     started_before: str = dataclasses.field()
+    window_result_limit: int | None = dataclasses.field(default=None)
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
         return {
             "started_after": self.started_after,
             "started_before": self.started_before,
+            "window_result_limit": self.window_result_limit,
         }
 
 
@@ -112,9 +114,10 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
     logger = get_internal_logger()
     start_time = dt.datetime.now()
     await logger.ainfo(
-        "Starting comparison activity for time range %s to %s",
+        "Starting comparison activity for time range %s to %s%s",
         inputs.started_after,
         inputs.started_before,
+        f" (limiting to {inputs.window_result_limit} sessions)" if inputs.window_result_limit else "",
     )
 
     async with Heartbeater():
@@ -148,6 +151,7 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
 
         # Compare data for sessions in both
         session_differences = {}
+        all_differing_sessions = []
         for session_id in set(v1_sessions.keys()) & set(v2_sessions.keys()):
             v1_data = v1_sessions[session_id]
             v2_data = v2_sessions[session_id]
@@ -159,7 +163,10 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
                     differences.append({"field": field_name, "v1_value": v1_data[i], "v2_value": v2_data[i]})
 
             if differences:
-                session_differences[session_id] = differences
+                all_differing_sessions.append(session_id)
+                # Only add detailed differences if within limit
+                if not inputs.window_result_limit or len(session_differences) < inputs.window_result_limit:
+                    session_differences[session_id] = differences
 
         result = {
             "summary": {
@@ -169,6 +176,7 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
                     "started_after": started_after.isoformat(),
                     "started_before": started_before.isoformat(),
                 },
+                "total_differing_sessions": len(all_differing_sessions),
             },
             "only_in_v1": only_in_v1,
             "only_in_v2": only_in_v2,
@@ -178,10 +186,11 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
         end_time = dt.datetime.now()
         duration = (end_time - start_time).total_seconds()
         await logger.ainfo(
-            "Completed comparison activity in %.2f seconds. Found %d sessions only in v1, %d only in v2, and %d with differences",
+            "Completed comparison activity in %.2f seconds. Found %d sessions only in v1, %d only in v2, and %d with differences (showing details for %d)",
             duration,
             len(only_in_v1),
             len(only_in_v2),
+            len(all_differing_sessions),
             len(session_differences),
         )
         return result
@@ -194,6 +203,7 @@ class CompareRecordingMetadataWorkflowInputs:
     started_after: str = dataclasses.field()
     started_before: str = dataclasses.field()
     window_seconds: int = dataclasses.field(default=300)  # 5 minutes default
+    window_result_limit: int | None = dataclasses.field(default=None)  # No limit by default
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -201,6 +211,7 @@ class CompareRecordingMetadataWorkflowInputs:
             "started_after": self.started_after,
             "started_before": self.started_before,
             "window_seconds": self.window_seconds,
+            "window_result_limit": self.window_result_limit,
         }
 
 
@@ -227,10 +238,16 @@ class CompareRecordingMetadataWorkflow(PostHogWorkflow):
         if not isinstance(window_seconds, int) or window_seconds <= 0:
             raise ValueError("window_seconds must be a positive integer")
 
+        # Optional window_result_limit with default
+        window_result_limit = loaded.get("window_result_limit")
+        if window_result_limit is not None and not isinstance(window_result_limit, int | None):
+            raise ValueError("window_result_limit must be an integer or None")
+
         return CompareRecordingMetadataWorkflowInputs(
             started_after=loaded["started_after"],
             started_before=loaded["started_before"],
             window_seconds=window_seconds,
+            window_result_limit=window_result_limit,
         )
 
     @staticmethod
@@ -259,10 +276,11 @@ class CompareRecordingMetadataWorkflow(PostHogWorkflow):
         logger = get_internal_logger()
         workflow_start = dt.datetime.now()
         logger.info(
-            "Starting comparison workflow for sessions between %s and %s using %d second windows",
+            "Starting comparison workflow for sessions between %s and %s using %d second windows%s",
             started_after,
             started_before,
             inputs.window_seconds,
+            f" (limiting to {inputs.window_result_limit} sessions per window)" if inputs.window_result_limit else "",
         )
 
         # Generate time windows
@@ -281,6 +299,7 @@ class CompareRecordingMetadataWorkflow(PostHogWorkflow):
             activity_inputs = CompareRecordingMetadataActivityInputs(
                 started_after=window_start.isoformat(),
                 started_before=window_end.isoformat(),
+                window_result_limit=inputs.window_result_limit,
             )
 
             await temporalio.workflow.execute_activity(
