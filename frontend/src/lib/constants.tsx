@@ -204,7 +204,9 @@ export const FEATURE_FLAGS = {
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
     ROLE_BASED_ACCESS_CONTROL: 'role-based-access-control', // owner: @zach
-    MESSAGING: 'messaging', // owner @mariusandra #team-cdp
+    MESSAGING: 'messaging', // owner @haven #team-messaging
+    MESSAGING_AUTOMATION: 'messaging-automation', // owner @haven #team-messaging
+    MESSAGING_LIBRARY: 'messaging-library', // owner @haven #team-messaging
     EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
     AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: #team-surveys
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
@@ -219,6 +221,7 @@ export const FEATURE_FLAGS = {
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
     SUPPORT_SIDEBAR_MAX: 'support-sidebar-max', // owner: @steven #team-max
+    INKEEP_MAX_SUPPORT_SIDEBAR: 'inkeep-max-support-sidebar', // owner: @steven #team-max
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     EXPERIMENT_STATS_V2: 'experiment-stats-v2', // owner: @danielbachhuber #team-experiments
     BILLING_USAGE_DASHBOARD: 'billing-usage-dashboard', // owner: @pato
