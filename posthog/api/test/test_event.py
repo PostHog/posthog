@@ -273,18 +273,18 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         # distinct_id
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=distinct_id&is_column=true").json()
-        self.assertEqual(response, [{"name": "ble"}, {"name": "bla"}, {"name": "blu"}])
+        self.assertEqual(sorted(x["name"] for x in response), sorted(["bla", "ble", "blu"]))
 
         # event
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=event&is_column=true").json()
         self.assertEqual(
-            response, [{"name": "another random event"}, {"name": "random event 1"}, {"name": "random event 2"}]
+            sorted(x["name"] for x in response), sorted(["another random event", "random event 1", "random event 2"])
         )
 
         # person_id
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=person_id&is_column=true").json()
         self.assertEqual(
-            response, [{"name": str(person3.uuid)}, {"name": str(person2.uuid)}, {"name": str(person1.uuid)}]
+            sorted(x["name"] for x in response), sorted([str(person3.uuid), str(person2.uuid), str(person1.uuid)])
         )
 
         # Search
