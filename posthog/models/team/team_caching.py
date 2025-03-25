@@ -34,6 +34,10 @@ def set_team_in_cache(token: str, team: Optional["Team"] = None) -> None:
             cache.delete(f"team_token:{token}")
             return
 
+    if not team:
+        # this is for mypy which doesn't know that Team must be present at this point
+        raise Exception(f"Team not found with token: {token}")
+
     serialized_team = CachingTeamSerializer(team).data
 
     # the serialized team should have many settings... if there are less than 6, something is wrong
