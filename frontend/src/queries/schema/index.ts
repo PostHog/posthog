@@ -8,5 +8,5 @@
 export * from './schema-general'
 export * from './schema-assistant-queries'
 export * from './schema-assistant-messages'
-export * from './schema-replay'
+export * from './schema-assistant-replay'
 /* eslint-enable simple-import-sort/exports */

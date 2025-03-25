@@ -11023,6 +11023,83 @@
                 }
             ]
         },
+        "MaxInnerUniversalFiltersGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/MaxUniversalFilterValue"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["type", "values"],
+            "type": "object"
+        },
+        "MaxOuterUniversalFiltersGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/MaxInnerUniversalFiltersGroup"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["type", "values"],
+            "type": "object"
+        },
+        "MaxRecordingUniversalFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "duration": {
+                    "items": {
+                        "$ref": "#/definitions/RecordingDurationFilter"
+                    },
+                    "type": "array"
+                },
+                "filter_group": {
+                    "$ref": "#/definitions/MaxOuterUniversalFiltersGroup"
+                },
+                "filter_test_accounts": {
+                    "type": "boolean"
+                },
+                "order": {
+                    "$ref": "#/definitions/RecordingOrder",
+                    "default": "start_time"
+                }
+            },
+            "required": ["duration", "filter_group"],
+            "type": "object"
+        },
+        "MaxUniversalFilterValue": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/RecordingPropertyFilter"
+                }
+            ]
+        },
         "MultipleBreakdownOptions": {
             "additionalProperties": false,
             "properties": {
@@ -14437,6 +14514,29 @@
                 }
             },
             "required": ["type", "content"],
+            "type": "object"
+        },
+        "RecordingDurationFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "$ref": "#/definitions/DurationType"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "recording",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
         "RecordingOrder": {
