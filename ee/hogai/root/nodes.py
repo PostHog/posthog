@@ -106,7 +106,7 @@ class RootNode(AssistantNode):
                     *[
                         (
                             "system",
-                            f"<{tool_name}>\n{CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT[tool_name]}\n</{tool_name}>",
+                            f"<{tool_name}>\n{CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT.get(cast(AssistantContextualTool, tool_name), 'No context provided for this tool')}\n</{tool_name}>",
                         )
                         for tool_name in self._get_contextual_tools(config).keys()
                         if tool_name in CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT
@@ -167,7 +167,7 @@ class RootNode(AssistantNode):
         for tool_name in self._get_contextual_tools(config).keys():
             if tool_name not in CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL:
                 continue  # Possibly a deployment mismatch
-            available_tools.append(CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL[tool_name])
+            available_tools.append(CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL[cast(AssistantContextualTool, tool_name)])
 
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
