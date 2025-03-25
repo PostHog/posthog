@@ -36,6 +36,9 @@ def convert_currency_call(
     return ast.Call(name="convertCurrency", args=args)
 
 
+# Define a reasonable decimal precision for most currencies
+STANDARD_DECIMAL_PRECISION = 4
+
 def revenue_currency_expression(config: RevenueTrackingConfig) -> ast.Expr:
     exprs = []
     if config.events:
@@ -76,7 +79,8 @@ def revenue_comparison_and_value_exprs(
     # Otherwise, assume we're already in the base currency
     # Also, assume that `base_currency` is USD by default, it'll be empty for most customers
     if event.revenueCurrencyProperty and do_currency_conversion:
-        value_expr = ast.Call(
+        # Calculate the value with high precision
+        inner_value_expr = ast.Call(
             name="if",
             args=[
                 ast.Call(name="isNull", args=[event_currency_expression(config, event)]),
@@ -95,14 +99,53 @@ def revenue_comparison_and_value_exprs(
                 ),
             ],
         )
-    else:
+        
+        # Only round non-BTC currencies to standard precision (4 decimal places)
+        is_btc = ast.Call(
+            name="equals",
+            args=[
+                ast.Call(name="upper", args=[event_currency_expression(config, event)]),
+                ast.Constant(value="BTC"),
+            ],
+        )
+        
         value_expr = ast.Call(
+            name="if",
+            args=[
+                is_btc,
+                inner_value_expr,  # Keep high precision for BTC
+                ast.Call(
+                    name="round",
+                    args=[
+                        inner_value_expr,
+                        ast.Constant(value=STANDARD_DECIMAL_PRECISION),  # Round other currencies
+                    ],
+                ),
+            ],
+        )
+    else:
+        # Calculate with high precision
+        inner_value_expr = ast.Call(
             name="toDecimal",
             args=[
                 ast.Field(chain=["events", "properties", event.revenueProperty]),
                 ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION),
             ],
         )
+        
+        # Round non-BTC currencies to standard precision
+        if event.revenueCurrencyProperty and event.revenueCurrencyProperty.static == CurrencyCode.BTC:
+            # Keep high precision for BTC
+            value_expr = inner_value_expr
+        else:
+            # Round other currencies to standard precision
+            value_expr = ast.Call(
+                name="round",
+                args=[
+                    inner_value_expr,
+                    ast.Constant(value=STANDARD_DECIMAL_PRECISION),
+                ],
+            )
 
     return (comparison_expr, value_expr)
 

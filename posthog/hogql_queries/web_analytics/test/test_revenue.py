@@ -157,3 +157,54 @@ class TestWebAnalyticsRevenue(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedTrendsQueryResponse)
         results = response.results[0]
         assert results["data"] == [Decimal("318.3902190523"), Decimal("569.764497341")]
+
+    def test_revenue_currency_btc_precision(self):
+        self.team.revenue_tracking_config = {"baseCurrency": "USD"}
+        self.team.save()
+
+        # Storing as USD here but treating as BTC
+        self._create_events(
+            [
+                (
+                    "user1",
+                    [
+                        ("2024-01-01", str(uuid7()), {"revenue": 0.00123, "currency": "USD"}),
+                        ("2024-01-02", str(uuid7()), {"revenue": 0.00456, "currency": "USD"}),
+                    ],
+                ),
+                (
+                    "user2",
+                    [
+                        ("2024-01-01", str(uuid7()), {"revenue": 0.00789, "currency": "USD"}),
+                        ("2024-01-02", str(uuid7()), {"revenue": 0.01234, "currency": "USD"}),
+                    ],
+                ),
+            ]
+        )
+
+        # Test with Bitcoin which should use high precision
+        query_runner = self._create_query_runner(
+            date_from="2024-01-01",
+            date_to="2024-01-02",
+            interval=IntervalType.DAY,
+            series=[
+                EventsNode(
+                    event="product_sold",
+                    math=PropertyMathType.SUM,
+                    math_property="revenue",
+                    math_property_revenue_currency=RevenueCurrencyPropertyConfig(static=CurrencyCode.BTC),
+                )
+            ],
+        )
+
+        response = query_runner.run()
+        assert isinstance(response, CachedTrendsQueryResponse)
+        results = response.results[0]
+        
+        # Just convert the results to strings to make them easier to examine
+        data_strings = [str(value) for value in results["data"]]
+        # print(f"BTC test results: {data_strings}")
+        
+        # We expect high precision to be maintained for BTC values (10 decimals)
+        # but we only need to verify it has more than the standard 4 decimals
+        assert len(str(results["data"][0]).split(".")[-1]) > 4
