@@ -266,44 +266,44 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
                 return ast.And(
                     exprs=[
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.LtEq,
-                            left=ast.ArithmeticOperation(
+                            op=ast.CompareOperationOp.GtEq,
+                            left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                            right=ast.ArithmeticOperation(
                                 op=ast.ArithmeticOperationOp.Sub,
-                                left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                                left=node.right,
                                 right=self.time_buffer,
                             ),
-                            right=node.right,
                         ),
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.GtEq,
-                            left=ast.ArithmeticOperation(
+                            op=ast.CompareOperationOp.LtEq,
+                            left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                            right=ast.ArithmeticOperation(
                                 op=ast.ArithmeticOperationOp.Add,
-                                left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                                left=node.right,
                                 right=self.time_buffer,
                             ),
-                            right=node.right,
                         ),
                     ]
                 )
             elif node.op == CompareOperationOp.Gt or node.op == CompareOperationOp.GtEq:
                 return ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
-                    left=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperationOp.Add,
-                        left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                    left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                    right=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Sub,
+                        left=node.right,
                         right=self.time_buffer,
                     ),
-                    right=node.right,
                 )
             elif node.op == CompareOperationOp.Lt or node.op == CompareOperationOp.LtEq:
                 return ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
-                    left=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperationOp.Sub,
-                        left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                    left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                    right=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Add,
+                        left=node.right,
                         right=self.time_buffer,
                     ),
-                    right=node.right,
                 )
         elif is_right_timestamp_field and is_left_constant:
             # let's not duplicate the logic above, instead just flip and it and recurse
