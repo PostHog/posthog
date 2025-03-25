@@ -35,8 +35,8 @@ import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
 import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
-import { MaxChatInterface } from './sidePanelMaxChatInterface'
 import { sidePanelStatusLogic } from './sidePanelStatusLogic'
+
 const PRODUCTS = [
     {
         name: 'Product OS',
@@ -198,14 +198,14 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
 
 export const SidePanelSupport = (): JSX.Element => {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { preflight, isCloud } = useValues(preflightLogic)
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { status } = useValues(sidePanelStatusLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
-    const { openEmailForm, closeEmailForm, openMaxChatInterface, closeMaxChatInterface } = useActions(theLogic)
-    const { isEmailFormOpen, isMaxChatInterfaceOpen } = useValues(theLogic)
+    const { openEmailForm, closeEmailForm } = useActions(theLogic)
+    const { isEmailFormOpen } = useValues(theLogic)
 
     const region = preflight?.region
 
@@ -216,19 +216,6 @@ export const SidePanelSupport = (): JSX.Element => {
                 <div className="p-3 max-w-160 w-full mx-auto">
                     {isEmailFormOpen ? (
                         <SupportFormBlock onCancel={() => closeEmailForm()} />
-                    ) : isMaxChatInterfaceOpen ? (
-                        <div className="deprecated-space-y-4">
-                            <MaxChatInterface />
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => closeMaxChatInterface()}
-                                fullWidth
-                                center
-                                className="mt-2"
-                            >
-                                End Chat
-                            </LemonButton>
-                        </div>
                     ) : (
                         <>
                             <Section title="Search docs & community questions">
@@ -280,21 +267,23 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </Section>
                             ) : null}
 
-                            {isCloud ? (
+                            {isCloudOrDev ? (
                                 <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
                                     <Section title="Ask Max the Hedgehog">
                                         <>
                                             <p>
-                                                Max is PostHog's support AI who can answer support questions, help you
-                                                with troubleshooting, find info in our documentation, write HogQL
-                                                queries, regex expressions, etc.
+                                                This Max is direct to the Anthropic API, not via InKeep. (Internal use
+                                                only.)
                                             </p>
                                             <LemonButton
                                                 type="primary"
                                                 fullWidth
                                                 center
                                                 onClick={() => {
-                                                    openMaxChatInterface()
+                                                    openSidePanel(
+                                                        SidePanelTab.Docs,
+                                                        '/docs/new-to-posthog/understand-posthog?chat=open'
+                                                    )
                                                 }}
                                                 targetBlank={false}
                                                 className="mt-2"
@@ -306,7 +295,37 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </FlaggedFeature>
                             ) : null}
 
-                            {isCloud ? (
+                            {isCloudOrDev ? (
+                                <FlaggedFeature flag={FEATURE_FLAGS.INKEEP_MAX_SUPPORT_SIDEBAR} match={true}>
+                                    <Section title="Ask Max the Hedgehog">
+                                        <>
+                                            <p>
+                                                This Max is PostHog's support AI.
+                                                <br />
+                                                He can answer support questions, read the docs, write SQL queries and
+                                                expressions, regex patterns, etc.
+                                            </p>
+                                            <LemonButton
+                                                type="primary"
+                                                fullWidth
+                                                center
+                                                onClick={() => {
+                                                    openSidePanel(
+                                                        SidePanelTab.Docs,
+                                                        '/docs/new-to-posthog/understand-posthog?chat=open'
+                                                    )
+                                                }}
+                                                targetBlank={false}
+                                                className="mt-2"
+                                            >
+                                                🦔 Chat with Max AI
+                                            </LemonButton>
+                                        </>
+                                    </Section>
+                                </FlaggedFeature>
+                            ) : null}
+
+                            {isCloudOrDev ? (
                                 <Section title="Contact us">
                                     <p>Can't find what you need in the docs?</p>
                                     <LemonButton

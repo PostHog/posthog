@@ -736,9 +736,9 @@ export enum SavedInsightsTabs {
 }
 
 export enum ReplayTabs {
-    Templates = 'templates',
     Home = 'home',
     Playlists = 'playlists',
+    Templates = 'templates',
     Settings = 'settings',
 }
 
@@ -4873,6 +4873,7 @@ export type HogFunctionTypeType =
     | 'activity'
     | 'alert'
     | 'broadcast'
+    | 'automation'
 
 export type HogFunctionType = {
     id: string

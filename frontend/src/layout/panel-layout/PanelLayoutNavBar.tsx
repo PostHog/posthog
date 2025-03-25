@@ -1,10 +1,16 @@
 import {
     IconChevronRight,
     IconClock,
+    IconDashboard,
+    IconDatabase,
     IconFolderOpen,
     IconGear,
-    IconPlusSmall,
+    IconHome,
+    IconNotebook,
+    IconPeople,
+    IconPinFilled,
     IconSearch,
+    IconSparkles,
     IconToolbar,
 } from '@posthog/icons'
 import { cva } from 'class-variance-authority'
@@ -90,6 +96,89 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         }
     }
 
+    const filteredNavItemsIdentifiers = [
+        'ProjectHomepage',
+        'Max',
+        'Activity',
+        'Dashboards',
+        'Notebooks',
+        'DataManagement',
+        'PersonsManagement',
+    ]
+    const navItems = [
+        {
+            id: 'Project',
+            icon: <IconFolderOpen className="stroke-[1.2]" />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Project')
+                }
+            },
+            showChevron: true,
+        },
+        {
+            id: 'Search',
+            icon: <IconSearch />,
+            onClick: () => toggleSearchBar(),
+        },
+        {
+            id: 'Home',
+            icon: <IconHome />,
+            to: urls.projectHomepage(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.projectHomepage(), true)
+            },
+        },
+        {
+            id: 'Max',
+            icon: <IconSparkles />,
+            to: urls.max(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.max(), true)
+            },
+        },
+        {
+            id: 'Dashboards',
+            icon: <IconDashboard />,
+            to: urls.dashboards(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.dashboards(), true)
+            },
+        },
+        {
+            id: 'Notebooks',
+            icon: <IconNotebook />,
+            to: urls.notebooks(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.notebooks(), true)
+            },
+        },
+        {
+            id: 'Data management',
+            icon: <IconDatabase />,
+            to: urls.eventDefinitions(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.eventDefinitions(), true)
+            },
+        },
+        {
+            id: 'Persons and groups',
+            icon: <IconPeople />,
+            to: urls.persons(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.persons(), true)
+            },
+        },
+        {
+            id: 'Activity',
+            icon: <IconClock />,
+            to: urls.activity(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.activity(), true)
+            },
+        },
+    ]
+
     return (
         <>
             <div className="flex gap-0 relative">
@@ -99,15 +188,15 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     )}
                     ref={containerRef}
                 >
-                    <div className="flex justify-between pt-1 pl-1 pr-2 pb-1">
+                    <div className="flex justify-between p-1">
                         <OrganizationDropdownMenu />
 
-                        <LemonButton
+                        {/* <LemonButton
                             size="small"
                             type="tertiary"
                             tooltip="Create new"
                             onClick={() =>
-                                alert('global “new” button which would let you create a bunch of new things')
+                                alert('global "new" button which would let you create a bunch of new things')
                             }
                             className="hover:bg-fill-highlight-50 shrink-0"
                             icon={
@@ -115,88 +204,69 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     <IconPlusSmall />
                                 </IconWrapper>
                             }
-                        />
+                        /> */}
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
-                        <ScrollableShadows innerClassName="overflow-y-auto px-2 " direction="vertical">
-                            <ListBox>
-                                <ListBox.Item
-                                    asChild
-                                    onClick={() => handlePanelTriggerClick('project')}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                                            handlePanelTriggerClick('project')
-                                        }
-                                    }}
-                                >
-                                    <LemonButton
-                                        className={cn(
-                                            'hover:bg-fill-highlight-50 data-[focused=true]:bg-fill-highlight-50',
-                                            activePanelIdentifier === 'project' && 'bg-fill-highlight-100'
-                                        )}
-                                        icon={
-                                            <IconWrapper>
-                                                <IconFolderOpen className="stroke-[1.2]" />
-                                            </IconWrapper>
-                                        }
-                                        fullWidth
-                                        size="small"
-                                        sideIcon={
-                                            <IconWrapper size="sm">
-                                                <IconChevronRight />
-                                            </IconWrapper>
-                                        }
-                                    >
-                                        <span>Project</span>
-                                    </LemonButton>
-                                </ListBox.Item>
-                                <ListBox.Item asChild onClick={toggleSearchBar}>
-                                    <LemonButton
-                                        className="hover:bg-fill-highlight-50 data-[focused=true]:bg-fill-highlight-50"
-                                        fullWidth
-                                        size="small"
-                                        icon={
-                                            <IconWrapper>
-                                                <IconSearch />
-                                            </IconWrapper>
-                                        }
-                                    >
-                                        <span>Search</span>
-                                    </LemonButton>
-                                </ListBox.Item>
-                                <ListBox.Item
-                                    asChild
-                                    onClick={() => {
-                                        handleStaticNavbarItemClick(urls.activity(), false)
-                                    }}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                            handleStaticNavbarItemClick(urls.activity(), true)
-                                        }
-                                    }}
-                                >
-                                    <LemonButton
-                                        className={cn(
-                                            'hover:bg-fill-highlight-50 data-[focused=true]:bg-fill-highlight-50',
-                                            activePanelIdentifier === 'activity' && 'bg-fill-highlight-100'
-                                        )}
-                                        fullWidth
-                                        icon={
-                                            <IconWrapper>
-                                                <IconClock />
-                                            </IconWrapper>
-                                        }
-                                        size="small"
-                                        to={urls.activity()}
-                                    >
-                                        <span>Activity</span>
-                                    </LemonButton>
-                                </ListBox.Item>
+                        <ScrollableShadows
+                            className="flex-1"
+                            innerClassName="overflow-y-auto"
+                            direction="vertical"
+                            styledScrollbars
+                        >
+                            <ListBox className="flex flex-col gap-px">
+                                <div className="px-1">
+                                    {navItems.map((item) => (
+                                        <ListBox.Item
+                                            key={item.id}
+                                            asChild
+                                            onClick={() => item.onClick?.()}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    item.onClick?.(e)
+                                                }
+                                            }}
+                                        >
+                                            <LemonButton
+                                                className={cn(
+                                                    'hover:bg-fill-highlight-50 data-[focused=true]:bg-fill-highlight-50',
+                                                    activePanelIdentifier === item.id && 'bg-fill-highlight-100'
+                                                )}
+                                                icon={<IconWrapper>{item.icon}</IconWrapper>}
+                                                fullWidth
+                                                size="small"
+                                                sideIcon={
+                                                    item.showChevron ? (
+                                                        <IconWrapper size="sm">
+                                                            <IconChevronRight />
+                                                        </IconWrapper>
+                                                    ) : undefined
+                                                }
+                                                to={item.to}
+                                                disabledReason={
+                                                    item.id === 'Project' && isLayoutPanelPinned && isLayoutPanelVisible
+                                                        ? 'Project panel is pinned'
+                                                        : undefined
+                                                }
+                                            >
+                                                <span>{item.id}</span>
+                                                <span className="ml-auto">
+                                                    {item.id === 'Project' &&
+                                                        isLayoutPanelPinned &&
+                                                        isLayoutPanelVisible && (
+                                                            <IconWrapper size="sm">
+                                                                <IconPinFilled />
+                                                            </IconWrapper>
+                                                        )}
+                                                </span>
+                                            </LemonButton>
+                                        </ListBox.Item>
+                                    ))}
+                                </div>
 
-                                <div className="border-b border-secondary h-px -mx-2 my-1" />
+                                <div className="border-b border-secondary h-px my-1" />
 
-                                <div className="pt-1">
+                                <div className="pt-1 px-1">
                                     <div className="flex justify-between items-center pl-2 pr-0 pb-2">
                                         <span className="text-xs font-bold text-tertiary">Products</span>
                                     </div>
@@ -204,7 +274,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         {navbarItems.map((section, index) => (
                                             <ul key={index} className="flex flex-col gap-px">
                                                 {section.map((item) => {
-                                                    if (item.identifier === 'Activity') {
+                                                    if (filteredNavItemsIdentifiers.includes(item.identifier)) {
                                                         return null
                                                     }
                                                     return item.featureFlag &&
@@ -280,9 +350,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </ListBox>
                         </ScrollableShadows>
 
-                        <div className="border-b border-secondary h-px" />
+                        <div className="border-b border-secondary h-px " />
 
-                        <div className="pt-1 px-2">
+                        <div className="pt-1 px-1 pb-2">
                             <LemonButton
                                 className={cn(
                                     'hover:bg-fill-highlight-50',
