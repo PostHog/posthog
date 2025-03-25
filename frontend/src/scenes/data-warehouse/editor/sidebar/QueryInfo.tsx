@@ -69,7 +69,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
 
     return (
         <div className="overflow-scroll">
-            <div className="flex flex-col flex-1 p-4 gap-4 overflow-y-auto">
+            <div className="flex flex-col flex-1 p-4 gap-4 ">
                 <div>
                     <div className="flex flex-row items-center gap-2">
                         <h3 className="mb-0">Materialization</h3>
