@@ -9,7 +9,6 @@ import {
     IconNotebook,
     IconPeople,
     IconSearch,
-    IconSparkles,
     IconToolbar,
 } from '@posthog/icons'
 import { cva } from 'class-variance-authority'
@@ -70,10 +69,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (!isLayoutPanelVisible) {
             showLayoutPanel(true)
         } else {
-            if (!isLayoutPanelPinned) {
-                showLayoutPanel(false)
-                clearActivePanelIdentifier()
-            }
+            showLayoutPanel(false)
+            clearActivePanelIdentifier()
         }
 
         if (activePanelIdentifier !== item) {
@@ -106,25 +103,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     ]
     const navItems = [
         {
-            id: 'Project',
-            icon: <IconFolderOpen className="stroke-[1.2]" />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    if (!isLayoutPanelVisible) {
-                        handlePanelTriggerClick('Project')
-                    } else {
-                        showLayoutPanel(false)
-                    }
-                }
-            },
-            showChevron: true,
-        },
-        {
-            id: 'Search',
-            icon: <IconSearch />,
-            onClick: () => toggleSearchBar(),
-        },
-        {
             id: 'Home',
             icon: <IconHome />,
             to: urls.projectHomepage(),
@@ -133,12 +111,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
-            id: 'Max',
-            icon: <IconSparkles />,
-            to: urls.max(),
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.max(), true)
+            id: 'Project',
+            icon: <IconFolderOpen className="stroke-[1.2]" />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Project')
+                }
             },
+            showChevron: true,
         },
         {
             id: 'Dashboards',
@@ -179,6 +159,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.activity(), true)
             },
+        },
+        {
+            id: 'Search',
+            icon: <IconSearch />,
+            onClick: () => toggleSearchBar(),
         },
     ]
 
