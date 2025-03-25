@@ -537,7 +537,18 @@ export class HogExecutorService {
                         }
                         case 'sendEmail': {
                             // Sanitize the args
-                            const [inputs] = args as [Record<string, any> | undefined]
+                            const [inputs] = args as [
+                                | {
+                                      provider: string | undefined
+                                      credentials: Record<string, any> | undefined
+                                      email: Record<string, any> | undefined
+                                  }
+                                | undefined
+                            ]
+
+                            if (!inputs) {
+                                throw new Error('sendEmail: Invalid inputs')
+                            }
 
                             const { provider, credentials, email } = inputs
 
@@ -545,6 +556,7 @@ export class HogExecutorService {
                                 throw new Error('sendEmail: Invalid inputs')
                             }
 
+                            // TODO: Add support for other providers
                             if (provider !== 'mailjet') {
                                 throw new Error('sendEmail: Invalid provider')
                             }

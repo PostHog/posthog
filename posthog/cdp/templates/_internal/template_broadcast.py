@@ -12,22 +12,6 @@ template_new_broadcast: HogFunctionTemplate = HogFunctionTemplate(
     hog="""sendEmail(inputs)""".strip(),
     inputs_schema=[
         {
-            "key": "provider",
-            "type": "choice",
-            "label": "Email Provider",
-            "choices": [
-                {"value": "mailjet", "label": "Mailjet"},
-            ],
-            "required": True,
-        },
-        {
-            "key": "credentials",
-            "type": "dictionary",
-            "label": "Email Provider Credentials",
-            "secret": True,
-            "required": True,
-        },
-        {
             "key": "email",
             "type": "email",
             "label": "Email",

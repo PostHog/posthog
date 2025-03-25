@@ -27,6 +27,8 @@ const HOG_FUNCTION_FIELDS = [
     'updated_at',
 ]
 
+const SHARED_INPUT_FUNCTIONS: Record<string, HogFunctionTypeType> = { sendEmail: 'email' }
+
 export type HogFunctionTeamInfo = Pick<HogFunctionType, 'id' | 'team_id' | 'type'>
 
 // /**
@@ -236,6 +238,7 @@ export class HogFunctionManagerService {
 
         this.sanitize(hogFunctions)
         await this.enrichWithIntegrations(hogFunctions)
+        this.enrichWithSharedInputs(hogFunctions)
 
         return hogFunctions.reduce<Record<string, HogFunctionType | undefined>>((acc, hogFunction) => {
             acc[hogFunction.id] = hogFunction
@@ -278,6 +281,30 @@ export class HogFunctionManagerService {
                 }
             }
             // For any other case (null, undefined, unexpected types), leave as-is
+        })
+    }
+
+    public enrichWithSharedInputs(items: HogFunctionType[]): void {
+        logger.info('[HogFunctionManager]', 'Enriching with import functions', { functionCount: items.length })
+
+        items.forEach((item) => {
+            // Grab all the global functions used in this function's bytecode
+            const sharedInputFunctionsUsed = item.bytecode.filter((x) =>
+                Object.keys(SHARED_INPUT_FUNCTIONS).includes(x)
+            )
+
+            sharedInputFunctionsUsed.forEach((functionName) => {
+                const functionType = SHARED_INPUT_FUNCTIONS[functionName]
+                const func = items.find((x) => x.type === functionType)
+                if (func) {
+                    item.inputs = {
+                        ...item.inputs,
+                        ...func.inputs,
+                        ...func.encrypted_inputs,
+                    }
+                    item.inputs_schema = [...(item.inputs_schema ?? []), ...(func.inputs_schema ?? [])]
+                }
+            })
         })
     }
 
