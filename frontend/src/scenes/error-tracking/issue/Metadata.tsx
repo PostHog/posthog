@@ -6,10 +6,11 @@ import { ClampedText } from 'lib/lemon-ui/ClampedText'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 
-import { SparklinePanel } from './Sparkline'
+import { OccurrenceSparkline, useSparklineData } from '../OccurrenceSparkline'
 
 export const Metadata = (): JSX.Element => {
     const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const [values, unit, interval] = useSparklineData(issue?.aggregations)
 
     const hasSessionCount = issue && issue.aggregations && issue.aggregations.sessions !== 0
 
@@ -34,9 +35,9 @@ export const Metadata = (): JSX.Element => {
     )
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-2 pb-5">
             {issue && issue.description ? <ClampedText text={issue.description} lines={2} /> : <LemonSkeleton />}
-            <div className="flex flex-1 justify-between">
+            <div className="flex flex-1 justify-between py-3">
                 <div className="flex items-end deprecated-space-x-6">
                     <div>
                         <div className="text-muted text-xs">First seen</div>
@@ -73,7 +74,13 @@ export const Metadata = (): JSX.Element => {
                     </div>
                 </div>
             </div>
-            <SparklinePanel />
+            <OccurrenceSparkline
+                className="h-32 w-full"
+                values={values}
+                unit={unit}
+                interval={interval}
+                displayXAxis={true}
+            />
         </div>
     )
 }

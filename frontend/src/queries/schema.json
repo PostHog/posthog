@@ -474,6 +474,9 @@
                     "$ref": "#/definitions/ElementPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/EventMetadataPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/SessionPropertyFilter"
                 },
                 {
@@ -592,6 +595,10 @@
                 }
             },
             "type": "object"
+        },
+        "AssistantContextualTool": {
+            "enum": ["search_session_recordings", "_"],
+            "type": "string"
         },
         "AssistantDateRange": {
             "additionalProperties": false,
@@ -1592,6 +1599,10 @@
                 "type": {
                     "const": "tool",
                     "type": "string"
+                },
+                "ui_payload": {
+                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
+                    "type": "object"
                 }
             },
             "required": ["type", "content", "tool_call_id"],
@@ -7370,6 +7381,29 @@
             "required": ["event", "properties", "elements"],
             "type": "object"
         },
+        "EventMetadataPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "event_metadata",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "EventOddsRatioSerialized": {
             "additionalProperties": false,
             "properties": {
@@ -11015,6 +11049,83 @@
                 }
             ]
         },
+        "MaxInnerUniversalFiltersGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/MaxUniversalFilterValue"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["type", "values"],
+            "type": "object"
+        },
+        "MaxOuterUniversalFiltersGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/MaxInnerUniversalFiltersGroup"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["type", "values"],
+            "type": "object"
+        },
+        "MaxRecordingUniversalFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "duration": {
+                    "items": {
+                        "$ref": "#/definitions/RecordingDurationFilter"
+                    },
+                    "type": "array"
+                },
+                "filter_group": {
+                    "$ref": "#/definitions/MaxOuterUniversalFiltersGroup"
+                },
+                "filter_test_accounts": {
+                    "type": "boolean"
+                },
+                "order": {
+                    "$ref": "#/definitions/RecordingOrder",
+                    "default": "start_time"
+                }
+            },
+            "required": ["duration", "filter_group"],
+            "type": "object"
+        },
+        "MaxUniversalFilterValue": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/RecordingPropertyFilter"
+                }
+            ]
+        },
         "MultipleBreakdownOptions": {
             "additionalProperties": false,
             "properties": {
@@ -11487,6 +11598,7 @@
             "enum": [
                 "meta",
                 "event",
+                "event_metadata",
                 "person",
                 "element",
                 "feature",
@@ -14431,6 +14543,29 @@
             "required": ["type", "content"],
             "type": "object"
         },
+        "RecordingDurationFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "$ref": "#/definitions/DurationType"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "recording",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "operator", "type", "value"],
+            "type": "object"
+        },
         "RecordingOrder": {
             "enum": [
                 "duration",
@@ -15160,6 +15295,30 @@
                 },
                 {
                     "$ref": "#/definitions/FailureMessage"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "content": {
+                            "type": "string"
+                        },
+                        "id": {
+                            "type": "string"
+                        },
+                        "tool_call_id": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "const": "tool",
+                            "type": "string"
+                        },
+                        "ui_payload": {
+                            "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
+                            "type": "object"
+                        }
+                    },
+                    "required": ["content", "tool_call_id", "type"],
+                    "type": "object"
                 }
             ]
         },
@@ -15944,6 +16103,7 @@
                 "events",
                 "event_properties",
                 "event_feature_flags",
+                "event_metadata",
                 "numerical_event_properties",
                 "person_properties",
                 "pageview_urls",

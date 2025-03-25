@@ -1030,6 +1030,30 @@ class _Printer(Visitor):
         if optimized_property_group_call := self.__get_optimized_property_group_call(node):
             return optimized_property_group_call
 
+        # Handle format strings in function names before checking function type
+        if func_meta := (
+            find_hogql_aggregation(node.name)
+            or find_hogql_function(node.name)
+            or find_hogql_posthog_function(node.name)
+        ):
+            if func_meta.using_placeholder_arguments:
+                # Check if using positional arguments (e.g. {0}, {1})
+                if func_meta.using_positional_arguments:
+                    # For positional arguments, pass the args as a dictionary
+                    arg_arr = [self.visit(arg) for arg in node.args]
+                    try:
+                        return func_meta.clickhouse_name.format(*arg_arr)
+                    except (KeyError, IndexError) as e:
+                        raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
+                else:
+                    # Original sequential placeholder behavior
+                    placeholder_count = func_meta.clickhouse_name.count("{}")
+                    if len(node.args) != placeholder_count:
+                        raise QueryError(
+                            f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
+                        )
+                    return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])
+
         if node.name in HOGQL_COMPARISON_MAPPING:
             op = HOGQL_COMPARISON_MAPPING[node.name]
             if len(node.args) != 2:
@@ -1268,6 +1292,16 @@ class _Printer(Visitor):
                     from_currency, to_currency, amount, *_rest = args
                     date = args[3] if len(args) > 3 and args[3] else "today()"
                     return f"if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))))"
+
+                if "{}" in relevant_clickhouse_name:
+                    if len(args) != 1:
+                        raise QueryError(f"Function '{node.name}' requires exactly one argument")
+                    return relevant_clickhouse_name.format(args[0])
+
+                params = [self.visit(param) for param in node.params] if node.params is not None else None
+                params_part = f"({', '.join(params)})" if params is not None else ""
+                args_part = f"({', '.join(args)})"
+                return f"{relevant_clickhouse_name}{params_part}{args_part}"
             raise QueryError(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
@@ -1544,8 +1578,10 @@ class _Printer(Visitor):
             if len(node.order_by) == 0:
                 raise ImpossibleASTError("ORDER BY must have at least one argument")
             strings.append("ORDER BY")
+            columns = []
             for expr in node.order_by:
-                strings.append(self.visit(expr))
+                columns.append(self.visit(expr))
+            strings.append(", ".join(columns))
 
         if node.frame_method is not None:
             if node.frame_method == "ROWS":
@@ -1556,26 +1592,68 @@ class _Printer(Visitor):
                 raise ImpossibleASTError(f"Invalid frame method {node.frame_method}")
             if node.frame_start and node.frame_end is None:
                 strings.append(self.visit(node.frame_start))
-
             elif node.frame_start is not None and node.frame_end is not None:
                 strings.append("BETWEEN")
                 strings.append(self.visit(node.frame_start))
                 strings.append("AND")
                 strings.append(self.visit(node.frame_end))
-
             else:
                 raise ImpossibleASTError("Frame start and end must be specified together")
         return " ".join(strings)
 
     def visit_window_function(self, node: ast.WindowFunction):
         identifier = self._print_identifier(node.name)
-        exprs = ", ".join(self.visit(expr) for expr in node.exprs or [])
-        args = "(" + (", ".join(self.visit(arg) for arg in node.args or [])) + ")" if node.args else ""
-        if node.over_expr or node.over_identifier:
-            over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
+        exprs = [self.visit(expr) for expr in node.exprs or []]
+        cloned_node = cast(ast.WindowFunction, clone_expr(node))
+
+        # For compatibility with postgresql syntax, convert lag/lead to lagInFrame/leadInFrame and add default window frame if needed
+        if identifier in ("lag", "lead"):
+            identifier = f"{identifier}InFrame"
+            # Wrap the first expression (value) and third expression (default) in toNullable()
+            # The second expression (offset) must remain a non-nullable integer
+            if len(exprs) > 0:
+                exprs[0] = f"toNullable({exprs[0]})"  # value
+            # If there's no window frame specified, add the default one
+            if not cloned_node.over_expr and not cloned_node.over_identifier:
+                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+            # If there's an over_identifier, we need to extract the new window expr just for this function
+            elif cloned_node.over_identifier:
+                # Find the last select query to look up the window definition
+                last_select = self._last_select()
+                if last_select and last_select.window_exprs and cloned_node.over_identifier in last_select.window_exprs:
+                    base_window = last_select.window_exprs[cloned_node.over_identifier]
+                    # Create a new window expr based on the referenced one
+                    cloned_node.over_expr = ast.WindowExpr(
+                        partition_by=base_window.partition_by,
+                        order_by=base_window.order_by,
+                        frame_method="ROWS" if not base_window.frame_method else base_window.frame_method,
+                        frame_start=base_window.frame_start
+                        or ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+                        frame_end=base_window.frame_end
+                        or ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
+                    )
+                    cloned_node.over_identifier = None
+            # If there's an ORDER BY but no frame, add the default frame
+            elif cloned_node.over_expr and cloned_node.over_expr.order_by and not cloned_node.over_expr.frame_method:
+                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+
+        # Handle any additional function arguments
+        args = f"({', '.join(self.visit(arg) for arg in cloned_node.args)})" if cloned_node.args else ""
+
+        if cloned_node.over_expr or cloned_node.over_identifier:
+            over = (
+                f"({self.visit(cloned_node.over_expr)})"
+                if cloned_node.over_expr
+                else self._print_identifier(cloned_node.over_identifier)
+            )
         else:
             over = "()"
-        return f"{identifier}({exprs}){args} OVER {over}"
+
+        # Handle the case where we have both regular expressions and function arguments
+        if cloned_node.args:
+            return f"{identifier}({', '.join(exprs)}){args} OVER {over}"
+        else:
+            return f"{identifier}({', '.join(exprs)}) OVER {over}"
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
         if node.frame_type == "PRECEDING":
@@ -1706,3 +1784,16 @@ class _Printer(Visitor):
         if len(pairs) > 0:
             return f"SETTINGS {', '.join(pairs)}"
         return None
+
+    def _create_default_window_frame(self, node: ast.WindowFunction):
+        # For lag/lead functions, we need to order by the first argument by default
+        order_by: Optional[list[ast.OrderExpr]] = None
+        if node.exprs is not None and len(node.exprs) > 0:
+            order_by = [ast.OrderExpr(expr=clone_expr(node.exprs[0]), order="ASC")]
+
+        return ast.WindowExpr(
+            order_by=order_by,
+            frame_method="ROWS",
+            frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+            frame_end=ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
+        )

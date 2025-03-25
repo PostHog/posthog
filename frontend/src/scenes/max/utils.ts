@@ -1,6 +1,7 @@
 import {
     AssistantMessage,
     AssistantMessageType,
+    AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
@@ -32,6 +33,12 @@ export function isHumanMessage(message: RootAssistantMessage | undefined | null)
 
 export function isAssistantMessage(message: RootAssistantMessage | undefined | null): message is AssistantMessage {
     return message?.type === AssistantMessageType.Assistant
+}
+
+export function isAssistantToolCallMessage(
+    message: RootAssistantMessage | undefined | null
+): message is AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>> {
+    return message?.type === AssistantMessageType.ToolCall && message.ui_payload !== undefined
 }
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
