@@ -1,6 +1,6 @@
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { componentsToDayJs, dateStringToComponents } from 'lib/utils'
+import { componentsToDayJs, dateStringToComponents, isStringDateRegex } from 'lib/utils'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -139,11 +139,16 @@ export function generateSparklineLabels(range: DateRange, resolution: number): s
     return labels
 }
 
+export type ResolvedDateRange = {
+    date_from: Dayjs
+    date_to: Dayjs
+}
+
 // Converts relative date range to absolute date range
-export function resolveDateRange(dateRange: DateRange): DateRange {
+export function resolveDateRange(dateRange: DateRange): ResolvedDateRange {
     return {
-        date_from: resolveDate(dateRange.date_from).toISOString(),
-        date_to: resolveDate(dateRange.date_to).toISOString(),
+        date_from: resolveDate(dateRange.date_from),
+        date_to: resolveDate(dateRange.date_to),
     }
 }
 
@@ -187,7 +192,7 @@ export function generateDateRangeLabel(dateRange: DateRange): string | undefined
 }
 
 export function datetimeStringToDayJs(date: string | null): Dayjs | null {
-    if (!isRelative.test(date || '')) {
+    if (!isStringDateRegex.test(date || '')) {
         return dayjs(date)
     }
     const dateComponents = dateStringToComponents(date)

@@ -1033,12 +1033,12 @@ export type DateComponents = {
     clip: 'Start' | 'End'
 }
 
+export const isStringDateRegex = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
 export function dateStringToComponents(date: string | null): DateComponents | null {
     if (!date) {
         return null
     }
-    const parseDate = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
-    const matches = date.match(parseDate)
+    const matches = date.match(isStringDateRegex)
     if (!matches) {
         return null
     }
