@@ -311,6 +311,11 @@ export class HogFunctionManagerService {
                         ...func.encrypted_inputs,
                     }
                     item.inputs_schema = [...(item.inputs_schema || []), ...(func.inputs_schema || [])]
+
+                    logger.info('[HogFunctionManager]', 'Enriched with shared input function', {
+                        sourceFunction: item.name,
+                        sharedInputFunction: functionName,
+                    })
                 }
             }
         }
