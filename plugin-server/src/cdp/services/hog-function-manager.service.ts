@@ -289,7 +289,7 @@ export class HogFunctionManagerService {
 
         for (const item of items) {
             // Grab all the global functions used in this function's bytecode
-            const sharedInputFunctionsUsed = item.bytecode.filter(
+            const sharedInputFunctionsUsed = (item.bytecode || []).filter(
                 (x) => Object.keys(SHARED_INPUT_FUNCTIONS).includes(x) && SHARED_INPUT_FUNCTIONS[x] !== item.type
             )
 
@@ -310,7 +310,7 @@ export class HogFunctionManagerService {
                         ...func.inputs,
                         ...func.encrypted_inputs,
                     }
-                    item.inputs_schema = [...(item.inputs_schema ?? []), ...(func.inputs_schema ?? [])]
+                    item.inputs_schema = [...(item.inputs_schema || []), ...(func.inputs_schema || [])]
                 }
             }
         }
