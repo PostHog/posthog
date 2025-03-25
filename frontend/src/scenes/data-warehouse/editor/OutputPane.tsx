@@ -1,12 +1,13 @@
 import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
 
-import { IconExpand, IconGear } from '@posthog/icons'
+import { IconCopy, IconExpand, IconGear } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
 import DataGrid, { CellClickArgs } from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -86,6 +87,12 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
 
     const tableData = columns.map((column) => ({
         column,
+        rawValue:
+            row[column] === null
+                ? 'null'
+                : typeof row[column] === 'object'
+                ? JSON.stringify(row[column], null, 2)
+                : String(row[column]),
         value:
             row[column] === null ? (
                 <span className="text-muted">null</span>
@@ -113,6 +120,17 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                             title: 'Value',
                             dataIndex: 'value',
                             className: 'px-4',
+                            render: (_, record) => (
+                                <div className="flex items-center gap-2">
+                                    <div className="flex-1">{record.value}</div>
+                                    <LemonButton
+                                        size="small"
+                                        icon={<IconCopy />}
+                                        onClick={() => void copyToClipboard(record.rawValue, 'value')}
+                                        tooltip="Copy value"
+                                    />
+                                </div>
+                            ),
                         },
                     ]}
                 />
