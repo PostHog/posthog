@@ -150,8 +150,8 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
         only_in_v2 = list(set(v2_sessions.keys()) - set(v1_sessions.keys()))
 
         # Compare data for sessions in both
-        session_differences = {}
-        all_differing_sessions = []
+        session_differences: dict[str, list[dict[str, typing.Any]]] = {}
+        all_differing_sessions: list[str] = []
         for session_id in set(v1_sessions.keys()) & set(v2_sessions.keys()):
             v1_data = v1_sessions[session_id]
             v2_data = v2_sessions[session_id]
