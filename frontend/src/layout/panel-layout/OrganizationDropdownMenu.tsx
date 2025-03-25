@@ -55,6 +55,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                             </IconWrapper>
                         )
                     }
+                    type="tertiary"
                     size="small"
                     className="w-fit"
                     tooltip="Open organization dropdown"

@@ -242,11 +242,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                     ) : undefined
                                                 }
                                                 to={item.to}
-                                                disabledReason={
-                                                    item.id === 'Project' && isLayoutPanelPinned && isLayoutPanelVisible
-                                                        ? 'Project panel is pinned'
-                                                        : undefined
-                                                }
                                             >
                                                 <span>{item.id}</span>
                                                 <span className="ml-auto">

@@ -85,6 +85,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                             <IconFolderOpen />
                         </IconWrapper>
                     }
+                    type="tertiary"
                     size="small"
                     sideIcon={
                         <IconWrapper
