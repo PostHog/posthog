@@ -27,6 +27,7 @@ import {
     RefreshType,
 } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     ActionType,
     ActivityScope,
     AppMetricsTotalsV2Response,
@@ -157,6 +158,7 @@ export interface PaginatedResponse<T> {
     results: T[]
     next?: string | null
     previous?: string | null
+    user_access_level?: AccessControlLevel
 }
 
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
