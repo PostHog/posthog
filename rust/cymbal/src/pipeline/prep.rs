@@ -127,8 +127,7 @@ fn transform_event(
     if raw_event
         .properties
         .get("$ignore_sent_at")
-        .map(|f| f.as_bool())
-        .flatten()
+        .and_then(|f| f.as_bool())
         .unwrap_or_default()
     {
         sent_at = None;
@@ -138,7 +137,7 @@ fn transform_event(
         timestamp,
         sent_at,
         parse_ts_assuming_utc(&outer.now).expect("CapturedEvent::now is always valid"),
-        raw_event.offset.clone(),
+        raw_event.offset,
     );
 
     ClickHouseEvent {

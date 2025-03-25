@@ -110,7 +110,7 @@ impl RedisLimiter {
             limited,
             redis: redis.clone(),
             key: format!("{key_prefix}{limiter_cache_key}{}", resource.as_str()),
-            interval: interval.into(),
+            interval,
             service_name,
         };
 
@@ -123,7 +123,7 @@ impl RedisLimiter {
     fn spawn_background_update(&self) {
         let limited = Arc::clone(&self.limited);
         let redis = Arc::clone(&self.redis);
-        let interval_duration = self.interval.clone();
+        let interval_duration = self.interval;
         let key = self.key.clone();
         let service_name = self.service_name.as_string();
 

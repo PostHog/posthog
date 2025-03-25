@@ -126,7 +126,7 @@ pub async fn emit_ingestion_warnings(
     .await
     .into_iter()
     .collect::<Result<(), _>>()
-    .map_err(|e| UnhandledError::from(e))
+    .map_err(|e| e.into())
 }
 
 #[cfg(test)]
