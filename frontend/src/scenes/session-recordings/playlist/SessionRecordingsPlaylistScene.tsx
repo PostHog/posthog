@@ -4,6 +4,7 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -33,7 +34,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
 
     if (playlistLoading) {
         return (
-            <div className="space-y-4 mt-6">
+            <div className="deprecated-space-y-4 mt-6">
                 <LemonSkeleton className="h-10 w-1/4" />
                 <LemonSkeleton className="h-4 w-1/3" />
                 <LemonSkeleton className="h-4 w-1/4" />
@@ -47,7 +48,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 </div>
 
                 <div className="flex justify-between gap-4 mt-8">
-                    <div className="space-y-8 w-1/4">
+                    <div className="deprecated-space-y-8 w-1/4">
                         <LemonSkeleton className="h-10" repeat={10} />
                     </div>
                     <div className="flex-1" />
@@ -144,6 +145,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     onFiltersChange={setFilters}
                     onPinnedChange={onPinnedChange}
                     pinnedRecordings={pinnedRecordings ?? []}
+                    canMixFiltersAndPinned={dayjs(playlist.created_at).isBefore('2025-03-11')}
                     updateSearchParams={true}
                 />
             </div>

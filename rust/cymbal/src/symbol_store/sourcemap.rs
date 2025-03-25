@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use axum::async_trait;
 use base64::Engine;
+use posthog_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
 use reqwest::Url;
 use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
 use tracing::{info, warn};
@@ -9,7 +10,6 @@ use tracing::{info, warn};
 use crate::{
     config::Config,
     error::{Error, JsResolveErr},
-    hack::js_data::JsData,
     metric_consts::{
         SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND,
         SOURCEMAP_NOT_FOUND, SOURCEMAP_PARSE,
@@ -39,11 +39,10 @@ impl OwnedSourceMapCache {
     }
 
     pub fn from_source_and_map(
-        source: &str,
-        sourcemap: &str,
+        sam: SourceAndMap,
     ) -> Result<Self, symbolic::sourcemapcache::SourceMapCacheWriterError> {
-        let mut data = Vec::with_capacity(source.len() + sourcemap.len() + 128);
-        let smcw = SourceMapCacheWriter::new(source, sourcemap)?;
+        let mut data = Vec::with_capacity(sam.minified_source.len() + sam.sourcemap.len() + 16);
+        let smcw = SourceMapCacheWriter::new(&sam.minified_source, &sam.sourcemap)?;
         smcw.serialize(&mut data).unwrap();
         Ok(Self { data })
     }
@@ -87,7 +86,8 @@ impl From<Url> for SourceMappingUrl {
 impl Fetcher for SourcemapProvider {
     type Ref = Url;
     type Fetched = Vec<u8>;
-    async fn fetch(&self, _: i32, r: Url) -> Result<Vec<u8>, Error> {
+    type Err = Error;
+    async fn fetch(&self, _: i32, r: Url) -> Result<Vec<u8>, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_FETCH, &[]);
         let (smu, minified_source) = find_sourcemap_url(&self.client, r).await?;
 
@@ -103,11 +103,15 @@ impl Fetcher for SourcemapProvider {
         // This isn't needed for correctness, but it gives nicer errors to users
         assert_is_sourcemap(&sourcemap)?;
 
-        let data = JsData::from_source_and_map(minified_source, sourcemap);
+        let sam = SourceAndMap {
+            minified_source,
+            sourcemap,
+        };
+        let data = write_symbol_data(sam).map_err(JsResolveErr::JSDataError)?;
 
         start.label("found_data", "true").fin();
 
-        Ok(data.to_bytes())
+        Ok(data)
     }
 }
 
@@ -115,11 +119,13 @@ impl Fetcher for SourcemapProvider {
 impl Parser for SourcemapProvider {
     type Source = Vec<u8>;
     type Set = OwnedSourceMapCache;
-    async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Error> {
+    type Err = Error;
+    async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
-        let smc = JsData::from_bytes(data)
-            .and_then(JsData::to_smc)
-            .map_err(JsResolveErr::from)?;
+        let sam: SourceAndMap = read_symbol_data(data).map_err(JsResolveErr::JSDataError)?;
+        let smc = OwnedSourceMapCache::from_source_and_map(sam)
+            .map_err(|_| JsResolveErr::InvalidSourceAndMap)?;
+
         start.label("success", "true").fin();
         Ok(smc)
     }

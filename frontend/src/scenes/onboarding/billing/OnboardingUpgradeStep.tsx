@@ -1,7 +1,8 @@
-import { IconCheckCircle } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { StarHog } from 'lib/components/hedgehogs'
+import { SupermanHog } from 'lib/components/hedgehogs'
+import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
+import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
 import type { BillingProductV2Type } from '~/types'
@@ -16,9 +17,7 @@ type Props = {
 }
 
 export const OnboardingUpgradeStep = ({ product, stepKey }: Props): JSX.Element => {
-    const { billing, billingLoading } = useValues(billingLogic)
-
-    const action = billing?.subscription_level === 'custom' ? 'Subscribe' : 'Upgrade'
+    const { billingLoading } = useValues(billingLogic)
 
     if (billingLoading) {
         return (
@@ -35,26 +34,40 @@ export const OnboardingUpgradeStep = ({ product, stepKey }: Props): JSX.Element 
             continueOverride={!product.subscribed ? <></> : undefined}
         >
             {!product.subscribed && <PlanCards product={product} />}
-            {product.subscribed && <ProductSubscribed product={product} action={action} />}
+            {product.subscribed && <ProductSubscribed product={product} />}
         </OnboardingStep>
     )
 }
 
-const ProductSubscribed = ({ product, action }: { product: BillingProductV2Type; action: string }): JSX.Element => {
+const ProductSubscribed = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+    const { trigger, HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
+
+    useEffect(() => {
+        const run = async (): Promise<void> => {
+            trigger()
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            trigger()
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            trigger()
+        }
+
+        void run()
+    }, [trigger])
+
     return (
-        <div className="mb-8">
-            <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
-                <div className="flex gap-x-4 min-w-0 justify-center items-center">
-                    <IconCheckCircle className="text-success text-3xl flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                        <h3 className="text-lg font-bold mb-1 text-left">{action} successful</h3>
-                        <p className="mx-0 mb-0">You're all ready to use {product.name}.</p>
-                    </div>
-                </div>
-                <div className="h-20 w-20 flex-shrink-0">
-                    <StarHog className="h-full w-full object-contain" />
-                </div>
+        <div className="relative flex flex-col items-center text-center">
+            <HogfettiComponent />
+
+            {/* Superman Hog floating animation */}
+            <div className="w-40 h-40 animate-float">
+                <SupermanHog className="w-full h-full object-contain" />
             </div>
+
+            {/* Text Below */}
+            <h3 className="text-2xl font-bold mt-6">Go forth and build amazing products!</h3>
+            <p className="text-gray-700">
+                You've unlocked all features for <strong>{product.name}</strong>.
+            </p>
         </div>
     )
 }

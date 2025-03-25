@@ -231,7 +231,7 @@ if (res.status != 200 or res.body.ok == false) {
                             "type": "actions",
                             "elements": [
                                 {
-                                    "url": "{project.url}/error-tracking/{event.distinct_id}",
+                                    "url": "{project.url}/error_tracking/{event.distinct_id}",
                                     "text": {"text": "View Issue", "type": "plain_text"},
                                     "type": "button",
                                 }
@@ -269,7 +269,7 @@ if (res.status != 200 or res.body.ok == false) {
                             "type": "actions",
                             "elements": [
                                 {
-                                    "url": "{project.url}/error-tracking/{event.distinct_id}",
+                                    "url": "{project.url}/error_tracking/{event.distinct_id}",
                                     "text": {"text": "View Issue", "type": "plain_text"},
                                     "type": "button",
                                 }

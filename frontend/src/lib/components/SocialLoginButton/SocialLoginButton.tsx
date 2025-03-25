@@ -89,7 +89,7 @@ export function SocialLoginButtons({
         <>
             {topDivider ? <LemonDivider dashed className="my-4" /> : null}
 
-            <div className={clsx(className, 'text-center space-y-4')}>
+            <div className={clsx(className, 'text-center deprecated-space-y-4')}>
                 {title && <h3>{title}</h3>}
                 {caption && captionLocation === 'top' && <p className="text-secondary">{caption}</p>}
                 <div className="flex gap-2 justify-center flex-wrap">

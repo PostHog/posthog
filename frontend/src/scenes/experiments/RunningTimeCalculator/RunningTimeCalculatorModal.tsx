@@ -1,25 +1,134 @@
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonModal,
+    LemonSegmentedButton,
+    LemonSelect,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
 
+import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-general'
+
 import { experimentLogic } from '../experimentLogic'
-import { getMetricTitle } from '../MetricsView/DeltaChart'
-import { runningTimeCalculatorLogic, TIMEFRAME_HISTORICAL_DATA_DAYS } from './runningTimeCalculatorLogic'
+import { MetricTitle } from '../MetricsView/MetricTitle'
+import {
+    AverageEventsPerUserPanel,
+    AveragePropertyValuePerUserPanel,
+    StandardDeviationPanel,
+    UniqueUsersPanel,
+} from './components'
+import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
+
+const MeanMetricDataPanel = (): JSX.Element => {
+    const { experimentId } = useValues(experimentLogic)
+    const { uniqueUsers, averageEventsPerUser, averagePropertyValuePerUser, standardDeviation } = useValues(
+        runningTimeCalculatorLogic({ experimentId })
+    )
+    return (
+        <div className="grid grid-cols-3 gap-4">
+            <UniqueUsersPanel uniqueUsers={uniqueUsers} />
+            <AverageEventsPerUserPanel averageEventsPerUser={averageEventsPerUser} />
+            <AveragePropertyValuePerUserPanel averagePropertyValuePerUser={averagePropertyValuePerUser} />
+            <StandardDeviationPanel standardDeviation={standardDeviation} />
+        </div>
+    )
+}
+
+const FunnelMetricDataPanel = (): JSX.Element => {
+    const { experimentId } = useValues(experimentLogic)
+    const { conversionRateInputType, uniqueUsers, automaticConversionRateDecimal, manualConversionRate } = useValues(
+        runningTimeCalculatorLogic({ experimentId })
+    )
+    const { setConversionRateInputType, setManualConversionRate } = useActions(
+        runningTimeCalculatorLogic({ experimentId })
+    )
+    return (
+        <div>
+            <div className="grid grid-cols-3 gap-4">
+                <UniqueUsersPanel uniqueUsers={uniqueUsers} />
+                <div>
+                    <div className="card-secondary">
+                        <span>Conversion rate input</span>
+                        <Tooltip
+                            className="ml-1"
+                            title={
+                                <>
+                                    <strong>Automatic:</strong> Uses historical conversion rate between your exposure
+                                    event and the conversion event. It may not always be representative of expected
+                                    performance.
+                                    <br />
+                                    <br />
+                                    <strong>Manual:</strong> Allows you to set a custom conversion rate based on your
+                                    own knowledge of the funnel.
+                                </>
+                            }
+                        >
+                            <IconInfo className="text-secondary ml-1" />
+                        </Tooltip>
+                    </div>
+                    <LemonSegmentedButton
+                        className="mt-2"
+                        size="small"
+                        options={[
+                            {
+                                label: 'Manual',
+                                value: ConversionRateInputType.MANUAL,
+                            },
+                            {
+                                label: 'Automatic',
+                                value: ConversionRateInputType.AUTOMATIC,
+                            },
+                        ]}
+                        onChange={(value) => {
+                            setConversionRateInputType(value)
+                        }}
+                        value={conversionRateInputType}
+                    />
+                    {conversionRateInputType === ConversionRateInputType.MANUAL && (
+                        <div className="flex items-center gap-2">
+                            <LemonInput
+                                className="w-[80px] mt-2"
+                                min={0}
+                                step={0.01}
+                                max={100}
+                                type="number"
+                                value={manualConversionRate || undefined}
+                                onChange={(newValue) => {
+                                    if (newValue !== null && newValue !== undefined && newValue >= 0) {
+                                        setManualConversionRate(newValue)
+                                    }
+                                }}
+                            />
+                            <div>%</div>
+                        </div>
+                    )}
+                    {conversionRateInputType === ConversionRateInputType.AUTOMATIC && (
+                        <div className="font-semibold mt-2">
+                            ~{humanFriendlyNumber(automaticConversionRateDecimal * 100, 2)}%
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+}
 
 export function RunningTimeCalculatorModal(): JSX.Element {
     const { experimentId, isCalculateRunningTimeModalOpen } = useValues(experimentLogic)
     const { closeCalculateRunningTimeModal, updateExperiment } = useActions(experimentLogic)
 
     const {
+        experiment,
+        metric,
         minimumDetectableEffect,
         recommendedSampleSize,
         recommendedRunningTime,
-        variance,
-        experiment,
         metricIndex,
         uniqueUsers,
-        averageEventsPerUser,
         metricResultLoading,
     } = useValues(runningTimeCalculatorLogic({ experimentId }))
     const { setMinimumDetectableEffect, setMetricIndex } = useActions(runningTimeCalculatorLogic({ experimentId }))
@@ -47,7 +156,8 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                     parameters: {
                                         ...experiment?.parameters,
                                         recommended_running_time: recommendedRunningTime,
-                                        recommended_sample_size: recommendedSampleSize,
+                                        recommended_sample_size: recommendedSampleSize || undefined,
+                                        minimum_detectable_effect: minimumDetectableEffect || undefined,
                                     },
                                 })
                                 closeCalculateRunningTimeModal()
@@ -60,9 +170,9 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                 </div>
             }
         >
-            <div className="space-y-6">
+            <div className="deprecated-space-y-6">
                 {/* Step 1: Metric selection */}
-                <div className="rounded bg-light p-4 space-y-3">
+                <div className="rounded bg-light p-4 deprecated-space-y-3">
                     <div className="flex items-center gap-2">
                         <span className="rounded-full bg-muted text-white w-6 h-6 flex items-center justify-center font-semibold">
                             1
@@ -73,7 +183,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                         Choose a metric to analyze. We'll use historical data from this metric to estimate the
                         experiment duration.
                     </p>
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <div className="mb-4">
                             <div className="card-secondary mb-2">Experiment metric</div>
                             <LemonSelect
@@ -81,7 +191,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                     label: (
                                         <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
                                             <span className="mr-1">{index + 1}.</span>
-                                            {getMetricTitle(metric)}
+                                            <MetricTitle metric={metric} />
                                         </div>
                                     ),
                                     value: index,
@@ -101,38 +211,23 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                     <Spinner className="text-3xl transform -translate-y-[-10px]" />
                                 </div>
                             </div>
-                        ) : uniqueUsers !== null && averageEventsPerUser !== null ? (
+                        ) : (
                             <div className="border-t pt-2">
-                                <div className="grid grid-cols-3 gap-4">
-                                    <div>
-                                        <div className="card-secondary">Unique users</div>
-                                        <div className="font-semibold">
-                                            ~{humanFriendlyNumber(uniqueUsers || 0, 0)} persons
-                                        </div>
-                                        <div className="text-xs text-muted">
-                                            Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div className="card-secondary">Avg. events per user</div>
-                                        <div className="font-semibold">
-                                            ~{humanFriendlyNumber(averageEventsPerUser || 0, 0)}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div className="card-secondary">Estimated variance</div>
-                                        <div className="font-semibold">~{humanFriendlyNumber(variance, 0)}</div>
-                                    </div>
-                                </div>
+                                {(metric as ExperimentMetric)?.metric_type === ExperimentMetricType.MEAN && (
+                                    <MeanMetricDataPanel />
+                                )}
+                                {(metric as ExperimentMetric)?.metric_type === ExperimentMetricType.FUNNEL && (
+                                    <FunnelMetricDataPanel />
+                                )}
                             </div>
-                        ) : null}
+                        )}
                     </div>
                 </div>
 
-                {!metricResultLoading && uniqueUsers !== null && averageEventsPerUser !== null && (
+                {!metricResultLoading && uniqueUsers !== null && (
                     <>
                         {/* Step 2: MDE configuration */}
-                        <div className="rounded bg-light p-4 space-y-3">
+                        <div className="rounded bg-light p-4 deprecated-space-y-3">
                             <div className="flex items-center gap-2">
                                 <span className="rounded-full bg-muted text-white w-6 h-6 flex items-center justify-center font-semibold">
                                     2
@@ -162,32 +257,34 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                         </div>
 
                         {/* Step 3: Results */}
-                        <div className="rounded bg-light p-4 space-y-3">
-                            <div className="flex items-center gap-2">
-                                <span className="rounded-full bg-muted text-white w-6 h-6 flex items-center justify-center font-semibold">
-                                    3
-                                </span>
-                                <h4 className="font-semibold m-0">Estimated experiment size & duration</h4>
-                            </div>
-                            <p className="text-muted">
-                                These are just statistical estimates – you can conclude the experiment earlier if a
-                                significant effect is detected. Running shorter may make results less reliable.
-                            </p>
-                            <div className="grid grid-cols-2 gap-4 pt-2">
-                                <div>
-                                    <div className="card-secondary">Recommended sample size</div>
-                                    <div className="text-lg font-semibold">
-                                        ~{humanFriendlyNumber(recommendedSampleSize, 0)} users
+                        {recommendedSampleSize !== null && recommendedRunningTime !== null && (
+                            <div className="rounded bg-light p-4 deprecated-space-y-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="rounded-full bg-muted text-white w-6 h-6 flex items-center justify-center font-semibold">
+                                        3
+                                    </span>
+                                    <h4 className="font-semibold m-0">Estimated experiment size & duration</h4>
+                                </div>
+                                <p className="text-muted">
+                                    These are just statistical estimates – you can conclude the experiment earlier if a
+                                    significant effect is detected. Running shorter may make results less reliable.
+                                </p>
+                                <div className="grid grid-cols-2 gap-4 pt-2">
+                                    <div>
+                                        <div className="card-secondary">Recommended sample size</div>
+                                        <div className="text-lg font-semibold">
+                                            ~{humanFriendlyNumber(recommendedSampleSize, 0)} users
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="card-secondary">Estimated running time</div>
+                                        <div className="text-lg font-semibold">
+                                            ~{humanFriendlyNumber(recommendedRunningTime, 1)} days
+                                        </div>
                                     </div>
                                 </div>
-                                <div>
-                                    <div className="card-secondary">Estimated running time</div>
-                                    <div className="text-lg font-semibold">
-                                        ~{humanFriendlyNumber(recommendedRunningTime, 1)} days
-                                    </div>
-                                </div>
                             </div>
-                        </div>
+                        )}
                     </>
                 )}
             </div>

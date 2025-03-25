@@ -2,6 +2,7 @@ import dataclasses
 import datetime as dt
 import json
 import re
+import typing
 
 import posthoganalytics
 from django.db import close_old_connections
@@ -11,6 +12,7 @@ from temporalio.common import RetryPolicy
 # TODO: remove dependency
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
@@ -29,19 +31,22 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
-from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
-from posthog.warehouse.external_data_source.jobs import (
-    update_external_job_status,
+from posthog.warehouse.data_load.source_templates import (
+    create_warehouse_templates_for_source,
 )
-from posthog.warehouse.models import (
-    ExternalDataJob,
-    ExternalDataSource,
-)
+from posthog.warehouse.external_data_source.jobs import update_external_job_status
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import update_should_sync
 
-Any_Source_Errors: list[str] = ["Could not establish session to SSH gateway"]
+Any_Source_Errors: list[str] = [
+    "Could not establish session to SSH gateway",
+    "Primary key required for incremental syncs",
+]
 
 Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
+    ExternalDataSource.Type.BIGQUERY: [
+        "PermissionDenied: 403 request failed",
+    ],
     ExternalDataSource.Type.STRIPE: [
         "401 Client Error: Unauthorized for url: https://api.stripe.com",
         "403 Client Error: Forbidden for url: https://api.stripe.com",
@@ -76,8 +81,9 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "This account has been marked for decommission",
         "404 Not Found",
         "Your free trial has ended",
+        "Your account is suspended due to lack of payment method",
     ],
-    ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url"],
+    ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
     ExternalDataSource.Type.HUBSPOT: ["missing or invalid refresh token"],
 }
 
@@ -91,6 +97,16 @@ class UpdateExternalDataJobStatusInputs:
     status: str
     internal_error: str | None
     latest_error: str | None
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "job_id": self.job_id,
+            "schema_id": self.schema_id,
+            "source_id": self.source_id,
+            "status": self.status,
+        }
 
 
 @activity.defn
@@ -162,6 +178,13 @@ class CreateSourceTemplateInputs:
     team_id: int
     run_id: str
 
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "run_id": self.run_id,
+        }
+
 
 @activity.defn
 def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
@@ -190,6 +213,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             source_id=str(inputs.external_data_source_id),
         )
 
+        source_type = None
         try:
             # create external data job and trigger activity
             create_external_data_job_inputs = CreateExternalDataJobModelActivityInputs(
@@ -256,7 +280,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 import_data_activity_sync,
                 job_inputs,
-                heartbeat_timeout=dt.timedelta(minutes=5),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 **timeout_params,
             )  # type: ignore
 
@@ -280,6 +304,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
         finally:
+            get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
+
             await workflow.execute_activity(
                 update_external_data_job_model,
                 update_inputs,

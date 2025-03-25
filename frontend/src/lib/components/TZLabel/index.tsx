@@ -52,7 +52,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
 
             <LemonDivider />
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <div className="TZLabelPopover__row">
                     <div>
                         <IconLaptop />

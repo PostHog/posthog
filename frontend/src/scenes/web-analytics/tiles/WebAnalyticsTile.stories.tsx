@@ -1,6 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -23,7 +22,6 @@ const meta: Meta<typeof Query> = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_TABLE_SORTING, FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN],
     },
     decorators: [
         mswDecorator({

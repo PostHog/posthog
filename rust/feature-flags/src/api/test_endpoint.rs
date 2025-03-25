@@ -11,7 +11,7 @@ use tracing::error;
 use crate::api::{
     errors::FlagError,
     request_handler::{decode_request, FlagsQueryParams},
-    types::FlagsResponse,
+    types::LegacyFlagsResponse,
 };
 
 // Metrics constants for test endpoint
@@ -30,7 +30,7 @@ pub async fn test_black_hole(
     _method: Method,
     _path: MatchedPath,
     body: Bytes,
-) -> Result<Json<FlagsResponse>, FlagError> {
+) -> Result<Json<LegacyFlagsResponse>, FlagError> {
     metrics::counter!(REQUEST_SEEN).increment(1);
 
     // Track compression type
@@ -109,7 +109,7 @@ pub async fn test_black_hole(
     // If we got here, the request is valid
     metrics::counter!(REQUEST_OUTCOME, "outcome" => "success").increment(1);
 
-    Ok(Json(FlagsResponse {
+    Ok(Json(LegacyFlagsResponse {
         feature_flags: Default::default(),
         feature_flag_payloads: Default::default(),
         quota_limited: None,

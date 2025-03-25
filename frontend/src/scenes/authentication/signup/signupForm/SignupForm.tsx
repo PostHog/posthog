@@ -33,7 +33,7 @@ export function SignupForm(): JSX.Element | null {
     }, [panel])
 
     return !user ? (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <h2>
                 {preflight?.demo
                     ? 'Explore PostHog yourself'

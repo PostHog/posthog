@@ -20,7 +20,7 @@ export interface NewDestinationsProps {
 
 export function NewDestinations({ types }: NewDestinationsProps): JSX.Element {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             {types.includes('destination') ? <PayGateMini feature={AvailableFeature.DATA_PIPELINES} /> : null}
             <DestinationsFilters types={types} hideShowPaused />
             <DestinationOptionsTable types={types} />

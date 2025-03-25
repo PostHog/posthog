@@ -1,20 +1,18 @@
 import { offset } from '@floating-ui/react'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { forwardRef, memo, useEffect, useRef, useState } from 'react'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
-import { sidePanelMaxAILogic } from './sidePanelMaxAILogic'
-import { ChatMessage } from './sidePanelMaxAILogic'
+import { ChatMessage, sidePanelMaxAILogic } from './sidePanelMaxAILogic'
 
 const MemoizedMessageContent = memo(function MemoizedMessageContent({ content }: { content: string }) {
     const { openEmailForm } = useActions(supportLogic)
@@ -132,10 +130,10 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
 
     return (
         <div ref={ref} className="flex flex-col h-full">
-            <div className="flex-1 overflow-y-auto p-3 space-y-4 [overflow-anchor:none]">
+            <div className="flex-1 overflow-y-auto p-3 deprecated-space-y-4 [overflow-anchor:none]">
                 <div className="bg-surface-primary dark:bg-transparent rounded p-1">
                     <h4 className="mb-2">Tips for chatting with Max:</h4>
-                    <ul className="list-disc pl-4 space-y-2 text-secondary">
+                    <ul className="list-disc pl-4 deprecated-space-y-2 text-secondary">
                         <li>Max can't handle files or images (yet.)</li>
                         <li>
                             Max can't see what page you're on, or the contents. Copy/paste error messages or queries to
@@ -207,7 +205,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                                                                 </span>
                                                                             ),
                                                                             content: (
-                                                                                <div className="space-y-3 p-1">
+                                                                                <div className="deprecated-space-y-3 p-1">
                                                                                     {/* Thinking blocks */}
                                                                                     {extractThinkingBlock(
                                                                                         message.content
@@ -407,18 +405,25 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
 
 export function MaxChatInterface(): JSX.Element {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const useFeatureFlagSupport = useFeatureFlag('SUPPORT_SIDEBAR_MAX')
+    const useFeatureFlagInKeep = useFeatureFlag('INKEEP_MAX_SUPPORT_SIDEBAR')
+
+    // Check if either feature flag is enabled
+    const isMaxEnabled = useFeatureFlagSupport || useFeatureFlagInKeep
+
+    if (!isMaxEnabled) {
+        return <></>
+    }
 
     return (
-        <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
-            <div className="relative">
-                {dataProcessingAccepted ? (
+        <div className="relative">
+            {dataProcessingAccepted ? (
+                <MaxChatInterfaceContent />
+            ) : (
+                <AIConsentPopoverWrapper placement="right-start" middleware={[offset(-12)]} showArrow>
                     <MaxChatInterfaceContent />
-                ) : (
-                    <AIConsentPopoverWrapper placement="right-start" middleware={[offset(-12)]} showArrow>
-                        <MaxChatInterfaceContent />
-                    </AIConsentPopoverWrapper>
-                )}
-            </div>
-        </FlaggedFeature>
+                </AIConsentPopoverWrapper>
+            )}
+        </div>
     )
 }

@@ -336,7 +336,7 @@ def test_pause_non_existent_batch_export(client: HttpClient, temporal):
         schedule_desc = describe_schedule(temporal, batch_export["id"])
         assert schedule_desc.schedule.state.paused is False
 
-        resp = batch_export_delete_schedule(temporal, batch_export["id"])
+        batch_export_delete_schedule(temporal, batch_export["id"])
 
         batch_export_id = batch_export["id"]
         resp = pause_batch_export(client, team.pk, batch_export_id)

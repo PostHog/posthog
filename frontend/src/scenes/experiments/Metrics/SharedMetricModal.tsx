@@ -127,7 +127,7 @@ export function SharedMetricModal({
             }
         >
             {mode === 'create' && (
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     {availableSharedMetrics.length > 0 ? (
                         <>
                             {experiment.saved_metrics.length > 0 && (
@@ -250,7 +250,7 @@ export function SharedMetricModal({
                         }
 
                         return (
-                            <div className="space-y-2">
+                            <div className="deprecated-space-y-2">
                                 <div className="flex items-center gap-2">
                                     <h3 className="font-semibold m-0 flex items-center">{metric.name}</h3>
                                     <Link

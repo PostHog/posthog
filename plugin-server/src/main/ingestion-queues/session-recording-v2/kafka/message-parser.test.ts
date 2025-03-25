@@ -69,7 +69,8 @@ describe('KafkaMessageParser', () => {
                     start: DateTime.fromMillis(1234567890),
                     end: DateTime.fromMillis(1234567891),
                 },
-                snapshot_source: undefined,
+                snapshot_source: null,
+                snapshot_library: null,
             })
             expect(KafkaMetrics.incrementMessageDropped).not.toHaveBeenCalled()
         })
@@ -159,9 +160,33 @@ describe('KafkaMessageParser', () => {
             )
         })
 
+        it('filters out message with missing distinct_id', async () => {
+            const messages = [
+                createMessage({
+                    data: JSON.stringify({
+                        event: '$snapshot_items',
+                        properties: {
+                            $session_id: 'session1',
+                            $window_id: 'window1',
+                            $snapshot_items: [{ timestamp: 1, type: 2 }],
+                        },
+                    }),
+                }),
+            ]
+
+            const results = await parser.parseBatch(messages)
+
+            expect(results).toHaveLength(0)
+            expect(KafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
+                'session_recordings_blob_ingestion',
+                'invalid_message_payload'
+            )
+        })
+
         it('filters out non-snapshot message', async () => {
             const messages = [
                 createMessage({
+                    distinct_id: 'user123',
                     data: JSON.stringify({
                         event: 'not_a_snapshot',
                         properties: {
@@ -188,6 +213,7 @@ describe('KafkaMessageParser', () => {
         it('processes multiple messages in parallel', async () => {
             const messages = [
                 createMessage({
+                    distinct_id: 'user123',
                     data: JSON.stringify({
                         event: '$snapshot_items',
                         properties: {
@@ -198,6 +224,7 @@ describe('KafkaMessageParser', () => {
                     }),
                 }),
                 createMessage({
+                    distinct_id: 'user123',
                     data: JSON.stringify({
                         event: '$snapshot_items',
                         properties: {
@@ -225,6 +252,7 @@ describe('KafkaMessageParser', () => {
             ]
             const messages = [
                 createMessage({
+                    distinct_id: 'user123',
                     data: JSON.stringify({
                         event: '$snapshot_items',
                         properties: {
@@ -260,6 +288,7 @@ describe('KafkaMessageParser', () => {
             ]
             const messages = [
                 createMessage({
+                    distinct_id: 'user123',
                     data: JSON.stringify({
                         event: '$snapshot_items',
                         properties: {

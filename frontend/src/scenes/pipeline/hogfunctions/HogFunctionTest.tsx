@@ -170,12 +170,12 @@ export function HogFunctionTest(): JSX.Element {
             <div
                 ref={testResultsRef}
                 className={clsx(
-                    'border rounded p-3 space-y-2',
+                    'border rounded p-3 deprecated-space-y-2',
                     expanded ? 'bg-surface-secondary min-h-120' : 'bg-surface-primary'
                 )}
             >
                 <div className="flex items-center justify-end gap-2">
-                    <div className="flex-1 space-y-2">
+                    <div className="flex-1 deprecated-space-y-2">
                         <h2 className="flex items-center gap-2 mb-0">
                             <span>Testing</span>
                             {sampleGlobalsLoading && !fetchCancelled ? <Spinner /> : null}
@@ -319,12 +319,26 @@ export function HogFunctionTest(): JSX.Element {
                 {expanded && (
                     <>
                         {testResult ? (
-                            <div className="space-y-2" data-attr="test-results">
-                                <LemonBanner type={testResult.status === 'success' ? 'success' : 'error'}>
-                                    {testResult.status === 'success' ? 'Success' : 'Error'}
+                            <div className="deprecated-space-y-2" data-attr="test-results">
+                                <LemonBanner
+                                    type={
+                                        testResult.status === 'success'
+                                            ? 'success'
+                                            : testResult.status === 'skipped'
+                                            ? 'warning'
+                                            : 'error'
+                                    }
+                                >
+                                    {testResult.status === 'success'
+                                        ? 'Success'
+                                        : testResult.status === 'skipped'
+                                        ? `${
+                                              type.charAt(0).toUpperCase() + type.slice(1)
+                                          } was skipped because the event did not match the filter criteria`
+                                        : 'Error'}
                                 </LemonBanner>
 
-                                {type === 'transformation' && testResult.status === 'success' ? (
+                                {type === 'transformation' && testResult.status !== 'error' ? (
                                     <>
                                         <div className="flex items-center justify-between gap-2">
                                             <LemonLabel>Transformation result</LemonLabel>
@@ -346,7 +360,9 @@ export function HogFunctionTest(): JSX.Element {
                                             <>
                                                 {!sortedTestsResult?.hasDiff && (
                                                     <LemonBanner type="info">
-                                                        The event was unmodified by the transformation.
+                                                        {testResult.status === 'skipped'
+                                                            ? 'The event was not modified as it did not match the filter criteria.'
+                                                            : 'The event was unmodified by the transformation.'}
                                                     </LemonBanner>
                                                 )}
                                                 <CodeEditorResizeable
@@ -421,11 +437,11 @@ export function HogFunctionTest(): JSX.Element {
                                 />
                             </div>
                         ) : (
-                            <div className="space-y-2">
+                            <div className="deprecated-space-y-2">
                                 <LemonField name="globals">
                                     {({ value, onChange }) => (
                                         <>
-                                            <div className="space-y-2">
+                                            <div className="deprecated-space-y-2">
                                                 <div>
                                                     {type === 'broadcast'
                                                         ? 'The test broadcast will be sent with this sample data:'

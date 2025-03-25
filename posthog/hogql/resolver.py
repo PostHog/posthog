@@ -242,8 +242,7 @@ class Resolver(CloningVisitor):
             new_node.group_by = [self.visit(expr) for expr in node.group_by]
         if node.order_by:
             new_node.order_by = [self.visit(expr) for expr in node.order_by]
-        if node.limit_by:
-            new_node.limit_by = [self.visit(expr) for expr in node.limit_by]
+        new_node.limit_by = self.visit(node.limit_by)
         new_node.limit = self.visit(node.limit)
         new_node.limit_with_ties = node.limit_with_ties
         new_node.offset = self.visit(node.offset)
@@ -474,6 +473,7 @@ class Resolver(CloningVisitor):
 
         if func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
             if node.name == "recording_button":
@@ -631,6 +631,13 @@ class Resolver(CloningVisitor):
                 return ast.Constant(value=value, type=global_type)
 
             if self.dialect == "clickhouse":
+                # To debug, add a breakpoint() here and print self.context.database
+                #
+                # from rich.pretty import pprint
+                # pprint(self.context.database, max_depth=3)
+                #
+                # One likely cause is that the database context isn't set up as you
+                # expect it to be.
                 raise QueryError(f"Unable to resolve field: {name}")
             else:
                 type = ast.UnresolvedFieldType(name=name)
@@ -767,11 +774,15 @@ class Resolver(CloningVisitor):
 
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)
+        if node is None:
+            return None
         node.type = resolve_constant_data_type(node.value)
         return node
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
+        if node is None:
+            return None
         node.type = ast.BooleanType(
             nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
         )
@@ -779,6 +790,8 @@ class Resolver(CloningVisitor):
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
+        if node is None:
+            return None
         node.type = ast.BooleanType(
             nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
         )
@@ -786,6 +799,8 @@ class Resolver(CloningVisitor):
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
+        if node is None:
+            return None
         node.type = ast.BooleanType(nullable=node.expr.type.resolve_constant_type(self.context).nullable)
         return node
 

@@ -16,7 +16,7 @@ export function DataCollection(): JSX.Element {
     const {
         experimentId,
         experiment,
-        getMetricType,
+        getInsightType,
         funnelResultsPersonsTotal,
         actualRunningTime,
         minimumDetectableEffect,
@@ -25,13 +25,13 @@ export function DataCollection(): JSX.Element {
 
     const { openExperimentCollectionGoalModal } = useActions(experimentLogic)
 
-    const metricType = getMetricType(firstPrimaryMetric)
+    const insightType = getInsightType(firstPrimaryMetric)
 
     const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
     const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
 
     const experimentProgressPercent =
-        metricType === InsightType.FUNNELS
+        insightType === InsightType.FUNNELS
             ? (funnelResultsPersonsTotal(0) / recommendedSampleSize) * 100
             : (actualRunningTime / recommendedRunningTime) * 100
 
@@ -63,7 +63,7 @@ export function DataCollection(): JSX.Element {
 
     return (
         <div>
-            <div className="inline-flex items-center space-x-2">
+            <div className="inline-flex items-center deprecated-space-x-2">
                 <h2 className="font-semibold text-lg mb-0">Data collection</h2>
                 <Tooltip
                     title="Estimated target for the number of participants. Actual data may reveal significance earlier or later
@@ -83,7 +83,7 @@ export function DataCollection(): JSX.Element {
                         size="medium"
                         percent={experimentProgressPercent}
                     />
-                    {metricType === InsightType.TRENDS && (
+                    {insightType === InsightType.TRENDS && (
                         <div className="flex justify-between mt-0">
                             <span className="flex items-center text-xs">
                                 Completed&nbsp;
@@ -103,9 +103,9 @@ export function DataCollection(): JSX.Element {
                             </span>
                         </div>
                     )}
-                    {metricType === InsightType.FUNNELS && (
+                    {insightType === InsightType.FUNNELS && (
                         <div className="flex justify-between mt-0">
-                            <div className="space-x-1 flex items-center text-xs">
+                            <div className="deprecated-space-x-1 flex items-center text-xs">
                                 <span>
                                     Saw&nbsp;
                                     <b>
@@ -124,11 +124,11 @@ export function DataCollection(): JSX.Element {
                     <div className={`text-lg font-semibold ${experiment.end_date ? 'mt-4' : ''}`}>
                         {minimumDetectableEffect}%
                     </div>
-                    <div className="text-xs space-x-1 text-sm flex">
+                    <div className="text-xs deprecated-space-x-1 text-sm flex">
                         <span>Minimum detectable effect</span>
                         <Tooltip
                             title={
-                                <div className="space-y-2">
+                                <div className="deprecated-space-y-2">
                                     <div>
                                         The Minimum detectable effect represents the smallest change that you want to be
                                         able to detect in your experiment.
@@ -172,7 +172,7 @@ export function DataCollection(): JSX.Element {
 export function DataCollectionGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
     const {
         isExperimentCollectionGoalModalOpen,
-        getMetricType,
+        getInsightType,
         firstPrimaryMetric,
         trendMetricInsightLoading,
         funnelMetricInsightLoading,
@@ -181,7 +181,7 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
         useActions(experimentLogic({ experimentId }))
 
     const isInsightLoading =
-        getMetricType(firstPrimaryMetric) === InsightType.TRENDS
+        getInsightType(firstPrimaryMetric) === InsightType.TRENDS
             ? trendMetricInsightLoading
             : funnelMetricInsightLoading
 

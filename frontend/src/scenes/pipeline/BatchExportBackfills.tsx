@@ -31,7 +31,7 @@ export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JS
                     </LemonButton>
                 }
             />
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <BatchExportBackfillsControls id={id} />
                 <BatchExportLatestBackfills id={id} />
             </div>
@@ -195,7 +195,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                     },
                 ]}
                 emptyState={
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <div>No backfills in this time range.</div>
                         {canEnableNewDestinations && (
                             <LemonButton type="primary" onClick={() => openBackfillModal()}>

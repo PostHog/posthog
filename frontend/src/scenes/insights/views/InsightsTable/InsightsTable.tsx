@@ -2,6 +2,7 @@ import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { compare as compareFn } from 'natural-orderby'
 import { useMemo } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -17,7 +18,6 @@ import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType, ItemMode } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
-import { countryCodeToName } from '../WorldMap'
 import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
 import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
@@ -44,6 +44,7 @@ export interface InsightsTableProps {
     embedded?: boolean
     /** @default false */
     canEditSeriesNameInline?: boolean
+    seriesNameTooltip?: string
     /**
      * (Un)checking series updates the insight via the API, so it should be disabled if updates aren't desired.
      *  @default true
@@ -61,6 +62,7 @@ export function InsightsTable({
     isLegend = false,
     embedded = false,
     canEditSeriesNameInline = false,
+    seriesNameTooltip,
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element {
@@ -124,6 +126,7 @@ export function InsightsTable({
                     item={item}
                     indexedResults={indexedResults}
                     canEditSeriesNameInline={canEditSeriesNameInline}
+                    seriesNameTooltip={seriesNameTooltip}
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeries}
                     hasBreakdown={isValidBreakdown(breakdownFilter)}
@@ -175,8 +178,8 @@ export function InsightsTable({
                 render: (_, item: IndexedTrendResult) => <WorldMapColumnItem item={item} />,
                 key: 'breakdown_addendum',
                 sorter: (a, b) => {
-                    const labelA = countryCodeToName[a.breakdown_value as string]
-                    const labelB = countryCodeToName[b.breakdown_value as string]
+                    const labelA = COUNTRY_CODE_TO_LONG_NAME[a.breakdown_value as string]
+                    const labelB = COUNTRY_CODE_TO_LONG_NAME[b.breakdown_value as string]
                     return labelA.localeCompare(labelB)
                 },
             })
@@ -255,6 +258,17 @@ export function InsightsTable({
 
         const capitalizeFirstLetter = (str: string): string => str.charAt(0).toUpperCase() + str.slice(1)
 
+        const dataSorter = (a: IndexedTrendResult, b: IndexedTrendResult, index: number): number => {
+            const aValue = a.data[index] ?? NaN
+            const bValue = b.data[index] ?? NaN
+
+            if (isStickiness) {
+                return aValue / a.count - bValue / b.count
+            }
+
+            return aValue - bValue
+        }
+
         return results.map((_, index) => ({
             title: isStickiness ? (
                 `${interval ? capitalizeFirstLetter(interval) : 'Day'} ${index + 1}`
@@ -266,11 +280,11 @@ export function InsightsTable({
                     interval={interval}
                 />
             ),
-            render: (_, item: IndexedTrendResult) => (
-                <ValueColumnItem index={index} item={item} trendsFilter={trendsFilter} />
-            ),
+            render: (_, item: IndexedTrendResult) => {
+                return <ValueColumnItem index={index} item={item} trendsFilter={trendsFilter} />
+            },
             key: `data-${index}`,
-            sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
+            sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => dataSorter(a, b, index),
             align: 'right',
         }))
     }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval])

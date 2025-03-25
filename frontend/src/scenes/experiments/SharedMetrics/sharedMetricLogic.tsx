@@ -9,7 +9,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { UserBasicType } from '~/types'
 
-import { getDefaultBinomialMetric, getDefaultTrendsMetric } from '../utils'
+import { getDefaultFunnelMetric, getDefaultTrendsMetric } from '../utils'
 import type { sharedMetricLogicType } from './sharedMetricLogicType'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
 
@@ -120,7 +120,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             (featureFlags: FeatureFlagsSet) => ({
                 ...NEW_SHARED_METRIC,
                 query: featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
-                    ? getDefaultBinomialMetric()
+                    ? getDefaultFunnelMetric()
                     : getDefaultTrendsMetric(),
             }),
         ],

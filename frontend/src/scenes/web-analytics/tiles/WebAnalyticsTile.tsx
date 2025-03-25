@@ -6,20 +6,31 @@ import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { PropertyIcon } from 'lib/components/PropertyIcon'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { percentage, tryDecodeURIComponent, UnexpectedNeverError } from 'lib/utils'
+import {
+    COUNTRY_CODE_TO_LONG_NAME,
+    countryCodeToFlag,
+    LANGUAGE_CODE_TO_NAME,
+    languageCodeToFlag,
+} from 'lib/utils/geography/country'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
-import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
-import { languageCodeToFlag, languageCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import {
+    GeographyTab,
+    ProductTab,
+    TileId,
+    webAnalyticsLogic,
+    webStatsBreakdownToPropertyName,
+} from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
@@ -217,7 +228,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 const countryCode = value
                 return (
                     <>
-                        {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode}
+                        {countryCodeToFlag(countryCode)} {COUNTRY_CODE_TO_LONG_NAME[countryCode] || countryCode}
                     </>
                 )
             }
@@ -227,7 +238,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 const [countryCode, regionCode, regionName] = value
                 return (
                     <>
-                        {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode} -{' '}
+                        {countryCodeToFlag(countryCode)} {COUNTRY_CODE_TO_LONG_NAME[countryCode] || countryCode} -{' '}
                         {regionName || regionCode}
                     </>
                 )
@@ -238,7 +249,8 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 const [countryCode, cityName] = value
                 return (
                     <>
-                        {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode} - {cityName}
+                        {countryCodeToFlag(countryCode)} {COUNTRY_CODE_TO_LONG_NAME[countryCode] || countryCode} -{' '}
+                        {cityName}
                     </>
                 )
             }
@@ -258,39 +270,24 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return (
                     <>
                         {countryCodeToFlag(parsedCountryCode) ?? languageCodeToFlag(languageCode)}&nbsp;
-                        {languageCodeToName[languageCode] || languageCode}
+                        {LANGUAGE_CODE_TO_NAME[languageCode] || languageCode}
                     </>
                 )
             }
             break
         case WebStatsBreakdown.DeviceType:
             if (typeof value === 'string') {
-                return (
-                    <div className="flex items-center gap-2">
-                        <PropertyIcon property="$device_type" value={value} />
-                        <span>{value}</span>
-                    </div>
-                )
+                return <PropertyIcon.WithLabel property="$device_type" value={value} />
             }
             break
         case WebStatsBreakdown.Browser:
             if (typeof value === 'string') {
-                return (
-                    <div className="flex items-center gap-2">
-                        <PropertyIcon property="$browser" value={value} />
-                        <span>{value}</span>
-                    </div>
-                )
+                return <PropertyIcon.WithLabel property="$browser" value={value} />
             }
             break
         case WebStatsBreakdown.OS:
             if (typeof value === 'string') {
-                return (
-                    <div className="flex items-center gap-2">
-                        <PropertyIcon property="$os" value={value} />
-                        <span>{value}</span>
-                    </div>
-                )
+                return <PropertyIcon.WithLabel property="$os" value={value} />
             }
             break
     }
@@ -305,7 +302,6 @@ const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): Qu
     function SortableCell() {
         const { tablesOrderBy } = useValues(webAnalyticsLogic)
         const { setTablesOrderBy } = useActions(webAnalyticsLogic)
-        const { featureFlags } = useValues(featureFlagLogic)
 
         const isSortedByMyField = tablesOrderBy?.[0] === orderByField
         const isAscending = tablesOrderBy?.[1] === 'ASC'
@@ -318,10 +314,6 @@ const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): Qu
                 setTablesOrderBy(orderByField, 'ASC')
             }
         }, [isAscending, isSortedByMyField, setTablesOrderBy])
-
-        if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TABLE_SORTING]) {
-            return <span className="pr-5">{name}</span>
-        }
 
         return (
             <span onClick={onClick} className="group cursor-pointer inline-flex items-center">
@@ -336,61 +328,6 @@ const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): Qu
             </span>
         )
     }
-
-export const webStatsBreakdownToPropertyName = (
-    breakdownBy: WebStatsBreakdown
-):
-    | { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event | PropertyFilterType.Session }
-    | undefined => {
-    switch (breakdownBy) {
-        case WebStatsBreakdown.Page:
-            return { key: '$pathname', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.InitialPage:
-            return { key: '$entry_pathname', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.ExitPage:
-            return { key: '$end_pathname', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.ExitClick:
-            return { key: '$last_external_click_url', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.ScreenName:
-            return { key: '$screen_name', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.InitialChannelType:
-            return { key: '$channel_type', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.InitialReferringDomain:
-            return { key: '$entry_referring_domain', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.InitialUTMSource:
-            return { key: '$entry_utm_source', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.InitialUTMCampaign:
-            return { key: '$entry_utm_campaign', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.InitialUTMMedium:
-            return { key: '$entry_utm_medium', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.InitialUTMContent:
-            return { key: '$entry_utm_content', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.InitialUTMTerm:
-            return { key: '$entry_utm_term', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.Browser:
-            return { key: '$browser', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.OS:
-            return { key: '$os', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.Viewport:
-            return { key: '$viewport', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.DeviceType:
-            return { key: '$device_type', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.Country:
-            return { key: '$geoip_country_code', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.Region:
-            return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.City:
-            return { key: '$geoip_city_name', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.Timezone:
-            return { key: '$timezone', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.Language:
-            return { key: '$geoip_language', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
-            return undefined
-        default:
-            throw new UnexpectedNeverError(breakdownBy)
-    }
-}
 
 export const webAnalyticsDataTableQueryContext: QueryContext = {
     columns: {
@@ -548,8 +485,10 @@ export const WebStatsTableTile = ({
 }: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
     control?: JSX.Element
+    tileId: TileId
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+    const { productTab } = useValues(webAnalyticsLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
@@ -559,9 +498,14 @@ export const WebStatsTableTile = ({
                 return
             }
 
+            if (productTab === ProductTab.PAGE_REPORTS) {
+                lemonToast.info('Filters are not yet supported in this tile')
+                return
+            }
+
             togglePropertyFilter(type, key, breakdownValue)
         },
-        [togglePropertyFilter, type, key]
+        [togglePropertyFilter, type, key, productTab]
     )
 
     const context = useMemo((): QueryContext => {
@@ -642,6 +586,7 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
 export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<DataTableNode>): JSX.Element | null => {
     const { actions, actionsLoading } = useValues(actionsModel)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     if (actionsLoading) {
         return null
@@ -666,7 +611,19 @@ export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<Data
     return (
         <div className="border rounded bg-surface-primary flex-1">
             <div className="flex flex-row-reverse p-2">
-                <LemonButton to={urls.actions()} sideIcon={<IconOpenInNew />} type="secondary" size="small">
+                <LemonButton
+                    to={urls.actions()}
+                    onClick={() => {
+                        addProductIntentForCrossSell({
+                            from: ProductKey.WEB_ANALYTICS,
+                            to: ProductKey.ACTIONS,
+                            intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                        })
+                    }}
+                    sideIcon={<IconOpenInNew />}
+                    type="secondary"
+                    size="small"
+                >
                     Manage actions
                 </LemonButton>
             </div>
@@ -684,7 +641,7 @@ export const WebExternalClicksTile = ({
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             <div className="flex flex-row items-center justify-end m-2 mr-4">
-                <div className="flex flex-row items-center space-x-2">
+                <div className="flex flex-row items-center deprecated-space-x-2">
                     <LemonSwitch
                         label="Strip query parameters"
                         checked={shouldStripQueryParams}
@@ -733,9 +690,11 @@ export const WebQuery = ({
     showIntervalSelect,
     control,
     insightProps,
+    tileId,
 }: QueryWithInsightProps<QuerySchema> & {
     showIntervalSelect?: boolean
     control?: JSX.Element
+    tileId: TileId
 }): JSX.Element => {
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
         return (
@@ -744,6 +703,7 @@ export const WebQuery = ({
                 breakdownBy={query.source.breakdownBy}
                 insightProps={insightProps}
                 control={control}
+                tileId={tileId}
             />
         )
     }

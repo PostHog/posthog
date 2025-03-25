@@ -80,7 +80,7 @@
     "metrics": [
         {
             "kind": "ExperimentMetric",
-            "metric_type": "count",
+            "metric_type": "mean",
             "metric_config": {
                 "kind": "ExperimentEventMetricConfig",
                 "event": "storybook-click"

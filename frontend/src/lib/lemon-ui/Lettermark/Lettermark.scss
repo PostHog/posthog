@@ -27,6 +27,10 @@
         background: var(--border-primary);
     }
 
+    &.Lettermark--small {
+        font-size: 0.625rem;
+    }
+
     &.Lettermark--xsmall {
         font-size: 0.5rem;
     }

@@ -1,7 +1,6 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -22,7 +21,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [FEATURE_FLAGS.WEB_VITALS, FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN],
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,

@@ -456,7 +456,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     }
 
     return (
-        <div className="space-y-px">
+        <div className="deprecated-space-y-px">
             <div className="flex items-center gap-1">
                 {TEXT_CONTROLS.map((item, index) => (
                     <LemonButton

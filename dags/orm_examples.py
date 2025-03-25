@@ -1,10 +1,10 @@
-from dagster import asset
+import dagster
 from django.db.models import Q
 
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 
 
-@asset
+@dagster.asset
 def pending_deletions() -> list[AsyncDeletion]:
     """
     Asset that fetches pending async deletions from Django ORM.
@@ -16,7 +16,7 @@ def pending_deletions() -> list[AsyncDeletion]:
     return list(pending_deletions)
 
 
-@asset(deps=[pending_deletions])
+@dagster.asset(deps=[pending_deletions])
 def process_pending_deletions(pending_deletions: list[AsyncDeletion]) -> None:
     """
     Asset that prints out pending deletions.

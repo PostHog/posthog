@@ -84,7 +84,7 @@ export function SlackIntegration(): JSX.Element {
                 .
             </p>
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {slackIntegrations?.map((integration) => (
                     <IntegrationView
                         key={integration.id}

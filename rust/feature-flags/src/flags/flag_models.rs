@@ -32,6 +32,7 @@ pub struct FlagFilters {
     pub aggregation_group_type_index: Option<i32>,
     pub payloads: Option<serde_json::Value>,
     pub super_groups: Option<Vec<FlagGroupType>>,
+    pub holdout_groups: Option<Vec<FlagGroupType>>,
 }
 
 // TODO: see if you can combine these two structs, like we do with cohort models
@@ -50,6 +51,8 @@ pub struct FeatureFlag {
     pub active: bool,
     #[serde(default)]
     pub ensure_experience_continuity: bool,
+    #[serde(default)]
+    pub version: Option<i32>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -62,9 +65,16 @@ pub struct FeatureFlagRow {
     pub deleted: bool,
     pub active: bool,
     pub ensure_experience_continuity: bool,
+    pub version: Option<i32>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct FeatureFlagList {
     pub flags: Vec<FeatureFlag>,
+}
+
+impl FeatureFlagList {
+    pub fn new(flags: Vec<FeatureFlag>) -> Self {
+        Self { flags }
+    }
 }

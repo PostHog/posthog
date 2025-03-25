@@ -3,12 +3,9 @@ use std::{any::Any, collections::HashMap, sync::Arc, time::Instant};
 use axum::async_trait;
 use tokio::sync::Mutex;
 
-use crate::{
-    error::Error,
-    metric_consts::{
-        STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_EVICTION_RUNS, STORE_CACHE_HITS,
-        STORE_CACHE_MISSES,
-    },
+use crate::metric_consts::{
+    STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_EVICTION_RUNS, STORE_CACHE_HITS,
+    STORE_CACHE_MISSES,
 };
 
 use super::{saving::Saveable, Fetcher, Parser, Provider};
@@ -17,10 +14,19 @@ use super::{saving::Saveable, Fetcher, Parser, Provider};
 // wrap some inner provider and provide a type-safe caching layer
 pub struct Caching<P> {
     inner: P,
-    cache: Arc<Mutex<SymbolSetCache>>,
+    cache: Arc<Mutex<SymbolSetCache>>, // This inner cache is shared across providers
 }
 
-impl<P> Caching<P> {
+impl<P> Caching<P>
+// This where clause exists exclusively to give more obvious compiler errors in cases where
+// the passed P doesn't cause Provider to be implemented for this Caching<P> - for example,
+// if the P's P::Ref doesn't implement ToString
+where
+    P: Fetcher + Parser<Source = P::Fetched, Err = <P as Fetcher>::Err>,
+    P::Ref: ToString + Send,
+    P::Fetched: Countable + Send,
+    P::Set: Any + Send + Sync,
+{
     pub fn new(inner: P, cache: Arc<Mutex<SymbolSetCache>>) -> Self {
         Self { inner, cache }
     }
@@ -29,15 +35,16 @@ impl<P> Caching<P> {
 #[async_trait]
 impl<P> Provider for Caching<P>
 where
-    P: Fetcher + Parser<Source = P::Fetched>,
+    P: Fetcher + Parser<Source = P::Fetched, Err = <P as Fetcher>::Err>,
     P::Ref: ToString + Send,
     P::Fetched: Countable + Send,
     P::Set: Any + Send + Sync,
 {
     type Ref = P::Ref;
     type Set = P::Set;
+    type Err = <P as Fetcher>::Err;
 
-    async fn lookup(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Error> {
+    async fn lookup(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Self::Err> {
         let mut cache = self.cache.lock().await;
         let cache_key = format!("{}:{}", team_id, r.to_string());
         if let Some(set) = cache.get(&cache_key) {

@@ -94,7 +94,7 @@ function notEquals(a, b) { return a !== b }
 function notEmpty (value) { return !empty(value) }
 function minus(a, b) { return a - b }
 function min2(a, b) { return a < b ? a : b }
-function lower (value) { return value.toLowerCase() }
+function lower (value) { if (value === null || value === undefined) { return null } return value.toLowerCase() }
 function lessOrEquals(a, b) { return a <= b }
 function less(a, b) { return a < b }
 function length (value) { return value.length }
@@ -444,6 +444,7 @@ if (!!(empty("") && notEmpty("234"))) {
 if ((lower("Tdd4gh") == "tdd4gh")) {
     print(upper("test"));
 }
+print(lower(null));
 print(reverse("spinner"));
 print("");
 print("-- encodeURLComponent, decodeURLComponent --");

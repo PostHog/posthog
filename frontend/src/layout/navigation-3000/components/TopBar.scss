@@ -106,7 +106,7 @@
         font-weight: 600; // Aligning with breadcrumb font-weightq
         text-transform: uppercase; // Increase readability at tiny size
         border-color: var(--text-secondary); // The default is --border, which is invisible on the top bar's background
-        opacity: 0.5;
+        opacity: var(--opacity-disabled);
     }
 
     &.TopBar3000__breadcrumb--here {

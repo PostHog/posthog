@@ -19,7 +19,7 @@ export function DeadClicksAutocaptureSettings(): JSX.Element {
                 We track clicks that aren't followed by a scroll, text selection change, or DOM mutation and report them
                 so you can see where your users are getting stuck.
             </p>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonSwitch
                     id="posthog-deadclicks-switch"
                     onChange={(checked) => {

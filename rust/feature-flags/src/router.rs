@@ -6,7 +6,9 @@ use axum::{
     Router,
 };
 use common_metrics::{setup_metrics_recorder, track_metrics};
+use common_redis::Client as RedisClient;
 use health::HealthRegistry;
+use limiters::redis::RedisLimiter;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
@@ -15,9 +17,7 @@ use tower_http::{
 
 use crate::{
     api::{endpoint, test_endpoint},
-    client::{
-        database::Client as DatabaseClient, geoip::GeoIpClient, redis::Client as RedisClient,
-    },
+    client::{database::Client as DatabaseClient, geoip::GeoIpClient},
     cohort::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdsToTrack},
     metrics::metrics_utils::team_id_label_filter,
@@ -31,8 +31,10 @@ pub struct State {
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdsToTrack,
+    pub billing_limiter: RedisLimiter,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn router<R, D>(
     redis: Arc<R>,
     reader: Arc<D>,
@@ -40,6 +42,7 @@ pub fn router<R, D>(
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
+    billing_limiter: RedisLimiter,
     config: Config,
 ) -> Router
 where
@@ -53,6 +56,7 @@ where
         cohort_cache_manager: cohort_cache,
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
+        billing_limiter,
     };
 
     // Very permissive CORS policy, as old SDK versions

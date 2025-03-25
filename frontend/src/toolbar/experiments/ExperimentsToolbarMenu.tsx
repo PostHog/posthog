@@ -39,7 +39,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
                 </ToolbarMenu.Header>
             )}
             <ToolbarMenu.Body>
-                <div className="px-1 space-y-px py-2">
+                <div className="px-1 deprecated-space-y-px py-2">
                     {isWebExperimentsDisabled && (
                         <div className="pb-2">
                             <LemonBanner type="warning">

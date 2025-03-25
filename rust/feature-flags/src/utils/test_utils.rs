@@ -1,21 +1,21 @@
+use crate::{
+    client::database::{get_pool, Client, CustomDatabaseError},
+    cohort::cohort_models::{Cohort, CohortId},
+    config::{Config, DEFAULT_TEST_CONFIG},
+    flags::{
+        flag_matching::PersonId,
+        flag_models::{FeatureFlag, FeatureFlagRow, TEAM_FLAGS_CACHE_PREFIX},
+    },
+    team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
+};
 use anyhow::Error;
 use axum::async_trait;
+use common_redis::{Client as RedisClientTrait, RedisClient};
+use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres, Row};
 use std::sync::Arc;
 use uuid::Uuid;
-
-use crate::{
-    client::{
-        database::{get_pool, Client, CustomDatabaseError},
-        redis::{Client as RedisClientTrait, RedisClient},
-    },
-    cohort::cohort_models::Cohort,
-    config::{Config, DEFAULT_TEST_CONFIG},
-    flags::flag_models::{FeatureFlag, FeatureFlagRow, TEAM_FLAGS_CACHE_PREFIX},
-    team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
-};
-use rand::{distributions::Alphanumeric, Rng};
 
 pub fn random_string(prefix: &str, length: usize) -> String {
     let suffix: String = rand::thread_rng()
@@ -52,6 +52,7 @@ pub async fn insert_new_team_in_redis(
 pub async fn insert_flags_for_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
     team_id: i32,
+    project_id: i64,
     json_value: Option<String>,
 ) -> Result<(), Error> {
     let payload = match json_value {
@@ -62,7 +63,7 @@ pub async fn insert_flags_for_team_in_redis(
             "name": "flag1 description",
             "active": true,
             "deleted": false,
-            "team_id": team_id,
+            "team_id": team_id,  // generate this?
             "filters": {
                 "groups": [
                     {
@@ -81,7 +82,10 @@ pub async fn insert_flags_for_team_in_redis(
     };
 
     client
-        .set(format!("{}{}", TEAM_FLAGS_CACHE_PREFIX, team_id), payload)
+        .set(
+            format!("{}{}", TEAM_FLAGS_CACHE_PREFIX, project_id),
+            payload,
+        )
         .await?;
 
     Ok(())
@@ -177,6 +181,7 @@ pub async fn insert_new_team_in_pg(
 ) -> Result<Team, Error> {
     const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
+    // Create new organization from scratch
     client.run_query(
         r#"INSERT INTO posthog_organization
         (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist) 
@@ -187,19 +192,7 @@ pub async fn insert_new_team_in_pg(
         Some(2000),
     ).await?;
 
-    client
-        .run_query(
-            r#"INSERT INTO posthog_project
-        (id, organization_id, name, created_at) 
-        VALUES
-        (1, $1::uuid, 'Test Team', '2024-06-17 14:40:51.329772+00:00')
-        ON CONFLICT DO NOTHING"#
-                .to_string(),
-            vec![ORG_ID.to_string()],
-            Some(2000),
-        )
-        .await?;
-
+    // Create team model
     let id = match team_id {
         Some(value) => value,
         None => rand::thread_rng().gen_range(0..10_000_000),
@@ -215,18 +208,20 @@ pub async fn insert_new_team_in_pg(
 
     let mut conn = client.get_connection().await?;
 
+    // Insert a project for the team
     let res = sqlx::query(
         r#"INSERT INTO posthog_project
         (id, organization_id, name, created_at) VALUES
         ($1, $2::uuid, $3, '2024-06-17 14:40:51.332036+00:00')"#,
     )
-    .bind(team.id)
+    .bind(team.project_id)
     .bind(ORG_ID)
     .bind(&team.name)
     .execute(&mut *conn)
     .await?;
     assert_eq!(res.rows_affected(), 1);
 
+    // Insert a team with the correct team-project relationship
     let res = sqlx::query(
         r#"INSERT INTO posthog_team 
         (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical) VALUES
@@ -259,29 +254,6 @@ pub async fn insert_new_team_in_pg(
         assert_eq!(res.rows_affected(), 1);
     }
     Ok(team)
-}
-
-pub async fn insert_group_type_mapping_in_pg(
-    client: Arc<dyn Client + Send + Sync>,
-    team_id: i32,
-    group_type: &str,
-    group_type_index: i32,
-) -> Result<(), Error> {
-    let mut conn = client.get_connection().await?;
-    let res = sqlx::query(
-        r#"INSERT INTO posthog_grouptypemapping
-           (team_id, project_id, group_type, group_type_index, name_singular, name_plural)
-           VALUES
-           ($1, $1, $2, $3, NULL, NULL)
-           ON CONFLICT (team_id, group_type) DO NOTHING"#,
-    )
-    .bind(team_id)
-    .bind(group_type)
-    .bind(group_type_index)
-    .execute(&mut *conn)
-    .await?;
-    assert_eq!(res.rows_affected(), 1);
-    Ok(())
 }
 
 pub async fn insert_flag_for_team_in_pg(
@@ -318,6 +290,7 @@ pub async fn insert_flag_for_team_in_pg(
                     },
                 ],
             }),
+            version: None,
         },
     };
 
@@ -338,8 +311,7 @@ pub async fn insert_person_for_team_in_pg(
     team_id: i32,
     distinct_id: String,
     properties: Option<Value>,
-) -> Result<i32, Error> {
-    // Changed return type to Result<i32, Error>
+) -> Result<PersonId, Error> {
     let payload = match properties {
         Some(value) => value,
         None => json!({
@@ -374,7 +346,7 @@ pub async fn insert_person_for_team_in_pg(
     .fetch_one(&mut *conn)
     .await?;
 
-    let person_id: i32 = row.get::<i32, _>("person_id");
+    let person_id: PersonId = row.get::<PersonId, _>("person_id");
     Ok(person_id)
 }
 
@@ -387,7 +359,7 @@ pub async fn insert_cohort_for_team_in_pg(
 ) -> Result<Cohort, Error> {
     let cohort = Cohort {
         id: 0, // Placeholder, will be updated after insertion
-        name: name.unwrap_or("Test Cohort".to_string()),
+        name,
         description: Some("Description for cohort".to_string()),
         team_id,
         deleted: false,
@@ -437,9 +409,9 @@ pub async fn get_person_id_by_distinct_id(
     client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
     distinct_id: &str,
-) -> Result<i32, Error> {
+) -> Result<PersonId, Error> {
     let mut conn = client.get_connection().await?;
-    let row: (i32,) = sqlx::query_as(
+    let row: (PersonId,) = sqlx::query_as(
         r#"SELECT id FROM posthog_person
            WHERE team_id = $1 AND id = (
                SELECT person_id FROM posthog_persondistinctid
@@ -459,8 +431,8 @@ pub async fn get_person_id_by_distinct_id(
 
 pub async fn add_person_to_cohort(
     client: Arc<dyn Client + Send + Sync>,
-    person_id: i32,
-    cohort_id: i32,
+    person_id: PersonId,
+    cohort_id: CohortId,
 ) -> Result<(), Error> {
     let mut conn = client.get_connection().await?;
     let res = sqlx::query(

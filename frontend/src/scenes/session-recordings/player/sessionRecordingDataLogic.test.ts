@@ -210,7 +210,7 @@ describe('sessionRecordingDataLogic', () => {
             api.create.mockClear()
         })
 
-        it('load events after metadata with 1min buffer', async () => {
+        it('load events after metadata with 1 day buffer', async () => {
             api.create
                 .mockImplementationOnce(async () => {
                     return recordingEventsJson
@@ -235,8 +235,8 @@ describe('sessionRecordingDataLogic', () => {
                         query: `
                             SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
                             FROM events
-                            WHERE timestamp > '2023-05-01 14:45:20'
-                              AND timestamp < '2023-05-01 14:47:32'
+                            WHERE timestamp > '2023-04-30 14:46:20'
+                              AND timestamp < '2023-05-02 14:46:32'
                               AND (empty($session_id) OR isNull($session_id)) AND properties.$lib != 'web'
                         
                             AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
@@ -478,7 +478,7 @@ describe('sessionRecordingDataLogic', () => {
 
             // Middle chunk
             expect(chunks[1]).toMatchObject({
-                timestamp: 1001,
+                timestamp: 1000,
                 data: {
                     adds: expect.arrayContaining([expect.any(Object)]),
                     removes: [],
@@ -490,7 +490,7 @@ describe('sessionRecordingDataLogic', () => {
 
             // Last chunk
             expect(chunks[2]).toMatchObject({
-                timestamp: 1002,
+                timestamp: 1000,
                 data: {
                     adds: expect.arrayContaining([expect.any(Object)]),
                     removes: [],
@@ -509,7 +509,7 @@ describe('sessionRecordingDataLogic', () => {
 
             expect(chunks.length).toBe(2)
             expect(chunks[0].delay).toBe(100)
-            expect(chunks[1].delay).toBe(101)
+            expect(chunks[1].delay).toBe(100)
         })
 
         it('does not chunk non-mutation snapshots', () => {

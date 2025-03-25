@@ -19,6 +19,10 @@ to run the new playwright tests against an already locally running PostHog insta
 LOGIN_USERNAME='my@email.address' LOGIN_PASSWORD="the-password" BASE_URL='http://localhost:8010' pnpm --filter=@posthog/playwright exec playwright test --ui
 ```
 
+### For all of these
+
+you might need to install playwright with `pnpm --filter=@posthog/playwright exec playwright install`
+
 ## Writing tests
 
 ### Flaky tests are almost always due to not waiting for the right thing.

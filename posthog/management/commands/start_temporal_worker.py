@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 import logging
 
 import structlog
@@ -10,11 +11,13 @@ with workflow.unsafe.imports_passed_through():
 
 from posthog.constants import (
     BATCH_EXPORTS_TASK_QUEUE,
-    DATA_WAREHOUSE_TASK_QUEUE,
     DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
+    DATA_WAREHOUSE_TASK_QUEUE,
     GENERAL_PURPOSE_TASK_QUEUE,
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
+    TEST_TASK_QUEUE,
 )
+from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
 from posthog.temporal.batch_exports import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
@@ -27,20 +30,30 @@ from posthog.temporal.delete_persons import (
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
 )
 from posthog.temporal.proxy_service import ACTIVITIES as PROXY_SERVICE_ACTIVITIES, WORKFLOWS as PROXY_SERVICE_WORKFLOWS
+from posthog.temporal.tests.utils.workflow import ACTIVITIES as TEST_ACTIVITIES, WORKFLOWS as TEST_WORKFLOWS
+from posthog.temporal.usage_reports import ACTIVITIES as USAGE_REPORTS_ACTIVITIES, WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 
 WORKFLOWS_DICT = {
     SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
     BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
     DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
     DATA_WAREHOUSE_COMPACTION_TASK_QUEUE: DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
-    GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_WORKFLOWS + DELETE_PERSONS_WORKFLOWS,
+    GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_WORKFLOWS
+    + DELETE_PERSONS_WORKFLOWS
+    + AI_WORKFLOWS
+    + USAGE_REPORTS_WORKFLOWS,
+    TEST_TASK_QUEUE: TEST_WORKFLOWS,
 }
 ACTIVITIES_DICT = {
     SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
     BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
     DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
     DATA_WAREHOUSE_COMPACTION_TASK_QUEUE: DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
-    GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_ACTIVITIES + DELETE_PERSONS_ACTIVITIES,
+    GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_ACTIVITIES
+    + DELETE_PERSONS_ACTIVITIES
+    + AI_ACTIVITIES
+    + USAGE_REPORTS_ACTIVITIES,
+    TEST_TASK_QUEUE: TEST_ACTIVITIES,
 }
 
 
@@ -89,6 +102,11 @@ class Command(BaseCommand):
             help="Port to export Prometheus metrics on",
         )
         parser.add_argument(
+            "--graceful-shutdown-timeout-seconds",
+            default=settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+            help="Time that the worker will wait after shutdown before canceling activities, in seconds",
+        )
+        parser.add_argument(
             "--max-concurrent-workflow-tasks",
             default=settings.MAX_CONCURRENT_WORKFLOW_TASKS,
             help="Maximum number of concurrent workflow tasks for this worker",
@@ -107,6 +125,7 @@ class Command(BaseCommand):
         server_root_ca_cert = options.get("server_root_ca_cert", None)
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
+        graceful_shutdown_timeout_seconds = options.get("graceful_shutdown_timeout_seconds", None)
         max_concurrent_workflow_tasks = options.get("max_concurrent_workflow_tasks", None)
         max_concurrent_activities = options.get("max_concurrent_activities", None)
 
@@ -133,8 +152,11 @@ class Command(BaseCommand):
                 server_root_ca_cert=server_root_ca_cert,
                 client_cert=client_cert,
                 client_key=client_key,
-                workflows=workflows,
+                workflows=workflows,  # type: ignore
                 activities=activities,
+                graceful_shutdown_timeout=dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
+                if graceful_shutdown_timeout_seconds is not None
+                else None,
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,
             )

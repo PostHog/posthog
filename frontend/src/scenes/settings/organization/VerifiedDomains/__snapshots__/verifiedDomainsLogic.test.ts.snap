@@ -104,7 +104,26 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "https://recordings.posthog.com/",
         ],
         "revenue_tracking_config": {
-          "events": [],
+          "baseCurrency": "USD",
+          "dataWarehouseTables": [
+            {
+              "revenueColumn": "revenue",
+              "revenueCurrencyColumn": {
+                "static": "SCR",
+              },
+              "tableName": "mock_table",
+              "timestampColumn": "timestamp",
+            },
+          ],
+          "events": [
+            {
+              "eventName": "purchase",
+              "revenueCurrencyProperty": {
+                "static": "ZAR",
+              },
+              "revenueProperty": "value",
+            },
+          ],
         },
         "session_recording_linked_flag": null,
         "session_recording_masking_config": {

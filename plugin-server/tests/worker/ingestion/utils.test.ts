@@ -9,7 +9,7 @@ describe('captureIngestionWarning()', () => {
     let hub: Hub
 
     beforeEach(async () => {
-        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
+        hub = await createHub({ LOG_LEVEL: LogLevel.Info })
         await resetTestDatabaseClickhouse()
     })
 

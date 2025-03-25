@@ -29,7 +29,7 @@ class OrganizationDomainManager(models.Manager):
         using the domain of the email address
         """
         domain = email[email.index("@") + 1 :]
-        return self.verified_domains().filter(domain=domain).first()
+        return self.verified_domains().filter(domain__iexact=domain).first()
 
     def get_is_saml_available_for_email(self, email: str) -> bool:
         """
@@ -38,7 +38,7 @@ class OrganizationDomainManager(models.Manager):
         domain = email[email.index("@") + 1 :]
         query = (
             self.verified_domains()
-            .filter(domain=domain)
+            .filter(domain__iexact=domain)
             .exclude(
                 models.Q(saml_entity_id="")
                 | models.Q(saml_acs_url="")
@@ -69,7 +69,7 @@ class OrganizationDomainManager(models.Manager):
         domain = email[email.index("@") + 1 :]
         query = (
             self.verified_domains()
-            .filter(domain=domain)
+            .filter(domain__iexact=domain)
             .exclude(sso_enforcement="")
             .values("sso_enforcement", "organization_id", "organization__available_product_features")
             .first()

@@ -57,7 +57,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                     </div>
                 </ToolbarMenu.Header>
                 <ToolbarMenu.Body>
-                    <div className="space-y-6 p-2">
+                    <div className="deprecated-space-y-6 p-2">
                         <div>
                             <div className="flex items-center justify-between mb-2">
                                 <LemonLabel>Variants</LemonLabel>

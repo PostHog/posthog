@@ -1,5 +1,6 @@
 import dagster
 
+from dags.common import JobOwners
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 
 
@@ -21,6 +22,6 @@ def error_op(
     ).result()
 
 
-@dagster.job
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def error():
     error_op()

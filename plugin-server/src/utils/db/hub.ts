@@ -9,11 +9,11 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
+import { LegacyOneventCompareService } from '../../cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { getObjectStorage } from '../../main/services/object_storage'
 import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
@@ -24,7 +24,8 @@ import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
-import { status } from '../status'
+import { logger } from '../logger'
+import { getObjectStorage } from '../object_storage'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
@@ -63,7 +64,7 @@ export async function createHub(
     config: Partial<PluginsServerConfig> = {},
     capabilities: PluginServerCapabilities | null = null
 ): Promise<Hub> {
-    status.info('ℹ️', `Connecting to all services:`)
+    logger.info('ℹ️', `Connecting to all services:`)
 
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
@@ -72,10 +73,9 @@ export async function createHub(
     if (capabilities === null) {
         capabilities = getPluginServerCapabilities(serverConfig)
     }
-    status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     const instanceId = new UUIDT()
 
-    status.info('🤔', `Connecting to ClickHouse...`)
+    logger.info('🤔', `Connecting to ClickHouse...`)
     const clickhouse = new ClickHouse({
         // We prefer to run queries on the offline cluster.
         host: serverConfig.CLICKHOUSE_OFFLINE_CLUSTER_HOST ?? serverConfig.CLICKHOUSE_HOST,
@@ -93,29 +93,29 @@ export async function createHub(
             : undefined,
         rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
     })
-    status.info('👍', `ClickHouse ready`)
+    logger.info('👍', `ClickHouse ready`)
 
-    status.info('🤔', `Connecting to Kafka...`)
+    logger.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
     const kafkaProducer = await KafkaProducerWrapper.create(serverConfig)
-    status.info('👍', `Kafka ready`)
+    logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)
     // TODO: assert tables are reachable (async calls that cannot be in a constructor)
-    status.info('👍', `Postgres Router ready`)
+    logger.info('👍', `Postgres Router ready`)
 
-    status.info('🤔', `Connecting to Redis...`)
+    logger.info('🤔', `Connecting to Redis...`)
     const redisPool = createRedisPool(serverConfig, 'ingestion')
-    status.info('👍', `Redis ready`)
+    logger.info('👍', `Redis ready`)
 
-    status.info('🤔', `Connecting to object storage...`)
+    logger.info('🤔', `Connecting to object storage...`)
 
     const objectStorage = getObjectStorage(serverConfig)
     if (objectStorage) {
-        status.info('👍', 'Object storage ready')
+        logger.info('👍', 'Object storage ready')
     } else {
-        status.warn('🪣', `Object storage could not be created`)
+        logger.warn('🪣', `Object storage could not be created`)
     }
 
     const db = new DB(
@@ -138,7 +138,7 @@ export async function createHub(
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
-    const hub: Hub = {
+    const hub: Omit<Hub, 'legacyOneventCompareService'> = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -181,7 +181,10 @@ export async function createHub(
         cookielessManager,
     }
 
-    return hub as Hub
+    return {
+        ...hub,
+        legacyOneventCompareService: new LegacyOneventCompareService(hub as Hub),
+    }
 }
 
 export const closeHub = async (hub: Hub): Promise<void> => {

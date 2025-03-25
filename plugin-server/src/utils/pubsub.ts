@@ -2,8 +2,8 @@ import { Redis } from 'ioredis'
 
 import { PluginsServerConfig } from '../types'
 import { createRedis } from './db/redis'
+import { logger } from './logger'
 import { captureException } from './posthog'
-import { status } from './status'
 
 export type PubSubTask = ((message: string) => void) | ((message: string) => Promise<void>)
 
@@ -42,7 +42,7 @@ export class PubSub {
             }
             void task(message)
         })
-        status.info('👀', `Pub-sub started for channels: ${channels.join(', ')}`)
+        logger.info('👀', `Pub-sub started for channels: ${channels.join(', ')}`)
     }
 
     public async stop(): Promise<void> {
@@ -64,7 +64,7 @@ export class PubSub {
             this.redisPublisher = undefined
         }
 
-        status.info('🛑', `Pub-sub stopped for channels: ${Object.keys(this.taskMap).join(', ')}`)
+        logger.info('🛑', `Pub-sub stopped for channels: ${Object.keys(this.taskMap).join(', ')}`)
     }
 
     public async publish(channel: string, message: string): Promise<void> {

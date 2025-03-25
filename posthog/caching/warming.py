@@ -191,7 +191,7 @@ def schedule_warming_for_teams_task():
     ignore_result=True,
     expires=60 * 60,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    retry_backoff=1,
+    retry_backoff=2,
     retry_backoff_max=3,
     max_retries=3,
 )

@@ -254,7 +254,7 @@ class Migration(AsyncMigrationDefinition):
             INSERT INTO {PERSON_TABLE_NAME} (
                 id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version
             )
-            VALUES {', '.join(values)}
+            VALUES {", ".join(values)}
             """,
             params,
         )

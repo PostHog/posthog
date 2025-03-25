@@ -20,7 +20,7 @@ export function ErrorTrackingSymbolSets(): JSX.Element {
     }, [loadSymbolSets])
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <p>
                 Source maps are required to demangle any minified code in your exception stack traces. PostHog
                 automatically retrieves source maps where possible.
@@ -61,7 +61,7 @@ const SymbolSetTable = ({
             dataIndex: 'id',
             render: (_, { id }) => {
                 return (
-                    <div className="flex justify-end space-x-1">
+                    <div className="flex justify-end deprecated-space-x-1">
                         <LemonButton
                             type={missing ? 'primary' : 'secondary'}
                             size="xsmall"

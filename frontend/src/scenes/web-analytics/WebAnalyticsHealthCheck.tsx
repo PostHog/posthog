@@ -1,13 +1,10 @@
 import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { ConversionGoalWarning, ProductTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { statusCheck, conversionGoalWarning, productTab } = useValues(webAnalyticsLogic)
 
     if (conversionGoalWarning) {
@@ -37,7 +34,7 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
         return null
     }
 
-    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN] && !statusCheck.hasAuthorizedUrls) {
+    if (!statusCheck.hasAuthorizedUrls) {
         return (
             <LemonBanner type="warning" className="mt-2">
                 <p>

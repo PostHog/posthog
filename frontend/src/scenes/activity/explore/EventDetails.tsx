@@ -146,7 +146,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             key: 'conversation',
             label: 'Conversation',
             content: (
-                <div className="mx-3 -mt-2 mb-2 space-y-2">
+                <div className="mx-3 -mt-2 mb-2 deprecated-space-y-2">
                     {event.properties.$session_id ? (
                         <div className="flex flex-row items-center gap-2">
                             <Link

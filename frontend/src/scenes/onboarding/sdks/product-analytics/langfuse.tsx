@@ -17,7 +17,7 @@ export function ProductAnalyticsLangfuseInstructions(): JSX.Element {
                 supports most popular LLM models and you can bring your Langfuse data into PostHog for analysis. To get
                 started:
             </p>
-            <ol className="space-y-4">
+            <ol className="deprecated-space-y-4">
                 <li>
                     First add{' '}
                     <Link to="https://langfuse.com/docs/tracing" target="_blank">

@@ -70,7 +70,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                     allowedMathTypes={LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES}
                                     {...commonActionFilterProps}
                                 />
-                                <div className="mt-4 space-y-4">
+                                <div className="mt-4 deprecated-space-y-4">
                                     <TestAccountFilterSwitch
                                         checked={(() => {
                                             const val = sharedMetricQuery.count_query?.filterTestAccounts
@@ -119,7 +119,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                         className={`flex-1 cursor-pointer p-4 rounded border ${
                                             !sharedMetricQuery.exposure_query
                                                 ? 'border-accent-primary bg-accent-primary-highlight'
-                                                : 'border-border'
+                                                : 'border-primary'
                                         }`}
                                         onClick={() => {
                                             setSharedMetric({
@@ -147,7 +147,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                         className={`flex-1 cursor-pointer p-4 rounded border ${
                                             sharedMetricQuery.exposure_query
                                                 ? 'border-accent-primary bg-accent-primary-highlight'
-                                                : 'border-border'
+                                                : 'border-primary'
                                         }`}
                                         onClick={() => {
                                             setSharedMetric({
@@ -228,7 +228,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                             allowedMathTypes={LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES}
                                             {...commonActionFilterProps}
                                         />
-                                        <div className="mt-4 space-y-4">
+                                        <div className="mt-4 deprecated-space-y-4">
                                             <TestAccountFilterSwitch
                                                 checked={(() => {
                                                     const val = sharedMetricQuery.exposure_query?.filterTestAccounts

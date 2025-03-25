@@ -74,7 +74,14 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
     }
 
     return (
-        <Form id="survey" formKey="survey" logic={surveyLogic} props={{ id }} className="space-y-4" enableFormOnSubmit>
+        <Form
+            id="survey"
+            formKey="survey"
+            logic={surveyLogic}
+            props={{ id }}
+            className="deprecated-space-y-4"
+            enableFormOnSubmit
+        >
             <PageHeader
                 buttons={
                     <div className="flex items-center gap-2">

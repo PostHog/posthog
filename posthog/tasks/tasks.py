@@ -13,7 +13,8 @@ from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
 
-from posthog.clickhouse.client.limit import CeleryConcurrencyLimitExceeded, limit_concurrency
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency, get_api_personal_rate_limiter
+from posthog.clickhouse.query_tagging import tag_queries, clear_tag
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
@@ -45,13 +46,14 @@ def redis_heartbeat() -> None:
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
         CHQueryErrorTooManySimultaneousQueries,
-        CeleryConcurrencyLimitExceeded,
+        ConcurrencyLimitExceeded,
     ),
     retry_backoff=1,
     retry_backoff_max=10,
     max_retries=10,
     expires=60 * 10,  # Do not run queries that got stuck for more than this
     reject_on_worker_lost=True,
+    track_started=True,
 )
 @limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
@@ -64,21 +66,28 @@ def process_query_task(
     user_id: Optional[int],
     query_id: str,
     query_json: dict,
+    api_query_personal_key: bool,
     limit_context: Optional[LimitContext] = None,
 ) -> None:
     """
     Kick off query
     Once complete save results to redis
     """
-    from posthog.clickhouse.client import execute_process_query
+    with get_api_personal_rate_limiter().run(is_api=api_query_personal_key, team_id=team_id, task_id=query_id):
+        from posthog.clickhouse.client import execute_process_query
 
-    execute_process_query(
-        team_id=team_id,
-        user_id=user_id,
-        query_id=query_id,
-        query_json=query_json,
-        limit_context=limit_context,
-    )
+        if api_query_personal_key:
+            tag_queries(qaas=True)
+        else:
+            clear_tag("qaas")
+
+        execute_process_query(
+            team_id=team_id,
+            user_id=user_id,
+            query_id=query_id,
+            query_json=query_json,
+            limit_context=limit_context,
+        )
 
 
 @shared_task(ignore_result=True)
@@ -837,21 +846,15 @@ def send_org_usage_reports() -> None:
 
 
 @shared_task(ignore_result=True)
-def update_quota_limiting() -> None:
+def run_quota_limiting() -> None:
     try:
-        from ee.billing.quota_limiting import report_quota_limiting_event
         from ee.billing.quota_limiting import update_all_orgs_billing_quotas
 
-        report_quota_limiting_event("update_quota_limiting task started", {})
-
         update_all_orgs_billing_quotas()
-
-        report_quota_limiting_event("update_quota_limiting task finished", {})
     except ImportError:
-        report_quota_limiting_event("update_quota_limiting task failed", {"error": "ImportError"})
+        pass
     except Exception as e:
         capture_exception(e)
-        report_quota_limiting_event("update_quota_limiting task failed", {"error": str(e)})
 
 
 @shared_task(ignore_result=True)

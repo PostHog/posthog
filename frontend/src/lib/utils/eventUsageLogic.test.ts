@@ -64,7 +64,7 @@ describe('getEventPropertiesForExperiment', () => {
                 recommended_running_time: 0,
                 minimum_detectable_effect: 1,
             },
-            metrics: [{ kind: 'ExperimentMetric', metric_type: 'count' }],
+            metrics: [{ kind: 'ExperimentMetric', metric_type: 'mean' }],
             secondary_metrics: [],
             metrics_count: 1,
             secondary_metrics_count: 0,

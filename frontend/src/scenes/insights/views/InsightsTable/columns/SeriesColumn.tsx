@@ -1,3 +1,4 @@
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -9,6 +10,7 @@ type SeriesColumnItemProps = {
     item: IndexedTrendResult
     indexedResults: IndexedTrendResult[]
     canEditSeriesNameInline: boolean
+    seriesNameTooltip?: string
     handleEditClick: (item: IndexedTrendResult) => void
     hasMultipleSeries: boolean
     hasBreakdown: boolean
@@ -18,6 +20,7 @@ export function SeriesColumnItem({
     item,
     indexedResults,
     canEditSeriesNameInline,
+    seriesNameTooltip,
     handleEditClick,
     hasMultipleSeries,
     hasBreakdown,
@@ -25,23 +28,25 @@ export function SeriesColumnItem({
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
     return (
-        <div className="series-name-wrapper-col space-x-1">
-            <InsightLabel
-                action={item.action}
-                fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                hasMultipleSeries={hasMultipleSeries}
-                showEventName
-                showCountedByTag={showCountedByTag}
-                hideBreakdown
-                hideIcon
-                className={clsx({
-                    'font-medium': !hasBreakdown,
-                })}
-                pillMaxWidth={165}
-                compareValue={item.compare ? formatCompareLabel(item) : undefined}
-                onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
-            />
-        </div>
+        <Tooltip title={seriesNameTooltip}>
+            <div className="series-name-wrapper-col deprecated-space-x-1">
+                <InsightLabel
+                    action={item.action}
+                    fallbackName={item.breakdown_value === '' ? 'None' : item.label}
+                    hasMultipleSeries={hasMultipleSeries}
+                    showEventName
+                    showCountedByTag={showCountedByTag}
+                    hideBreakdown
+                    hideIcon
+                    className={clsx({
+                        'font-medium': !hasBreakdown,
+                    })}
+                    pillMaxWidth={165}
+                    compareValue={item.compare ? formatCompareLabel(item) : undefined}
+                    onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
+                />
+            </div>
+        </Tooltip>
     )
 }
 

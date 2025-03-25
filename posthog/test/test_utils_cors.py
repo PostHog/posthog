@@ -1,7 +1,13 @@
-from collections import namedtuple
 from django.test import TestCase
+from django.http import HttpResponse, HttpRequest
 
 from posthog.utils_cors import cors_response
+
+
+class FakeRequest(HttpRequest):
+    def __init__(self, META):
+        super().__init__()
+        self.META = META
 
 
 class TestCorsResponse(TestCase):
@@ -18,12 +24,11 @@ class TestCorsResponse(TestCase):
             ("", None),
         ]
 
-        FakeRequest = namedtuple("FakeRequest", "META")
         for origin, expected in valid_origin_test_cases:
             with self.subTest():
                 request = FakeRequest(META={"HTTP_ORIGIN": origin})
                 self.assertEqual(
                     expected,
-                    cors_response(request, {}).get("Access-Control-Allow-Origin"),
+                    cors_response(request, HttpResponse()).get("Access-Control-Allow-Origin"),
                     msg=f"with origin='{origin}', actual did not equal {expected}",
                 )

@@ -30,7 +30,7 @@ export function OnboardingSessionReplayConfiguration({ stepKey }: { stepKey: Onb
                 </div>
                 <div className="flex-1 border border-gray-200 rounded-lg bg-bg-light dark:bg-bg-depth p-4">
                     <h4 className="text-lg font-semibold mb-2">Why enable Session Replay?</h4>
-                    <ul className="space-y-2 text-secondary">
+                    <ul className="deprecated-space-y-2 text-secondary">
                         <li>
                             <strong>Understand user behavior:</strong> Get a clear view of how people navigate and
                             interact with your product.

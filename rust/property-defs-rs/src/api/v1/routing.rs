@@ -94,6 +94,17 @@ async fn project_property_definitions_handler(
 }
 
 fn parse_request(params: HashMap<String, String>) -> Params {
+    // which category of properties do we filter for? default is "event"
+    let parent_type = params
+        .get("type")
+        .map_or(PropertyParentType::Event, |s| match s.as_str() {
+            "event" => PropertyParentType::Event,
+            "person" => PropertyParentType::Person,
+            "group" => PropertyParentType::Group,
+            "session" => PropertyParentType::Session,
+            _ => PropertyParentType::Event,
+        });
+
     // search terms: optional - each term is a fragment that will be
     // fuzzy-searched in Postgres against the specified search fields
     // DIVERGES FROM DJANGO API: the new Rust API will accept lists as space-separated query param values
@@ -107,6 +118,12 @@ fn parse_request(params: HashMap<String, String>) -> Params {
                 .collect()
         })
         .unwrap_or_default();
+
+    // refine search fields if "latest" keyword is present in search terms
+    let filter_initial_props = parent_type == PropertyParentType::Person
+        && search_terms
+            .iter()
+            .any(|st| st.as_str() == SEARCH_TRIGGER_WORD);
 
     // which columns should we fuzzy-search for each of the user-supplied search terms?
     // defaults to "posthog_propertydefinition.name" column, but user can supply more
@@ -125,17 +142,6 @@ fn parse_request(params: HashMap<String, String>) -> Params {
             search_fields.insert(field);
         }
     }
-
-    // which category of properties do we filter for? default is "event"
-    let parent_type = params
-        .get("type")
-        .map_or(PropertyParentType::Event, |s| match s.as_str() {
-            "event" => PropertyParentType::Event,
-            "person" => PropertyParentType::Person,
-            "group" => PropertyParentType::Group,
-            "session" => PropertyParentType::Session,
-            _ => PropertyParentType::Event,
-        });
 
     // defaults to "-1" if the caller didn't supply the group_type_index, or the parent_type != "group"
     let group_type_index: i32 = params.get("group_type_index").map_or(-1, |s| {
@@ -208,6 +214,7 @@ fn parse_request(params: HashMap<String, String>) -> Params {
         is_feature_flag,
         is_numerical,
         use_enterprise_taxonomy,
+        filter_initial_props,
         limit,
         offset,
     }
@@ -225,6 +232,7 @@ pub struct Params {
     pub is_feature_flag: Option<bool>,
     pub is_numerical: bool,
     pub use_enterprise_taxonomy: bool,
+    pub filter_initial_props: bool,
     pub limit: i64,
     pub offset: i64,
 }
@@ -233,10 +241,10 @@ impl Params {
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L81-L96
     pub fn valid(&self) -> Result<(), ApiError> {
         if self.parent_type == PropertyParentType::Group
-            && (0..GROUP_TYPE_LIMIT).contains(&self.group_type_index)
+            && !(0..GROUP_TYPE_LIMIT).contains(&self.group_type_index)
         {
             return Err(ApiError::InvalidRequestParam(
-                "property_type 'group' requires 'group_type_index' parameter".to_string(),
+                "property_type 'group' requires valid 'group_type_index' parameter".to_string(),
             ));
         }
 
@@ -270,6 +278,7 @@ impl Default for Params {
             is_feature_flag: None,
             is_numerical: false,
             use_enterprise_taxonomy: true,
+            filter_initial_props: false,
             limit: 100,
             offset: 0,
         }

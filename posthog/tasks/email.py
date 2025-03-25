@@ -21,6 +21,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.models.error_tracking import ErrorTrackingIssueAssignment
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
@@ -31,9 +32,10 @@ logger = structlog.get_logger(__name__)
 class NotificationSetting(Enum):
     WEEKLY_PROJECT_DIGEST = "weekly_project_digest"
     PLUGIN_DISABLED = "plugin_disabled"
+    ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
 
 
-NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled"]
+NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled", "error_tracking_issue_assigned"]
 
 
 def send_message_to_all_staff_users(message: EmailMessage) -> None:
@@ -97,6 +99,9 @@ def should_send_notification(
     elif notification_type == NotificationSetting.PLUGIN_DISABLED.value:
         return not settings.get("plugin_disabled", True)  # Default to True (disabled) if not set
 
+    elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
+        return settings.get("error_tracking_issue_assigned", True)  # Default to True (enabled) if not set
+
     # The below typeerror is ignored because we're currently handling the notification
     # types above, so technically it's unreachable. However if another is added but
     # not handled in this function, we want this as a fallback.
@@ -110,12 +115,16 @@ def send_invite(invite_id: str) -> None:
         id=invite_id
     )
     message = EmailMessage(
+        use_http=True,
         campaign_key=campaign_key,
         subject=f"{invite.created_by.first_name} invited you to join {invite.organization.name} on PostHog",
         template_name="invite",
         template_context={
             "invite": invite,
             "expiry_date": (timezone.now() + timezone.timedelta(days=3)).strftime("%b %d %Y"),
+            "inviter_first_name": invite.created_by.first_name if invite.created_by else "someone",
+            "organization_name": invite.organization.name,
+            "url": f"{settings.SITE_URL}/signup/{invite_id}",
         },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
     )
@@ -129,10 +138,16 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     organization: Organization = Organization.objects.get(id=organization_id)
     campaign_key: str = f"member_join_email_org_{organization_id}_user_{invitee_uuid}"
     message = EmailMessage(
+        use_http=True,
         campaign_key=campaign_key,
         subject=f"{invitee.first_name} joined you on PostHog",
         template_name="member_join",
-        template_context={"invitee": invitee, "organization": organization},
+        template_context={
+            "invitee": invitee,
+            "organization": organization,
+            "invitee_first_name": invitee.first_name,
+            "organization_name": organization.name,
+        },
     )
     # Don't send this email to the new member themselves
     members_to_email = organization.members.exclude(email=invitee.email)
@@ -146,6 +161,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 def send_password_reset(user_id: int, token: str) -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
+        use_http=True,
         campaign_key=f"password-reset-{user.uuid}-{timezone.now().timestamp()}",
         subject=f"Reset your PostHog password",
         template_name="password_reset",
@@ -155,6 +171,7 @@ def send_password_reset(user_id: int, token: str) -> None:
             "cloud": is_cloud(),
             "site_url": settings.SITE_URL,
             "social_providers": list(user.social_auth.values_list("provider", flat=True)),
+            "url": f"{settings.SITE_URL}/reset/{user.uuid}/{token}",
         },
     )
     message.add_recipient(user.email)
@@ -165,6 +182,7 @@ def send_password_reset(user_id: int, token: str) -> None:
 def send_email_verification(user_id: int, token: str) -> None:
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
+        use_http=True,
         campaign_key=f"email-verification-{user.uuid}-{timezone.now().timestamp()}",
         subject=f"Verify your email address",
         template_name="email_verification",
@@ -172,6 +190,7 @@ def send_email_verification(user_id: int, token: str) -> None:
             "preheader": "Please follow the link inside to verify your account.",
             "link": f"/verify_email/{user.uuid}/{token}",
             "site_url": settings.SITE_URL,
+            "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}",
         },
     )
     message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
@@ -302,6 +321,7 @@ def send_canary_email(user_email: str) -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new_address: str) -> None:
     message_old_address = EmailMessage(
+        use_http=True,
         campaign_key=f"email_change_old_address_{now_iso}",
         subject="This is no longer your PostHog account email",
         template_name="email_change_old_address",
@@ -312,6 +332,7 @@ def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new
         },
     )
     message_new_address = EmailMessage(
+        use_http=True,
         campaign_key=f"email_change_new_address_{now_iso}",
         subject="This is your new PostHog account email",
         template_name="email_change_new_address",
@@ -417,3 +438,44 @@ def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_c
         if not have_ingested:
             users.extend(organization.members.all())
     return users
+
+
+def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment, assigner: User) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    team = assignment.issue.team
+    memberships_to_email = get_members_to_notify(team, NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value)
+    if not memberships_to_email:
+        return
+
+    # Filter the memberships list to only include users assigned
+    if assignment.user:
+        memberships_to_email = [
+            membership
+            for membership in memberships_to_email
+            if (membership.user == assignment.user and membership.user != assigner)
+        ]
+    elif assignment.user_group:
+        group_users = assignment.user_group.members.all()
+        memberships_to_email = [
+            membership
+            for membership in memberships_to_email
+            if (membership.user in group_users and membership.user != assigner)
+        ]
+
+    campaign_key: str = f"error_tracking_issue_assigned_{assignment.id}_updated_at_{assignment.created_at.timestamp()}"
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"[Issue]: {assignment.issue.name} assigned to you in project '{team}'",
+        template_name="error_tracking_issue_assigned",
+        template_context={
+            "assigner": assigner,
+            "assignment": assignment,
+            "team": team,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+    message.send(send_async=False)

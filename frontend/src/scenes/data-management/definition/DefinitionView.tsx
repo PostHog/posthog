@@ -74,19 +74,28 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
         useValues(logic)
     const { deleteDefinition } = useActions(logic)
 
-    const memoizedQuery = useMemo(
-        () => ({
+    const memoizedQuery = useMemo(() => {
+        const columnsToUse =
+            'default_columns' in definition && !!definition.default_columns?.length
+                ? definition.default_columns
+                : defaultDataTableColumns(NodeKind.EventsQuery)
+
+        return {
             kind: NodeKind.DataTableNode,
             source: {
                 kind: NodeKind.EventsQuery,
-                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                select: columnsToUse,
                 event: definition.name,
             },
             full: true,
             showEventFilter: false,
-        }),
-        [definition.name]
-    )
+            showPersistentColumnConfigurator: true,
+            context: {
+                type: 'event_definition',
+                eventDefinitionId: definition.id,
+            },
+        }
+    }, [definition])
 
     if (definitionLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -191,7 +200,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                 }
             />
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {definition.description || isProperty || hasTaxonomyFeatures ? (
                     <EditableField
                         multiline
@@ -215,7 +224,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
 
                 <UserActivityIndicator at={definition.updated_at} by={definition.updated_by} />
                 <div className="flex flex-wrap items-center gap-2 text-secondary">
-                    <div>Raw event name:</div>
+                    <div>{isProperty ? 'Property' : 'Event'} name:</div>
                     <LemonTag className="font-mono">{definition.name}</LemonTag>
                 </div>
             </div>

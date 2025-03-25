@@ -1,4 +1,5 @@
 import dataclasses
+import re
 from typing import Any, Optional
 from collections.abc import Iterator
 from django.conf import settings
@@ -23,6 +24,10 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 def _sanitize_identifier(identifier: str) -> str:
     if not identifier.isidentifier():
+        # Allow identifiers of just numbers
+        if re.match("^\\d+$", identifier):
+            return f"`{identifier}`"
+
         if identifier.startswith("$") or (len(identifier) > 0 and identifier[0].isdigit()):
             if not identifier[1:].replace(".", "").replace("_", "").replace("-", "").isidentifier():
                 raise ValueError(f"Invalid SQL identifier: {identifier}")

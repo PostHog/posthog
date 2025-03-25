@@ -373,6 +373,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             having=self.visit(ctx.havingClause()) if ctx.havingClause() else None,
             group_by=self.visit(ctx.groupByClause()) if ctx.groupByClause() else None,
             order_by=self.visit(ctx.orderByClause()) if ctx.orderByClause() else None,
+            limit_by=self.visit(ctx.limitByClause()) if ctx.limitByClause() else None,
         )
 
         if window_clause := ctx.windowClause():
@@ -385,8 +386,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             select_query.limit = self.visit(limit_and_offset_clause.columnExpr(0))
             if offset := limit_and_offset_clause.columnExpr(1):
                 select_query.offset = self.visit(offset)
-            if limit_by_exprs := limit_and_offset_clause.columnExprList():
-                select_query.limit_by = self.visit(limit_by_exprs)
             if limit_and_offset_clause.WITH() and limit_and_offset_clause.TIES():
                 select_query.limit_with_ties = True
         elif offset_only_clause := ctx.offsetOnlyClause():
@@ -403,13 +402,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             else:
                 select_query.array_join_op = "ARRAY JOIN"
             select_query.array_join_list = self.visit(array_join_clause.columnExprList())
-            for expr in select_query.array_join_list:
-                if not isinstance(expr, ast.Alias):
-                    raise SyntaxError(
-                        "ARRAY JOIN arrays must have an alias",
-                        start=expr.start,
-                        end=expr.end,
-                    )
+            if select_query.array_join_list:
+                for expr in select_query.array_join_list:
+                    if not isinstance(expr, ast.Alias):
+                        raise SyntaxError(
+                            "ARRAY JOIN arrays must have an alias",
+                            start=expr.start,
+                            end=expr.end,
+                        )
 
         if ctx.topClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.topClause()")
@@ -447,6 +447,32 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitOrderByClause(self, ctx: HogQLParser.OrderByClauseContext):
         return self.visit(ctx.orderExprList())
+
+    def visitLimitByClause(self, ctx: HogQLParser.LimitByClauseContext):
+        limit_expr = self.visit(ctx.limitExpr())
+
+        # If limit_expr is a tuple (n, offset), split it
+        if isinstance(limit_expr, tuple) and len(limit_expr) == 2:
+            n, offset_value = limit_expr
+            return ast.LimitByExpr(n=n, offset_value=offset_value, exprs=self.visit(ctx.columnExprList()))
+
+        # If no offset, just use limit_expr as n
+        return ast.LimitByExpr(n=limit_expr, offset_value=None, exprs=self.visit(ctx.columnExprList()))
+
+    def visitLimitExpr(self, ctx: HogQLParser.LimitExprContext):
+        # First expression is always the limit value (n)
+        n = self.visit(ctx.columnExpr(0))
+
+        # Check if we have an offset (second expression)
+        if ctx.columnExpr(1):
+            offset_value = self.visit(ctx.columnExpr(1))
+            # For "LIMIT a, b" syntax: a is offset, b is limit
+            if ctx.COMMA():
+                return (offset_value, n)  # Return tuple as (offset, limit)
+            # For "LIMIT a OFFSET b" syntax: a is limit, b is offset
+            return (n, offset_value)
+
+        return n
 
     def visitProjectionOrderByClause(self, ctx: HogQLParser.ProjectionOrderByClauseContext):
         raise NotImplementedError(f"Unsupported node: ProjectionOrderByClause")
@@ -707,7 +733,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         elif ctx.PERCENT():
             op = ast.ArithmeticOperationOp.Mod
         else:
-            raise NotImplementedError(f"Unsupported ColumnExprPrecedence1: {ctx.operator.text}")
+            raise NotImplementedError(f"Unsupported ColumnExprPrecedence1: {ctx.getText()}")
         left = self.visit(ctx.left)
         right = self.visit(ctx.right)
         return ast.ArithmeticOperation(left=left, right=right, op=op)
@@ -734,7 +760,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
             return ast.Call(name="concat", args=args)
         else:
-            raise NotImplementedError(f"Unsupported ColumnExprPrecedence2: {ctx.operator.text}")
+            raise NotImplementedError(f"Unsupported ColumnExprPrecedence2: {ctx.getText()}")
 
     def visitColumnExprPrecedence3(self, ctx: HogQLParser.ColumnExprPrecedence3Context):
         left = self.visit(ctx.left)

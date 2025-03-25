@@ -4,7 +4,6 @@ use crate::{
             extract_aliases, ENTERPRISE_PROP_DEFS_TABLE, ENTERPRISE_PROP_DEFS_TABLE_COLUMNS,
             EVENTS_HIDDEN_PROPERTY_DEFINITIONS, EVENT_PROPERTY_TABLE, EVENT_PROPERTY_TABLE_ALIAS,
             PROPERTY_DEFS_TABLE, PROPERTY_DEFS_TABLE_COLUMNS, SEARCH_SCREEN_WORD,
-            SEARCH_TRIGGER_WORD,
         },
         routing::Params,
     },
@@ -87,7 +86,12 @@ impl Manager {
         self.conditionally_filter_properties(qb, &params.properties);
         self.conditionally_filter_numerical_properties(qb, params.is_numerical);
 
-        self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
+        self.conditionally_apply_search_clause(
+            qb,
+            &params.search_terms,
+            &params.search_fields,
+            params.filter_initial_props,
+        );
 
         self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
 
@@ -170,7 +174,12 @@ impl Manager {
         self.conditionally_filter_properties(qb, &params.properties);
         self.conditionally_filter_numerical_properties(qb, params.is_numerical);
 
-        self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
+        self.conditionally_apply_search_clause(
+            qb,
+            &params.search_terms,
+            &params.search_fields,
+            params.filter_initial_props,
+        );
 
         self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
 
@@ -350,6 +359,7 @@ impl Manager {
         qb: &mut QueryBuilder<'args, Postgres>,
         search_terms: &'args [String],
         search_fields: &'args HashSet<String>,
+        filter_initial_props: bool,
     ) {
         // conditionally apply search term matching; skip this if possible, it's not cheap!
         // logic: https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L493-L499
@@ -358,7 +368,7 @@ impl Manager {
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L309-L324
 
             // attempt to enrich basic search terms using a heuristic:
-            // if the long slug associated with any std PostHog event properties
+            // if the description associated with any std PostHog event properties
             // matches *every search term* in the incoming query, capture the
             // associated property name and add it to the search terms we'll
             // attempt to return from the prop defs query. This is expensive :(
@@ -390,7 +400,7 @@ impl Manager {
 
             // step 2: filter "initial" prop defs if the user wants "latest"
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L326-L339
-            let screening_clause = if term_aliases.iter().any(|ta| *ta == SEARCH_TRIGGER_WORD) {
+            let screening_clause = if filter_initial_props {
                 format!(" OR NOT name ILIKE '%{}%' ", SEARCH_SCREEN_WORD)
             } else {
                 "".to_string()

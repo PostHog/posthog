@@ -17,7 +17,7 @@ export enum ResultErrorCode {
 }
 
 export function NoResultEmptyState({ error, metric }: { error: any; metric: any }): JSX.Element {
-    const { experiment, variants, getMetricType } = useValues(experimentLogic)
+    const { experiment, variants, getInsightType } = useValues(experimentLogic)
 
     if (!error) {
         return <></>
@@ -38,11 +38,11 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
             [ResultErrorCode.NO_EXPOSURES]: 'Exposure events have been received',
         }
 
-        const metricType = getMetricType(metric)
+        const insightType = getInsightType(metric)
         const hasMissingExposure = errorCode === ResultErrorCode.NO_EXPOSURES
 
         const requiredEvent =
-            metricType === InsightType.TRENDS
+            insightType === InsightType.TRENDS
                 ? hasMissingExposure
                     ? metric.exposure_query?.series[0]?.event || '$feature_flag_called'
                     : metric.count_query?.series[0]?.event
@@ -86,14 +86,14 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
         }
 
         return (
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center deprecated-space-x-2">
                 {value === false ? (
-                    <span className="flex items-center space-x-2">
+                    <span className="flex items-center deprecated-space-x-2">
                         <IconCheck className="text-success" fontSize={16} />
                         <span className="text-secondary">{successText[errorCode]}</span>
                     </span>
                 ) : (
-                    <span className="flex items-center space-x-2">
+                    <span className="flex items-center deprecated-space-x-2">
                         <IconX className="text-danger" fontSize={16} />
                         <span>{failureText[errorCode]}</span>
                         <Tooltip title="Verify missing events in the Activity tab">

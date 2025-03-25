@@ -3,8 +3,26 @@ import json
 from inline_snapshot import snapshot
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
-from posthog.cdp.validation import validate_inputs, validate_inputs_schema
+from posthog.cdp.validation import InputsSchemaItemSerializer, MappingsSerializer
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+
+
+def validate_inputs(schema, inputs):
+    serializer = MappingsSerializer(
+        data={
+            "inputs_schema": schema,
+            "inputs": inputs,
+        },
+        context={"function_type": "destination"},
+    )
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data["inputs"]
+
+
+def validate_inputs_schema(data):
+    serializer = InputsSchemaItemSerializer(data=data, many=True)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data
 
 
 def create_example_inputs_schema():
@@ -330,3 +348,51 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["A"].get("bytecode") is None
         assert validated["A"].get("transpiled") is None
         assert validated["A"].get("value") == "{inputs.X} + A"
+
+    def test_validate_inputs_with_secret_values(self):
+        inputs_schema = [
+            {"key": "secret_field", "type": "string", "required": True, "secret": True},
+        ]
+
+        existing_secret_inputs = {
+            "secret_field": {"value": "EXISTING_SECRET_VALUE", "order": 1},
+        }
+
+        for inputs, expected_result in [
+            (
+                {
+                    "secret_field": {},
+                },
+                {
+                    "secret_field": {"value": "EXISTING_SECRET_VALUE"},
+                },
+            ),
+            (
+                {
+                    "secret_field": {"value": "NEW_SECRET_VALUE"},
+                },
+                {
+                    "secret_field": {"value": "NEW_SECRET_VALUE"},
+                },
+            ),
+            (
+                {
+                    "secret_field": {"secret": True},
+                },
+                {
+                    "secret_field": {"value": "EXISTING_SECRET_VALUE"},
+                },
+            ),
+        ]:
+            serializer = MappingsSerializer(
+                data={
+                    "inputs_schema": inputs_schema,
+                    "inputs": inputs,
+                },
+                context={"function_type": "destination", "encrypted_inputs": existing_secret_inputs},
+            )
+            serializer.is_valid(raise_exception=True)
+            validated = serializer.validated_data["inputs"]
+
+            values_only = {k: {"value": v["value"]} for k, v in validated.items()}
+            assert values_only == expected_result

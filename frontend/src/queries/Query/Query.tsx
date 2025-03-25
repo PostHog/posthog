@@ -57,6 +57,8 @@ export interface QueryProps<Q extends Node> {
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** Passed down if implemented by the query type to e.g. set data attr on a LemonTable in a data table */
+    dataAttr?: string
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
@@ -68,6 +70,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         filtersOverride,
         variablesOverride,
         inSharedMode,
+        dataAttr,
     } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
@@ -107,6 +110,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 cachedResults={props.cachedResults}
                 uniqueKey={uniqueKey}
                 readOnly={readOnly}
+                dataAttr={dataAttr}
             />
         )
     } else if (isDataVisualizationNode(query)) {

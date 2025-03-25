@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 const meta: Meta = {
-    title: 'Design System/Colors',
+    title: 'UI/Colors',
     parameters: {
         docs: {
             description: {
@@ -406,7 +406,7 @@ export function SemanticColors(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
-                <div className="space-y-0">
+                <div className="deprecated-space-y-0">
                     <h2>Texts</h2>
                     <p>
                         Texts are used to display content on the screen. They can be used to display text, icons, and
@@ -416,7 +416,7 @@ export function SemanticColors(): JSX.Element {
                 <RenderTable colors={textColors} />
             </div>
             <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
-                <div className="space-y-0">
+                <div className="deprecated-space-y-0">
                     <h2>Text on fills</h2>
                     <p>
                         Text on fills are used to display content on a fill color, specifically ensuring contrast with
@@ -426,14 +426,14 @@ export function SemanticColors(): JSX.Element {
                 <RenderTable colors={textOnFillColors} />
             </div>
             <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
-                <div className="space-y-0">
+                <div className="deprecated-space-y-0">
                     <h2>Backgrounds</h2>
                     <p>Behind surfaces, large areas: app scenes, etc.</p>
                 </div>
                 <RenderTable colors={backgroundColors} />
             </div>
             <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
-                <div className="space-y-0">
+                <div className="deprecated-space-y-0">
                     <h2>Surfaces</h2>
                     <p>
                         Above backgrounds, smaller areas: Cards, Tables, stuff that stands out on top of the background.
@@ -442,14 +442,14 @@ export function SemanticColors(): JSX.Element {
                 <RenderTable colors={surfaceColors} />
             </div>
             <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
-                <div className="space-y-0">
+                <div className="deprecated-space-y-0">
                     <h2>Fills</h2>
                     <p>Small colourful areas: banners, pills, buttons, etc.</p>
                 </div>
                 <RenderTable colors={fillColors} />
             </div>
             <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
-                <div className="space-y-0">
+                <div className="deprecated-space-y-0">
                     <h2>Borders</h2>
                     <p>Borders for surfaces/fills</p>
                 </div>

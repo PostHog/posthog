@@ -25,7 +25,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <HogQLQueryEditor query={query} setQuery={setQuery} />
                 <Modifiers setQuery={setQuery} query={query} response={response} />
                 <LemonDivider className="my-4" />

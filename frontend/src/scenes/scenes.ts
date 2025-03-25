@@ -98,6 +98,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics/web-vitals',
     },
+    [Scene.WebAnalyticsPageReports]: {
+        projectBased: true,
+        name: 'Page reports',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics',
+    },
     [Scene.Cohort]: {
         projectBased: true,
         name: 'Cohort',
@@ -161,6 +167,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ReplayFilePlayback]: {
         projectBased: true,
         name: 'File playback',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+    },
+    [Scene.ReplaySettings]: {
+        projectBased: true,
+        name: 'Settings',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
     },
@@ -440,6 +452,23 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Session attribution explorer (beta)',
     },
+    [Scene.Wizard]: {
+        projectBased: true,
+        name: 'Wizard',
+        layout: 'plain',
+    },
+    [Scene.MessagingBroadcasts]: {
+        projectBased: true,
+        name: 'Messaging Broadcasts',
+    },
+    [Scene.MessagingAutomations]: {
+        projectBased: true,
+        name: 'Messaging Automations',
+    },
+    [Scene.MessagingLibrary]: {
+        projectBased: true,
+        name: 'Message Library',
+    },
     ...productConfiguration,
 }
 
@@ -456,6 +485,7 @@ export const redirects: Record<
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/action/:id': ({ id }) => urls.action(id),
     '/action': urls.createAction(),
+    '/activity': urls.activity(),
     '/events': urls.activity(),
     '/events/actions': urls.actions(),
     '/events/stats': urls.eventDefinitions(),
@@ -485,6 +515,7 @@ export const redirects: Record<
     '/recordings/:id': ({ id }) => urls.replaySingle(id),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
+    '/recordings/settings': () => urls.replaySettings(),
     '/recordings': (_params, _searchParams, hashParams) => {
         if (hashParams.sessionRecordingId) {
             // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
@@ -502,6 +533,7 @@ export const redirects: Record<
     '/me/settings': urls.settings('user'),
     '/pipeline': urls.pipeline(),
     '/instance': urls.instanceStatus(),
+    '/data-management': urls.eventDefinitions(),
     '/data-management/database': urls.pipeline(PipelineTab.Sources),
     '/pipeline/data-import': urls.pipeline(PipelineTab.Sources),
     '/batch_exports/:id': ({ id }) => urls.pipelineNode(PipelineStage.Destination, id),
@@ -518,8 +550,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
     [urls.dashboardSharing(':id')]: [Scene.Dashboard, 'dashboardSharing'],
-    [urls.dashboardSubcriptions(':id')]: [Scene.Dashboard, 'dashboardSubcriptions'],
-    [urls.dashboardSubcription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubcription'],
+    [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
+    [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
     [urls.createAction()]: [Scene.Action, 'createAction'],
     [urls.duplicateAction(null)]: [Scene.Action, 'duplicateAction'],
     [urls.action(':id')]: [Scene.Action, 'action'],
@@ -536,6 +568,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
+    [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
     [urls.revenue()]: [Scene.DataManagement, 'revenue'],
     [urls.actions()]: [Scene.DataManagement, 'actions'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
@@ -556,6 +589,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.replayFilePlayback()]: [Scene.ReplayFilePlayback, 'replayFilePlayback'],
     [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
     [urls.replayPlaylist(':id')]: [Scene.ReplayPlaylist, 'replayPlaylist'],
+    [urls.replaySettings()]: [Scene.ReplaySettings, 'replaySettings'],
     [urls.personByDistinctId('*', false)]: [Scene.Person, 'personByDistinctId'],
     [urls.personByUUID('*', false)]: [Scene.Person, 'personByUUID'],
     [urls.persons()]: [Scene.PersonsManagement, 'persons'],
@@ -637,5 +671,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
+    [urls.wizard()]: [Scene.Wizard, 'wizard'],
     ...productRoutes,
 }

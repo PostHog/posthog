@@ -18,13 +18,13 @@ export const SymbolSetUploadModal = (): JSX.Element => {
                 <LemonModal.Header>
                     <h3>Upload javscript symbol set</h3>
                 </LemonModal.Header>
-                <LemonModal.Content className="space-y-2">
+                <LemonModal.Content className="deprecated-space-y-2">
                     <LemonField name="minified">
                         <LemonFileInput
                             accept="text/javascript"
                             multiple={false}
                             callToAction={
-                                <div className="flex flex-col items-center justify-center space-y-2 border border-dashed rounded p-4 w-full">
+                                <div className="flex flex-col items-center justify-center deprecated-space-y-2 border border-dashed rounded p-4 w-full">
                                     <span className="flex items-center gap-2 font-semibold">
                                         <IconUploadFile className="text-2xl" /> Add minified source
                                     </span>
@@ -35,12 +35,12 @@ export const SymbolSetUploadModal = (): JSX.Element => {
                             }
                         />
                     </LemonField>
-                    <LemonField name="sourcemap">
+                    <LemonField name="sourceMap">
                         <LemonFileInput
                             accept="*"
                             multiple={false}
                             callToAction={
-                                <div className="flex flex-col items-center justify-center space-y-2 border border-dashed rounded p-4 w-full">
+                                <div className="flex flex-col items-center justify-center deprecated-space-y-2 border border-dashed rounded p-4 w-full">
                                     <span className="flex items-center gap-2 font-semibold">
                                         <IconUploadFile className="text-2xl" /> Add source map
                                     </span>

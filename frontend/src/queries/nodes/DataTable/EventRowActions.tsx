@@ -1,6 +1,5 @@
 import { IconWarning } from '@posthog/icons'
-import { router } from 'kea-router'
-import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton'
+import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -59,14 +58,10 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             fullWidth
                             sideIcon={<IconWarning />}
                             data-attr="events-table-exception-link"
-                            onClick={() =>
-                                router.actions.push(
-                                    urls.errorTrackingIssue(
-                                        event.properties.$exception_issue_id,
-                                        event.properties.$exception_fingerprint
-                                    )
-                                )
-                            }
+                            to={urls.errorTrackingIssue(
+                                event.properties.$exception_issue_id,
+                                event.properties.$exception_fingerprint
+                            )}
                         >
                             Visit issue
                         </LemonButton>

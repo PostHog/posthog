@@ -13,7 +13,7 @@ import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 
 export function HogFunctionEventEstimates(): JSX.Element | null {
-    const { sparkline, sparklineLoading, eventsDataTableNode, showEventsList } =
+    const { sparkline, sparklineLoading, eventsDataTableNode, showEventsList, type } =
         useValues(hogFunctionConfigurationLogic)
 
     const { setShowEventsList } = useActions(hogFunctionConfigurationLogic)
@@ -44,11 +44,11 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
     const canvasUrl = urls.canvas() + '#🦔=' + btoa(JSON.stringify(canvasContent))
 
     return (
-        <div className="relative p-3 space-y-2 border rounded bg-surface-primary">
+        <div className="relative p-3 deprecated-space-y-2 border rounded bg-surface-primary">
             <LemonLabel>Matching events</LemonLabel>
             {sparkline && !sparklineLoading ? (
                 <>
-                    {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
+                    {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL && type !== 'transformation' ? (
                         <LemonBanner type="warning">
                             <b>Warning:</b> This destination would have triggered{' '}
                             <strong>
@@ -58,12 +58,15 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                         </LemonBanner>
                     ) : (
                         <p>
-                            This destination would have triggered{' '}
+                            This {type} would have triggered{' '}
                             <strong>
                                 {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
                             </strong>{' '}
                             in the last 7 days.
                         </p>
+                    )}
+                    {'warning' in sparkline && sparkline.warning && (
+                        <LemonBanner type="info">{sparkline.warning}</LemonBanner>
                     )}
                     <Sparkline type="bar" className="w-full h-20" data={sparkline.data} labels={sparkline.labels} />
                 </>

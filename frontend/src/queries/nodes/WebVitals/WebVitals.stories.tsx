@@ -1,5 +1,4 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 import { examples } from '~/queries/examples'
@@ -15,7 +14,6 @@ const meta: Meta<typeof Query> = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN],
         testOptions: {
             waitForLoadersToDisappear: true,
             waitForSelector: '[data-attr=trend-line-graph] > canvas',

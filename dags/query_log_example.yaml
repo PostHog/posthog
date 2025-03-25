@@ -1,0 +1,16 @@
+ops:
+    export_query_logs:
+        config:
+            s3_path: query_logs
+            date_range:
+                date_from: 2025-03-01
+                date_to: 2025-03-31
+resources:
+    cluster:
+        config:
+            client_settings:
+                lightweight_deletes_sync: '0'
+                max_execution_time: '0'
+                max_memory_usage: '0'
+                mutations_sync: '0'
+                receive_timeout: '600'

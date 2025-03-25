@@ -81,7 +81,7 @@ export function ElementInfoWindow(): JSX.Element | null {
             {onClose ? (
                 <div
                     onClick={onClose}
-                    className="absolute origin-top-left bg-bg-3000 rounded-full w-6 h-6 z-[7] flex items-center justify-around text-center cursor-pointer"
+                    className="absolute origin-top-left bg-bg-3000 rounded-full w-6 h-6 z-[7] flex items-center justify-around text-center cursor-pointer text-primary"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         pointerEvents: pointerEvents ? 'all' : 'none',
@@ -93,7 +93,7 @@ export function ElementInfoWindow(): JSX.Element | null {
                 </div>
             ) : null}
             <div
-                className="overflow-auto rounded-lg"
+                className="overflow-auto rounded-lg border border-secondary"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ minHeight, maxHeight }}
             >

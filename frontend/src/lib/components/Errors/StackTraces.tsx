@@ -38,7 +38,7 @@ export function ChainedStackTraces({
     }, [exceptionList, loadFromRawIds])
 
     return (
-        <>
+        <div className="flex flex-col gap-y-2">
             {exceptionList.map(({ stacktrace, value, type }, index) => {
                 if (stacktrace && stacktrace.type === 'resolved') {
                     const { frames } = stacktrace
@@ -50,11 +50,16 @@ export function ChainedStackTraces({
                     return (
                         <div
                             key={index}
-                            className={clsx('StackTrace flex flex-col space-y-2', embedded && 'StackTrace--embedded')}
+                            className={clsx('StackTrace flex flex-col gap-y-2', embedded && 'StackTrace--embedded')}
                         >
-                            <div className="space-y-0.5">
-                                <h3 className="StackTrace__type mb-0">{type}</h3>
-                                <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs">
+                            <div className="flex flex-col gap-0.5">
+                                <h3 className="StackTrace__type mb-0" title={type}>
+                                    {type}
+                                </h3>
+                                <div
+                                    className="StackTrace__value line-clamp-2 text-secondary italic text-xs"
+                                    title={value}
+                                >
                                     {value}
                                 </div>
                             </div>
@@ -63,7 +68,7 @@ export function ChainedStackTraces({
                     )
                 }
             })}
-        </>
+        </div>
     )
 }
 
@@ -86,16 +91,16 @@ function Trace({
                 key: index,
                 header: (
                     <div className="flex flex-1 justify-between items-center">
-                        <div className="flex flex-wrap space-x-0.5">
+                        <div className="flex flex-wrap gap-x-1">
                             <span>{source}</span>
                             {resolved_name ? (
-                                <div className="flex space-x-0.5">
+                                <div className="flex gap-x-1">
                                     <span className="text-secondary">in</span>
                                     <span>{resolved_name}</span>
                                 </div>
                             ) : null}
                             {line ? (
-                                <div className="flex space-x-0.5">
+                                <div className="flex gap-x-1">
                                     <span className="text-secondary">@</span>
                                     <span>
                                         {line}
@@ -104,7 +109,7 @@ function Trace({
                                 </div>
                             ) : null}
                         </div>
-                        <div className="space-x-1">
+                        <div className="flex gap-x-1">
                             {in_app && <LemonTag>In App</LemonTag>}
                             {!resolved && (
                                 <Tooltip title={resolve_failure}>
