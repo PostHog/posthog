@@ -15,9 +15,10 @@ pub fn clean_set_props(
     #[derive(Debug, Clone, Serialize, Deserialize)]
 
     struct SetProps {
-        #[serde(rename = "$set")]
+        // The UI does not handle nulls well here, so we skip serialising instead
+        #[serde(rename = "$set", skip_serializing_if = "Option::is_none")]
         set: Option<HashMap<String, Value>>,
-        #[serde(rename = "$set_once")]
+        #[serde(rename = "$set_once", skip_serializing_if = "Option::is_none")]
         set_once: Option<HashMap<String, Value>>,
         #[serde(flatten)]
         other: HashMap<String, Value>,

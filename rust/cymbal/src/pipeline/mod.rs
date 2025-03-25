@@ -38,6 +38,7 @@ pub mod prep;
 // ClickhouseEvent is hefty compared to CapturedEvent (496 vs 160 bytes), but we mostly pass
 // around vecs of these and I'd rather skip the pointer chase
 #[allow(clippy::large_enum_variant)]
+#[serde(untagged)]
 pub enum IncomingEvent {
     ClickhouseReady(ClickHouseEvent),
     Captured(CapturedEvent),
