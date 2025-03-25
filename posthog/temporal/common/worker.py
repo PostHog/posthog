@@ -75,7 +75,8 @@ async def start_worker(
         logger.info("Finished Temporal worker shutdown")
 
     loop = asyncio.get_event_loop()
-    loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(shutdown_worker("SIGINT")))
-    loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(shutdown_worker("SIGTERM")))
+    shutdown_tasks = set()
+    loop.add_signal_handler(signal.SIGINT, lambda: shutdown_tasks.add(asyncio.create_task(shutdown_worker("SIGINT"))))
+    loop.add_signal_handler(signal.SIGTERM, lambda: shutdown_tasks.add(asyncio.create_task(shutdown_worker("SIGTERM"))))
 
     await worker.run()
