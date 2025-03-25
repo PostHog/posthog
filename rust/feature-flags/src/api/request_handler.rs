@@ -131,7 +131,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let project_id = team.project_id;
 
     let distinct_id =
-        handle_cookieless_distinct_id(&context, team_id, &team, original_distinct_id).await?;
+        handle_cookieless_distinct_id(&context, &request, &team, original_distinct_id).await?;
 
     let filtered_flags = fetch_and_filter_flags(&flag_service, project_id, &request).await?;
 
@@ -456,7 +456,7 @@ fn decode_form_data(
 
 async fn handle_cookieless_distinct_id(
     context: &RequestContext,
-    team_id: i32,
+    request: &FlagRequest,
     team: &Team,
     distinct_id: String,
 ) -> Result<String, FlagError> {
@@ -476,13 +476,13 @@ async fn handle_cookieless_distinct_id(
             .get("user-agent")
             .map(|h| h.to_str().unwrap_or(""))
             .unwrap_or(""),
-        event_time_zone: None,
-        hash_extra: None,
+        event_time_zone: request.timezone.as_deref(),
+        hash_extra: request.cookieless_hash_extra.as_deref(),
         distinct_id: &distinct_id,
     };
 
     let team_data = TeamData {
-        team_id,
+        team_id: team.id,
         timezone: team.timezone.clone(),
         cookieless_server_hash_mode: CookielessServerHashMode::from(
             team.cookieless_server_hash_mode,
