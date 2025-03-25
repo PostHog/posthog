@@ -457,6 +457,18 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Wizard',
         layout: 'plain',
     },
+    [Scene.MessagingBroadcasts]: {
+        projectBased: true,
+        name: 'Messaging Broadcasts',
+    },
+    [Scene.MessagingAutomations]: {
+        projectBased: true,
+        name: 'Messaging Automations',
+    },
+    [Scene.MessagingLibrary]: {
+        projectBased: true,
+        name: 'Message Library',
+    },
     ...productConfiguration,
 }
 

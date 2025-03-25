@@ -37,8 +37,10 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMObservability: () => import('../../products/llm_observability/frontend/LLMObservabilityScene'),
     LLMObservabilityTrace: () => import('../../products/llm_observability/frontend/LLMObservabilityTraceScene'),
     LLMObservabilityUsers: () => import('../../products/llm_observability/frontend/LLMObservabilityUsers'),
+    MessagingAutomations: () => import('../../products/messaging/frontend/Automations'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
     MessagingProviders: () => import('../../products/messaging/frontend/Providers'),
+    MessagingLibrary: () => import('../../products/messaging/frontend/Library'),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -51,6 +53,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-observability/traces': ['LLMObservability', 'llmObservabilityTraces'],
     '/llm-observability/traces/:id': ['LLMObservabilityTrace', 'llmObservability'],
     '/llm-observability/users': ['LLMObservability', 'llmObservabilityUsers'],
+    '/messaging/automations': ['MessagingAutomations', 'messagingAutomations'],
+    '/messaging/automations/:id': ['MessagingAutomations', 'messagingAutomation'],
+    '/messaging/automations/new': ['MessagingAutomations', 'messagingAutomationNew'],
     '/messaging/providers': ['MessagingProviders', 'messagingProviders'],
     '/messaging/providers/:id': ['MessagingProviders', 'messagingProvider'],
     '/messaging/providers/new': ['MessagingProviders', 'messagingProviderNew'],
@@ -58,6 +63,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
     '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
     '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
+    '/messaging/library': ['MessagingLibrary', 'messagingLibrary'],
+    '/messaging/library/new': ['MessagingLibrary', 'messagingLibraryNew'],
+    '/messaging/library/:id': ['MessagingLibrary', 'messagingLibraryTemplate'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -101,8 +109,10 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/ai-engineering/observability',
     },
+    MessagingAutomations: { name: 'Messaging', projectBased: true },
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
     MessagingProviders: { name: 'Messaging', projectBased: true },
+    MessagingLibrary: { name: 'Messaging', projectBased: true },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -157,12 +167,18 @@ export const productUrls = {
         return `/llm-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     llmObservabilityUsers: (): string => '/llm-observability/users',
+    messagingAutomations: (): string => '/messaging/automations',
+    messagingAutomation: (id?: string): string => `/messaging/automations/${id}`,
+    messagingAutomationNew: (): string => '/messaging/automations/new',
     messagingBroadcasts: (): string => '/messaging/broadcasts',
     messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
     messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
     messagingProviders: (): string => '/messaging/providers',
     messagingProvider: (id?: string): string => `/messaging/providers/${id}`,
     messagingProviderNew: (template?: string): string => '/messaging/providers/new' + (template ? `/${template}` : ''),
+    messagingLibrary: (): string => '/messaging/library',
+    messagingLibraryNew: (): string => '/messaging/library/new',
+    messagingLibraryTemplate: (id?: string): string => `/messaging/library/${id}`,
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,

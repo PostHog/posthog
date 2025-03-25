@@ -19,7 +19,7 @@ export const firstTimeEventTrackerPlugin: LegacyTransformationPlugin = {
         inputs_schema: [
             {
                 key: 'events',
-                label: 'List of events to track first time occurences on:',
+                label: 'List of events to track first time occurrences on:',
                 type: 'string',
                 default: '',
                 description: 'Separate events with commas, without using spaces, like so: `event1,event2,event3`',
