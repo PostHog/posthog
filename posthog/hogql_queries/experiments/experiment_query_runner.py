@@ -294,7 +294,7 @@ class ExperimentQueryRunner(QueryRunner):
         Returns the filter for a single funnel step.
         """
 
-        event_filter = ast.CompareOperation(
+        event_filter: ast.Expr = ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=["event"]),
             right=ast.Constant(value=funnel_step.event),
