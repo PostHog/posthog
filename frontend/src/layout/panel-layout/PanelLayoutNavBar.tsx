@@ -168,12 +168,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 handleStaticNavbarItemClick(urls.activity(), true)
             },
         },
-        {
-            identifier: 'Search',
-            id: 'Search',
-            icon: <IconSearch />,
-            onClick: () => toggleSearchBar(),
-        },
     ]
 
     return (
@@ -188,19 +182,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     <div className="flex justify-between p-1">
                         <OrganizationDropdownMenu />
 
-                        {/* <LemonButton
+                        <LemonButton
                             size="small"
                             type="tertiary"
-                            tooltip="Create new"
-                            onClick={() =>
-                                alert('global "new" button which would let you create a bunch of new things')
-                            }
+                            tooltip="Search"
+                            onClick={() => toggleSearchBar()}
                             icon={
                                 <IconWrapper>
-                                    <IconPlusSmall />
+                                    <IconSearch />
                                 </IconWrapper>
                             }
-                        /> */}
+                        />
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
@@ -211,7 +203,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             styledScrollbars
                         >
                             <ListBox className="flex flex-col gap-px">
-                                <div className="px-1">
+                                <div className="px-1 flex flex-col gap-px">
                                     {navItems.map((item) => (
                                         <ListBox.Item
                                             key={item.id}
