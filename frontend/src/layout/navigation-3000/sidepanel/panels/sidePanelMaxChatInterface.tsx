@@ -406,10 +406,8 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
 export function MaxChatInterface(): JSX.Element {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const useFeatureFlagSupport = useFeatureFlag('SUPPORT_SIDEBAR_MAX')
-    const useFeatureFlagInKeep = useFeatureFlag('INKEEP_MAX_SUPPORT_SIDEBAR')
 
-    // Check if either feature flag is enabled
-    const isMaxEnabled = useFeatureFlagSupport || useFeatureFlagInKeep
+    const isMaxEnabled = useFeatureFlagSupport
 
     if (!isMaxEnabled) {
         return <></>
