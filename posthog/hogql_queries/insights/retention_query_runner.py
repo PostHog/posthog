@@ -196,7 +196,7 @@ class RetentionQueryRunner(QueryRunner):
             # Default to event properties
             properties_chain = ["events", "properties", property_name]
 
-        # Just use the field chain directly, ClickHouse will handle the property access efficiently
+        # Just use the field chain directly, HogQL will handle the property access efficiently
         return ast.Call(
             name="toString",
             args=[
