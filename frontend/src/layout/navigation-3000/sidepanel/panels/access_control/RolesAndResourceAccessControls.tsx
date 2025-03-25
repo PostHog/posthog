@@ -46,35 +46,41 @@ export function RolesAndResourceAccessControls({
 
     const roleColumns = showAccessControls
         ? resources.map((resource) => ({
-            title: resource.replace(/_/g, ' ') + 's',
-            key: resource,
-            width: 0,
-            render: (_: any, { accessControlByResource, role }: RoleWithResourceAccessControls) => {
-                const ac = accessControlByResource[resource]
+              title: resource.replace(/_/g, ' ') + 's',
+              key: resource,
+              width: 0,
+              render: (_: any, { accessControlByResource, role }: RoleWithResourceAccessControls) => {
+                  const ac = accessControlByResource[resource]
 
-                return (
-                    <LemonSelect
-                        size="small"
-                        placeholder="No override"
-                        className="my-1 whitespace-nowrap"
-                        value={role ? ac?.access_level : ac?.access_level ?? defaultAccessLevel}
-                        onChange={(newValue) =>
-                            updateRoleBasedAccessControls([
-                                {
-                                    resource,
-                                    role: role?.id ?? null,
-                                    access_level: newValue as AccessControlLevel | null,
-                                },
-                            ])
-                        }
-                        options={availableLevels.map((level) => ({
-                            value: level,
-                            label: capitalizeFirstLetter(level ?? ''),
-                        }))}
-                    />
-                )
-            },
-        }))
+                  return (
+                      <LemonSelect
+                          size="small"
+                          placeholder="No override"
+                          className="my-1 whitespace-nowrap"
+                          value={role ? ac?.access_level : ac?.access_level ?? defaultAccessLevel}
+                          onChange={(newValue) =>
+                              updateRoleBasedAccessControls([
+                                  {
+                                      resource,
+                                      role: role?.id ?? null,
+                                      access_level: newValue as AccessControlLevel | null,
+                                  },
+                              ])
+                          }
+                          options={[
+                              {
+                                  value: null,
+                                  label: 'No override',
+                              },
+                              ...availableLevels.map((level) => ({
+                                  value: level,
+                                  label: capitalizeFirstLetter(level ?? ''),
+                              })),
+                          ]}
+                      />
+                  )
+              },
+          }))
         : []
 
     const columns: LemonTableColumns<RoleWithResourceAccessControls> = [
