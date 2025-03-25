@@ -148,16 +148,8 @@ class Database(BaseModel):
         "events",
         "groups",
         "persons",
-        "person_distinct_ids",
-        "session_replay_events",
-        "cohort_people",
-        "static_cohort_people",
-        "log_entries",
-        "app_metrics",
         "sessions",
-        "heatmaps",
         "query_log",
-        "exchange_rate",
     ]
 
     _warehouse_table_names: list[str] = []
