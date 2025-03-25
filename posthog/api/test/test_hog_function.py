@@ -1479,7 +1479,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         "name": "Template Transform",
                         "type": "transformation",
                         "template_id": template_slack.id,
-                        "hog": "return modified_event",
+                        "hog": "return event",
                         "inputs": {
                             "slack_workspace": {"value": 1},
                             "channel": {"value": "#general"},
@@ -1510,7 +1510,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name": "Test Function",
                 "description": "Test description",
                 "template_id": template_slack.id,
-                "hog": "return custom_event",  # This should be ignored
+                "hog": "return event",  # This should be ignored
                 "inputs": {
                     "slack_workspace": {"value": 1},
                     "channel": {"value": "#general"},
@@ -1634,11 +1634,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={
                 "name": "Custom Transform",
                 "type": "transformation",
-                "hog": "return modified_event",
+                "hog": "return event",
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["hog"] == "return modified_event"
+        assert response.json()["hog"] == "return event"
 
         # Create and switch to team 3
         team_3 = Team.objects.create(id=3, organization=self.organization, name="Team 3")
@@ -1649,7 +1649,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={
                 "name": "Custom Transform",
                 "type": "transformation",
-                "hog": "return modified_event",
+                "hog": "return event",
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
@@ -1675,7 +1675,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "name": "Template Transform",
                     "type": "transformation",
                     "template_id": template_slack.id,
-                    "hog": "return custom_event",
+                    "hog": "return event",
                     "inputs": {
                         "slack_workspace": {"value": 1},
                         "channel": {"value": "#general"},
@@ -1683,7 +1683,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             )
             assert response.status_code == status.HTTP_201_CREATED, response.json()
-            assert response.json()["hog"] == "return custom_event"  # Custom code allowed
+            assert response.json()["hog"] == "return event"  # Custom code allowed
 
             # Create and test with team ID 3
             team_3 = Team.objects.create(id=3, organization=self.organization, name="Team 3")
@@ -1695,7 +1695,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "name": "Template Transform",
                     "type": "transformation",
                     "template_id": template_slack.id,
-                    "hog": "return custom_event",
+                    "hog": "return event",
                     "inputs": {
                         "slack_workspace": {"value": 1},
                         "channel": {"value": "#general"},
@@ -1922,3 +1922,47 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert update_response.status_code == status.HTTP_400_BAD_REQUEST, update_response.json()
             assert "HOG code exceeds maximum size" in update_response.json()["detail"]
             assert f"{MAX_HOG_CODE_SIZE_BYTES // 1024}KB" in update_response.json()["detail"]
+
+    def test_validation_catches_runtime_exceeded_in_python_vm(self):
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            """Test that runtime exceeded errors during validation in our Python VM are properly handled"""
+            # Create a function with an infinite loop that will exceed the 100ms validation timeout
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Slow Function",
+                    "type": "transformation",
+                    "hog": """
+                    while (true) { print('hello'); } return event;
+                    """,
+                },
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert "Your function is taking too long to run (over 0.1 seconds)" in response.json()["detail"]
+
+    def test_validation_catches_memory_exceeded_in_python_vm(self):
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            """Test that memory exceeded errors during validation in our Python VM are properly handled"""
+            # Create a function that will consume too much memory during validation
+            x_string = "x" * 50000  # 50KB string (under 100KB limit of MAX_HOG_CODE_SIZE_BYTES)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Memory Hungry Function",
+                    "type": "transformation",
+                    "hog": f"""
+                    let arr := [];
+                    let str := '{x_string}';  // 50KB string
+                    let i := 0;
+                    while (i < 2000) {{  // Create 2000 copies = ~100MB, well over the 64MB limit
+                        arr := arr + [str];
+                        i := i + 1;
+                    }}
+                    return event;
+                    """,
+                },
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert "Your function needs too much memory" in response.json()["detail"]
