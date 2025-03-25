@@ -114,15 +114,19 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
         started_after = dt.datetime.fromisoformat(inputs.started_after)
         started_before = dt.datetime.fromisoformat(inputs.started_before)
 
-        results_v1 = get_session_replay_events(
-            "session_replay_events",
-            started_after,
-            started_before,
-        )
-        results_v2 = get_session_replay_events(
-            "session_replay_events_v2_test",
-            started_after,
-            started_before,
+        results_v1, results_v2 = await asyncio.gather(
+            asyncio.to_thread(
+                get_session_replay_events,
+                "session_replay_events",
+                started_after,
+                started_before,
+            ),
+            asyncio.to_thread(
+                get_session_replay_events,
+                "session_replay_events_v2_test",
+                started_after,
+                started_before,
+            ),
         )
 
         await logger.ainfo(
