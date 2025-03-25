@@ -7,6 +7,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonEventName } from 'scenes/actions/EventName'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
@@ -66,8 +67,8 @@ const columns: LemonTableColumns<LiveEvent> = [
 ]
 
 export function LiveEventsTable(): JSX.Element {
-    const { events, stats, streamPaused } = useValues(liveEventsTableLogic)
-    const { pauseStream, resumeStream } = useActions(liveEventsTableLogic)
+    const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic)
+    const { pauseStream, resumeStream, setFilters } = useActions(liveEventsTableLogic)
 
     return (
         <div data-attr="manage-events-table">
@@ -96,7 +97,13 @@ export function LiveEventsTable(): JSX.Element {
                     </Tooltip>
                 </div>
 
-                <div>
+                <div className="flex gap-2">
+                    <LemonEventName
+                        value={filters.eventType}
+                        onChange={(value) => setFilters({ ...filters, eventType: value })}
+                        placeholder="Filter by event"
+                        allEventsOption="clear"
+                    />
                     <LemonButton
                         icon={
                             streamPaused ? (
@@ -107,6 +114,7 @@ export function LiveEventsTable(): JSX.Element {
                         }
                         type="secondary"
                         onClick={streamPaused ? resumeStream : pauseStream}
+                        size="small"
                     >
                         {streamPaused ? 'Play' : 'Pause'}
                     </LemonButton>

@@ -24,6 +24,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ReplaySingle]: () => import('./session-recordings/detail/SessionRecordingDetail'),
     [Scene.ReplayPlaylist]: () => import('./session-recordings/playlist/SessionRecordingsPlaylistScene'),
     [Scene.ReplayFilePlayback]: () => import('./session-recordings/file-playback/SessionRecordingFilePlaybackScene'),
+    [Scene.ReplaySettings]: () => import('./session-recordings/settings/SessionRecordingsSettingsScene'),
     [Scene.PersonsManagement]: () => import('./persons-management/PersonsManagementScene'),
     [Scene.Person]: () => import('./persons/PersonScene'),
     [Scene.PipelineNodeNew]: () => import('./pipeline/PipelineNodeNew'),
@@ -87,5 +88,8 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
+    [Scene.MessagingBroadcasts]: () => import('products/messaging/frontend/Broadcasts'),
+    [Scene.MessagingAutomations]: () => import('products/messaging/frontend/Automations'),
+    [Scene.MessagingLibrary]: () => import('products/messaging/frontend/Library'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
 }

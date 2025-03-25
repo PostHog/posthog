@@ -264,7 +264,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
             {
                 type: 'select',
-                name: 'use_ssl',
+                name: 'using_ssl',
                 label: 'Use SSL?',
                 defaultValue: '1',
                 required: true,

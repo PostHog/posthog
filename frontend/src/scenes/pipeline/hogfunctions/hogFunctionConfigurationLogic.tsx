@@ -65,6 +65,18 @@ export interface HogFunctionConfigurationLogicProps {
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
 const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
+export const HOG_CODE_SIZE_LIMIT = 100 * 1024 // 100KB to match backend limit
+
+const VALIDATION_RULES = {
+    SITE_DESTINATION_REQUIRES_MAPPINGS: (data: HogFunctionConfigurationType) =>
+        data.type === 'site_destination' && (!data.mappings || data.mappings.length === 0)
+            ? 'You must add at least one mapping'
+            : undefined,
+    INTERNAL_DESTINATION_REQUIRES_FILTERS: (data: HogFunctionConfigurationType) =>
+        data.type === 'internal_destination' && data.filters?.events?.length === 0
+            ? 'You must choose a filter'
+            : undefined,
+} as const
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
@@ -78,6 +90,8 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
 }
 
 export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
+export const TYPES_WITH_SPARKLINE: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
+export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     function sanitizeInputs(
@@ -200,6 +214,50 @@ export function convertToHogFunctionInvocationGlobals(
         },
         groups: {},
     }
+}
+
+export type SparklineData = {
+    data: { name: string; values: number[]; color: string }[]
+    count: number
+    labels: string[]
+    warning?: string
+}
+
+// Helper function to check if code might return null/undefined
+export function mightDropEvents(code: string): boolean {
+    if (!code) {
+        return false
+    }
+    // Direct null/undefined returns
+    if (
+        code.includes('return null') ||
+        code.includes('return undefined') ||
+        /\breturn\b\s*;/.test(code) ||
+        /\breturn\b\s*$/.test(code) ||
+        /\bif\s*\([^)]*\)\s*\{\s*\breturn\s+(null|undefined)\b/.test(code)
+    ) {
+        return true
+    }
+
+    // Check for variables set to null/undefined that are also returned
+    const nullVarMatch = code.match(/\blet\s+(\w+)\s*:?=\s*(null|undefined)/g)
+    if (nullVarMatch) {
+        // Extract variable names
+        const nullVars = nullVarMatch
+            .map((match) => {
+                return match.match(/\blet\s+(\w+)/)?.[1]
+            })
+            .filter(Boolean)
+
+        // Check if any of these variables are returned
+        for (const varName of nullVars) {
+            if (new RegExp(`\\breturn\\s+${varName}\\b`).test(code)) {
+                return true
+            }
+        }
+    }
+
+    return false
 }
 
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
@@ -339,14 +397,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         sparkline: [
-            null as null | {
-                data: { name: string; values: number[]; color: string }[]
-                count: number
-                labels: string[]
-            },
+            null as null | SparklineData,
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
-                    if (values.type !== 'destination' && values.type !== 'site_destination') {
+                    if (!TYPES_WITH_SPARKLINE.includes(values.type)) {
                         return null
                     }
                     if (values.sparkline === null) {
@@ -358,31 +412,48 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     breakpoint()
 
                     const dataValues: number[] = result?.results?.[0]?.data ?? []
-                    const [underThreshold, overThreshold] = dataValues.reduce(
-                        (acc, val: number) => {
-                            acc[0].push(Math.min(val, EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
-                            acc[1].push(Math.max(0, val - EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
+                    const showVolumeWarning = TYPES_WITH_VOLUME_WARNING.includes(values.type)
 
-                            return acc
-                        },
-                        [[], []] as [number[], number[]]
-                    )
-
+                    if (showVolumeWarning) {
+                        const [underThreshold, overThreshold] = dataValues.reduce(
+                            (acc, val: number) => {
+                                acc[0].push(Math.min(val, EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
+                                acc[1].push(Math.max(0, val - EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
+                                return acc
+                            },
+                            [[], []] as [number[], number[]]
+                        )
+                        const data = [
+                            {
+                                name: 'Low volume',
+                                values: underThreshold,
+                                color: 'success',
+                            },
+                            {
+                                name: 'High volume',
+                                values: overThreshold,
+                                color: 'warning',
+                            },
+                        ]
+                        return { data, count: result?.results?.[0]?.count, labels: result?.results?.[0]?.labels }
+                    }
+                    // For transformations, just show the raw values without warning thresholds
                     const data = [
                         {
-                            name: 'Low volume',
-                            values: underThreshold,
+                            name: 'Volume',
+                            values: dataValues,
                             color: 'success',
                         },
-                        {
-                            name: 'High volume',
-                            values: overThreshold,
-                            color: 'warning',
-                        },
                     ]
-                    const count = result?.results?.[0]?.count
-                    const labels = result?.results?.[0]?.labels
-                    return { data, count, labels }
+                    return {
+                        data,
+                        count: result?.results?.[0]?.count,
+                        labels: result?.results?.[0]?.labels,
+                        warning:
+                            values.type === 'transformation'
+                                ? 'Historical volume may not reflect future volume after transformation is applied.'
+                                : undefined,
+                    }
                 },
             },
         ],
@@ -468,18 +539,25 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : undefined,
-                    mappings:
-                        data.type === 'site_destination' && (!data.mappings || data.mappings.length === 0)
-                            ? 'You must add at least one mapping'
-                            : undefined,
-                    filters:
-                        data.type === 'internal_destination' && data.filters?.events?.length === 0
-                            ? 'You must choose a filter'
-                            : undefined,
+                    mappings: VALIDATION_RULES.SITE_DESTINATION_REQUIRES_MAPPINGS(data),
+                    filters: VALIDATION_RULES.INTERNAL_DESTINATION_REQUIRES_FILTERS(data),
                     ...(values.inputFormErrors as any),
                 }
             },
             submit: async (data) => {
+                // Check HOG code size immediately before submission
+                if (data.hog) {
+                    const hogSize = new Blob([data.hog]).size
+                    if (hogSize > HOG_CODE_SIZE_LIMIT) {
+                        lemonToast.error(
+                            `Hog code exceeds maximum size of ${
+                                HOG_CODE_SIZE_LIMIT / 1024
+                            }KB. Please simplify your code or contact support to increase the limit.`
+                        )
+                        return
+                    }
+                }
+
                 const payload: Record<string, any> = sanitizeConfiguration(data)
                 // Only sent on create
                 payload.template_id = props.templateId || values.hogFunction?.template?.id
@@ -790,7 +868,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQuery: [
             (s) => [s.configuration, s.matchingFilters, s.type],
             (configuration, matchingFilters, type): TrendsQuery | null => {
-                if (type !== 'destination' && type !== 'site_destination') {
+                if (!TYPES_WITH_SPARKLINE.includes(type)) {
                     return null
                 }
                 return {

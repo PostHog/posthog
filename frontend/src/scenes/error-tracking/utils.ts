@@ -112,6 +112,10 @@ export function getExceptionAttributes(
     }
 }
 
+export function getSessionId(properties: Record<string, any>): string | undefined {
+    return properties['$session_id']
+}
+
 export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
     return exceptionList?.length > 0 && exceptionList.some((e) => !!e.stacktrace)
 }
@@ -130,5 +134,5 @@ export const sparklineLabelsMonth = sparklineLabels({ value: 31, interval: 'day'
 export function sparklineLabels({ value, interval }: ErrorTrackingSparklineConfig): string[] {
     const now = dayjs().startOf(interval)
     const dates = range(value).map((idx) => now.subtract(value - (idx + 1), interval))
-    return dates.map((d) => `'${d.format('D MMM, YYYY HH:mm')} (UTC)'`)
+    return dates.map((d) => d.format())
 }

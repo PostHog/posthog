@@ -14,6 +14,8 @@ export function createInsightStory(
 ): StoryFn<typeof App> {
     const count = shortCounter++
     return function InsightStory() {
+        document.body.classList.add('storybook-test-runner')
+
         useStorybookMocks({
             get: {
                 '/api/environments/:team_id/insights/': (_, __, ctx) => [

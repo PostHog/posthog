@@ -6,18 +6,17 @@ import {
     LemonDivider,
     LemonSegmentedButton,
     LemonSkeleton,
-    LemonTag,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
-import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { posthog } from 'posthog-js'
+import { useRef } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -31,13 +30,13 @@ import { InsightLogicProps } from '~/types'
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
-import { STATUS_LABEL } from './ErrorTrackingIssueScene'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
-import { sparklineLabels, sparklineLabelsDay, sparklineLabelsMonth } from './utils'
+import { StatusIndicator } from './issue/Indicator'
+import { OccurrenceSparkline, useSparklineData } from './OccurrenceSparkline'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -47,7 +46,7 @@ export const scene: SceneExport = {
 export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorTrackingLogic)
     const { query } = useValues(errorTrackingSceneLogic)
-
+    const floatingContainerRef = useRef<HTMLDivElement>(null)
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
     }
@@ -72,45 +71,33 @@ export function ErrorTrackingScene(): JSX.Element {
     }
 
     return (
-        <ErrorTrackingSetupPrompt>
-            <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
-                <Header />
-                {hasSentExceptionEventLoading ? null : hasSentExceptionEvent ? (
-                    <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
-                ) : (
-                    <IngestionStatusCheck />
-                )}
-                <ErrorTrackingFilters />
-                <LemonDivider className="mt-2" />
-                <ErrorTrackingListOptions />
-                <Query query={query} context={context} />
-            </BindLogic>
-        </ErrorTrackingSetupPrompt>
+        <FloatingContainerContext.Provider value={floatingContainerRef}>
+            <ErrorTrackingSetupPrompt>
+                <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
+                    <Header />
+                    {hasSentExceptionEventLoading ? null : hasSentExceptionEvent ? (
+                        <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
+                    ) : (
+                        <IngestionStatusCheck />
+                    )}
+                    <ErrorTrackingFilters />
+                    <LemonDivider className="mt-2" />
+                    <ErrorTrackingListOptions />
+                    <Query query={query} context={context} />
+                </BindLogic>
+            </ErrorTrackingSetupPrompt>
+        </FloatingContainerContext.Provider>
     )
 }
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
-    const { sparklineSelectedPeriod, customSparklineConfig } = useValues(errorTrackingLogic)
     const record = props.record as ErrorTrackingIssue
-
-    if (!record.aggregations) {
-        return null
-    }
-
-    const [data, labels] =
-        sparklineSelectedPeriod === '24h'
-            ? [record.aggregations.volumeDay, sparklineLabelsDay]
-            : sparklineSelectedPeriod === '30d'
-            ? [record.aggregations.volumeMonth, sparklineLabelsMonth]
-            : customSparklineConfig
-            ? [record.aggregations.customVolume, sparklineLabels(customSparklineConfig)]
-            : [null, null]
-
-    return data ? (
+    const [values, unit, interval] = useSparklineData(record.aggregations)
+    return (
         <div className="flex justify-end">
-            <Sparkline className="h-8" data={data} labels={labels} />
+            <OccurrenceSparkline className="h-8" unit={unit} interval={interval} displayXAxis={false} values={values} />
         </div>
-    ) : null
+    )
 }
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
@@ -133,15 +120,13 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-
     const record = props.record as ErrorTrackingIssue
-
     const checked = selectedIssueIds.includes(record.id)
 
     return (
-        <div className="flex items-start gap-x-1.5 group">
+        <div className="flex items-start gap-x-2 group my-1">
             <LemonCheckbox
-                className="pt-1"
+                className="h-[1.2rem]"
                 checked={checked}
                 onChange={(newValue) => {
                     setSelectedIssueIds(
@@ -151,34 +136,34 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     )
                 }}
             />
-            <LemonTableLink
-                title={record.name || 'Unknown Type'}
-                description={
-                    <div className="deprecated-space-y-1">
-                        <div className="line-clamp-1">{record.description}</div>
-                        <div className="deprecated-space-x-1">
-                            <TZLabel time={record.first_seen} className="border-dotted border-b" delayMs={750} />
-                            <span>|</span>
-                            {record.last_seen ? (
-                                <TZLabel time={record.last_seen} className="border-dotted border-b" delayMs={750} />
-                            ) : (
-                                <LemonSkeleton />
-                            )}
-                            <span>|</span>
-                            <span>
-                                <LemonTag>{STATUS_LABEL[record.status]}</LemonTag>
-                            </span>
-                        </div>
+
+            <div className="flex flex-col gap-[2px]">
+                <Link
+                    className="flex-1 pr-12"
+                    to={urls.errorTrackingIssue(record.id)}
+                    onClick={() => {
+                        const issueLogic = errorTrackingIssueSceneLogic({ id: record.id })
+                        issueLogic.mount()
+                        issueLogic.actions.setIssue(record)
+                    }}
+                >
+                    <div className="flex items-center font-semibold h-[1.2rem] text-[1.2em]">
+                        {record.name || 'Unknown Type'}
                     </div>
-                }
-                className="flex-1 pr-12"
-                to={urls.errorTrackingIssue(record.id)}
-                onClick={() => {
-                    const issueLogic = errorTrackingIssueSceneLogic({ id: record.id })
-                    issueLogic.mount()
-                    issueLogic.actions.setIssue(record)
-                }}
-            />
+                </Link>
+                <div className="line-clamp-1 text-secondary">{record.description}</div>
+                <div className="flex gap-1 items-center text-secondary">
+                    <StatusIndicator size="xsmall" status={record.status} />
+                    <span>|</span>
+                    <TZLabel time={record.first_seen} className="border-dotted border-b text-xs" delayMs={750} />
+                    <span>|</span>
+                    {record.last_seen ? (
+                        <TZLabel time={record.last_seen} className="border-dotted border-b text-xs" delayMs={750} />
+                    ) : (
+                        <LemonSkeleton />
+                    )}
+                </div>
+            </div>
         </div>
     )
 }

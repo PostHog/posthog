@@ -159,19 +159,33 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 if not token:
                     continue
 
-                and_exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Gt,
-                        left=ast.Call(
-                            name="position",
-                            args=[
-                                ast.Call(name="lower", args=[ast.Field(chain=["properties", "$exception_list"])]),
-                                ast.Call(name="lower", args=[ast.Constant(value=token)]),
-                            ],
-                        ),
-                        right=ast.Constant(value=0),
+                or_exprs: list[ast.Expr] = []
+
+                props_to_search = [
+                    "$exception_types",
+                    "$exception_values",
+                    "$exception_sources",
+                    "$exception_functions",
+                ]
+                for prop in props_to_search:
+                    or_exprs.append(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Call(
+                                name="position",
+                                args=[
+                                    # This actually searches the entire stingified array rather than
+                                    # individual elements using the arrayExists function because the
+                                    # materialized column is a nullable string which causes typing issues
+                                    ast.Call(name="lower", args=[ast.Field(chain=["properties", prop])]),
+                                    ast.Call(name="lower", args=[ast.Constant(value=token)]),
+                                ],
+                            ),
+                            right=ast.Constant(value=0),
+                        )
                     )
-                )
+
+                and_exprs.append(ast.Or(exprs=or_exprs))
 
             exprs.append(ast.And(exprs=and_exprs))
 

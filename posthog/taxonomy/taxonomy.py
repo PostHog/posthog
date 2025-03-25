@@ -50,6 +50,11 @@ PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
     "$os_version",
     "$referring_domain",
     "$referrer",
+    "$screen_height",
+    "$screen_width",
+    "$viewport_height",
+    "$viewport_width",
+    "$raw_user_agent",
     *CAMPAIGN_PROPERTIES,
 }
 
@@ -76,6 +81,14 @@ SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
     "rdt_cid",
     "irclid",
     "_kx",
+}
+
+SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
+    "$current_url",  # Gets renamed to just $url
+    "$host",
+    "$pathname",
+    "$referrer",
+    *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
 # synced with frontend/src/lib/taxonomy.tsx
@@ -1023,6 +1036,21 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try "Active Feature Flags".',
             "examples": ["beta-feature"],
         },
+        "$feature_flag_reason": {
+            "label": "Feature Flag Evaluation Reason",
+            "description": "The reason the feature flag was matched or not matched.",
+            "examples": ["Matched condition set 1"],
+        },
+        "$feature_flag_request_id": {
+            "label": "Feature Flag Request ID",
+            "description": "The unique identifier for the request that retrieved this feature flag result. Primarily used by PostHog support for debugging issues with feature flags.",
+            "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
+        },
+        "$feature_flag_version": {
+            "label": "Feature Flag Version",
+            "description": "The version of the feature flag that was called.",
+            "examples": ["3"],
+        },
         "$survey_response": {
             "label": "Survey Response",
             "description": "The response value for the first question in the survey.",
@@ -1657,6 +1685,18 @@ for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
                 else "Data from the first event in this session."
             ),
         }
+
+for key in SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS:
+    mapped_key = key.lstrip("$") if key != "$current_url" else "url"
+
+    CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"][f"$session_entry_{mapped_key}"] = {
+        **CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"][key],
+        "label": f"Session entry {CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['label']}",
+        "description": (
+            f"{CORE_FILTER_DEFINITIONS_BY_GROUP['event_properties'][key]['description']}. Captured at the start of the session and remains constant for the duration of the session."
+        ),
+    }
+
 
 PROPERTY_NAME_ALIASES = {
     key: value["label"]

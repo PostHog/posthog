@@ -669,7 +669,7 @@ async def execute_batch_export_insert_activity(
     non_retryable_error_types: list[str],
     finish_inputs: FinishBatchExportRunInputs,
     interval: str,
-    heartbeat_timeout_seconds: int | None = 120,
+    heartbeat_timeout_seconds: int | None = 180,
     maximum_attempts: int = 0,
     initial_retry_interval_seconds: int = 30,
     maximum_retry_interval_seconds: int = 120,

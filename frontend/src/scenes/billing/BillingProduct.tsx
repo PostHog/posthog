@@ -42,7 +42,7 @@ export const getTierDescription = (
         : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
 }
 
-export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing, redirectPath, isUnlicensedDebug } = useValues(billingLogic)
     const {
@@ -81,6 +81,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const isTemporaryFreeProduct =
         (!product.tiered && !product.free_allocation && !product.inclusion_only) ||
         (product.tiered && product.tiers?.length === 1 && product.tiers[0].unit_amount_usd === '0')
+
+    // If the feature flag `billing_hide_product_{product.type}` is true,
+    // don't show the product in the billing page.
+    const hideProductFlag = `billing_hide_product_${product.type}`
+    if (featureFlags[hideProductFlag] === true) {
+        return null
+    }
 
     return (
         <div

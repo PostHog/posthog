@@ -46,6 +46,11 @@ const PERSON_PROPERTIES_ADAPTED_FROM_EVENT = new Set([
     '$os_version',
     '$referring_domain',
     '$referrer',
+    '$screen_height',
+    '$screen_width',
+    '$viewport_height',
+    '$viewport_width',
+    '$raw_user_agent',
     ...CAMPAIGN_PROPERTIES,
 ])
 
@@ -72,6 +77,14 @@ export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
     'rdt_cid',
     'irclid',
     '_kx',
+])
+
+export const SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = new Set([
+    '$current_url', // Gets renamed to just $url
+    '$host',
+    '$pathname',
+    '$referrer',
+    ...SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 ])
 
 // changing values in here you need to sync to python posthog/posthog/taxonomy/taxonomy.py
@@ -270,6 +283,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             examples: ['$pageview'],
             system: true,
         },
+        person_id: {
+            label: 'Person ID',
+            description: 'The ID of the person, depending on the person properties mode.',
+            examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
+        },
+    },
+    event_metadata: {
+        // Values are copied from 'metadata' below.
     },
     event_properties: {
         $python_runtime: {
@@ -1049,6 +1070,28 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
                 'Keys and multivariate values of the feature flags that were active while this event was sent.',
             examples: ['{"flag": "value"}'],
         },
+        $feature_flag_reason: {
+            label: 'Feature Flag Evaluation Reason',
+            description: 'The reason the feature flag was matched or not matched.',
+            examples: ['Matched condition set 1'],
+        },
+        $feature_flag_request_id: {
+            label: 'Feature Flag Request ID',
+            description: (
+                <>
+                    The unique identifier for the request that retrieved this feature flag result.
+                    <br />
+                    <br />
+                    Note: Primarily used by PostHog support for debugging issues with feature flags.
+                </>
+            ),
+            examples: ['01234567-89ab-cdef-0123-456789abcdef'],
+        },
+        $feature_flag_version: {
+            label: 'Feature Flag Version',
+            description: 'The version of the feature flag that was called.',
+            examples: ['3'],
+        },
         $feature_flag_response: {
             label: 'Feature Flag Response',
             description: 'What the call to feature flag responded with.',
@@ -1741,6 +1784,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
 CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
 // add distinct_id to event properties before copying to person properties so it exists in person properties as well
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.distinct_id = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata.distinct_id
+// Copy meta properties to event_metadata
+for (const key of ['distinct_id', 'timestamp', 'event', 'person_id']) {
+    CORE_FILTER_DEFINITIONS_BY_GROUP.event_metadata[key] = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata[key]
+}
 
 for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)) {
     if (PERSON_PROPERTIES_ADAPTED_FROM_EVENT.has(key) || key.startsWith('$geoip_')) {
@@ -1772,6 +1819,20 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
                 'description' in value
                     ? `${value.description} Data from the first event in this session.`
                     : 'Data from the first event in this session.',
+        }
+    }
+}
+
+for (const key of SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS) {
+    const mappedKey = key !== '$current_url' ? key.replace(/^\$/, '') : 'url'
+
+    if (key in CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties) {
+        const eventProps = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties as Record<string, CoreFilterDefinition>
+
+        eventProps[`$session_entry_${mappedKey}`] = {
+            ...eventProps[key],
+            label: `Session entry ${eventProps[key].label}`,
+            description: `${eventProps[key].description}. Captured at the start of the session and remains constant for the duration of the session.`,
         }
     }
 }

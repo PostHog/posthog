@@ -30,6 +30,7 @@ export enum Scene {
     ReplaySingle = 'ReplaySingle',
     ReplayPlaylist = 'ReplayPlaylist',
     ReplayFilePlayback = 'ReplayFilePlayback',
+    ReplaySettings = 'ReplaySettings',
     CustomCss = 'CustomCss',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
@@ -89,8 +90,10 @@ export enum Scene {
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
+    MessagingAutomations = 'MessagingAutomations',
     MessagingProviders = 'MessagingProviders',
     MessagingBroadcasts = 'MessagingBroadcasts',
+    MessagingLibrary = 'MessagingLibrary',
     Wizard = 'Wizard',
 }
 

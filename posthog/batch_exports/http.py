@@ -283,11 +283,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             config = destination_attrs["config"]
             # for updates, get the existing config
             self.instance: BatchExport | None
+            view = self.context.get("view")
+
             if self.instance is not None:
                 existing_config = self.instance.destination.config
+            elif view is not None and "pk" in view.kwargs:
+                # Running validation for a `detail=True` action.
+                instance = view.get_object()
+                existing_config = instance.destination.config
             else:
                 existing_config = {}
             merged_config = {**existing_config, **config}
+
             if config.get("authentication_type") == "password" and merged_config.get("password") is None:
                 raise serializers.ValidationError("Password is required if authentication type is password")
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
