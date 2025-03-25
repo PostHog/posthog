@@ -235,15 +235,6 @@ export const SidePanelSupport = (): JSX.Element => {
                                                     <span className="text-text-3000 opacity-75 group-hover:opacity-100">
                                                         {product.name}
                                                     </span>
-                                                </div>
-                                                <div>
-                                                    <IconChevronDown className="text-text-3000 h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
-                                                </div>
-                                            </Link>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </Section>
 
                             {status !== 'operational' ? (
                                 <Section title="">
@@ -269,7 +260,7 @@ export const SidePanelSupport = (): JSX.Element => {
 
                             {isCloudOrDev ? (
                                 <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
-                                    <Section title="Ask Max the Hedgehog">
+                                    <Section title="Ask Max AI">
                                         <>
                                             <p>
                                                 This Max is direct to the Anthropic API, not via InKeep. (Internal use
@@ -297,12 +288,12 @@ export const SidePanelSupport = (): JSX.Element => {
 
                             {isCloudOrDev ? (
                                 <FlaggedFeature flag={FEATURE_FLAGS.INKEEP_MAX_SUPPORT_SIDEBAR} match={true}>
-                                    <Section title="Ask Max the Hedgehog">
+                                    <Section title="Ask Max AI">
                                         <>
                                             <p>
-                                                This Max is PostHog's support AI.
+                                                Max AI can now answer 80%+ of the support questions we receive! Nice. 
                                                 <br />
-                                                He can answer support questions, read the docs, write SQL queries and
+                                                Let Max read 100s of pages of docs for you, write SQL queries and
                                                 expressions, regex patterns, etc.
                                             </p>
                                             <LemonButton
@@ -327,7 +318,7 @@ export const SidePanelSupport = (): JSX.Element => {
 
                             {isCloudOrDev ? (
                                 <Section title="Contact us">
-                                    <p>Can't find what you need in the docs?</p>
+                                    <p>Can't find what you need and Max AI unable to help?</p>
                                     <LemonButton
                                         type="primary"
                                         fullWidth
