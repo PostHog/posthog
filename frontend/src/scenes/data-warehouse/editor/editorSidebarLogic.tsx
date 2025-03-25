@@ -48,7 +48,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'initialDataWarehouseSavedQueryLoading'],
             databaseTableListLogic,
-            ['posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
+            ['posthogTables', 'dataWarehouseTables', 'allTables', 'databaseLoading', 'views', 'viewsMapById'],
         ],
         actions: [
             editorSceneLogic,
@@ -115,10 +115,10 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                     },
                     emptyComponentLogic: (items) => {
                         // We will always show the posthog tables, so we wanna check for length == 1 instead of 0
-                        return items.length == 1 && !databaseLoading && !searchTerm?.length
+                        return items.length < 2 && !databaseLoading && !searchTerm?.length
                     },
                     emptyComponent: (
-                        <div className="p-4 text-center flex flex-col justify-center items-center">
+                        <div className="p-4 text-center flex flex-col justify-center items-center border-t">
                             <div className="mb-4 flex justify-center gap-6">
                                 <DataWarehouseSourceIcon type="Postgres" size="small" />
                                 <DataWarehouseSourceIcon type="Stripe" size="small" />
@@ -324,15 +324,9 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
         ],
     })),
     subscriptions({
-        dataWarehouseTables: (dataWarehouseTables) => {
-            dataWarehouseTables.forEach((n: any) => {
-                dataWarehouseTablesfuse.add(n)
-            })
-        },
-        posthogTables: (posthogTables) => {
-            posthogTables.forEach((n: any) => {
-                dataWarehouseTablesfuse.add(n)
-            })
+        allTables: (allTables: DatabaseSchemaTable[]) => {
+            const tables = allTables.filter((n) => n.type === 'posthog' || n.type === 'data_warehouse')
+            dataWarehouseTablesfuse.setCollection(tables)
         },
         dataWarehouseSavedQueries: (dataWarehouseSavedQueries) => {
             savedQueriesfuse.setCollection(dataWarehouseSavedQueries)
