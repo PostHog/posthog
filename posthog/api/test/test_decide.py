@@ -3908,7 +3908,7 @@ class TestDecideRemoteConfig(TestDecide):
                 "elementsChainAsString": True,
                 "sessionRecording": False,
                 "heatmaps": False,
-                "surveys": False,
+                "surveys": True,
                 "defaultIdentifiedOnly": True,
                 "siteApps": [],
                 "isAuthenticated": False,

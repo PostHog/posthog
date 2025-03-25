@@ -10,6 +10,7 @@ import {
     IconPeople,
     IconPinFilled,
     IconSearch,
+    IconSparkles,
     IconToolbar,
 } from '@posthog/icons'
 import { cva } from 'class-variance-authority'
@@ -192,7 +193,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     <IconSearch />
                                 </IconWrapper>
                             }
-                        />
+                        /> 
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
