@@ -3,6 +3,8 @@
 from typing import Optional
 
 from posthog.models.action.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.file_system.file_system import FileSystem, split_path, escape_path
@@ -12,6 +14,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.experiment import Experiment
 from posthog.models.insight import Insight
 from posthog.models.dashboard import Dashboard
+from posthog.models.surveys.survey import Survey
 from posthog.models.notebook import Notebook
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
@@ -23,6 +26,9 @@ MIXIN_MODELS = {
     "dashboard": Dashboard,
     "notebook": Notebook,
     "replay_playlist": SessionRecordingPlaylist,
+    "cohort": Cohort,
+    "hog_function": HogFunction,
+    "survey": Survey,
 }
 
 

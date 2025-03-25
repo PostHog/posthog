@@ -332,9 +332,19 @@
     }
 
     &.LemonButton--tertiary {
-        &:not([aria-disabled='true']):hover,
-        &.LemonButton--active {
-            background-color: var(--border-primary);
+        &:not([aria-disabled='true']):hover {
+            background-color: var(--bg-fill-button-tertiary-hover);
+        }
+
+        &.LemonButton--active,
+        &[aria-expanded='true'] {
+            background-color: var(--bg-fill-button-tertiary-active);
+
+            // When inside a LemonButtonWithSideAction, we don't want the side button to have a background color (until hovered)
+            // This is because we changed the background color for tertiary to be based on a background color with opacity
+            .LemonButtonWithSideAction__side-button & {
+                background-color: transparent;
+            }
         }
 
         &.LemonButton--status-danger {

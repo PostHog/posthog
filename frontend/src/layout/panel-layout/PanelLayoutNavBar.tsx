@@ -10,7 +10,6 @@ import {
     IconPeople,
     IconPinFilled,
     IconSearch,
-    IconSparkles,
     IconToolbar,
 } from '@posthog/icons'
 import { cva } from 'class-variance-authority'
@@ -71,10 +70,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (!isLayoutPanelVisible) {
             showLayoutPanel(true)
         } else {
-            if (!isLayoutPanelPinned) {
-                showLayoutPanel(false)
-                clearActivePanelIdentifier()
-            }
+            showLayoutPanel(false)
+            clearActivePanelIdentifier()
         }
 
         if (activePanelIdentifier !== item) {
@@ -107,6 +104,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     ]
     const navItems = [
         {
+            identifier: 'ProjectHomepage',
+            id: 'Home',
+            icon: <IconHome />,
+            to: urls.projectHomepage(),
+            onClick: () => {
+                handleStaticNavbarItemClick(urls.projectHomepage(), true)
+            },
+        },
+        {
+            identifier: 'Project',
             id: 'Project',
             icon: <IconFolderOpen className="stroke-[1.2]" />,
             onClick: (e?: React.KeyboardEvent) => {
@@ -117,27 +124,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             showChevron: true,
         },
         {
-            id: 'Search',
-            icon: <IconSearch />,
-            onClick: () => toggleSearchBar(),
-        },
-        {
-            id: 'Home',
-            icon: <IconHome />,
-            to: urls.projectHomepage(),
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.projectHomepage(), true)
-            },
-        },
-        {
-            id: 'Max',
-            icon: <IconSparkles />,
-            to: urls.max(),
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.max(), true)
-            },
-        },
-        {
+            identifier: 'Dashboards',
             id: 'Dashboards',
             icon: <IconDashboard />,
             to: urls.dashboards(),
@@ -146,6 +133,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
+            identifier: 'Notebooks',
             id: 'Notebooks',
             icon: <IconNotebook />,
             to: urls.notebooks(),
@@ -154,6 +142,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
+            identifier: 'DataManagement',
             id: 'Data management',
             icon: <IconDatabase />,
             to: urls.eventDefinitions(),
@@ -162,6 +151,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
+            identifier: 'PersonsManagement',
             id: 'Persons and groups',
             icon: <IconPeople />,
             to: urls.persons(),
@@ -170,6 +160,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
+            identifier: 'Activity',
             id: 'Activity',
             icon: <IconClock />,
             to: urls.activity(),
@@ -191,20 +182,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     <div className="flex justify-between p-1">
                         <OrganizationDropdownMenu />
 
-                        {/* <LemonButton
+                        <LemonButton
                             size="small"
                             type="tertiary"
-                            tooltip="Create new"
-                            onClick={() =>
-                                alert('global "new" button which would let you create a bunch of new things')
-                            }
-                            className="hover:bg-fill-highlight-50 shrink-0"
+                            tooltip="Search"
+                            onClick={() => toggleSearchBar()}
                             icon={
                                 <IconWrapper>
-                                    <IconPlusSmall />
+                                    <IconSearch />
                                 </IconWrapper>
                             }
-                        /> */}
+                        />
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
@@ -215,7 +203,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             styledScrollbars
                         >
                             <ListBox className="flex flex-col gap-px">
-                                <div className="px-1">
+                                <div className="px-1 flex flex-col gap-px">
                                     {navItems.map((item) => (
                                         <ListBox.Item
                                             key={item.id}
@@ -229,8 +217,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         >
                                             <LemonButton
                                                 className={cn(
-                                                    'hover:bg-fill-highlight-50 data-[focused=true]:bg-fill-highlight-50',
-                                                    activePanelIdentifier === item.id && 'bg-fill-highlight-100'
+                                                    activePanelIdentifier === item.identifier &&
+                                                        'bg-fill-button-tertiary-active'
                                                 )}
                                                 icon={<IconWrapper>{item.icon}</IconWrapper>}
                                                 fullWidth
@@ -243,11 +231,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                     ) : undefined
                                                 }
                                                 to={item.to}
-                                                disabledReason={
-                                                    item.id === 'Project' && isLayoutPanelPinned && isLayoutPanelVisible
-                                                        ? 'Project panel is pinned'
-                                                        : undefined
-                                                }
                                             >
                                                 <span>{item.id}</span>
                                                 <span className="ml-auto">
@@ -299,14 +282,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         >
                                                             <LemonButton
                                                                 key={item.identifier}
-                                                                className={cn(
-                                                                    'hover:bg-fill-highlight-50 data-[focused=true]:bg-fill-highlight-50',
-                                                                    (activeScene === item.identifier ||
-                                                                        sceneBreadcrumbKeys.includes(
-                                                                            item.identifier
-                                                                        )) &&
-                                                                        'bg-fill-highlight-100'
-                                                                )}
                                                                 icon={<IconWrapper>{item.icon}</IconWrapper>}
                                                                 sideIcon={
                                                                     item.tag ? (
@@ -330,13 +305,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 // This makes it a link if it has a to
                                                                 // we handle routing in the handleStaticNavbarItemClick function
                                                                 to={'to' in item ? item.to : undefined}
-                                                                active={
-                                                                    (activePanelIdentifier === item.identifier ||
-                                                                        sceneBreadcrumbKeys.includes(
-                                                                            item.identifier
-                                                                        )) &&
-                                                                    activeScene === item.identifier
-                                                                }
                                                             >
                                                                 {item.label}
                                                             </LemonButton>
@@ -352,13 +320,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="border-b border-secondary h-px " />
 
-                        <div className="pt-1 px-1 pb-2">
+                        <div className="pt-1 px-1 pb-2 flex flex-col gap-px">
                             <LemonButton
                                 className={cn(
-                                    'hover:bg-fill-highlight-50',
                                     (activeScene === Scene.ToolbarLaunch ||
                                         sceneBreadcrumbKeys.includes(Scene.ToolbarLaunch)) &&
-                                        'bg-fill-highlight-100'
+                                        'bg-fill-button-tertiary-active'
                                 )}
                                 icon={
                                     <IconWrapper>
@@ -369,7 +336,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 size="small"
                                 to={urls.toolbarLaunch()}
                                 onClick={() => {
-                                    clearActivePanelIdentifier()
+                                    handleStaticNavbarItemClick(urls.toolbarLaunch(), false)
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        handleStaticNavbarItemClick(urls.toolbarLaunch(), true)
+                                    }
                                 }}
                                 active={
                                     activeScene === Scene.ToolbarLaunch ||
@@ -381,21 +353,25 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                             <LemonButton
                                 className={cn(
-                                    'hover:bg-fill-highlight-50',
                                     (activeScene === Scene.Settings || sceneBreadcrumbKeys.includes(Scene.Settings)) &&
-                                        'bg-fill-highlight-100'
+                                        'bg-fill-button-tertiary-active'
                                 )}
                                 icon={
                                     <IconWrapper>
                                         <IconGear />
                                     </IconWrapper>
                                 }
-                                fullWidth
-                                size="small"
                                 to={urls.settings('project')}
                                 onClick={() => {
-                                    clearActivePanelIdentifier()
+                                    handleStaticNavbarItemClick(urls.settings('project'), false)
                                 }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        handleStaticNavbarItemClick(urls.settings('project'), true)
+                                    }
+                                }}
+                                fullWidth
+                                size="small"
                                 active={activeScene === Scene.Settings || sceneBreadcrumbKeys.includes(Scene.Settings)}
                             >
                                 Settings
@@ -409,10 +385,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 className="min-w-70"
                             >
                                 <LemonButton
-                                    className={cn(
-                                        'hover:bg-fill-highlight-50',
-                                        isAccountPopoverOpen && 'bg-fill-highlight-100'
-                                    )}
+                                    className={cn(isAccountPopoverOpen && 'bg-fill-button-tertiary-active')}
                                     fullWidth
                                     size="small"
                                     sideIcon={
