@@ -61,6 +61,11 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
     property: str = Field(..., description="Property name from the plan to break down by.")
 
 
+class AssistantContextualTool(StrEnum):
+    SEARCH_SESSION_RECORDINGS = "search_session_recordings"
+    FIELD_ = "_"
+
+
 class AssistantDateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -225,6 +230,13 @@ class AssistantToolCallMessage(BaseModel):
     id: Optional[str] = None
     tool_call_id: str
     type: Literal["tool"] = "tool"
+    ui_payload: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages"
+            " without a ui_payload are not passed through to the frontend."
+        ),
+    )
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -1459,6 +1471,7 @@ class PersonType(BaseModel):
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
+    EVENT_METADATA = "event_metadata"
     PERSON = "person"
     ELEMENT = "element"
     FEATURE = "feature"
@@ -1559,6 +1572,17 @@ class ReasoningMessage(BaseModel):
     id: Optional[str] = None
     substeps: Optional[list[str]] = None
     type: Literal["ai/reasoning"] = "ai/reasoning"
+
+
+class RecordingDurationFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: DurationType
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["recording"] = "recording"
+    value: float
 
 
 class RecordingOrder(StrEnum):
@@ -1677,6 +1701,23 @@ class RevenueTrackingEventItem(BaseModel):
     revenueProperty: str
 
 
+class RootAssistantMessage1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    tool_call_id: str
+    type: Literal["tool"] = "tool"
+    ui_payload: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages"
+            " without a ui_payload are not passed through to the frontend."
+        ),
+    )
+
+
 class SamplingRate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1779,6 +1820,7 @@ class TaxonomicFilterGroupType(StrEnum):
     EVENTS = "events"
     EVENT_PROPERTIES = "event_properties"
     EVENT_FEATURE_FLAGS = "event_feature_flags"
+    EVENT_METADATA = "event_metadata"
     NUMERICAL_EVENT_PROPERTIES = "numerical_event_properties"
     PERSON_PROPERTIES = "person_properties"
     PAGEVIEW_URLS = "pageview_urls"
@@ -2602,6 +2644,17 @@ class ErrorTrackingSparklineConfig(BaseModel):
     )
     interval: Interval
     value: int
+
+
+class EventMetadataPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["event_metadata"] = "event_metadata"
+    value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
 class EventOddsRatioSerialized(BaseModel):
@@ -4844,6 +4897,7 @@ class DashboardFilter(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5074,6 +5128,7 @@ class DataWarehouseNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5116,6 +5171,7 @@ class DataWarehouseNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5169,6 +5225,7 @@ class EntityNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5209,6 +5266,7 @@ class EntityNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5298,6 +5356,7 @@ class EventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5340,6 +5399,7 @@ class EventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5398,6 +5458,7 @@ class ExperimentActionMetricConfig(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5424,6 +5485,7 @@ class ExperimentEventExposureConfig(BaseModel):
             EventPropertyFilter,
             PersonPropertyFilter,
             ElementPropertyFilter,
+            EventMetadataPropertyFilter,
             SessionPropertyFilter,
             CohortPropertyFilter,
             RecordingPropertyFilter,
@@ -5454,6 +5516,7 @@ class ExperimentEventMetricConfig(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5554,6 +5617,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5597,6 +5661,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5625,6 +5690,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5669,6 +5735,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5761,6 +5828,7 @@ class HogQLFilters(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5893,6 +5961,7 @@ class PersonsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5921,6 +5990,7 @@ class PersonsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -5950,6 +6020,7 @@ class PropertyGroupFilterValue(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -6751,6 +6822,7 @@ class RetentionEntity(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -6918,6 +6990,7 @@ class TracesQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -7124,6 +7197,7 @@ class ActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -7165,6 +7239,7 @@ class ActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -7594,6 +7669,34 @@ class InsightFilter(
     root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
 
 
+class MaxInnerUniversalFiltersGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: FilterLogicalOperator
+    values: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, RecordingPropertyFilter]]
+
+
+class MaxOuterUniversalFiltersGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: FilterLogicalOperator
+    values: list[MaxInnerUniversalFiltersGroup]
+
+
+class MaxRecordingUniversalFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    duration: list[RecordingDurationFilter]
+    filter_group: MaxOuterUniversalFiltersGroup
+    filter_test_accounts: Optional[bool] = None
+    order: Optional[RecordingOrder] = RecordingOrder.START_TIME
+
+
 class PropertyGroupFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7639,6 +7742,7 @@ class RecordingsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -7667,6 +7771,7 @@ class RecordingsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -7707,9 +7812,20 @@ class RetentionQueryResponse(BaseModel):
 
 
 class RootAssistantMessage(
-    RootModel[Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]]
+    RootModel[
+        Union[
+            VisualizationMessage,
+            ReasoningMessage,
+            AssistantMessage,
+            HumanMessage,
+            FailureMessage,
+            RootAssistantMessage1,
+        ]
+    ]
 ):
-    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]
+    root: Union[
+        VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RootAssistantMessage1
+    ]
 
 
 class StickinessQuery(BaseModel):
@@ -7740,6 +7856,7 @@ class StickinessQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -7806,6 +7923,7 @@ class TrendsQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8014,6 +8132,7 @@ class FunnelsQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8057,6 +8176,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8097,6 +8217,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8137,6 +8258,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8177,6 +8299,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8217,6 +8340,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8264,6 +8388,7 @@ class LifecycleQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8374,6 +8499,7 @@ class RetentionQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8541,6 +8667,7 @@ class PathsQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8816,6 +8943,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
@@ -8928,6 +9056,7 @@ class EventsQuery(BaseModel):
                     EventPropertyFilter,
                     PersonPropertyFilter,
                     ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
@@ -8959,6 +9088,7 @@ class EventsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 ElementPropertyFilter,
+                EventMetadataPropertyFilter,
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,

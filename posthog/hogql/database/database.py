@@ -617,6 +617,7 @@ def serialize_database(
             ),
         )
         .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
+        .order_by("external_data_source__prefix", "external_data_source__source_type", "name")
         .all()
         if warehouse_table_names
         else []
