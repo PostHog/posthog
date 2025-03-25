@@ -1,4 +1,4 @@
-import { IconPlusSmall, IconSort } from '@posthog/icons'
+import { IconFolderPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -77,27 +77,27 @@ export function ProjectTree(): JSX.Element {
                         </div>
                     ) : (
                         <>
-                            <LemonButton
+                            {/* <LemonButton
                                 size="small"
                                 type="tertiary"
                                 tooltip="Sort by name"
                                 onClick={() => alert('Sort by name')}
-                                className="hover:bg-fill-highlight-100 shrink-0"
+                                className="shrink-0"
                                 icon={
                                     <IconWrapper>
                                         <IconSort />
                                     </IconWrapper>
                                 }
-                            />
+                            /> */}
                             <LemonButton
                                 size="small"
                                 type="tertiary"
                                 tooltip="Create new root folder"
                                 onClick={() => createFolder('')}
-                                className="hover:bg-fill-highlight-100 shrink-0"
+                                className="shrink-0"
                                 icon={
                                     <IconWrapper>
-                                        <IconPlusSmall />
+                                        <IconFolderPlus />
                                     </IconWrapper>
                                 }
                             />
