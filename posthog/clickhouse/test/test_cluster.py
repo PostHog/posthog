@@ -289,14 +289,17 @@ def test_map_hosts_by_role() -> None:
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL).result()
         assert times_called[NodeRole.DATA] == 3
         assert times_called[NodeRole.COORDINATOR] == 1
+        times_called.clear()
 
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL, workload=Workload.OFFLINE).result()
         assert times_called[NodeRole.DATA] == 1
         assert times_called[NodeRole.COORDINATOR] == 0
+        times_called.clear()
 
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.DATA, workload=Workload.ONLINE).result()
         assert times_called[NodeRole.DATA] == 3
         assert times_called[NodeRole.COORDINATOR] == 0
+        times_called.clear()
 
 
 def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
