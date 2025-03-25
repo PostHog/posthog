@@ -1,5 +1,6 @@
 import datetime
 from abc import ABC, abstractmethod
+from typing import Any
 from uuid import UUID
 
 from django.utils import timezone
@@ -75,3 +76,22 @@ class AssistantNode(ABC):
             return conversation.status == Conversation.Status.CANCELING
         except Conversation.DoesNotExist:
             return True
+
+    def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
+        """
+        Extracts the user distinct ID from the runnable config.
+        """
+        try:
+            distinct_id = config["configurable"]["distinct_id"]
+        except KeyError:
+            return None
+        return distinct_id
+
+    def _get_trace_id(self, config: RunnableConfig) -> Any | None:
+        """
+        Extracts the trace ID from the runnable config.
+        """
+        try:
+            return config["configurable"]["trace_id"]
+        except KeyError:
+            return None
