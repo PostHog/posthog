@@ -25,7 +25,7 @@ from ee.hogai.root.prompts import (
 )
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
+from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, FailureMessage, HumanMessage
 
 RouteName = Literal["insights", "root", "end", "docs"]
 
@@ -55,7 +55,7 @@ class search_documentation(BaseModel):
 RootToolCall = create_and_query_insight | search_documentation
 root_tools_parser = PydanticToolsParser(tools=[create_and_query_insight, search_documentation])
 
-RootMessageUnion = HumanMessage | AssistantMessage | AssistantToolCallMessage
+RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
 
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
@@ -154,7 +154,7 @@ class RootNode(AssistantNode):
             elif isinstance(message, AssistantMessage):
                 # Filter out tool calls without a tool response, so the completion doesn't fail.
                 tool_calls = [
-                    tool for tool in message.model_dump()["tool_calls"] or [] if tool["id"] in tool_result_messages
+                    tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_messages
                 ]
 
                 history.append(LangchainAIMessage(content=message.content, tool_calls=tool_calls, id=message.id))
@@ -168,6 +168,10 @@ class RootNode(AssistantNode):
                             content=result_message.content, tool_call_id=tool_call_id, id=result_message.id
                         )
                     )
+            elif isinstance(message, FailureMessage):
+                history.append(
+                    LangchainAIMessage(content=message.content or "An unknown failure occurred.", id=message.id)
+                )
 
         return history
 
