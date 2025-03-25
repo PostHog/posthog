@@ -25,22 +25,24 @@ function SurveyPopupToggle(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-1">
-            <LemonSwitch
-                data-attr="opt-in-surveys-switch"
-                onChange={(checked) => {
-                    updateCurrentTeam({
-                        surveys_opt_in: checked,
-                    })
-                }}
-                fullWidth
-                bordered={false}
-                label="Enable surveys"
-                labelClassName="text-base font-semibold"
-                checked={!!currentTeam?.surveys_opt_in}
-                className="p-0"
-                disabled={currentTeamLoading}
-                disabledReason={currentTeamLoading ? 'Loading...' : undefined}
-            />
+            {currentTeam?.surveys_opt_in !== undefined && (
+                <LemonSwitch
+                    data-attr="opt-in-surveys-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({
+                            surveys_opt_in: checked,
+                        })
+                    }}
+                    fullWidth
+                    bordered={false}
+                    label="Enable surveys"
+                    labelClassName="text-base font-semibold"
+                    checked={currentTeam.surveys_opt_in}
+                    className="p-0"
+                    disabled={currentTeamLoading}
+                    disabledReason={currentTeamLoading ? 'Loading...' : undefined}
+                />
+            )}
             <span>
                 Please note your website needs to have the{' '}
                 <Link to={urls.settings('project', 'snippet')}>PostHog snippet</Link> or at least version 1.81.1 of{' '}
