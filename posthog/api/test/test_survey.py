@@ -3180,6 +3180,112 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(data, {})
 
 
+class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
+    @snapshot_clickhouse_queries
+    @freeze_time("2024-05-01 14:40:09")
+    def test_survey_stats_returns_all_events(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="My Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What's your favorite color?"}],
+        )
+
+        # Insert events into clickhouse
+        events = [
+            ("survey shown", "2024-05-01 12:00:00", "user1"),
+            ("survey shown", "2024-05-01 12:01:00", "user2"),
+            ("survey dismissed", "2024-05-01 12:02:00", "user1"),
+            ("survey sent", "2024-05-01 12:03:00", "user2"),
+        ]
+
+        for event, timestamp, distinct_id in events:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={"$survey_id": str(survey.id)},
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data["survey_id"], str(survey.id))
+
+        stats = data["stats"]
+        self.assertEqual(stats["survey shown"]["total_count"], 2)
+        self.assertEqual(stats["survey shown"]["unique_persons"], 2)
+        self.assertEqual(stats["survey dismissed"]["total_count"], 1)
+        self.assertEqual(stats["survey dismissed"]["unique_persons"], 1)
+        self.assertEqual(stats["survey sent"]["total_count"], 1)
+        self.assertEqual(stats["survey sent"]["unique_persons"], 1)
+
+    @freeze_time("2024-05-01 14:40:09")
+    def test_survey_stats_with_date_filtering(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="My Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What's your favorite color?"}],
+        )
+
+        # Insert events into clickhouse across different dates
+        events = [
+            ("survey shown", "2024-05-01 12:00:00", "user1"),
+            ("survey shown", "2024-05-02 12:00:00", "user2"),
+            ("survey dismissed", "2024-05-02 12:00:00", "user1"),
+            ("survey sent", "2024-05-03 12:00:00", "user2"),
+        ]
+
+        for event, timestamp, distinct_id in events:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={"$survey_id": str(survey.id)},
+            )
+
+        # Test with date filter
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/",
+            {"date_from": "2024-05-02T00:00:00Z", "date_to": "2024-05-02T23:59:59Z"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        stats = data["stats"]
+        # Should only include events from May 2nd
+        self.assertEqual(stats["survey shown"]["total_count"], 1)
+        self.assertEqual(stats["survey dismissed"]["total_count"], 1)
+        self.assertEqual(stats["survey sent"]["total_count"], 0)
+
+    def test_survey_stats_nonexistent_survey(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/12345/stats/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_survey_stats_zero_responses(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="My Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What's your favorite color?"}],
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        stats = data["stats"]
+        for event_type in ["survey shown", "survey dismissed", "survey sent"]:
+            self.assertEqual(stats[event_type]["total_count"], 0)
+            self.assertEqual(stats[event_type]["unique_persons"], 0)
+            self.assertEqual(stats[event_type]["first_seen"], None)
+            self.assertEqual(stats[event_type]["last_seen"], None)
+
+
 @pytest.mark.parametrize(
     "test_input,expected",
     [
