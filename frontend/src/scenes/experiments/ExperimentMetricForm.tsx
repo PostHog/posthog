@@ -50,7 +50,6 @@ export function ExperimentMetricForm({
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
 
     const isDataWarehouseMetric = metric.metric_config.kind === NodeKind.ExperimentDataWarehouseMetricConfig
-    console.log('metric', metric)
 
     return (
         <div className="deprecated-space-y-4">
