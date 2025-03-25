@@ -135,8 +135,8 @@ pub struct PropertyDefinitionsBatch {
     // note: I left off deprecated fields we null out on writes
 }
 
-impl PropertyDefinitionsBatch {
-    pub fn new() -> Self {
+impl Default for PropertyDefinitionsBatch {
+    fn default() -> Self {
         Self {
             ids: Vec::with_capacity(WRITE_BATCH_SIZE),
             team_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
@@ -147,6 +147,12 @@ impl PropertyDefinitionsBatch {
             event_types: Vec::with_capacity(WRITE_BATCH_SIZE),
             group_type_indices: Vec::with_capacity(WRITE_BATCH_SIZE),
         }
+    }
+}
+
+impl PropertyDefinitionsBatch {
+    pub fn new() -> Self {
+        Default::default()
     }
 
     pub fn append(&mut self, pd: PropertyDefinition) -> bool {
@@ -168,7 +174,7 @@ impl PropertyDefinitionsBatch {
         self.event_types.push(pd.event_type as i16);
         self.group_type_indices.push(group_type_index);
 
-        return self.ids.len() >= WRITE_BATCH_SIZE;
+        self.ids.len() >= WRITE_BATCH_SIZE
     }
 
     pub fn is_empty(&self) -> bool {
@@ -193,8 +199,8 @@ pub struct EventDefinitionsBatch {
     pub last_seen_ats: Vec<DateTime<Utc>>,
 }
 
-impl EventDefinitionsBatch {
-    pub fn new() -> Self {
+impl Default for EventDefinitionsBatch {
+    fn default() -> Self {
         Self {
             ids: Vec::with_capacity(WRITE_BATCH_SIZE),
             names: Vec::with_capacity(WRITE_BATCH_SIZE),
@@ -202,6 +208,12 @@ impl EventDefinitionsBatch {
             project_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
             last_seen_ats: Vec::with_capacity(WRITE_BATCH_SIZE),
         }
+    }
+}
+
+impl EventDefinitionsBatch {
+    pub fn new() -> Self {
+        Default::default()
     }
 
     pub fn append(&mut self, ed: EventDefinition) -> bool {
@@ -211,7 +223,7 @@ impl EventDefinitionsBatch {
         self.project_ids.push(ed.project_id);
         self.last_seen_ats.push(ed.last_seen_at);
 
-        return self.ids.len() >= WRITE_BATCH_SIZE;
+        self.ids.len() >= WRITE_BATCH_SIZE
     }
 
     pub fn is_empty(&self) -> bool {
@@ -237,14 +249,20 @@ pub struct EventPropertiesBatch {
     pub property_names: Vec<String>,
 }
 
-impl EventPropertiesBatch {
-    pub fn new() -> Self {
+impl Default for EventPropertiesBatch {
+    fn default() -> Self {
         Self {
             team_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
             project_ids: Vec::with_capacity(WRITE_BATCH_SIZE),
             event_names: Vec::with_capacity(WRITE_BATCH_SIZE),
             property_names: Vec::with_capacity(WRITE_BATCH_SIZE),
         }
+    }
+}
+
+impl EventPropertiesBatch {
+    pub fn new() -> Self {
+        Default::default()
     }
 
     pub fn append(&mut self, ep: EventProperty) -> bool {
@@ -253,7 +271,7 @@ impl EventPropertiesBatch {
         self.event_names.push(ep.event);
         self.property_names.push(ep.property);
 
-        return self.team_ids.len() >= WRITE_BATCH_SIZE;
+        self.team_ids.len() >= WRITE_BATCH_SIZE
     }
 
     pub fn is_empty(&self) -> bool {

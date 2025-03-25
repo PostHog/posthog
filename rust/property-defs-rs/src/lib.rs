@@ -79,7 +79,8 @@ pub async fn update_consumer_loop(
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
-        if config.v2_enabled {
+        // conditionall enable new write path
+        if config.enable_v2 {
             process_batch_v2(&config, cache.clone(), context.clone(), batch).await;
         } else {
             process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
