@@ -15,7 +15,6 @@ import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
-import { urls } from 'scenes/urls'
 
 import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
@@ -51,10 +50,19 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
             dataIndex: 'name',
             key: 'name',
             render: function renderName(name: string, insight) {
+                const isInDashboard = dashboard?.tiles.some((tile) => tile.insight?.id === insight.id)
                 return (
                     <>
                         <LemonTableLink
-                            to={urls.insightView(insight.short_id)}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                if (dashboardUpdatesInProgress[insight.id]) {
+                                    return
+                                }
+                                isInDashboard
+                                    ? removeInsightFromDashboard(insight, dashboard?.id || 0)
+                                    : addInsightToDashboard(insight, dashboard?.id || 0)
+                            }}
                             title={<>{name || <i>{summarizeInsight(insight.query)}</i>}</>}
                             description={insight.description}
                         />
