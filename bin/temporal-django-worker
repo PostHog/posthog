@@ -6,8 +6,6 @@ cleanup() {
     echo "Stopping worker..."
     if kill -0 "$worker_pid" >/dev/null 2>&1; then
         kill -SIGTERM "$worker_pid"
-
-        wait "$worker_pid"
     else
         echo "Worker process is not running."
     fi
@@ -23,7 +21,7 @@ worker_pid=$!
 # potentially not waiting for graceful shutdown. When a SIGTERM is issued,
 # wait will exit with a status equal to signal number + 128.
 while wait $worker_pid; test $? -ge 128
-      do echo "Worker process finished"
+      do echo "Received signal, waiting for worker to finish"
 done
 
 cleanup
