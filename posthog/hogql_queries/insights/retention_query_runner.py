@@ -206,7 +206,7 @@ class RetentionQueryRunner(QueryRunner):
                         ast.Call(
                             name="nullIf",
                             args=[
-                                ast.Field(chain=properties_chain),
+                                ast.Field(chain=cast(list[str | int], properties_chain)),
                                 ast.Constant(value=""),
                             ],
                         ),
