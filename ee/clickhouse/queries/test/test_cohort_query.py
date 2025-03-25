@@ -3385,6 +3385,71 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         self.assertIn(p3.uuid, result_uuids)
         self.assertNotIn(p2.uuid, result_uuids)
 
+    def test_person_property_with_email_list(self):
+        # Create people with different email values
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"email": "test1@example.com"},
+        )
+        p2 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"email": "test2@example.com"},
+        )
+        p3 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p3"],
+            properties={"email": "other@example.com"},
+        )
+        flush_persons_and_events()
+
+        # Create cohort with email list using "in" operator
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="users with specific emails",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["test1@example.com", "test2@example.com"],
+                                    "operator": "in",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+            groups=[],  # Empty groups
+        )
+
+        # Create filter using the cohort
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                }
+            },
+            team=self.team,
+        )
+
+        # Execute the filter
+        res, q, params = execute(filter, self.team)
+
+        # Person 1 and 2 should match because their emails are in the list
+        self.assertEqual(len(res), 2)
+        result_uuids = [r[0] for r in res]
+        self.assertIn(p1.uuid, result_uuids)
+        self.assertIn(p2.uuid, result_uuids)
+        self.assertNotIn(p3.uuid, result_uuids)
+
 
 class TestCohortNegationValidation(BaseTest):
     def test_basic_valid_negation_tree(self):
