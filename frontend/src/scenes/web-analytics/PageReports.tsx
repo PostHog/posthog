@@ -7,6 +7,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { pageReportsLogic } from './pageReportsLogic'
 import { Tiles } from './WebAnalyticsDashboard'
+import { WebAnalyticsCompareFilter } from './WebAnalyticsFilters'
 
 function NoUrlSelectedMessage(): JSX.Element {
     return (
@@ -71,9 +72,8 @@ export function PageReportsFilters(): JSX.Element {
                         />
                     </div>
                 </Tooltip>
-                <div>
-                    <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
-                </div>
+                <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
+                <WebAnalyticsCompareFilter />
             </div>
         </div>
     )

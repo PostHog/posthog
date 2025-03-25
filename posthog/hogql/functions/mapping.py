@@ -997,7 +997,6 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             "dateTrunc",
             2,
             3,  # Allow optional timezone parameter
-            tz_aware=True,
             signatures=[
                 ((StringType(), DateTimeType()), DateTimeType()),
                 ((StringType(), DateTimeType(), StringType()), DateTimeType()),

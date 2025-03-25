@@ -474,6 +474,9 @@
                     "$ref": "#/definitions/ElementPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/EventMetadataPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/SessionPropertyFilter"
                 },
                 {
@@ -7378,6 +7381,29 @@
             "required": ["event", "properties", "elements"],
             "type": "object"
         },
+        "EventMetadataPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "event_metadata",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "EventOddsRatioSerialized": {
             "additionalProperties": false,
             "properties": {
@@ -11572,6 +11598,7 @@
             "enum": [
                 "meta",
                 "event",
+                "event_metadata",
                 "person",
                 "element",
                 "feature",
@@ -16076,6 +16103,7 @@
                 "events",
                 "event_properties",
                 "event_feature_flags",
+                "event_metadata",
                 "numerical_event_properties",
                 "person_properties",
                 "pageview_urls",
