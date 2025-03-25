@@ -88,6 +88,18 @@ class AssistantNode(ABC):
                     return tool_call
         raise ValueError(f"Tool call {tool_call_id} not found in state")
 
+    def _get_contextual_tools(self, config: RunnableConfig) -> dict[str, Any]:
+        """
+        Extracts contextual tools from the runnable config.
+        """
+        try:
+            contextual_tools = config["configurable"]["contextual_tools"]
+        except KeyError:
+            return {}
+        if not isinstance(contextual_tools, dict):
+            raise ValueError("Contextual tools must be a dictionary")
+        return contextual_tools
+
     def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
         """
         Extracts the user distinct ID from the runnable config.

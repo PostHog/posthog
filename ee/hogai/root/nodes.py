@@ -108,7 +108,7 @@ class RootNode(AssistantNode):
                             "system",
                             f"<{tool_name}>\n{CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT[tool_name]}\n</{tool_name}>",
                         )
-                        for tool_name in config.get("configurable", {}).get("contextual_tools", {}).keys()
+                        for tool_name in self._get_contextual_tools(config).keys()
                         if tool_name in CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT
                     ],
                 ],
@@ -129,7 +129,7 @@ class RootNode(AssistantNode):
                 "project_timezone": self._team.timezone_info.tzname(utc_now),
                 **{
                     f"{tool_name}_{context_key}": context_value
-                    for tool_name, context in config.get("configurable", {}).get("contextual_tools", {}).items()
+                    for tool_name, context in self._get_contextual_tools(config).items()
                     for context_key, context_value in context.items()
                 },
             },
@@ -164,7 +164,7 @@ class RootNode(AssistantNode):
         available_tools: list[type[BaseModel]] = [create_and_query_insight]
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
-        for tool_name in config["configurable"].get("contextual_tools", {}).keys():
+        for tool_name in self._get_contextual_tools(config).keys():
             if tool_name not in CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL:
                 continue  # Possibly a deployment mismatch
             available_tools.append(CONTEXTUAL_TOOL_NAME_TO_TOOL_MODEL[tool_name])

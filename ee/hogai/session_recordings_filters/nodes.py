@@ -42,8 +42,9 @@ class SessionRecordingsFiltersNode(AssistantNode):
 
         chain = prompt | model
 
-        contextual_tools = config["configurable"].get("contextual_tools", {})
-        search_recordings_config = contextual_tools.get(AssistantContextualTool.SEARCH_SESSION_RECORDINGS, {})
+        search_recordings_config = self._get_contextual_tools(config).get(
+            AssistantContextualTool.SEARCH_SESSION_RECORDINGS, {}
+        )
         result = chain.invoke(
             {
                 "change": tool_call.args["change"],
