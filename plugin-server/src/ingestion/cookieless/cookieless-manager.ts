@@ -734,7 +734,12 @@ export function extractRootDomain(input: string): string {
     }
 
     // Get the root domain using tldts
-    const domain = getDomain(hostname) ?? hostname
+    let domain = getDomain(hostname) ?? hostname
+
+    // if domain is localhost, map to 127.0.0.1 to make local dev easier
+    if (domain === 'localhost') {
+        domain = '127.0.0.1'
+    }
 
     // Add the port back if it exists
     return port ? `${domain}:${port}` : domain

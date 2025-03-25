@@ -131,7 +131,7 @@
         },
         {
             "host": "http://localhost:3000",
-            "expected_root_domain": "localhost:3000"
+            "expected_root_domain": "127.0.0.1:3000"
         },
         {
             "host": "1.2.3.4",
@@ -167,7 +167,7 @@
         },
         {
             "host": "localhost",
-            "expected_root_domain": "localhost"
+            "expected_root_domain": "127.0.0.1"
         },
         {
             "host": "",

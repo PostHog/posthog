@@ -388,6 +388,12 @@ pub fn extract_root_domain(host: &str) -> Result<String, CookielessManagerError>
         Err(_) => hostname,
     };
 
+    // if domain is localhost, map to 127.0.0.1 to make local dev easier
+    let domain = match domain.as_str() {
+        "localhost" => "127.0.0.1".to_string(),
+        _ => domain,
+    };
+
     // Add the port back if it exists
     match port {
         Some(p) => Ok(format!("{}:{}", domain, p)),
