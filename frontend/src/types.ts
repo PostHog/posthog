@@ -810,6 +810,7 @@ export enum PropertyFilterType {
     Meta = 'meta',
     /** Event properties */
     Event = 'event',
+    EventMetadata = 'event_metadata',
     /** Person properties */
     Person = 'person',
     Element = 'element',
@@ -837,6 +838,11 @@ interface BasePropertyFilter {
 export interface EventPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Event
     /** @default 'exact' */
+    operator: PropertyOperator
+}
+
+export interface EventMetadataPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.EventMetadata
     operator: PropertyOperator
 }
 
@@ -907,6 +913,7 @@ export type AnyPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
+    | EventMetadataPropertyFilter
     | SessionPropertyFilter
     | CohortPropertyFilter
     | RecordingPropertyFilter
@@ -3375,6 +3382,7 @@ export enum PropertyType {
 
 export enum PropertyDefinitionType {
     Event = 'event',
+    EventMetadata = 'event_metadata',
     Person = 'person',
     Group = 'group',
     Session = 'session',
