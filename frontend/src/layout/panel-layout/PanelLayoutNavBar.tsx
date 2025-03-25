@@ -8,7 +8,6 @@ import {
     IconHome,
     IconNotebook,
     IconPeople,
-    IconPinFilled,
     IconSearch,
     IconSparkles,
     IconToolbar,
@@ -111,7 +110,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             icon: <IconFolderOpen className="stroke-[1.2]" />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Project')
+                    if (!isLayoutPanelVisible) {
+                        handlePanelTriggerClick('Project')
+                    } else {
+                        showLayoutPanel(false)
+                    }
                 }
             },
             showChevron: true,
@@ -244,7 +247,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 to={item.to}
                                             >
                                                 <span>{item.id}</span>
-                                                <span className="ml-auto">
+                                                {/* <span className="ml-auto">
                                                     {item.id === 'Project' &&
                                                         isLayoutPanelPinned &&
                                                         isLayoutPanelVisible && (
@@ -252,7 +255,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 <IconPinFilled />
                                                             </IconWrapper>
                                                         )}
-                                                </span>
+                                                </span> */}
                                             </LemonButton>
                                         </ListBox.Item>
                                     ))}
