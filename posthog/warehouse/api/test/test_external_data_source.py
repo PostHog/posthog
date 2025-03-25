@@ -1116,7 +1116,7 @@ class TestExternalDataSource(APIBaseTest):
         source_model.refresh_from_db()
 
         assert source_model.job_inputs is not None
-        job_inputs: dict[str, t.Any] = source_model.job_inputs
+        job_inputs = source_model.job_inputs
         assert job_inputs["account_id"] == "my_account_id"
         assert job_inputs["database"] == "my_database"
         assert job_inputs["warehouse"] == "my_warehouse"
