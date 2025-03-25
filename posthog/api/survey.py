@@ -751,6 +751,89 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(counts)
 
+    @action(methods=["GET"], detail=True, url_path="stats", required_scopes=["survey:read"])
+    def survey_stats(self, request: request.Request, **kwargs):
+        survey_id = kwargs["pk"]
+        date_from = request.query_params.get("date_from", None)
+        date_to = request.query_params.get("date_to", None)
+
+        try:
+            survey = self.get_object()
+        except Survey.DoesNotExist:
+            raise exceptions.NotFound("Survey not found")
+
+        date_filter = ""
+        params = {"team_id": self.team_id, "survey_id": str(survey_id)}
+
+        if date_from:
+            date_filter += " AND timestamp >= parseDateTimeBestEffort(%(date_from)s)"
+            params["date_from"] = date_from
+        if date_to:
+            date_filter += " AND timestamp <= parseDateTimeBestEffort(%(date_to)s)"
+            params["date_to"] = date_to
+
+        results = sync_execute(
+            f"""
+            SELECT
+                'survey shown' as event_name,
+                count() as total_count,
+                count(DISTINCT person_id) as unique_persons,
+                if(count() > 0, min(timestamp), null) as first_seen,
+                if(count() > 0, max(timestamp), null) as last_seen
+            FROM events
+            WHERE team_id = %(team_id)s
+            AND event = 'survey shown'
+            AND JSONExtractString(properties, '$survey_id') = %(survey_id)s
+            {date_filter}
+
+            UNION ALL
+
+            SELECT
+                'survey dismissed' as event_name,
+                count() as total_count,
+                count(DISTINCT person_id) as unique_persons,
+                if(count() > 0, min(timestamp), null) as first_seen,
+                if(count() > 0, max(timestamp), null) as last_seen
+            FROM events
+            WHERE team_id = %(team_id)s
+            AND event = 'survey dismissed'
+            AND JSONExtractString(properties, '$survey_id') = %(survey_id)s
+            {date_filter}
+
+            UNION ALL
+
+            SELECT
+                'survey sent' as event_name,
+                count() as total_count,
+                count(DISTINCT person_id) as unique_persons,
+                if(count() > 0, min(timestamp), null) as first_seen,
+                if(count() > 0, max(timestamp), null) as last_seen
+            FROM events
+            WHERE team_id = %(team_id)s
+            AND event = 'survey sent'
+            AND JSONExtractString(properties, '$survey_id') = %(survey_id)s
+            {date_filter}
+        """,
+            params,
+        )
+
+        response_data = {
+            "survey_id": survey_id,
+            "start_date": survey.start_date,
+            "end_date": survey.end_date,
+            "stats": {},
+        }
+
+        for event_name, total_count, unique_persons, first_seen, last_seen in results:
+            response_data["stats"][event_name] = {
+                "total_count": total_count,
+                "unique_persons": unique_persons,
+                "first_seen": first_seen.isoformat() + "Z" if first_seen else None,
+                "last_seen": last_seen.isoformat() + "Z" if last_seen else None,
+            }
+
+        return Response(response_data)
+
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
