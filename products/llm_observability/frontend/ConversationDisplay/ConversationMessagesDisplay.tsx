@@ -145,6 +145,15 @@ export const LLMMessageDisplay = React.memo(
                     if (parsed.type === 'image') {
                         return <ImageMessageDisplay message={parsed} />
                     }
+                    if (parsed.type === 'input_image') {
+                        const message = {
+                            content: {
+                                type: 'image',
+                                image: parsed.image_url,
+                            },
+                        }
+                        return <ImageMessageDisplay message={message} />
+                    }
                     if (typeof parsed === 'object' && parsed !== null) {
                         return <JSONViewer src={parsed} name={null} collapsed={5} />
                     }
