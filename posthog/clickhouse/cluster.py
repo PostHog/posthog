@@ -323,8 +323,13 @@ class ClickhouseCluster:
         """
         shard_host_fns = {}
         for shard, fn in shard_fns.items():
-            host = next(iter(self.__hosts_by_role(self.__shards[shard], node_role, workload)))
-            shard_host_fns[host] = fn
+            try:
+                host = next(iter(self.__hosts_by_role(self.__shards[shard], node_role, workload)))
+                shard_host_fns[host] = fn
+            except StopIteration:
+                raise ValueError(
+                    f"No hosts found with role {node_role.value} and workload {workload.value} in shard {shard}"
+                )
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
@@ -400,12 +405,16 @@ class Retryable(Generic[T]):  # note: this class exists primarily to allow a rea
 
     def __call__(self, client: Client) -> T:
         if isinstance(self.policy.exceptions, tuple):
-            is_retryable_exception = lambda e: isinstance(e, self.policy.exceptions)
+
+            def is_retryable_exception(e):
+                return isinstance(e, self.policy.exceptions)
         else:
             is_retryable_exception = self.policy.exceptions
 
         if not callable(self.policy.delay):
-            delay_fn = lambda _: self.policy.delay
+
+            def delay_fn(_):
+                return self.policy.delay
         else:
             delay_fn = self.policy.delay
 
