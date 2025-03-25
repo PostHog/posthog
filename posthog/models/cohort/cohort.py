@@ -1,12 +1,12 @@
 import time
 from datetime import datetime
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast, TYPE_CHECKING
 
 import posthoganalytics
 import structlog
 from django.conf import settings
 from django.db import connection, models
-from django.db.models import Case, Q, When
+from django.db.models import Case, Q, When, QuerySet
 from django.db.models.expressions import F
 from django.db.models.functions.math import Mod
 from django.db.models.lookups import Exact
@@ -15,11 +15,16 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 
 from posthog.constants import PropertyOperatorType
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
 from posthog.models.utils import sane_repr
 from posthog.settings.base_variables import TEST
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 
 # The empty string literal helps us determine when the cohort is invalid/deleted, when
@@ -79,7 +84,7 @@ class CohortManager(models.Manager):
         return cohort
 
 
-class Cohort(models.Model):
+class Cohort(FileSystemSyncMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=1000, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -108,6 +113,25 @@ class Cohort(models.Model):
 
     def __str__(self):
         return self.name
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Cohort"]:
+        base_qs = cls.objects.filter(team=team, deleted=False)
+        return cls._filter_unfiled_queryset(base_qs, team, type="cohort", ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder="Unfiled/Cohorts",
+            type="cohort",
+            ref=str(self.pk),
+            name=self.name or "Untitled",
+            href=f"/cohorts/{self.pk}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=self.deleted,
+        )
 
     @property
     def properties(self) -> PropertyGroup:

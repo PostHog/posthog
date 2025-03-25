@@ -212,7 +212,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary':
                                                             focusedId === item.id ||
                                                             isContextMenuOpenForItem === item.id,
-                                                        'bg-fill-highlight-100': getItemActiveState(item),
+                                                        'bg-fill-button-tertiary-active': getItemActiveState(item),
                                                     }
                                                 )}
                                                 onClick={() => {
