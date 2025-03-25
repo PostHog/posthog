@@ -23,7 +23,13 @@ import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { useMemo } from 'react'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinitionType, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    GroupTypeIndex,
+    PropertyDefinitionType,
+    PropertyFilterType,
+} from '~/types'
 
 import { OperandTag } from './OperandTag'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
@@ -152,7 +158,11 @@ export function TaxonomicPropertyFilter({
                     onComplete()
                 }
             }}
-            groupTypeIndex={isGroupPropertyFilter(filter) ? filter?.group_type_index : undefined}
+            groupTypeIndex={
+                isGroupPropertyFilter(filter) && filter?.group_type_index
+                    ? (filter?.group_type_index as GroupTypeIndex)
+                    : undefined
+            }
         />
     )
 
