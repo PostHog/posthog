@@ -288,6 +288,9 @@ export class HogFunctionManagerService {
         logger.info('[HogFunctionManager]', 'Enriching with import functions', { functionCount: items.length })
 
         for (const item of items) {
+            if (typeof item.bytecode !== 'object' || !item.bytecode.length) {
+                continue
+            }
             // Grab all the global functions used in this function's bytecode
             const sharedInputFunctionsUsed = (item.bytecode || []).filter(
                 (x) => Object.keys(SHARED_INPUT_FUNCTIONS).includes(x) && SHARED_INPUT_FUNCTIONS[x] !== item.type
