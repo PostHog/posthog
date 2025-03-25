@@ -858,6 +858,7 @@ describe('metricToQuery', () => {
                     kind: NodeKind.EventsNode,
                     event: '$pageview',
                     name: '$pageview',
+                    custom_name: 'Placeholder for experiment exposure',
                 },
                 {
                     kind: NodeKind.EventsNode,
