@@ -223,7 +223,7 @@ export const SidePanelSupport = (): JSX.Element => {
 
                             {isCloudOrDev ? (
                                 <Section title="Contact us">
-                                    <p>Can't find what you need and Max AI unable to help?</p>
+                                    <p>Can't find what you need and Max unable to help?</p>
                                     <LemonButton
                                         type="primary"
                                         fullWidth
