@@ -1,6 +1,7 @@
 import datetime
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from typing import Any
 from uuid import UUID
 
 from django.utils import timezone
@@ -86,3 +87,22 @@ class AssistantNode(ABC):
                 if tool_call.id == tool_call_id:
                     return tool_call
         raise ValueError(f"Tool call {tool_call_id} not found in state")
+
+    def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
+        """
+        Extracts the user distinct ID from the runnable config.
+        """
+        try:
+            distinct_id = config["configurable"]["distinct_id"]
+        except KeyError:
+            return None
+        return distinct_id
+
+    def _get_trace_id(self, config: RunnableConfig) -> Any | None:
+        """
+        Extracts the trace ID from the runnable config.
+        """
+        try:
+            return config["configurable"]["trace_id"]
+        except KeyError:
+            return None
