@@ -22,6 +22,7 @@ serde_json = { workspace = true }
 siphasher = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time"] }
+tracing = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]

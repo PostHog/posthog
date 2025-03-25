@@ -1373,6 +1373,7 @@ dependencies = [
  "siphasher 1.0.1",
  "thiserror",
  "tokio",
+ "tracing",
  "url",
 ]
 
@@ -1431,6 +1432,7 @@ dependencies = [
  "serde-pickle",
  "thiserror",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

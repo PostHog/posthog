@@ -192,7 +192,7 @@ impl From<CustomRedisError> for FlagError {
     fn from(e: CustomRedisError) -> Self {
         match e {
             CustomRedisError::NotFound => FlagError::TokenValidationError,
-            CustomRedisError::PickleError(e) => {
+            CustomRedisError::ParseError(e) => {
                 tracing::error!("failed to fetch data from redis: {}", e);
                 FlagError::RedisDataParsingError
             }
