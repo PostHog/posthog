@@ -108,7 +108,7 @@ class RootNode(AssistantNode):
                             "system",
                             f"<{tool_name}>\n{CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT[tool_name]}\n</{tool_name}>",
                         )
-                        for tool_name in config["configurable"].get("contextual_tools", {}).keys()
+                        for tool_name in config.get("configurable", {}).get("contextual_tools", {}).keys()
                         if tool_name in CONTEXTUAL_TOOL_NAME_TO_TOOL_CONTEXT_PROMPT
                     ],
                 ],
@@ -129,7 +129,7 @@ class RootNode(AssistantNode):
                 "project_timezone": self._team.timezone_info.tzname(utc_now),
                 **{
                     f"{tool_name}_{context_key}": context_value
-                    for tool_name, context in config["configurable"].get("contextual_tools", {}).items()
+                    for tool_name, context in config.get("configurable", {}).get("contextual_tools", {}).items()
                     for context_key, context_value in context.items()
                 },
             },
