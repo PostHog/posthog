@@ -90,6 +90,17 @@
             "n": 0,
             "hash_extra": "Sphinx of Black Quartz, Judge My Vow. This is a pretty long extra string - it is exactly 100 chars!!! Actually no, it's longer, to make sure that this is truncated properly",
             "expected": "lPLnR7N4qR683u8oyGmTGg=="
+        },
+        {
+              "salt": "ymdOUMYgo0sM6RlAEjs6qQ==",
+              "team_id": 1,
+              "ip": "127.0.0.1",
+              "root_domain": "127.0.0.1:3000",
+             "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:136.0) Gecko/20100101 Firefox/136.0",
+              "n": 0,
+              "hash_extra": "",
+            "expected": "/R98LDV5ssv0VIx1j8n8aQ=="
+
         }
     ],
     "hash_to_distinct_id_tests": [
@@ -131,6 +142,18 @@
         },
         {
             "host": "http://localhost:3000",
+            "expected_root_domain": "127.0.0.1:3000"
+        },
+        {
+            "host": "http://127.0.0.1:3000",
+            "expected_root_domain": "127.0.0.1:3000"
+        },
+            {
+            "host": "http://127.0.0.1:3000/foo",
+            "expected_root_domain": "127.0.0.1:3000"
+        },
+             {
+            "host": "http://127.0.0.1:3000#foo",
             "expected_root_domain": "127.0.0.1:3000"
         },
         {

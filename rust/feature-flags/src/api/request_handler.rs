@@ -11,7 +11,7 @@ use crate::{
     router,
     team::team_models::Team,
 };
-use axum::{extract::State, http::HeaderMap};
+use axum::{extract::State, http::{HeaderMap, header::ORIGIN, header::USER_AGENT},};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use chrono;
@@ -473,12 +473,12 @@ async fn handle_cookieless_distinct_id(
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()) as u64,
         host: context
             .headers
-            .get("host")
+            .get(ORIGIN)
             .map(|h| h.to_str().unwrap_or(""))
             .unwrap_or(""),
         user_agent: context
             .headers
-            .get("user-agent")
+            .get(USER_AGENT)
             .map(|h| h.to_str().unwrap_or(""))
             .unwrap_or(""),
         event_time_zone: request.timezone.as_deref(),

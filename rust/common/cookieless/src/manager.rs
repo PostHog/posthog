@@ -337,26 +337,35 @@ impl CookielessManager {
 /// It returns the root domain (eTLD+1) for valid domains, or the original host for
 /// special cases like IP addresses, localhost, etc.
 /// The port is preserved if present in the original host.
-pub fn extract_root_domain(host: &str) -> Result<String, CookielessManagerError> {
+pub fn extract_root_domain(url: &str) -> Result<String, CookielessManagerError> {
     use std::net::IpAddr;
 
     // If the host is empty, return it as is
-    if host.is_empty() {
-        return Ok(host.to_string());
+    if url.is_empty() {
+        return Ok(url.to_string());
     }
 
     // Check if it's an IPv6 address
-    if let Ok(IpAddr::V6(ipv6)) = host.parse::<IpAddr>() {
+    if let Ok(IpAddr::V6(ipv6)) = url.parse::<IpAddr>() {
         // Return the normalized form of the IPv6 address in brackets
         return Ok(format!("[{}]", ipv6));
     }
 
-    // Split host and port for special handling of IP addresses
-    let (hostname, port) = if let Some((h, p)) = host.split_once(':') {
-        (h, Some(p))
+    // Add a fake protocol if none exists
+    let input = if !url.contains("://") {
+        format!("http://{}", url)
     } else {
-        (host, None)
+        url.to_string()
     };
+
+    // Parse the URL to extract hostname and port
+    let parsed_url = match Url::parse(&input) {
+        Ok(url) => url,
+        Err(_) => return Ok(url.to_string()),
+    };
+
+    let hostname = parsed_url.host_str().unwrap_or(url).to_string();
+    let port = parsed_url.port().map(|p| p.to_string());
 
     // Check if the hostname is an IP address
     if hostname.parse::<IpAddr>().is_ok() {
@@ -365,22 +374,6 @@ pub fn extract_root_domain(host: &str) -> Result<String, CookielessManagerError>
             None => Ok(hostname.to_string()),
         };
     }
-
-    // Add a fake protocol if none exists
-    let input = if !host.contains("://") {
-        format!("http://{}", host)
-    } else {
-        host.to_string()
-    };
-
-    // Parse the URL to extract hostname and port
-    let url = match Url::parse(&input) {
-        Ok(url) => url,
-        Err(_) => return Ok(host.to_string()),
-    };
-
-    let hostname = url.host_str().unwrap_or(host).to_string();
-    let port = url.port().map(|p| p.to_string());
 
     // Use the public-suffix list to extract the root domain (eTLD+1)
     let domain = match DEFAULT_PROVIDER.effective_tld_plus_one(&hostname) {
