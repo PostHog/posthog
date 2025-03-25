@@ -100,7 +100,7 @@ export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
         values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeam', 'currentTeamLoading']],
-        actions: [teamLogic, ['loadCurrentTeam']],
+        actions: [teamLogic, ['loadCurrentTeam', 'updateCurrentTeamSuccess']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -268,6 +268,9 @@ export const surveysLogic = kea<surveysLogicType>([
             if (searchTerm && values.data.surveysCount > SURVEY_PAGE_SIZE) {
                 actions.loadSearchResults()
             }
+        },
+        updateCurrentTeamSuccess: () => {
+            actions.loadSurveysOptInLastChanged()
         },
     })),
     selectors({
