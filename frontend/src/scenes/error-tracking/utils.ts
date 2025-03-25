@@ -139,17 +139,30 @@ export function generateSparklineLabels(range: DateRange, resolution: number): s
     return labels
 }
 
-export type ResolvedDateRange = {
+export class ResolvedDateRange {
     date_from: Dayjs
     date_to: Dayjs
+
+    constructor(date_from: Dayjs, date_to: Dayjs) {
+        this.date_from = date_from
+        this.date_to = date_to
+    }
+
+    toDateRange(): DateRange {
+        return {
+            date_from: this.date_from.toISOString(),
+            date_to: this.date_to.toISOString(),
+        }
+    }
+
+    static fromDateRange(dateRange: DateRange): ResolvedDateRange {
+        return new ResolvedDateRange(resolveDate(dateRange.date_from), resolveDate(dateRange.date_to))
+    }
 }
 
 // Converts relative date range to absolute date range
 export function resolveDateRange(dateRange: DateRange): ResolvedDateRange {
-    return {
-        date_from: resolveDate(dateRange.date_from),
-        date_to: resolveDate(dateRange.date_to),
-    }
+    return ResolvedDateRange.fromDateRange(dateRange)
 }
 
 // Converts relative date to absolute date.

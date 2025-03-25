@@ -43,7 +43,7 @@ export const errorTrackingQuery = ({
             kind: NodeKind.ErrorTrackingQuery,
             orderBy,
             status,
-            dateRange: resolveDateRange(dateRange),
+            dateRange: resolveDateRange(dateRange).toDateRange(),
             assignee,
             volumeResolution,
             filterGroup: filterGroup as PropertyGroupFilter,
@@ -70,7 +70,7 @@ export const errorTrackingIssueQuery = ({
     return {
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
-        dateRange: resolveDateRange(dateRange),
+        dateRange: resolveDateRange(dateRange).toDateRange(),
         filterTestAccounts: false,
         volumeResolution,
     }
