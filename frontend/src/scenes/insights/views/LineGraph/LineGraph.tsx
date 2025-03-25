@@ -44,6 +44,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
+import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
 let tooltipRoot: Root
@@ -273,7 +274,6 @@ export interface LineGraphProps {
     showMultipleYAxes?: boolean | null
     goalLines?: GoalLine[]
     isStacked?: boolean
-    hideTooltipOnScroll?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -317,7 +317,6 @@ export function LineGraph_({
     legend = { display: false },
     goalLines: _goalLines,
     isStacked = true,
-    hideTooltipOnScroll,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -326,8 +325,10 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { timezone, isTrends, breakdownFilter, query } = useValues(insightVizDataLogic(insightProps))
     const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
+
+    const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [lineChart, setLineChart] = useState<Chart<ChartType, any, string>>()
@@ -348,7 +349,7 @@ export function LineGraph_({
     const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
 
-    // Add window scroll event listener to hide tooltips when scrolling
+    // Add window scrollend event on main element to hide tooltips when scrolling
     useEffect(() => {
         if (!hideTooltipOnScroll) {
             return
