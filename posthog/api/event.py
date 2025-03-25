@@ -297,6 +297,8 @@ class EventViewSet(
             date_from = relative_date_parse("-7d", team.timezone_info).strftime("%Y-%m-%d 00:00:00")
             date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
 
+            chain: list[str | int] = [key] if is_column else ["properties", key]
+
             conditions: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
@@ -308,15 +310,12 @@ class EventViewSet(
                     left=ast.Field(chain=["timestamp"]),
                     right=ast.Constant(value=date_to),
                 ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=chain),
+                    right=ast.Constant(value=None),
+                ),
             ]
-            if not is_column:
-                conditions.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.NotEq,
-                        left=ast.Field(chain=["properties", key]),
-                        right=ast.Constant(value=None),
-                    )
-                )
 
             # Handle property filters from query parameters
             for param_key, param_value in request.GET.items():
@@ -345,8 +344,6 @@ class EventViewSet(
                     conditions.append(ast.Or(exprs=event_conditions))
                 else:
                     conditions.append(event_conditions[0])
-
-            chain: list[str | int] = [key] if is_column else ["properties", key]
 
             if request.GET.get("value"):
                 conditions.append(
