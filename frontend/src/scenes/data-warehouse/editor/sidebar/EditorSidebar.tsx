@@ -94,7 +94,7 @@ export const EditorSidebar = ({
                 return <QueryDatabase isOpen={sidebarOverlayOpen} />
             case EditorSidebarTab.QueryVariables:
                 return <QueryVariables />
-            case 'query_info':
+            case EditorSidebarTab.QueryInfo:
                 return <QueryInfo codeEditorKey={codeEditorKey} />
             default:
                 return <QueryDatabase isOpen={sidebarOverlayOpen} />
