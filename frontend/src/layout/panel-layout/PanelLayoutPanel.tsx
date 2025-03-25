@@ -40,11 +40,11 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                                 className="shrink-0"
                                 icon={
                                     isLayoutPanelPinned ? (
-                                        <IconWrapper>
+                                        <IconWrapper size="sm">
                                             <IconPinFilled />
                                         </IconWrapper>
                                     ) : (
-                                        <IconWrapper>
+                                        <IconWrapper size="sm">
                                             <IconPin />
                                         </IconWrapper>
                                     )
