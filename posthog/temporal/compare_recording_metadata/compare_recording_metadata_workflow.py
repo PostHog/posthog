@@ -309,7 +309,7 @@ class CompareRecordingMetadataWorkflow(PostHogWorkflow):
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
+                    maximum_attempts=1,
                     non_retryable_error_types=[],
                 ),
             )
