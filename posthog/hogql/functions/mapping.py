@@ -457,7 +457,6 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toTypeName": HogQLFunctionMeta("toTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     # dates and times
-    "toTimeZone": HogQLFunctionMeta("toTimeZone", 2, 2),
     "timeZoneOf": HogQLFunctionMeta("timeZoneOf", 1, 1),
     "timeZoneOffset": HogQLFunctionMeta("timeZoneOffset", 1, 1),
     "toYear": HogQLFunctionMeta("toYear", 1, 1),
