@@ -107,10 +107,17 @@ class CompareRecordingMetadataActivityInputs:
 
 
 @temporalio.activity.defn
-async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataActivityInputs) -> None:
+async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataActivityInputs) -> dict:
     """Compare session recording metadata between storage backends."""
+    logger = get_internal_logger()
+    start_time = dt.datetime.now()
+    await logger.ainfo(
+        "Starting comparison activity for time range %s to %s",
+        inputs.started_after,
+        inputs.started_before,
+    )
+
     async with Heartbeater():
-        logger = get_internal_logger()
         started_after = dt.datetime.fromisoformat(inputs.started_after)
         started_before = dt.datetime.fromisoformat(inputs.started_before)
 
@@ -129,29 +136,18 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
             ),
         )
 
-        await logger.ainfo(
-            "Found %d session recordings in v1 and %d in v2 that started between %s and %s",
-            len(results_v1),
-            len(results_v2),
-            started_after,
-            started_before,
-        )
-
         # Create lookup tables for easier comparison
         v1_sessions = {r[0]: r for r in results_v1}  # session_id -> full record
         v2_sessions = {r[0]: r for r in results_v2}
 
         # Find sessions in v1 but not in v2
-        only_in_v1 = set(v1_sessions.keys()) - set(v2_sessions.keys())
-        if only_in_v1:
-            await logger.ainfo("Sessions only in v1: %s", only_in_v1)
+        only_in_v1 = list(set(v1_sessions.keys()) - set(v2_sessions.keys()))
 
         # Find sessions in v2 but not in v1
-        only_in_v2 = set(v2_sessions.keys()) - set(v1_sessions.keys())
-        if only_in_v2:
-            await logger.ainfo("Sessions only in v2: %s", only_in_v2)
+        only_in_v2 = list(set(v2_sessions.keys()) - set(v1_sessions.keys()))
 
         # Compare data for sessions in both
+        session_differences = {}
         for session_id in set(v1_sessions.keys()) & set(v2_sessions.keys()):
             v1_data = v1_sessions[session_id]
             v2_data = v2_sessions[session_id]
@@ -160,10 +156,35 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
             differences = []
             for i, field_name in enumerate(FIELD_NAMES, start=1):  # start=1 because session_id is at index 0
                 if v1_data[i] != v2_data[i]:
-                    differences.append(f"{field_name}: v1={v1_data[i]} v2={v2_data[i]}")
+                    differences.append({"field": field_name, "v1_value": v1_data[i], "v2_value": v2_data[i]})
 
             if differences:
-                await logger.ainfo("Session %s differences:\n%s", session_id, "\n".join(differences))
+                session_differences[session_id] = differences
+
+        result = {
+            "summary": {
+                "v1_count": len(results_v1),
+                "v2_count": len(results_v2),
+                "time_range": {
+                    "started_after": started_after.isoformat(),
+                    "started_before": started_before.isoformat(),
+                },
+            },
+            "only_in_v1": only_in_v1,
+            "only_in_v2": only_in_v2,
+            "session_differences": session_differences,
+        }
+
+        end_time = dt.datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        await logger.ainfo(
+            "Completed comparison activity in %.2f seconds. Found %d sessions only in v1, %d only in v2, and %d with differences",
+            duration,
+            len(only_in_v1),
+            len(only_in_v2),
+            len(session_differences),
+        )
+        return result
 
 
 @dataclasses.dataclass(frozen=True)
@@ -236,8 +257,9 @@ class CompareRecordingMetadataWorkflow(PostHogWorkflow):
         started_before = dt.datetime.fromisoformat(inputs.started_before)
 
         logger = get_internal_logger()
+        workflow_start = dt.datetime.now()
         logger.info(
-            "Starting comparison for sessions between %s and %s using %d second windows",
+            "Starting comparison workflow for sessions between %s and %s using %d second windows",
             started_after,
             started_before,
             inputs.window_seconds,
@@ -245,9 +267,17 @@ class CompareRecordingMetadataWorkflow(PostHogWorkflow):
 
         # Generate time windows
         windows = self.generate_time_windows(started_after, started_before, inputs.window_seconds)
+        logger.info("Generated %d time windows to process", len(windows))
 
         # Process each window
-        for window_start, window_end in windows:
+        for i, (window_start, window_end) in enumerate(windows, 1):
+            logger.info(
+                "Processing window %d/%d: %s to %s",
+                i,
+                len(windows),
+                window_start,
+                window_end,
+            )
             activity_inputs = CompareRecordingMetadataActivityInputs(
                 started_after=window_start.isoformat(),
                 started_before=window_end.isoformat(),
@@ -264,6 +294,14 @@ class CompareRecordingMetadataWorkflow(PostHogWorkflow):
                     non_retryable_error_types=[],
                 ),
             )
+
+        workflow_end = dt.datetime.now()
+        duration = (workflow_end - workflow_start).total_seconds()
+        logger.info(
+            "Completed comparison workflow in %.2f seconds. Processed %d time windows",
+            duration,
+            len(windows),
+        )
 
     @temporalio.workflow.update
     async def pause(self) -> None:
