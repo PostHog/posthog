@@ -159,7 +159,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
                 )
             )
         )
-        assert actual == f("raw_sessions.min_timestamp  >= ('2021-01-03' - toIntervalDay(3))")
+        assert actual == f("raw_sessions.min_timestamp >= ('2021-01-03' - toIntervalDay(3))")
 
     def test_join(self):
         actual = f(
