@@ -654,6 +654,7 @@ export function metricToQuery(
                 id: '$pageview',
                 event: '$pageview',
                 name: '$pageview',
+                custom_name: 'Placeholder for experiment exposure',
                 properties: [],
                 order: 0,
             })
