@@ -187,7 +187,7 @@ class UserAccessControl:
             "resource": resource,
             "resource_id": resource_id,
         }  # type: ignore
-    
+
     def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
         """
         Used when checking overall access to a resource
@@ -319,7 +319,7 @@ class UserAccessControl:
 
         filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
         access_controls = self._get_access_controls(filters)
-        
+
         # If there is no specified controls on the resource then we return the default access level
         if not access_controls:
             return default_access_level(resource) if not explicit else None
@@ -393,7 +393,6 @@ class UserAccessControl:
 
         filters = self._access_controls_filters_for_resource(resource)
         access_controls = self._get_access_controls(filters)
-        print('access_controls for resource', resource, access_controls)
 
         if not access_controls:
             return default_access_level(resource)
@@ -500,8 +499,11 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             self.user_access_control.preload_object_access_controls(self.instance)
             self._preloaded_access_controls = True
 
-        print('\n\n\n\n\nobj', obj)
-        print('access_level_for_object', self.user_access_control.access_level_for_object(obj))
-        print('access_level_for_resource', self.user_access_control.access_level_for_resource("feature_flag"))
-        print('\n\n\n\n\n')
-        return self.user_access_control.access_level_for_object(obj)
+        resource = model_to_resource(obj)
+        access_level_for_object = self.user_access_control.access_level_for_object(obj)
+        access_level_for_resource = self.user_access_control.access_level_for_resource(resource)
+
+        return max(
+            (access_level_for_object, access_level_for_resource),
+            key=lambda access_level: ordered_access_levels(resource).index(access_level),
+        )
