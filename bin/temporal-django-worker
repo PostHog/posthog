@@ -5,7 +5,7 @@ set -e
 cleanup() {
     echo "Stopping worker..."
     if kill -0 "$worker_pid" >/dev/null 2>&1; then
-        kill "$worker_pid"
+        kill -SIGTERM "$worker_pid"
     else
         echo "Worker process is not running."
     fi
