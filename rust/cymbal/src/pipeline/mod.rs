@@ -44,24 +44,24 @@ pub enum IncomingEvent {
 }
 
 pub async fn handle_batch(
-    events: Vec<IncomingEvent>,
+    buffer: Vec<IncomingEvent>,
     context: Arc<AppContext>,
 ) -> Result<Vec<PipelineResult>, PipelineFailure> {
-    let team_lookup_time = common_metrics::timing_guard(TEAM_LOOKUP_TIME, &[]);
-    let teams_lut = do_team_lookups(context.clone(), &events).await?;
-    team_lookup_time.label("outcome", "success").fin();
-
-    let start_count = events.len();
-
-    let prepare_time = common_metrics::timing_guard(PREPARE_EVENTS_TIME, &[]);
-    let buffer = prepare_events(events, teams_lut)?;
-    prepare_time.label("outcome", "success").fin();
-    assert_eq!(start_count, buffer.len());
-
-    // Now we have our buffer of "clickhouse events", and can start doing person processing etc
     let billing_limits_time = common_metrics::timing_guard(BILLING_LIMITS_TIME, &[]);
     let buffer = apply_billing_limits(buffer, &context).await?;
     billing_limits_time.label("outcome", "success").fin();
+
+    // We grab the start count after applying billing limits, because we
+    // drop events then.
+    let start_count = buffer.len();
+
+    let team_lookup_time = common_metrics::timing_guard(TEAM_LOOKUP_TIME, &[]);
+    let teams_lut = do_team_lookups(context.clone(), &buffer).await?;
+    team_lookup_time.label("outcome", "success").fin();
+
+    let prepare_time = common_metrics::timing_guard(PREPARE_EVENTS_TIME, &[]);
+    let buffer = prepare_events(buffer, teams_lut)?;
+    prepare_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
 
     let clean_props_time = common_metrics::timing_guard(CLEAN_PROPS_TIME, &[]);

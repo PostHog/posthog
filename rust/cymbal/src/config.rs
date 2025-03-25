@@ -107,6 +107,9 @@ pub struct Config {
 
     #[envconfig(from = "MAXMIND_DB_PATH")]
     pub maxmind_db_path: PathBuf,
+
+    #[envconfig(default = "redis://localhost:6379/")]
+    pub redis_url: String,
 }
 
 impl Config {

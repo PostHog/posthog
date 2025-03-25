@@ -15,7 +15,6 @@ chrono = { workspace = true }
 common-redis = { path = "../common/redis" }
 envconfig = { workspace = true }
 limiters = { path = "../common/limiters" }
-time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

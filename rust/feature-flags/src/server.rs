@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use time::Duration;
+use std::time::Duration;
 
 use common_geoip::GeoIpClient;
 use common_redis::RedisClient;
@@ -82,12 +82,12 @@ where
 
     // TODO - we don't have a more complex health check yet, but we should add e.g. some around DB operations
     let simple_loop = health
-        .register("simple_loop".to_string(), Duration::seconds(30))
+        .register("simple_loop".to_string(), Duration::from_secs(30))
         .await;
     tokio::spawn(liveness_loop(simple_loop));
 
     let billing_limiter = match RedisLimiter::new(
-        Duration::seconds(5),
+        Duration::from_secs(5),
         redis_client.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,

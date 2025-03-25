@@ -167,7 +167,7 @@ async fn main() {
                         "Dropping exception at offset {:?} due to {:?}",
                         offset, error
                     );
-                    metrics::counter!(DROPPED_EVENTS, "cause" => "message_too_large").increment(1);
+                    metrics::counter!(DROPPED_EVENTS, "reason" => "message_too_large").increment(1);
                 }
                 Err(e) => {
                     error!(

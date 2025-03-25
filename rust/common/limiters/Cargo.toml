@@ -12,4 +12,4 @@ rand = { workspace = true }
 strum = { version = "0.26", features = ["derive"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
-time = { workspace = true }
+chrono = { workspace = true }

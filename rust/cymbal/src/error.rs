@@ -1,6 +1,7 @@
 use aws_sdk_s3::primitives::ByteStreamError;
 use common_geoip::GeoIpError;
 use common_kafka::kafka_producer::KafkaProduceError;
+use common_redis::CustomRedisError;
 use common_types::{CapturedEvent, ClickHouseEvent};
 use posthog_symbol_data::SymbolDataError;
 use rdkafka::error::KafkaError;
@@ -50,6 +51,8 @@ pub enum UnhandledError {
     SerdeError(#[from] serde_json::Error),
     #[error("Unhandled geoip error: {0}")]
     GeoIpError(#[from] GeoIpError),
+    #[error("Unhandled redis error: {0}")]
+    RedisError(#[from] CustomRedisError),
     #[error("Unhandled error: {0}")]
     Other(String),
 }
