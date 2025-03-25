@@ -349,12 +349,13 @@ export function LineGraph_({
     const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
 
-    // Add window scrollend event on main element to hide tooltips when scrolling
+    // Add scrollend event on main element to hide tooltips when scrolling
     useEffect(() => {
         if (!hideTooltipOnScroll) {
             return
         }
 
+        // Scroll events happen on the main element due to overflow-y: scroll
         const main = document.getElementsByTagName('main')[0]
         main.addEventListener('scrollend', hideTooltip)
 
