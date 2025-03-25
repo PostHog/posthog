@@ -78,7 +78,7 @@ class MemoryInitializerContextMixin:
         return response.results
 
 
-class MemoryOnboardingShouldRunMixin:
+class MemoryOnboardingShouldRunMixin(AssistantNode):
     def memory_onboarding_should_run(self, _: AssistantState) -> bool:
         """
         If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
@@ -87,7 +87,7 @@ class MemoryOnboardingShouldRunMixin:
         return not core_memory or (not core_memory.is_scraping_pending and not core_memory.is_scraping_finished)
 
 
-class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShouldRunMixin, AssistantNode):
+class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShouldRunMixin):
     def run(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
 
@@ -290,12 +290,12 @@ class core_memory_replace(BaseModel):
 memory_collector_tools = [core_memory_append, core_memory_replace]
 
 
-class MemoryCollectorNode(MemoryOnboardingShouldRunMixin, AssistantNode):
+class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     """
     The Memory Collector manages the core memory of the agent. Core memory is a text containing facts about a user's company and product. It helps the agent save and remember facts that could be useful for insight generation or other agentic functions requiring deeper context about the product.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         if self.memory_onboarding_should_run(state):
             return None
 
