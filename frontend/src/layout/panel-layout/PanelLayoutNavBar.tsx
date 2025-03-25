@@ -8,6 +8,7 @@ import {
     IconHome,
     IconNotebook,
     IconPeople,
+    IconPinFilled,
     IconSearch,
     IconToolbar,
 } from '@posthog/icons'
@@ -103,6 +104,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     ]
     const navItems = [
         {
+            identifier: 'ProjectHomepage',
             id: 'Home',
             icon: <IconHome />,
             to: urls.projectHomepage(),
@@ -111,6 +113,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
+            identifier: 'Project',
             id: 'Project',
             icon: <IconFolderOpen className="stroke-[1.2]" />,
             onClick: (e?: React.KeyboardEvent) => {
@@ -121,6 +124,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             showChevron: true,
         },
         {
+            identifier: 'Dashboards',
             id: 'Dashboards',
             icon: <IconDashboard />,
             to: urls.dashboards(),
@@ -129,6 +133,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
+            identifier: 'Notebooks',
             id: 'Notebooks',
             icon: <IconNotebook />,
             to: urls.notebooks(),
@@ -137,6 +142,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
+            identifier: 'DataManagement',
             id: 'Data management',
             icon: <IconDatabase />,
             to: urls.eventDefinitions(),
@@ -145,6 +151,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
+            identifier: 'PersonsManagement',
             id: 'Persons and groups',
             icon: <IconPeople />,
             to: urls.persons(),
@@ -153,6 +160,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
+            identifier: 'Activity',
             id: 'Activity',
             icon: <IconClock />,
             to: urls.activity(),
@@ -161,6 +169,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
         },
         {
+            identifier: 'Search',
             id: 'Search',
             icon: <IconSearch />,
             onClick: () => toggleSearchBar(),
@@ -216,7 +225,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         >
                                             <LemonButton
                                                 className={cn(
-                                                    activePanelIdentifier === item.id &&
+                                                    (activePanelIdentifier === item.identifier ||
+                                                        activeScene === item.identifier ||
+                                                        sceneBreadcrumbKeys.includes(item.identifier)) &&
                                                         'bg-fill-button-tertiary-active'
                                                 )}
                                                 icon={<IconWrapper>{item.icon}</IconWrapper>}
@@ -232,7 +243,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 to={item.to}
                                             >
                                                 <span>{item.id}</span>
-                                                {/* <span className="ml-auto">
+                                                <span className="ml-auto">
                                                     {item.id === 'Project' &&
                                                         isLayoutPanelPinned &&
                                                         isLayoutPanelVisible && (
@@ -240,7 +251,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 <IconPinFilled />
                                                             </IconWrapper>
                                                         )}
-                                                </span> */}
+                                                </span>
                                             </LemonButton>
                                         </ListBox.Item>
                                     ))}
