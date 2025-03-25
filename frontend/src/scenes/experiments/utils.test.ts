@@ -644,7 +644,7 @@ describe('metricToFilter', () => {
                 math_property: undefined,
                 math_hogql: undefined,
                 properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
-            } as ExperimentEventMetricConfig
+            } as ExperimentEventMetricConfig,
         }
         const filter = metricToFilter(metric)
         expect(filter).toEqual({
@@ -676,7 +676,7 @@ describe('metricToFilter', () => {
                 math_property: undefined,
                 math_hogql: undefined,
                 properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
-            } as ExperimentActionMetricConfig
+            } as ExperimentActionMetricConfig,
         }
         const filter = metricToFilter(metric)
         expect(filter).toEqual({
@@ -710,7 +710,7 @@ describe('metricToFilter', () => {
                 math: ExperimentMetricMathType.TotalCount,
                 math_property: undefined,
                 math_hogql: undefined,
-            } as ExperimentDataWarehouseMetricConfig
+            } as ExperimentDataWarehouseMetricConfig,
         }
         const filter = metricToFilter(metric)
         expect(filter).toEqual({
@@ -752,12 +752,7 @@ describe('filterToMetricConfig', () => {
                 },
             ],
         } as Record<string, any>
-        const metricConfig = filterToMetricConfig(
-            ExperimentMetricType.MEAN,
-            undefined,
-            [event],
-            undefined
-        )
+        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, [event], undefined)
         expect(metricConfig).toEqual({
             kind: NodeKind.ExperimentEventMetricConfig,
             event: '$pageview',
@@ -793,12 +788,7 @@ describe('filterToMetricConfig', () => {
             order: 0,
             uuid: '29c01ac4-ebc3-4cb8-9d82-287c0487056e',
         } as Record<string, any>
-        const metricConfig = filterToMetricConfig(
-            ExperimentMetricType.MEAN,
-            [action],
-            undefined,
-            undefined
-        )
+        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, [action], undefined, undefined)
         expect(metricConfig).toEqual({
             kind: NodeKind.ExperimentActionMetricConfig,
             action: '8',
@@ -819,12 +809,7 @@ describe('filterToMetricConfig', () => {
             events_join_key: 'person.properties.email',
             data_warehouse_join_key: 'customer.email',
         } as Record<string, any>
-        const metricConfig = filterToMetricConfig(
-            ExperimentMetricType.MEAN,
-            undefined,
-            undefined,
-            [dataWarehouse]
-        )
+        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, undefined, [dataWarehouse])
         expect(metricConfig).toEqual({
             kind: NodeKind.ExperimentDataWarehouseMetricConfig,
             table_name: 'mysql_payments',

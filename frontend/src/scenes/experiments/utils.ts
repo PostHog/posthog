@@ -3,8 +3,8 @@ import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import merge from 'lodash.merge'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
     AnyEntityNode,
     EventsNode,
@@ -451,24 +451,11 @@ export function filterToExposureConfig(
     return undefined
 }
 
-export function metricToFilter(
-    metric: ExperimentMetric
-): FilterType {
-
+export function metricToFilter(metric: ExperimentMetric): FilterType {
     switch (metric.metric_type) {
         case ExperimentMetricType.FUNNEL:
-            const events = (metric.metric_config as ExperimentFunnelMetricConfig).funnel.map((step, index) => ({
-                id: step.event,
-                name: step.event,
-                event: step.event,
-                order: index,
-                type: 'events',
-                kind: NodeKind.EventsNode,
-                properties: step.properties,
-            })) || []
-            console.log('metricToFilter funnel events', events)
             return {
-                events: 
+                events:
                     (metric.metric_config as ExperimentFunnelMetricConfig).funnel.map((step, index) => ({
                         id: step.event,
                         name: step.event,
@@ -478,15 +465,6 @@ export function metricToFilter(
                         kind: NodeKind.EventsNode,
                         properties: step.properties,
                     })) || [],
-                // events: [
-                //     {
-                //         kind: NodeKind.EventsNode,
-                //         id: 'experiment created',
-                //         name: 'experiment created',
-                //         order: 1,
-                //         properties: [],
-                //     },
-                // ],
                 actions: [],
                 data_warehouse: [],
             }
@@ -496,14 +474,14 @@ export function metricToFilter(
                     return {
                         events: [
                             {
-                            id: metric.metric_config.event,
-                            name: metric.metric_config.event,
-                            kind: NodeKind.EventsNode,
-                            type: 'events',
-                            math: metric.metric_config.math,
-                            math_property: metric.metric_config.math_property,
-                            math_hogql: metric.metric_config.math_hogql,
-                            properties: metric.metric_config.properties,
+                                id: metric.metric_config.event,
+                                name: metric.metric_config.event,
+                                kind: NodeKind.EventsNode,
+                                type: 'events',
+                                math: metric.metric_config.math,
+                                math_property: metric.metric_config.math_property,
+                                math_hogql: metric.metric_config.math_hogql,
+                                properties: metric.metric_config.properties,
                             } as EventsNode,
                         ],
                         actions: [],
@@ -514,14 +492,14 @@ export function metricToFilter(
                         events: [],
                         actions: [
                             {
-                            id: metric.metric_config.action,
-                            name: metric.metric_config.name,
-                            kind: NodeKind.EventsNode,
-                            type: 'actions',
-                            math: metric.metric_config.math,
-                            math_property: metric.metric_config.math_property,
-                            math_hogql: metric.metric_config.math_hogql,
-                            properties: metric.metric_config.properties,
+                                id: metric.metric_config.action,
+                                name: metric.metric_config.name,
+                                kind: NodeKind.EventsNode,
+                                type: 'actions',
+                                math: metric.metric_config.math,
+                                math_property: metric.metric_config.math_property,
+                                math_hogql: metric.metric_config.math_hogql,
+                                properties: metric.metric_config.properties,
                             } as EventsNode,
                         ],
                         data_warehouse: [],
@@ -558,20 +536,26 @@ export function filterToMetricConfig(
     actions: Record<string, any>[] | undefined,
     events: Record<string, any>[] | undefined,
     data_warehouse: Record<string, any>[] | undefined
-): ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig | ExperimentFunnelMetricConfig | undefined {
-
-
+):
+    | ExperimentEventMetricConfig
+    | ExperimentActionMetricConfig
+    | ExperimentDataWarehouseMetricConfig
+    | ExperimentFunnelMetricConfig
+    | undefined {
     switch (metricType) {
         case ExperimentMetricType.FUNNEL:
             return {
                 kind: NodeKind.ExperimentFunnelMetricConfig,
-                funnel: 
-                    events?.map((event) => ({
-                        kind: NodeKind.ExperimentFunnelStepConfig,
-                        event: event.id,
-                        order: event.order,
-                        properties: event.properties,
-                    } as ExperimentFunnelStepConfig)) || [],
+                funnel:
+                    events?.map(
+                        (event) =>
+                            ({
+                                kind: NodeKind.ExperimentFunnelStepConfig,
+                                event: event.id,
+                                order: event.order,
+                                properties: event.properties,
+                            } as ExperimentFunnelStepConfig)
+                    ) || [],
             }
         case ExperimentMetricType.MEAN:
             if (events?.[0]) {
@@ -606,9 +590,9 @@ export function filterToMetricConfig(
                     math_property: data_warehouse[0].math_property,
                     math_hogql: data_warehouse[0].math_hogql,
                 }
-            } else {
-                return undefined
             }
+            return undefined
+
         default:
             return undefined
     }
@@ -660,18 +644,17 @@ export function metricToQuery(
                         ],
                     } as TrendsQuery
             }
-        case ExperimentMetricType.FUNNEL:
+        case ExperimentMetricType.FUNNEL: {
             const filter = metricToFilter(metric)
             const { events } = filter
             // NOTE: hack for now
             // insert a pageview event at the beginning of the funnel to simulate the exposure criteria
-            console.log('events in funnel query', events)
             events?.unshift({
                 kind: NodeKind.EventsNode,
                 id: '$pageview',
                 event: '$pageview',
                 properties: [],
-                order: 0
+                order: 0,
             })
             return {
                 kind: NodeKind.FunnelsQuery,
@@ -685,11 +668,12 @@ export function metricToQuery(
                     layout: FunnelLayout.horizontal,
                 },
                 series: actionsAndEventsToSeries(
-                        { actions: [], events, data_warehouse: [] } as any,
-                        true,
-                        MathAvailability.None
-                    )
+                    { actions: [], events, data_warehouse: [] } as any,
+                    true,
+                    MathAvailability.None
+                ),
             } as FunnelsQuery
+        }
         default:
             return undefined
     }
