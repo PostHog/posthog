@@ -109,15 +109,15 @@ where
     ));
 
     let app = router::router(
-        redis_client.clone(),
-        reader.clone(),
-        writer.clone(),
+        redis_client,
+        reader,
+        writer,
         cohort_cache,
         geoip_service,
         health,
         billing_limiter,
         cookieless_manager,
-        config.clone(),
+        config,
     );
 
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
