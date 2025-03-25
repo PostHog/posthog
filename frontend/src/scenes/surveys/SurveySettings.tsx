@@ -20,7 +20,7 @@ interface Props {
 }
 
 function SurveyPopupToggle(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
     return (
@@ -38,6 +38,8 @@ function SurveyPopupToggle(): JSX.Element {
                 labelClassName="text-base font-semibold"
                 checked={!!currentTeam?.surveys_opt_in}
                 className="p-0"
+                disabled={currentTeamLoading}
+                disabledReason={currentTeamLoading ? 'Loading...' : undefined}
             />
             <span>
                 Please note your website needs to have the{' '}
