@@ -1,0 +1,172 @@
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
+import { TeamMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { BillingType } from '~/types'
+
+import type { startupProgramLogicType } from './startupProgramLogicType'
+
+const PUBLIC_EMAIL_DOMAINS = [
+    'gmail.com',
+    'yahoo.com',
+    'hotmail.com',
+    'outlook.com',
+    'aol.com',
+    'protonmail.com',
+    'icloud.com',
+    'mail.com',
+    'zoho.com',
+    'yandex.com',
+    'gmx.com',
+    'live.com',
+    'mail.ru',
+]
+
+export const RAISED_OPTIONS = [
+    { label: 'Bootstrapped', value: '0' },
+    { label: 'Under $100k', value: '100000' },
+    { label: 'From $100k to $500k', value: '500000' },
+    { label: 'From $500k to $1m', value: '1000000' },
+    { label: 'From $1m to $5m', value: '5000000' },
+    { label: 'More than $5m', value: '100000000000' },
+]
+
+export const YC_BATCH_OPTIONS = [
+    { label: 'Select your batch', value: '' },
+    { label: 'Summer 2025', value: 'S25' },
+    { label: 'Spring 2025', value: 'X25' },
+    { label: 'Winter 2025', value: 'W25' },
+    { label: 'Fall 2024', value: 'F24' },
+    { label: 'Summer 2024', value: 'S24' },
+    { label: 'Winter 2024', value: 'W24' },
+    { label: 'Summer 2023', value: 'S23' },
+    { label: 'Winter 2023', value: 'W23' },
+    { label: 'Summer 2022', value: 'S22' },
+    { label: 'Winter 2022', value: 'W22' },
+    { label: 'Summer 2021', value: 'S21' },
+    { label: 'Winter 2021', value: 'W21' },
+    { label: 'Earlier batches', value: 'Earlier' },
+]
+
+export interface StartupProgramFormValues {
+    type: string
+    source: string
+    email: string
+    first_name: string
+    last_name: string
+    startup_domain: string
+    posthog_organization_name: string
+    raised: string
+    incorporation_date: dayjs.Dayjs | null
+    is_building_with_llms: string
+    yc_batch?: string
+}
+
+export interface StartupProgramLogicProps {
+    isYC: boolean
+}
+
+export const startupProgramLogic = kea<startupProgramLogicType>([
+    path(['scenes', 'startups', 'startupProgramLogic']),
+    props({} as StartupProgramLogicProps),
+    key(({ isYC }: StartupProgramLogicProps) => isYC || false),
+    connect({
+        values: [userLogic, ['user'], organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
+    }),
+    actions({
+        setFormSubmitted: (submitted: boolean) => ({ submitted }),
+    }),
+    reducers({
+        formSubmitted: [
+            false,
+            {
+                setFormSubmitted: (_, { submitted }) => submitted,
+            },
+        ],
+    }),
+    selectors({
+        isAlreadyOnStartupPlan: [
+            (s) => [s.billing],
+            (billing: BillingType | null) => {
+                return !!billing?.startup_program_label
+            },
+        ],
+        isUserOrganizationOwnerOrAdmin: [
+            (s) => [s.user],
+            (user) => {
+                return (user?.organization?.membership_level ?? 0) >= TeamMembershipLevel.Admin
+            },
+        ],
+        domainFromEmail: [
+            (s) => [s.user],
+            (user) => {
+                if (!user?.email) {
+                    return ''
+                }
+
+                const domain = user.email.split('@')[1]
+                if (PUBLIC_EMAIL_DOMAINS.includes(domain)) {
+                    return ''
+                }
+
+                return domain
+            },
+        ],
+    }),
+    forms(({ values, actions, props }) => ({
+        startupProgram: {
+            defaults: {
+                type: 'contact',
+                source: props.isYC ? 'YC' : 'startup',
+                email: values.user?.email || '',
+                first_name: values.user?.first_name || '',
+                last_name: values.user?.last_name || '',
+                startup_domain: values.domainFromEmail || '',
+                posthog_organization_name: values.currentOrganization?.name || '',
+                raised: '',
+                incorporation_date: null,
+                is_building_with_llms: '',
+                yc_batch: props.isYC ? '' : undefined,
+            },
+            errors: ({
+                email,
+                first_name,
+                last_name,
+                startup_domain,
+                posthog_organization_name,
+                raised,
+                incorporation_date,
+                is_building_with_llms,
+                yc_batch,
+            }) => ({
+                email: !email ? 'Please enter your email' : undefined,
+                first_name: !first_name ? 'Please enter your first name' : undefined,
+                last_name: !last_name ? 'Please enter your last name' : undefined,
+                startup_domain: !startup_domain ? 'Please enter your company domain' : undefined,
+                posthog_organization_name: !posthog_organization_name
+                    ? 'Please enter your PostHog organization name'
+                    : undefined,
+                raised: !raised ? 'Please select how much funding you have raised' : undefined,
+                incorporation_date: !incorporation_date ? 'Please enter your incorporation date' : undefined,
+                is_building_with_llms: !is_building_with_llms
+                    ? 'Please select whether you are building with LLMs'
+                    : undefined,
+                yc_batch: props.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
+            }),
+            submit: async (formValues) => {
+                const valuesToSubmit = {
+                    ...formValues,
+                    incorporation_date: formValues.incorporation_date?.format('YYYY-MM-DD'),
+                }
+                // eslint-disable-next-line no-console
+                console.log('Form submitted with values:', valuesToSubmit)
+
+                actions.setFormSubmitted(true)
+            },
+        },
+    })),
+])

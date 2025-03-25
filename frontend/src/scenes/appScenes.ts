@@ -92,4 +92,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.MessagingAutomations]: () => import('products/messaging/frontend/Automations'),
     [Scene.MessagingLibrary]: () => import('products/messaging/frontend/Library'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
+    [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
 }
