@@ -1260,6 +1260,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         using_placeholder_arguments=True,
         using_positional_arguments=True,
     ),
+    # survey functions
+    "getSurveyResponse": HogQLFunctionMeta("getSurveyResponse", 1, 2),
 }
 
 # Permitted HogQL aggregations
@@ -1565,6 +1567,8 @@ FIRST_ARG_DATETIME_FUNCTIONS = (
     "hopStart",
     "hopEnd",
 )
+
+SURVEY_FUNCTIONS = {"getSurveyResponse"}
 
 
 def _find_function(name: str, functions: dict[str, HogQLFunctionMeta]) -> Optional[HogQLFunctionMeta]:

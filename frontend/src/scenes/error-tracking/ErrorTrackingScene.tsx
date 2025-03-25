@@ -12,7 +12,6 @@ import {
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
-import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { humanFriendlyLargeNumber } from 'lib/utils'
@@ -37,7 +36,7 @@ import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { StatusIndicator } from './issue/Indicator'
-import { sparklineLabels, sparklineLabelsDay, sparklineLabelsMonth } from './utils'
+import { OccurrenceSparkline, useSparklineData } from './OccurrenceSparkline'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -92,27 +91,13 @@ export function ErrorTrackingScene(): JSX.Element {
 }
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
-    const { sparklineSelectedPeriod, customSparklineConfig } = useValues(errorTrackingLogic)
     const record = props.record as ErrorTrackingIssue
-
-    if (!record.aggregations) {
-        return null
-    }
-
-    const [data, labels] =
-        sparklineSelectedPeriod === '24h'
-            ? [record.aggregations.volumeDay, sparklineLabelsDay]
-            : sparklineSelectedPeriod === '30d'
-            ? [record.aggregations.volumeMonth, sparklineLabelsMonth]
-            : customSparklineConfig
-            ? [record.aggregations.customVolume, sparklineLabels(customSparklineConfig)]
-            : [null, null]
-
-    return data ? (
+    const [values, unit, interval] = useSparklineData(record.aggregations)
+    return (
         <div className="flex justify-end">
-            <Sparkline className="h-8" data={data} labels={labels} />
+            <OccurrenceSparkline className="h-8" unit={unit} interval={interval} displayXAxis={false} values={values} />
         </div>
-    ) : null
+    )
 }
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {

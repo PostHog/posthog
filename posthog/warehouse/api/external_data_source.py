@@ -205,7 +205,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "user",
             "schema",
             "ssh-tunnel",
-            "use_ssl",
+            "using_ssl",
             # vitally
             "payload",
             "prefix",
@@ -230,6 +230,23 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
+            # Reconstruct ssh-tunnel (if needed) structure for UI handling
+            if "ssh_tunnel_enabled" in job_inputs:
+                ssh_tunnel = {
+                    "enabled": job_inputs.pop("ssh_tunnel_enabled", False),
+                    "host": job_inputs.pop("ssh_tunnel_host", None),
+                    "port": job_inputs.pop("ssh_tunnel_port", None),
+                    "auth_type": {
+                        "selection": job_inputs.pop("ssh_tunnel_auth_type", None),
+                        "username": job_inputs.pop("ssh_tunnel_auth_type_username", None),
+                        "password": job_inputs.pop("ssh_tunnel_auth_type_password", None),
+                        "passphrase": job_inputs.pop("ssh_tunnel_auth_type_passphrase", None),
+                        "private_key": job_inputs.pop("ssh_tunnel_auth_type_private_key", None),
+                    },
+                }
+                job_inputs["ssh-tunnel"] = ssh_tunnel
+
+            # Remove sensitive fields
             for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
                 if key not in whitelisted_keys:
                     job_inputs.pop(key, None)
@@ -277,6 +294,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         """Update source ensuring we merge with existing job inputs to allow partial updates."""
         existing_job_inputs = instance.job_inputs
 
+        new_job_inputs = validated_data.get("job_inputs", {})
+        self._normalize_ssh_tunnel_structure(new_job_inputs)
+
         if existing_job_inputs:
             new_job_inputs = validated_data.get("job_inputs", {})
             validated_data["job_inputs"] = {**existing_job_inputs, **new_job_inputs}
@@ -284,6 +304,24 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
         return updated_source
+
+    def _normalize_ssh_tunnel_structure(self, job_inputs: dict) -> dict:
+        """Convert nested SSH tunnel structure to flat keys."""
+        if "ssh-tunnel" in job_inputs:
+            ssh_tunnel = job_inputs.pop("ssh-tunnel", {})  # Remove the nested structure after extracting
+            if ssh_tunnel:
+                job_inputs["ssh_tunnel_enabled"] = ssh_tunnel.get("enabled")
+                job_inputs["ssh_tunnel_host"] = ssh_tunnel.get("host")
+                job_inputs["ssh_tunnel_port"] = ssh_tunnel.get("port")
+
+                auth_type = ssh_tunnel.get("auth_type", {})
+                if auth_type:
+                    job_inputs["ssh_tunnel_auth_type"] = auth_type.get("selection")
+                    job_inputs["ssh_tunnel_auth_type_username"] = auth_type.get("username")
+                    job_inputs["ssh_tunnel_auth_type_password"] = auth_type.get("password")
+                    job_inputs["ssh_tunnel_auth_type_passphrase"] = auth_type.get("passphrase")
+                    job_inputs["ssh_tunnel_auth_type_private_key"] = auth_type.get("private_key")
+        return job_inputs
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
@@ -657,7 +695,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
         ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
-        using_ssl_str = payload.get("use_ssl", "1")
+        using_ssl_str = payload.get("using_ssl", "1")
         using_ssl = str_to_bool(using_ssl_str)
 
         if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
@@ -1058,7 +1096,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
             ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
-            using_ssl_str = request.data.get("use_ssl", "1")
+            using_ssl_str = request.data.get("using_ssl", "1")
             using_ssl = str_to_bool(using_ssl_str)
 
             ssh_tunnel = SSHTunnel(
