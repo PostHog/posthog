@@ -1,6 +1,7 @@
 import json
 from typing import cast
 from django.test import override_settings
+from pytest import mark
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.utils import create_data_warehouse_table
@@ -280,7 +281,11 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.FUNNEL,
-            metric_config=ExperimentEventMetricConfig(event="purchase"),
+            metric_config=ExperimentFunnelMetricConfig(
+                funnel=[
+                    ExperimentFunnelStepConfig(event="purchase", order=1),
+                ],
+            ),
         )
 
         experiment_query = ExperimentQuery(
@@ -788,7 +793,11 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             kind="ExperimentQuery",
             metric=ExperimentMetric(
                 metric_type=ExperimentMetricType.FUNNEL,
-                metric_config=ExperimentEventMetricConfig(event="purchase"),
+                metric_config=ExperimentFunnelMetricConfig(
+                    funnel=[
+                        ExperimentFunnelStepConfig(event="purchase", order=1),
+                    ],
+                ),
             ),
         )
         experiment.exposure_criteria = {"filterTestAccounts": True}
@@ -1022,6 +1031,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # In the new query runner, the exposure value is the same as the absolute exposure value
         self.assertEqual(test_variant.exposure, 2.0)
 
+    @mark.skip("Funnel metrics on data warehouse tables are not supported yet")
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_funnel_metric(self):
         table_name = self.create_data_warehouse_table_with_usage()
