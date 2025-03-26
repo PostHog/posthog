@@ -9,10 +9,16 @@ use crate::{
         flag_service::FlagService,
     },
     router,
+    team::team_models::Team,
 };
-use axum::{extract::State, http::HeaderMap};
+use axum::{
+    extract::State,
+    http::{header::CONTENT_TYPE, header::ORIGIN, header::USER_AGENT, HeaderMap},
+};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
+use chrono;
+use common_cookieless::{CookielessServerHashMode, EventData, TeamData};
 use common_geoip::GeoIpClient;
 use flate2::read::GzDecoder;
 use limiters::redis::ServiceName;
@@ -100,7 +106,7 @@ pub type RequestPropertyOverrides = (
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
 
-    let (distinct_id, verified_token, request) =
+    let (original_distinct_id, verified_token, request) =
         parse_and_authenticate_request(&context, &flag_service).await?;
 
     // Once we've verified the token, check if the token is billing limited (this will save us from hitting the DB if we have a quota-limited token)
@@ -126,6 +132,10 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         .await?;
     let team_id = team.id;
     let project_id = team.project_id;
+
+    let distinct_id =
+        handle_cookieless_distinct_id(&context, &request, &team, original_distinct_id.clone())
+            .await?;
 
     let filtered_flags = fetch_and_filter_flags(&flag_service, project_id, &request).await?;
 
@@ -268,7 +278,7 @@ pub fn decode_request(
     query: &FlagsQueryParams,
 ) -> Result<FlagRequest, FlagError> {
     let content_type = headers
-        .get("content-type")
+        .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
 
@@ -446,6 +456,49 @@ fn decode_form_data(
             FlagRequest::from_bytes(Bytes::from(decoded_bytes))
         }
     }
+}
+
+async fn handle_cookieless_distinct_id(
+    context: &RequestContext,
+    request: &FlagRequest,
+    team: &Team,
+    distinct_id: String,
+) -> Result<String, FlagError> {
+    let event_data = EventData {
+        ip: &context.ip.to_string(),
+        timestamp_ms: context
+            .meta
+            .sent_at
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()) as u64,
+        host: context
+            .headers
+            .get(ORIGIN)
+            .map(|h| h.to_str().unwrap_or(""))
+            .unwrap_or(""),
+        user_agent: context
+            .headers
+            .get(USER_AGENT)
+            .map(|h| h.to_str().unwrap_or(""))
+            .unwrap_or(""),
+        event_time_zone: request.timezone.as_deref(),
+        hash_extra: request.cookieless_hash_extra.as_deref(),
+        distinct_id: &distinct_id,
+    };
+
+    let team_data = TeamData {
+        team_id: team.id,
+        timezone: team.timezone.clone(),
+        cookieless_server_hash_mode: CookielessServerHashMode::from(
+            team.cookieless_server_hash_mode,
+        ),
+    };
+
+    context
+        .state
+        .cookieless_manager
+        .compute_cookieless_distinct_id(event_data, team_data)
+        .await
+        .map_err(FlagError::CookielessError)
 }
 
 #[cfg(test)]
@@ -712,7 +765,7 @@ mod tests {
     #[test]
     fn test_decode_request() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from(r#"{"token": "test_token", "distinct_id": "user123"}"#);
         let meta = FlagsQueryParams::default();
 
@@ -727,7 +780,7 @@ mod tests {
     #[test]
     fn test_decode_request_unsupported_content_encoding() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from_static(b"{\"token\": \"test_token\", \"distinct_id\": \"user123\"}");
         let meta = FlagsQueryParams {
             compression: Some(Compression::Unsupported),
@@ -741,7 +794,7 @@ mod tests {
     #[test]
     fn test_decode_request_invalid_base64() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from_static(b"invalid_base64==");
         let meta = FlagsQueryParams {
             compression: Some(Compression::Base64),
@@ -789,7 +842,7 @@ mod tests {
     #[test]
     fn test_decode_request_unsupported_content_type() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "text/plain".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
         let body = Bytes::from_static(b"test");
         let meta = FlagsQueryParams::default();
 
@@ -800,7 +853,7 @@ mod tests {
     #[test]
     fn test_decode_request_malformed_json() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from_static(b"{invalid json}");
         let meta = FlagsQueryParams::default();
 
@@ -812,7 +865,7 @@ mod tests {
     fn test_decode_request_form_urlencoded() {
         let mut headers = HeaderMap::new();
         headers.insert(
-            "content-type",
+            CONTENT_TYPE,
             "application/x-www-form-urlencoded".parse().unwrap(),
         );
         let body = Bytes::from(
