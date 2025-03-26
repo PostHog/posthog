@@ -406,6 +406,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             newStartDate,
         }),
+        reportExperimentEndDateChange: (experiment: Experiment, newEndDate: string) => ({
+            experiment,
+            newEndDate,
+        }),
         reportExperimentCompleted: (
             experiment: Experiment,
             endDate: Dayjs,
