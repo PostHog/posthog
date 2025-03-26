@@ -147,6 +147,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
         ),
         usage_summary={
             "events": {"limit": None, "usage": 0},
+            "exceptions": {"limit": None, "usage": 0},
             "recordings": {"limit": None, "usage": 0},
             "rows_synced": {"limit": None, "usage": 0},
             "feature_flag_requests": {"limit": None, "usage": 0},
@@ -439,6 +440,7 @@ class TestBillingAPI(APILicensedTest):
             },
             "usage_summary": {
                 "events": {"limit": None, "usage": 0},
+                "exceptions": {"limit": None, "usage": 0},
                 "recordings": {"limit": None, "usage": 0},
                 "rows_synced": {"limit": None, "usage": 0},
                 "feature_flag_requests": {"limit": None, "usage": 0},
@@ -563,6 +565,7 @@ class TestBillingAPI(APILicensedTest):
             },
             "usage_summary": {
                 "events": {"limit": None, "usage": 0},
+                "exceptions": {"limit": None, "usage": 0},
                 "recordings": {"limit": None, "usage": 0},
                 "rows_synced": {"limit": None, "usage": 0},
                 "feature_flag_requests": {"limit": None, "usage": 0},
@@ -731,6 +734,11 @@ class TestBillingAPI(APILicensedTest):
                     "todays_usage": 0,
                     "usage": 1000,
                 },
+                "exceptions": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 0,
+                },
                 "recordings": {
                     "limit": None,
                     "todays_usage": 0,
@@ -820,6 +828,7 @@ class TestBillingAPI(APILicensedTest):
 
         assert self.organization.usage == {
             "events": {"limit": None, "usage": 0, "todays_usage": 0},
+            "exceptions": {"limit": None, "usage": 0, "todays_usage": 0},
             "recordings": {"limit": None, "usage": 0, "todays_usage": 0},
             "rows_synced": {"limit": None, "usage": 0, "todays_usage": 0},
             "feature_flag_requests": {"limit": None, "usage": 0, "todays_usage": 0},
@@ -848,8 +857,9 @@ class TestBillingAPI(APILicensedTest):
 
         self.organization.customer_id = None
         self.organization.customer_trust_scores = {
-            "recordings": 0,
             "events": 0,
+            "exceptions": 0,
+            "recordings": 0,
             "rows_synced": 0,
             "feature_flags": 0,
         }
@@ -860,8 +870,9 @@ class TestBillingAPI(APILicensedTest):
         self.organization.refresh_from_db()
 
         assert self.organization.customer_trust_scores == {
-            "recordings": 0,
             "events": 15,
+            "exceptions": 0,
+            "recordings": 0,
             "rows_synced": 0,
             "feature_flags": 0,
         }
