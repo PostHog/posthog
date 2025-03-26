@@ -491,4 +491,15 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             self.user_access_control.preload_object_access_controls(self.instance)
             self._preloaded_access_controls = True
 
-        return self.user_access_control.access_level_for_object(obj)
+        resource = model_to_resource(obj)
+        if resource:
+            access_level_for_resource = self.user_access_control.access_level_for_resource(resource)
+        else:
+            access_level_for_resource = default_access_level(resource)
+
+        access_level_for_object = self.user_access_control.access_level_for_object(obj)
+
+        return max(
+            (access_level_for_object, access_level_for_resource),
+            key=lambda access_level: ordered_access_levels(resource).index(access_level),
+        )

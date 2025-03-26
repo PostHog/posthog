@@ -28,6 +28,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     DashboardMode,
     DashboardType,
@@ -269,7 +270,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             {canEditDashboard && (
                                                 <AccessControlledLemonButton
                                                     userAccessLevel={dashboard.user_access_level}
-                                                    minAccessLevel="editor"
+                                                    minAccessLevel={AccessControlLevel.Editor}
                                                     resourceType={AccessControlResourceType.Dashboard}
                                                     onClick={() => {
                                                         showDeleteDashboardModal(dashboard.id)
@@ -305,7 +306,7 @@ export function DashboardHeader(): JSX.Element | null {
                             {dashboard ? (
                                 <AccessControlledLemonButton
                                     userAccessLevel={dashboard.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Dashboard}
                                     onClick={showAddInsightToDashboardModal}
                                     type="primary"
@@ -317,7 +318,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 <>
                                                     <AccessControlledLemonButton
                                                         userAccessLevel={dashboard.user_access_level}
-                                                        minAccessLevel="editor"
+                                                        minAccessLevel={AccessControlLevel.Editor}
                                                         resourceType={AccessControlResourceType.Dashboard}
                                                         fullWidth
                                                         onClick={() => {

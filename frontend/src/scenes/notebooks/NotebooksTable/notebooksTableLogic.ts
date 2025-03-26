@@ -2,6 +2,7 @@ import { PaginationManual, Sorting } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 
 import { notebooksModel } from '~/models/notebooksModel'
@@ -36,7 +37,7 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
         setPage: (page: number) => ({ page }),
     }),
     connect({
-        values: [notebooksModel, ['notebookTemplates']],
+        values: [notebooksModel, ['notebookTemplates'], featureFlagLogic, ['featureFlags']],
         actions: [notebooksModel, ['deleteNotebookSuccess']],
     }),
     reducers({
