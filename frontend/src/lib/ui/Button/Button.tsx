@@ -343,7 +343,8 @@ function ButtonIconComponent<E extends ElementType = 'span'>(
 
     return (
         <Component
-            ref={forwardedRef}
+            {...(props as any)}
+            ref={forwardedRef as any}
             className={cn(
                 iconVariants({
                     size: size || sizeContext,
@@ -352,7 +353,6 @@ function ButtonIconComponent<E extends ElementType = 'span'>(
                 })
             )}
             tabIndex={isTrigger ? 0 : undefined}
-            {...props}
         >
             {isTrigger && <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" />}
             {children}
@@ -361,7 +361,7 @@ function ButtonIconComponent<E extends ElementType = 'span'>(
 }
 
 const ButtonIcon = forwardRef(ButtonIconComponent) as <E extends ElementType = 'span'>(
-    props: PolymorphicComponentProps<E, ButtonIconProps>
+    props: PolymorphicComponentProps<E, ButtonIconProps> & { ref?: PolymorphicRef<E> }
 ) => JSX.Element
 
 /* -------------------------------------------------------------------------- */
@@ -371,23 +371,25 @@ const ButtonIcon = forwardRef(ButtonIconComponent) as <E extends ElementType = '
 interface ButtonLabelProps {
     menuItem?: boolean
     className?: string
+    truncate?: boolean
 }
 
 function ButtonLabelComponent<E extends ElementType = 'span'>(
-    { as, children, menuItem, ...props }: PolymorphicComponentProps<E, ButtonLabelProps>,
+    { as, children, menuItem, truncate, ...props }: PolymorphicComponentProps<E, ButtonLabelProps>,
     forwardedRef: PolymorphicRef<E>
 ): JSX.Element {
     const Component = as || 'span'
 
     return (
         <Component
-            ref={forwardedRef}
+            {...(props as any)}
+            ref={forwardedRef as any}
             className={cn(
                 'select-none text-sm',
                 menuItem && 'flex w-full items-center justify-between',
+                truncate && 'truncate',
                 props.className
             )}
-            {...props}
         >
             {children}
         </Component>
@@ -395,7 +397,7 @@ function ButtonLabelComponent<E extends ElementType = 'span'>(
 }
 
 const ButtonLabel = forwardRef(ButtonLabelComponent) as <E extends ElementType = 'span'>(
-    props: PolymorphicComponentProps<E, ButtonLabelProps>
+    props: PolymorphicComponentProps<E, ButtonLabelProps> & { ref?: PolymorphicRef<E> }
 ) => JSX.Element
 
 /* -------------------------------------------------------------------------- */

@@ -27,6 +27,13 @@ export function Default(): JSX.Element {
                 <Button.Label>Regular button</Button.Label>
             </Button.Root>
 
+            <Button.Root intent="outline" className="max-w-[105px]">
+                <Button.Label truncate>Truncated</Button.Label>
+                <Button.Icon>
+                    <IconSearch />
+                </Button.Icon>
+            </Button.Root>
+
             <Button.Root disabled>
                 <Button.Label>disabled</Button.Label>
             </Button.Root>
