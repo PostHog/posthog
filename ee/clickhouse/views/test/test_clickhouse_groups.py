@@ -780,6 +780,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name_singular": "organization!",
                     "name_plural": None,
                     "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 1,
@@ -787,6 +788,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name_singular": None,
                     "name_plural": "playlists",
                     "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 2,
@@ -794,6 +796,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name_singular": None,
                     "name_plural": None,
                     "detail_dashboard": None,
+                    "default_columns": None,
                 },
             ],
         )
@@ -820,6 +823,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name_singular": None,
                     "name_plural": None,
                     "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 1,
@@ -827,6 +831,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name_singular": None,
                     "name_plural": None,
                     "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 2,
@@ -834,6 +839,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name_singular": None,
                     "name_plural": None,
                     "detail_dashboard": None,
+                    "default_columns": None,
                 },
             ],
         )
@@ -914,6 +920,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name_singular": None,
                     "name_plural": None,
                     "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 1,
@@ -921,6 +928,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name_singular": None,
                     "name_plural": None,
                     "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 2,
@@ -928,6 +936,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name_singular": None,
                     "name_plural": None,
                     "detail_dashboard": None,
+                    "default_columns": None,
                 },
             ],
         )
