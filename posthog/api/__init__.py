@@ -2,7 +2,7 @@ from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
 import products.early_access_features.backend.api as early_access_feature
-from posthog.api import data_color_theme, metalytics, project, wizard
+from posthog.api import data_color_theme, mcp, metalytics, project, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
@@ -10,10 +10,10 @@ from posthog.warehouse.api import (
     external_data_schema,
     external_data_source,
     modeling,
+    query_tab_state,
     saved_query,
     table,
     view_link,
-    query_tab_state,
 )
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
@@ -634,3 +634,5 @@ environments_router.register(
 )
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
+
+projects_router.register(r"mcp", mcp.McpViewSet, "mcp", ["project_id"])
