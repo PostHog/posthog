@@ -3218,8 +3218,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertCountEqual([p4.uuid], [r[0] for r in res])
 
-    def test_performed_event_regularly_long_term(self):
-        """Test for a long-term (30 year) regular event filter requiring at least 2 occurrences."""
+    def test_performed_event_regularly_years_interval(self):
         # Person 1: Matches the condition - has 2 "Application Opened" events
         p1 = _create_person(
             team_id=self.team.pk,
@@ -3278,7 +3277,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         flush_persons_and_events()
 
-        # Create the filter exactly as specified in the request
         filter = Filter(
             data={
                 "properties": {
@@ -3385,7 +3383,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         self.assertIn(p3.uuid, result_uuids)
         self.assertNotIn(p2.uuid, result_uuids)
 
-    def test_person_property_with_email_list(self):
+    def test_person_property_with_value_list(self):
         # Create people with different email values
         p1 = _create_person(
             team_id=self.team.pk,
