@@ -6,7 +6,7 @@ import {
     IconThumbsUp,
     IconThumbsUpFilled,
 } from '@posthog/icons'
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -381,7 +381,8 @@ export function SingleChoiceQuestionPieChart({
     surveySingleChoiceResultsReady: QuestionResultsReady
 }): JSX.Element {
     const { loadSurveySingleChoiceResults } = useActions(surveyLogic)
-    const { survey } = useValues(surveyLogic)
+    const { survey, showSkipped } = useValues(surveyLogic)
+    const { setShowSkipped } = useActions(surveyLogic)
 
     const question = survey.questions[questionIndex]
     if (question.type !== SurveyQuestionType.SingleChoice) {
@@ -419,9 +420,12 @@ export function SingleChoiceQuestionPieChart({
             ) : !surveySingleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
-                <div>
-                    <div className="font-semibold text-secondary">Single choice</div>
-                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                <div className="flex flex-col gap-2">
+                    <div>
+                        <div className="font-semibold text-secondary">Single choice</div>
+                        <div className="text-xl font-bold">{question.question}</div>
+                    </div>
+                    <LemonCheckbox label="Show skipped responses" checked={showSkipped} onChange={setShowSkipped} />
                     <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
                         <div className="relative h-full w-80">
                             <BindLogic logic={insightLogic} props={insightProps}>
