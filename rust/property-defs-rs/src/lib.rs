@@ -17,9 +17,16 @@ use types::{Event, EventDefinitionsBatch, EventPropertiesBatch, PropertyDefiniti
 
 use ahash::AHashSet;
 use quick_cache::sync::Cache;
+use sqlx::PgPool;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio::task::JoinHandle;
 use tracing::{error, warn};
+
+// allows us to import private functions from lib.rs to test
+// module under "../tests/" directory
+#[cfg(test)]
+#[path = "../tests/v2_batch_ingestion.rs"]
+mod v2_batch_ingestion_test;
 
 pub mod api;
 pub mod app_context;
@@ -85,7 +92,7 @@ pub async fn update_consumer_loop(
 
         // conditionall enable new write path
         if config.enable_v2 {
-            process_batch_v2(&config, cache.clone(), context.clone(), batch).await;
+            process_batch_v2(&config, cache.clone(), &context.pool, batch).await;
         } else {
             process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
         }
@@ -95,7 +102,7 @@ pub async fn update_consumer_loop(
 async fn process_batch_v2(
     config: &Config,
     cache: Arc<Cache<Update, ()>>,
-    context: Arc<AppContext>,
+    pool: &PgPool,
     batch: Vec<Update>,
 ) {
     let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
@@ -108,32 +115,36 @@ async fn process_batch_v2(
     let mut handles: Vec<JoinHandle<Result<(), sqlx::Error>>> = vec![];
 
     // loop on the Update batch, splitting into smaller vectorized PG write batches
-    // and submitted async
+    // and submitted async. note for testing and simplicity, we don't work with
+    // the AppContext in process_batch_v2, just it's PgPool. We clone that all over
+    // the place to pass into `tokio::spawn()` which is fine b/c it's designed for
+    // this and manages concurrent access internaly. Some details here:
+    // https://github.com/launchbadge/sqlx/blob/main/sqlx-core/src/pool/mod.rs#L109-L111
     for update in batch {
         match update {
             Update::Event(ed) => {
                 if event_defs.append(ed) {
-                    let cloned_ctx = context.clone();
+                    let pool = pool.clone();
                     handles.push(tokio::spawn(async move {
-                        write_event_definitions_batch(event_defs, cloned_ctx).await
+                        write_event_definitions_batch(event_defs, &pool).await
                     }));
                     event_defs = EventDefinitionsBatch::new();
                 }
             }
             Update::EventProperty(ep) => {
                 if event_props.append(ep) {
-                    let cloned_ctx = context.clone();
+                    let pool = pool.clone();
                     handles.push(tokio::spawn(async move {
-                        write_event_properties_batch(event_props, cloned_ctx).await
+                        write_event_properties_batch(event_props, &pool).await
                     }));
                     event_props = EventPropertiesBatch::new();
                 }
             }
             Update::Property(pd) => {
                 if prop_defs.append(pd) {
-                    let cloned_ctx = context.clone();
+                    let pool = pool.clone();
                     handles.push(tokio::spawn(async move {
-                        write_property_definitions_batch(prop_defs, cloned_ctx).await
+                        write_property_definitions_batch(prop_defs, &pool).await
                     }));
                     prop_defs = PropertyDefinitionsBatch::new();
                 }
@@ -143,21 +154,21 @@ async fn process_batch_v2(
 
     // ensure partial batches are flushed to Postgres too
     if !event_defs.is_empty() {
-        let cloned_ctx = context.clone();
+        let pool = pool.clone();
         handles.push(tokio::spawn(async move {
-            write_event_definitions_batch(event_defs, cloned_ctx).await
+            write_event_definitions_batch(event_defs, &pool).await
         }));
     }
     if !prop_defs.is_empty() {
-        let cloned_ctx = context.clone();
+        let pool = pool.clone();
         handles.push(tokio::spawn(async move {
-            write_property_definitions_batch(prop_defs, cloned_ctx).await
+            write_property_definitions_batch(prop_defs, &pool).await
         }));
     }
     if !event_props.is_empty() {
+        let pool = pool.clone();
         handles.push(tokio::spawn(async move {
-            let cloned_ctx = context.clone();
-            write_event_properties_batch(event_props, cloned_ctx).await
+            write_event_properties_batch(event_props, &pool).await
         }));
     }
 
@@ -178,7 +189,7 @@ async fn process_batch_v2(
 
 async fn write_event_properties_batch(
     batch: EventPropertiesBatch,
-    context: Arc<AppContext>,
+    pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_TIME, &[]);
     let mut tries = 1;
@@ -193,7 +204,7 @@ async fn write_event_properties_batch(
         .bind(&batch.property_names)
         .bind(&batch.team_ids)
         .bind(&batch.project_ids)
-        .execute(&context.pool).await;
+        .execute(pool).await;
 
         match result {
             Err(e) => {
@@ -223,7 +234,7 @@ async fn write_event_properties_batch(
 
 async fn write_property_definitions_batch(
     batch: PropertyDefinitionsBatch,
-    context: Arc<AppContext>,
+    pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_TIME, &[]);
     let mut tries: u64 = 1;
@@ -245,7 +256,7 @@ async fn write_property_definitions_batch(
             .bind(&batch.team_ids)
             .bind(&batch.project_ids)
             .bind(&batch.property_types)
-            .execute(&context.pool).await;
+            .execute(pool).await;
 
         match result {
             Err(e) => {
@@ -275,7 +286,7 @@ async fn write_property_definitions_batch(
 
 async fn write_event_definitions_batch(
     batch: EventDefinitionsBatch,
-    context: Arc<AppContext>,
+    pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_TIME, &[]);
     let mut tries: u64 = 1;
@@ -297,7 +308,7 @@ async fn write_event_definitions_batch(
         .bind(&batch.team_ids)
         .bind(&batch.project_ids)
         .bind(&batch.last_seen_ats)
-        .execute(&context.pool)
+        .execute(pool)
         .await;
 
         match result {
