@@ -302,7 +302,7 @@ def get_static_cohort_size(*, cohort_id: int, team_id: int) -> Optional[int]:
 
 
 def recalculate_cohortpeople(
-    cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int], hogql: bool = False
+    cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int], hogql: bool = True
 ) -> Optional[int]:
     """
     Recalculate cohort people for all environments of the project.
@@ -411,6 +411,8 @@ def _recalculate_cohortpeople_for_team_hogql(
     if initiating_user_id:
         tag_queries(user_id=initiating_user_id)
 
+    hogql_global_settings = HogQLGlobalSettings()
+
     sync_execute(
         recalculate_cohortpeople_sql,
         {
@@ -424,9 +426,9 @@ def _recalculate_cohortpeople_for_team_hogql(
             "send_timeout": 600,
             "receive_timeout": 600,
             "optimize_on_insert": 0,
-            "max_ast_elements": HogQLGlobalSettings.max_ast_elements,
-            "max_expanded_ast_elements": HogQLGlobalSettings.max_expanded_ast_elements,
-            "max_bytes_before_external_group_by": HogQLGlobalSettings.max_bytes_before_external_group_by,
+            "max_ast_elements": hogql_global_settings.max_ast_elements,
+            "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,
+            "max_bytes_before_external_group_by": hogql_global_settings.max_bytes_before_external_group_by,
         },
         workload=Workload.OFFLINE,
     )
