@@ -1,9 +1,10 @@
-import { IconArrowRight, IconCheck, IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { IconArrowRight, IconCheck, IconCheckCircle, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { SpaceHog } from 'lib/components/hedgehogs'
+import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -24,8 +25,16 @@ export function StartupProgram(): JSX.Element {
     const isYC = pathname.endsWith('/yc')
 
     const logic = startupProgramLogic({ isYC })
-    const { formSubmitted, isAlreadyOnStartupPlan, isUserOrganizationOwnerOrAdmin } = useValues(logic)
+    const {
+        formSubmitted,
+        isAlreadyOnStartupPlan,
+        isUserOrganizationOwnerOrAdmin,
+        ycValidationState,
+        ycValidationError,
+        verifiedCompanyName,
+    } = useValues(logic)
     const { billing } = useValues(billingLogic)
+    const { validateYCBatch, setStartupProgramValue } = useActions(logic)
     const programName = isYC ? 'YC Program' : 'Startup Program'
 
     if (formSubmitted) {
@@ -233,9 +242,51 @@ export function StartupProgram(): JSX.Element {
                             </LemonField>
 
                             {isYC && (
-                                <LemonField name="yc_batch" label="Which YC batch are you?">
-                                    <LemonSelect options={YC_BATCH_OPTIONS} />
-                                </LemonField>
+                                <>
+                                    <LemonField name="yc_batch" label="Which YC batch are you?">
+                                        <LemonSelect
+                                            options={YC_BATCH_OPTIONS}
+                                            onChange={(value) => {
+                                                setStartupProgramValue('yc_batch', value)
+                                                if (value) {
+                                                    validateYCBatch()
+                                                }
+                                            }}
+                                        />
+                                    </LemonField>
+                                    {ycValidationState === 'validating' && (
+                                        <div className="flex items-center gap-2 text-muted">
+                                            <div className="animate-spin">⏳</div>
+                                            <span>Validating YC batch membership...</span>
+                                        </div>
+                                    )}
+                                    {ycValidationState === 'valid' && (
+                                        <LemonBanner type="success">
+                                            <div className="flex items-center gap-2">
+                                                <IconCheckCircle className="text-xl" />
+                                                <span>
+                                                    We were able to confirm your YC membership
+                                                    {verifiedCompanyName && ` for ${verifiedCompanyName}`}!
+                                                </span>
+                                            </div>
+                                        </LemonBanner>
+                                    )}
+                                    {ycValidationState === 'invalid' && (
+                                        <>
+                                            <div className="flex items-center gap-2 text-danger mb-2">
+                                                <IconWarning />
+                                                <span>{ycValidationError}</span>
+                                            </div>
+                                            <LemonField
+                                                name="yc_proof_screenshot_url"
+                                                label="YC profile screenshot"
+                                                info="Please upload a screenshot of your YC profile showing that you're using PostHog"
+                                            >
+                                                <ScreenshotUpload />
+                                            </LemonField>
+                                        </>
+                                    )}
+                                </>
                             )}
 
                             <LemonButton
@@ -258,6 +309,40 @@ export function StartupProgram(): JSX.Element {
                 </div>
             </div>
         </div>
+    )
+}
+
+function ScreenshotUpload(): JSX.Element {
+    const { setStartupProgramValue } = useActions(startupProgramLogic)
+    const { uploadingScreenshot } = useValues(startupProgramLogic)
+
+    const { setFilesToUpload } = useUploadFiles({
+        onUpload: (url) => {
+            // eslint-disable-next-line no-console
+            console.log('🖼️ Screenshot uploaded successfully:', { url })
+            setStartupProgramValue('yc_proof_screenshot_url', url)
+            lemonToast.success('Screenshot uploaded successfully')
+        },
+        onError: (detail) => {
+            lemonToast.error(`Error uploading screenshot: ${detail}`)
+            setStartupProgramValue('yc_proof_screenshot_url', undefined)
+        },
+    })
+
+    return (
+        <LemonFileInput
+            accept="image/*"
+            multiple={false}
+            onChange={(files) => {
+                if (!files?.length) {
+                    setStartupProgramValue('yc_proof_screenshot_url', undefined)
+                    return
+                }
+                setFilesToUpload(files)
+            }}
+            loading={uploadingScreenshot}
+            callToAction="Upload your YC profile screenshot"
+        />
     )
 }
 

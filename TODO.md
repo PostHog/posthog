@@ -30,12 +30,16 @@ Steps:
 - [x] Implement form validation and error handling
   - [x] Add validation for required fields, email format, domain format
   - [x] Add non-YC validation (company age < 2 years, funding < $5M)
+- [ ] Validate YC batch membership and ask for another proof otherwise
+  - [x] Once YC batch is defined, query https://yc-oss.github.io/api/batches/w25.json (etc) and check based on name<> and domain<>website
+  - [ ] If we couldn't validate YC membership, ask for the screenshot of their profile showing "using PostHog"
 - [ ] Implement form submission
   - [ ] Add loading states and success/error handling
   - [ ] Trigger webhook upon submission
 - [ ] Implement access control
   - [ ] Connect to feature flags for page access
   - [ ] Add loading states while checking permissions
+- [ ] Implement analytics matching posthog.com name events and properties  
 
 ---
 

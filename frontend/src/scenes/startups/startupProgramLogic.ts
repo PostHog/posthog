@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { TeamMembershipLevel } from 'lib/constants'
 import { DOMAIN_REGEX } from 'lib/constants'
@@ -66,6 +66,7 @@ export interface StartupProgramFormValues {
     incorporation_date: Dayjs | null
     is_building_with_llms: string
     yc_batch?: string
+    yc_proof_screenshot_url?: string
 }
 
 export interface StartupProgramLogicProps {
@@ -101,6 +102,15 @@ function validateFunding(raised: string | undefined, isYC: boolean): string | un
     return undefined
 }
 
+function extractDomain(url: string): string {
+    try {
+        const urlObj = new URL(url.startsWith('http') ? url : `https://${url}`)
+        return urlObj.hostname.replace(/^www\./, '')
+    } catch {
+        return url.replace(/^www\./, '')
+    }
+}
+
 export const startupProgramLogic = kea<startupProgramLogicType>([
     path(['scenes', 'startups', 'startupProgramLogic']),
     props({} as StartupProgramLogicProps),
@@ -110,6 +120,11 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
     }),
     actions({
         setFormSubmitted: (submitted: boolean) => ({ submitted }),
+        validateYCBatch: true,
+        setYCValidationState: (state: 'none' | 'validating' | 'valid' | 'invalid') => ({ state }),
+        setYCValidationError: (error: string | null) => ({ error }),
+        setVerifiedCompanyName: (name: string | null) => ({ name }),
+        setUploadingScreenshot: (uploading: boolean) => ({ uploading }),
     }),
     reducers({
         formSubmitted: [
@@ -118,7 +133,86 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 setFormSubmitted: (_, { submitted }) => submitted,
             },
         ],
+        ycValidationState: [
+            'none' as 'none' | 'validating' | 'valid' | 'invalid',
+            {
+                setYCValidationState: (_, { state }) => state,
+                validateYCBatch: () => 'validating',
+            },
+        ],
+        ycValidationError: [
+            null as string | null,
+            {
+                setYCValidationError: (_, { error }) => error,
+                validateYCBatch: () => null,
+            },
+        ],
+        verifiedCompanyName: [
+            null as string | null,
+            {
+                validateYCBatch: () => null,
+                setYCValidationState: (state, { state: newState }) => (newState === 'valid' ? state : null),
+            },
+        ],
+        uploadingScreenshot: [
+            false,
+            {
+                setUploadingScreenshot: (_, { uploading }) => uploading,
+            },
+        ],
     }),
+    listeners(({ actions, values }) => ({
+        validateYCBatch: async () => {
+            const { yc_batch, startup_domain, posthog_organization_name } = values.startupProgram
+
+            if (!yc_batch || yc_batch === 'Earlier') {
+                actions.setYCValidationState('valid')
+                actions.setYCValidationError(null)
+                return
+            }
+
+            try {
+                const url = `https://yc-oss.github.io/api/batches/${yc_batch.toLowerCase()}.json`
+                const response = await fetch(url)
+
+                if (!response.ok) {
+                    throw new Error('Failed to validate YC batch')
+                }
+
+                const companies = await response.json()
+                const normalizedDomain = extractDomain(startup_domain)
+                const normalizedOrgName = posthog_organization_name.toLowerCase().trim()
+
+                const foundCompany = companies.find((company: any) => {
+                    if (!company.website && !company.name) {
+                        return false
+                    }
+                    const companyDomain = company.website ? extractDomain(company.website) : null
+                    const companyName = company.name?.toLowerCase().trim() || ''
+                    const domainMatch = companyDomain === normalizedDomain
+                    const nameMatch = companyName.toLowerCase() === normalizedOrgName.toLowerCase()
+
+                    return domainMatch || nameMatch
+                })
+
+                if (foundCompany) {
+                    actions.setYCValidationState('valid')
+                    actions.setYCValidationError(null)
+                    actions.setVerifiedCompanyName(foundCompany.name)
+                } else {
+                    actions.setYCValidationState('invalid')
+                    actions.setYCValidationError(
+                        'Could not verify YC batch membership. Please provide a screenshot of your YC profile showing "using PostHog".'
+                    )
+                }
+            } catch (error) {
+                actions.setYCValidationState('invalid')
+                actions.setYCValidationError(
+                    'Failed to validate YC batch membership. Please try again or provide a screenshot.'
+                )
+            }
+        },
+    })),
     selectors({
         isAlreadyOnStartupPlan: [
             (s) => [s.billing],
@@ -162,6 +256,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 incorporation_date: null,
                 is_building_with_llms: '',
                 yc_batch: props.isYC ? '' : undefined,
+                yc_proof_screenshot_url: undefined,
             },
             errors: ({
                 email,
@@ -202,9 +297,12 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                         ? 'Please select whether you are building with LLMs'
                         : undefined,
                     yc_batch: props.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
+                    _form: values.ycValidationState === 'invalid' ? values.ycValidationError : undefined,
                 }
             },
             submit: async (formValues: StartupProgramFormValues) => {
+                // eslint-disable-next-line no-console
+                console.log('📝 Form values before submission:', formValues)
                 const valuesToSubmit = {
                     ...formValues,
                     incorporation_date: dayjs.isDayjs(formValues.incorporation_date)
@@ -212,7 +310,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                         : null,
                 }
                 // eslint-disable-next-line no-console
-                console.log('Form submitted with values:', valuesToSubmit)
+                console.log('📤 Submitting form with values:', valuesToSubmit)
 
                 actions.setFormSubmitted(true)
             },
