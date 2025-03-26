@@ -7,7 +7,7 @@ import { GroupTypeIndex } from '~/types'
 
 import { groupsListLogic } from './groupsListLogic'
 
-export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex | undefined }): JSX.Element {
+export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
     const { query, groupTypeName } = useValues(groupsListLogic({ groupTypeIndex }))
     const { setQuery } = useActions(groupsListLogic({ groupTypeIndex }))
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
