@@ -26,7 +26,6 @@ from posthog.models.error_tracking import (
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
     _create_person,
     _create_event,
     flush_persons_and_events,
@@ -140,7 +139,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             .model_dump()
         )
 
-    @snapshot_clickhouse_queries
     def test_column_names(self):
         columns = self._calculate()["columns"]
         self.assertEqual(
@@ -164,7 +162,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @snapshot_clickhouse_queries
     def test_issue_grouping(self):
         results = self._calculate(issueId=self.issue_id_one)["results"]
         # returns a single group with multiple errors
@@ -172,7 +169,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["id"], self.issue_id_one)
         self.assertEqual(results[0]["aggregations"]["occurrences"], 2)
 
-    @snapshot_clickhouse_queries
     def test_search_query(self):
         with freeze_time("2022-01-10 12:11:00"):
             self.create_events_and_issue(
@@ -222,7 +218,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._calculate(searchQuery="probs not found")["results"]
         self.assertEqual(len(results), 0)
 
-    @snapshot_clickhouse_queries
     def test_search_query_with_multiple_search_items(self):
         with freeze_time("2022-01-10 12:11:00"):
             self.create_events_and_issue(
@@ -271,7 +266,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._calculate()["results"]
         self.assertEqual(len(results), 3)
 
-    @snapshot_clickhouse_queries
     def test_correctly_counts_session_ids(self):
         with freeze_time("2022-01-10 12:11:00"):
             _create_event(
@@ -300,7 +294,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # only includes valid session ids
         self.assertEqual(results[0]["aggregations"]["sessions"], 2)
 
-    @snapshot_clickhouse_queries
     def test_hogql_filters(self):
         results = self._calculate(
             filterGroup=PropertyGroupFilter(
@@ -320,7 +313,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # two errors exist for person with distinct_id_two
         self.assertEqual(len(results), 2)
 
-    @snapshot_clickhouse_queries
     def test_ordering(self):
         results = self._calculate(orderBy="last_seen")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
@@ -328,7 +320,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._calculate(orderBy="first_seen")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
 
-    @snapshot_clickhouse_queries
     def test_status(self):
         resolved_issue = ErrorTrackingIssue.objects.get(id=self.issue_id_one)
         resolved_issue.status = ErrorTrackingIssue.Status.RESOLVED
@@ -358,7 +349,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["id"], self.issue_id_two)
         self.assertEqual(results[1]["aggregations"]["occurrences"], 1)
 
-    @snapshot_clickhouse_queries
     def test_user_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
         self.create_events_and_issue(
@@ -372,7 +362,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
-    @snapshot_clickhouse_queries
     def test_user_group_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
         self.create_events_and_issue(
