@@ -1,4 +1,4 @@
-import { IconArrowRight, IconCheck, IconCheckCircle, IconWarning } from '@posthog/icons'
+import { IconArrowRight, IconCheck, IconCheckCircle, IconUpload, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -245,9 +245,11 @@ export function StartupProgram(): JSX.Element {
                                     name="incorporation_date"
                                     label="The date that your company was incorporated"
                                 >
-                                    <div className="bg-bg-light">
-                                        <LemonCalendarSelectInput clearable={false} format="YYYY-MM-DD" />
-                                    </div>
+                                    <LemonCalendarSelectInput
+                                        clearable={false}
+                                        format="YYYY-MM-DD"
+                                        buttonProps={{ className: 'bg-bg-light' }}
+                                    />
                                 </LemonField>
 
                                 <LemonField name="is_building_with_llms" label="Are you building LLM-powered features?">
@@ -297,11 +299,7 @@ export function StartupProgram(): JSX.Element {
                                                     <IconWarning />
                                                     <span>{ycValidationError}</span>
                                                 </div>
-                                                <LemonField
-                                                    name="yc_proof_screenshot_url"
-                                                    label="YC profile screenshot"
-                                                    info="Please upload a screenshot of your YC profile showing that you're using PostHog"
-                                                >
+                                                <LemonField name="yc_proof_screenshot_url">
                                                     <ScreenshotUpload />
                                                 </LemonField>
                                             </>
@@ -362,7 +360,13 @@ function ScreenshotUpload(): JSX.Element {
                 setFilesToUpload(files)
             }}
             loading={uploadingScreenshot}
-            callToAction="Upload your YC profile screenshot"
+            callToAction={
+                <div className="flex flex-col items-center justify-center deprecated-space-y-2 border border-dashed rounded p-4 w-full">
+                    <span className="flex items-center gap-2 font-semibold">
+                        <IconUpload className="text-2xl" /> Upload YC Profile Screenshot
+                    </span>
+                </div>
+            }
         />
     )
 }
