@@ -1,11 +1,11 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use common_redis::MockRedisClient;
 use feature_flags::team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use reqwest::header::CONTENT_TYPE;
-use time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 
@@ -97,7 +97,7 @@ impl ServerHandle {
                     return;
                 }
             };
-            let geoip_service = match feature_flags::client::geoip::GeoIpClient::new(&config) {
+            let geoip_service = match common_geoip::GeoIpClient::new(config.get_maxmind_db_path()) {
                 Ok(service) => Arc::new(service),
                 Err(e) => {
                     tracing::error!("Failed to create GeoIP service: {}", e);
@@ -114,12 +114,12 @@ impl ServerHandle {
 
             let health = health::HealthRegistry::new("liveness");
             let simple_loop = health
-                .register("simple_loop".to_string(), Duration::seconds(30))
+                .register("simple_loop".to_string(), Duration::from_secs(30))
                 .await;
             tokio::spawn(liveness_loop(simple_loop));
 
             let billing_limiter = RedisLimiter::new(
-                Duration::seconds(5),
+                Duration::from_secs(5),
                 redis_client.clone(),
                 QUOTA_LIMITER_CACHE_KEY.to_string(),
                 None,

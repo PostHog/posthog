@@ -112,7 +112,7 @@ class Cohort(FileSystemSyncMixin, models.Model):
     objects = CohortManager()
 
     def __str__(self):
-        return self.name
+        return self.name or "Untitled cohort"
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Cohort"]:

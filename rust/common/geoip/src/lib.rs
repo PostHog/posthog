@@ -1,14 +1,11 @@
-use crate::config::Config;
 use maxminddb::Reader;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::{collections::HashMap, path::PathBuf};
 use thiserror::Error;
-use tracing::{
-    debug,
-    log::{error, info},
-};
+
+use tracing::log::{error, info};
 
 #[derive(Error, Debug)]
 pub enum GeoIpError {
@@ -23,64 +20,34 @@ pub struct GeoIpClient {
 impl GeoIpClient {
     /// Creates a new GeoIpClient instance.
     /// Returns an error if the database can't be loaded.
-    pub fn new(config: &Config) -> Result<Self, GeoIpError> {
-        let geoip_path = config.get_maxmind_db_path();
+    pub fn new(db_path: PathBuf) -> Result<Self, GeoIpError> {
+        info!("Attempting to open GeoIP database at: {:?}", db_path);
 
-        info!("Attempting to open GeoIP database at: {:?}", geoip_path);
-
-        let reader = Reader::open_readfile(&geoip_path)?;
+        let reader = Reader::open_readfile(&db_path)?;
         info!("Successfully opened GeoIP database");
 
         Ok(GeoIpClient { reader })
     }
 
     /// Checks if the given IP address is valid.
-    fn is_valid_ip(&self, ip: &str) -> bool {
-        ip != "127.0.0.1" && ip != "::1"
-    }
+    fn parse_ip(&self, ip: &str) -> Option<IpAddr> {
+        let res = IpAddr::from_str(ip).ok()?;
 
-    /// Looks up the city data for the given IP address.
-    /// Returns None if the lookup fails.
-    fn lookup_city(&self, ip: &str, addr: IpAddr) -> Option<Value> {
-        match self.reader.lookup::<Value>(addr) {
-            Ok(city) => {
-                info!(
-                    "GeoIP lookup succeeded for IP {}: Full city data: {:?}",
-                    ip, city
-                );
-                Some(city)
-            }
-            Err(e) => {
-                // it's not really an error, it's just that the IP address is not in the database
-                // for example, localhost is not in the database, nor is any private IP address
-                debug!("GeoIP lookup error for IP {}: {}", ip, e);
-                None
-            }
+        if res.is_loopback() {
+            None
+        } else {
+            Some(res)
         }
     }
 
     /// Returns a dictionary of geoip properties for the given ip address.
-    pub fn get_geoip_properties(&self, ip_address: Option<&str>) -> HashMap<String, String> {
-        let ip = match ip_address {
-            Some(ip) if self.is_valid_ip(ip) => ip,
-            _ => {
-                info!("No valid IP address provided; returning empty properties");
-                return HashMap::new();
-            }
-        };
+    pub fn get_geoip_properties(&self, ip: &str) -> Option<HashMap<String, String>> {
+        let ip = self.parse_ip(ip)?;
 
-        match IpAddr::from_str(ip) {
-            Ok(addr) => self
-                .lookup_city(ip, addr)
-                .map(|city| extract_properties(&city))
-                .unwrap_or_default(),
-            Err(_) => {
-                // By the time we get here, it's not really an error, it's just that the IP address is not in the database
-                // for example, localhost is not in the database, nor is any private IP address
-                debug!("Invalid IP address: {}", ip);
-                HashMap::new()
-            }
-        }
+        self.reader
+            .lookup::<Value>(ip)
+            .map(|city| extract_properties(&city))
+            .ok()
     }
 }
 
@@ -116,66 +83,52 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::config::Config;
-    use std::sync::Once;
+    use std::path::Path;
 
-    static INIT: Once = Once::new();
-
-    fn initialize() {
-        INIT.call_once(|| {
-            tracing_subscriber::fmt::init();
-        });
+    fn get_db_path() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("share")
+            .join("GeoLite2-City.mmdb")
     }
 
     fn create_test_service() -> GeoIpClient {
-        let config = Config::default_test_config();
-        GeoIpClient::new(&config).expect("Failed to create GeoIpService")
+        GeoIpClient::new(get_db_path()).expect("Failed to create GeoIpService")
     }
 
     #[test]
     fn test_geoip_service_creation() {
-        initialize();
-        let config = Config::default_test_config();
-        let service_result = GeoIpClient::new(&config);
+        let service_result = GeoIpClient::new(get_db_path());
         assert!(service_result.is_ok());
     }
 
     #[test]
     fn test_geoip_service_creation_failure() {
-        initialize();
-        let mut config = Config::default_test_config();
-        config.maxmind_db_path = "/path/to/nonexistent/file".to_string();
-        let service_result = GeoIpClient::new(&config);
+        let service_result = GeoIpClient::new(PathBuf::from("/non/existant/path"));
         assert!(service_result.is_err());
     }
 
     #[test]
-    fn test_get_geoip_properties_none() {
-        initialize();
-        let service = create_test_service();
-        let result = service.get_geoip_properties(None);
-        assert!(result.is_empty());
-    }
-
-    #[test]
     fn test_get_geoip_properties_localhost() {
-        initialize();
         let service = create_test_service();
-        let result = service.get_geoip_properties(Some("127.0.0.1"));
-        assert!(result.is_empty());
+        let result = service.get_geoip_properties("127.0.0.1");
+        assert!(result.is_none());
     }
 
     #[test]
     fn test_get_geoip_properties_invalid_ip() {
-        initialize();
         let service = create_test_service();
-        let result = service.get_geoip_properties(Some("not_an_ip"));
-        assert!(result.is_empty());
+        let result = service.get_geoip_properties("not_an_ip");
+        assert!(result.is_none());
     }
 
     #[test]
     fn test_geoip_results() {
-        initialize();
         let service = create_test_service();
         let test_cases = vec![
             ("13.106.122.3", "Australia"),
@@ -185,9 +138,9 @@ mod tests {
         ];
 
         for (ip, expected_country) in test_cases {
-            let result = service.get_geoip_properties(Some(ip));
-            info!("GeoIP lookup result for IP {}: {:?}", ip, result);
-            info!(
+            let result = service.get_geoip_properties(ip).unwrap();
+            println!("GeoIP lookup result for IP {}: {:?}", ip, result);
+            println!(
                 "Expected country: {}, Actual country: {:?}",
                 expected_country,
                 result.get("$geoip_country_name")
@@ -202,18 +155,16 @@ mod tests {
 
     #[test]
     fn test_geoip_on_local_ip() {
-        initialize();
         let service = create_test_service();
-        let result = service.get_geoip_properties(Some("127.0.0.1"));
-        assert!(result.is_empty());
+        let result = service.get_geoip_properties("127.0.0.1");
+        assert!(result.is_none());
     }
 
     #[test]
     fn test_geoip_on_invalid_ip() {
-        initialize();
         let service = create_test_service();
-        let result = service.get_geoip_properties(Some("999.999.999.999"));
-        assert!(result.is_empty());
+        let result = service.get_geoip_properties("999.999.999.999");
+        assert!(result.is_none());
     }
 
     #[test]

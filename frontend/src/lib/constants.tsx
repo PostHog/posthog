@@ -220,8 +220,6 @@ export const FEATURE_FLAGS = {
     HOG_TRANSFORMATIONS_WITH_FILTERS: 'hog-transformations-with-filters', // owner: #team-cdp
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
-    SUPPORT_SIDEBAR_MAX: 'support-sidebar-max', // owner: @steven #team-max
-    INKEEP_MAX_SUPPORT_SIDEBAR: 'inkeep-max-support-sidebar', // owner: @steven #team-max
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     EXPERIMENT_STATS_V2: 'experiment-stats-v2', // owner: @danielbachhuber #team-experiments
     BILLING_USAGE_DASHBOARD: 'billing-usage-dashboard', // owner: @pato
