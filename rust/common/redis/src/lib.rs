@@ -497,7 +497,7 @@ impl Client for MockRedisClient {
             value: MockRedisValue::StringWithTTLAndFormat(value.clone(), seconds, format),
         });
 
-        self.set_nx_ex_ret.get(&key).cloned().unwrap_or(Ok(true))
+        self.set_nx_ex_ret.get(&key).cloned().unwrap_or(Err(CustomRedisError::NotFound))
     }
 
     async fn del(&self, key: String) -> Result<(), CustomRedisError> {
