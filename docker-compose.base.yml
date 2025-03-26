@@ -133,6 +133,8 @@ services:
     maildev:
         image: maildev/maildev:2.0.5
         restart: on-failure
+        healthcheck:
+            disable: true
 
     flower:
         image: mher/flower:2.0.0
@@ -214,13 +216,13 @@ services:
             context: rust/
             args:
                 BIN: feature-flags
-        restart: on-failure
+        restart: always
         volumes:
             - ./share:/share
         environment:
             WRITE_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            MAXMIND_DB_PATH: '/share/GeoLite2-City.mmdb'
+            MAXMIND_DB_PATH: './share/GeoLite2-City.mmdb'
             REDIS_URL: 'redis://redis:6379/'
             ADDRESS: '0.0.0.0:3001'
             SKIP_WRITES: 'false'

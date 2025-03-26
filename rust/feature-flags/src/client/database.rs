@@ -10,7 +10,7 @@ use sqlx::{
 use thiserror::Error;
 use tokio::time::timeout;
 
-const DATABASE_TIMEOUT_MILLISECS: u64 = 1000;
+const DATABASE_TIMEOUT_MILLISECS: u64 = 10000;
 
 #[derive(Error, Debug)]
 pub enum CustomDatabaseError {
@@ -38,7 +38,7 @@ pub trait Client {
 pub async fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
     PgPoolOptions::new()
         .max_connections(max_connections)
-        .acquire_timeout(Duration::from_secs(1))
+        .acquire_timeout(Duration::from_secs(10))
         .test_before_acquire(true)
         .connect(url)
         .await
