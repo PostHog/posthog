@@ -9,10 +9,14 @@ const ExperimentDate = ({
     label,
     date,
     onChange,
+    selectionLimitDate,
+    'data-attr': dataAttr,
 }: {
     label: string
     date?: string | null
+    selectionLimitDate?: string | null
     onChange?: (date: string) => void
+    'data-attr'?: string
 }): JSX.Element | null => {
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
 
@@ -40,14 +44,15 @@ const ExperimentDate = ({
                         onClickOutside={() => setIsDatePickerOpen(false)}
                         clearable={false}
                         selectionPeriod="past"
-                        buttonProps={{ size: 'xsmall', 'data-attr': 'experiment-start-date-picker' }}
+                        buttonProps={{ size: 'xsmall', 'data-attr': `${dataAttr}-picker` }}
+                        selectionLimitDate={dayjs(selectionLimitDate)}
                     />
                 ) : (
                     <>
                         <TZLabel time={date} />
                         <LemonButton
                             title="Move start date"
-                            data-attr="move-experiment-start-date"
+                            data-attr={`move-${dataAttr}`}
                             icon={<IconPencil />}
                             size="small"
                             onClick={() => setIsDatePickerOpen(true)}
