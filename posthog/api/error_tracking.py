@@ -301,21 +301,6 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
         serializer = self.get_serializer(queryset, many=True)
         return Response({"results": serializer.data})
 
-    def list(self, request, *args, **kwargs):
-        raw_ids = request.GET.getlist("raw_ids", [])
-        symbol_set = request.GET.get("symbol_set", None)
-
-        queryset = self.queryset.filter(team_id=self.team.id)
-
-        if raw_ids:
-            queryset = queryset.filter(raw_id__in=raw_ids)
-
-        if symbol_set:
-            queryset = queryset.filter(symbol_set=symbol_set)
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({"results": serializer.data})
-
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
     class Meta:
