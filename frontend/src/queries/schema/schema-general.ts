@@ -1971,25 +1971,25 @@ export interface ExperimentMetricBaseProperties {
     time_window_hours?: number
 }
 
-export interface MathProperties {
+export interface ExperimentMetricMathProperties {
     math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
 }
 
-export interface EventSource {
+export interface ExperimentEventMetricSource {
     source_type: 'event'
     event: string
     properties?: AnyPropertyFilter[]
 }
 
-export interface ActionSource {
+export interface ExperimentActionMetricSource {
     source_type: 'action'
     action: number
     properties?: AnyPropertyFilter[]
 }
 
-export interface DataWarehouseSource {
+export interface ExperimentDataWarehouseMetricSource {
     source_type: 'data_warehouse'
     table_name: string
     timestamp_field: string
@@ -1997,23 +1997,26 @@ export interface DataWarehouseSource {
     data_warehouse_join_key: string
 }
 
-export type SourceDefinition = EventSource | ActionSource | DataWarehouseSource
+export type ExperimentMetricSource =
+    | ExperimentEventMetricSource
+    | ExperimentActionMetricSource
+    | ExperimentDataWarehouseMetricSource
 
-export interface FunnelStep {
+export interface ExperimentFunnelMetricStep {
     event: string
     name?: string
     order: integer
     properties?: AnyPropertyFilter[]
 }
 
-export interface ExperimentMeanMetric extends ExperimentMetricBaseProperties, MathProperties {
+export interface ExperimentMeanMetric extends ExperimentMetricBaseProperties, ExperimentMetricMathProperties {
     metric_type: ExperimentMetricType.MEAN
-    source: SourceDefinition
+    source: ExperimentMetricSource
 }
 
 export interface ExperimentFunnelMetric extends ExperimentMetricBaseProperties {
     metric_type: ExperimentMetricType.FUNNEL
-    steps: FunnelStep[]
+    steps: ExperimentFunnelMetricStep[]
 }
 
 export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric
