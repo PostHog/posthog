@@ -1,4 +1,4 @@
-import { IconDatabase, IconDocument, IconLogomark } from '@posthog/icons'
+import { IconDatabase, IconDocument } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
@@ -25,14 +25,7 @@ import { editorSceneLogic } from './editorSceneLogic'
 import type { editorSidebarLogicType } from './editorSidebarLogicType'
 import { multitabEditorLogic } from './multitabEditorLogic'
 
-const dataWarehouseTablesfuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], {
-    keys: [{ name: 'name', weight: 2 }],
-    threshold: 0.3,
-    ignoreLocation: true,
-    includeMatches: true,
-})
-
-const posthogTablesfuse = new Fuse<DatabaseSchemaTable>([], {
+const dataWarehouseTablesfuse = new Fuse<DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable>([], {
     keys: [{ name: 'name', weight: 2 }],
     threshold: 0.3,
     ignoreLocation: true,
@@ -55,7 +48,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'initialDataWarehouseSavedQueryLoading'],
             databaseTableListLogic,
-            ['posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
+            ['posthogTables', 'dataWarehouseTables', 'allTables', 'databaseLoading', 'views', 'viewsMapById'],
         ],
         actions: [
             editorSceneLogic,
@@ -73,22 +66,22 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             (s) => [
                 s.relevantSavedQueries,
                 s.initialDataWarehouseSavedQueryLoading,
-                s.relevantPosthogTables,
                 s.relevantDataWarehouseTables,
                 s.dataWarehouseTablesBySourceType,
                 s.databaseLoading,
+                navigation3000Logic.selectors.searchTerm,
             ],
             (
                 relevantSavedQueries,
                 initialDataWarehouseSavedQueryLoading,
-                relevantPosthogTables,
                 relevantDataWarehouseTables,
                 dataWarehouseTablesBySourceType,
-                databaseLoading
+                databaseLoading,
+                searchTerm
             ) => [
                 {
                     key: 'data-warehouse-sources',
-                    noun: ['source', 'external source'],
+                    noun: ['source', 'sources'],
                     loading: databaseLoading,
                     items:
                         relevantDataWarehouseTables.length > 0
@@ -120,13 +113,17 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                     onAdd: () => {
                         router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
                     },
+                    emptyComponentLogic: (items) => {
+                        // We will always show the posthog tables, so we wanna check for length == 1 instead of 0
+                        return items.length < 2 && !databaseLoading && !searchTerm?.length
+                    },
                     emptyComponent: (
-                        <div className="p-4 text-center flex flex-col justify-center items-center">
+                        <div className="p-4 text-center flex flex-col justify-center items-center border-t">
                             <div className="mb-4 flex justify-center gap-6">
                                 <DataWarehouseSourceIcon type="Postgres" size="small" />
                                 <DataWarehouseSourceIcon type="Stripe" size="small" />
                             </div>
-                            <h4 className="mb-2">No external sources connected</h4>
+                            <h4 className="mb-2">No data warehouse sources connected</h4>
                             {/* eslint-disable-next-line react/forbid-dom-props */}
                             <p className="text-muted mb-4 text-xs px-2 break-words w" style={{ whiteSpace: 'normal' }}>
                                 Import data from external sources like Postgres, Stripe, or other databases to enrich
@@ -149,35 +146,6 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                             </LemonButton>
                         </div>
                     ),
-                } as SidebarCategory,
-                {
-                    key: 'data-warehouse-tables',
-                    noun: ['table', 'tables'],
-                    loading: databaseLoading,
-                    items: relevantPosthogTables.map(([table, matches]) => ({
-                        key: table.id,
-                        name: table.name,
-                        url: '',
-                        icon: <IconLogomark />,
-                        searchMatch: matches
-                            ? {
-                                  matchingFields: matches.map((match) => match.key),
-                                  nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                              }
-                            : null,
-                        onClick: () => {
-                            actions.selectSchema(table)
-                        },
-                        menuItems: [
-                            {
-                                label: 'Add join',
-                                onClick: () => {
-                                    actions.selectSourceTable(table.name)
-                                    actions.toggleJoinTableModal()
-                                },
-                            },
-                        ],
-                    })),
                 } as SidebarCategory,
                 {
                     key: 'data-warehouse-views',
@@ -254,8 +222,12 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             },
         ],
         dataWarehouseTablesBySourceType: [
-            (s) => [s.dataWarehouseTables],
-            (dataWarehouseTables): BasicListItem[] | ExtendedListItem[] | ListItemAccordion[] => {
+            (s) => [s.dataWarehouseTables, s.posthogTables, s.databaseLoading],
+            (
+                dataWarehouseTables,
+                posthogTables,
+                databaseLoading
+            ): BasicListItem[] | ExtendedListItem[] | ListItemAccordion[] => {
                 const tablesBySourceType = dataWarehouseTables.reduce(
                     (acc: Record<string, DatabaseSchemaDataWarehouseTable[]>, table) => {
                         if (table.source) {
@@ -274,9 +246,36 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                     {}
                 )
 
-                return Object.entries(tablesBySourceType).map(([sourceType, tables]) => ({
+                const phTables = {
+                    key: 'data-warehouse-tables',
+                    noun: ['PostHog', 'PostHog'],
+                    loading: databaseLoading,
+                    icon: <DataWarehouseSourceIcon type="PostHog" sizePx={18} disableTooltip />,
+                    items: posthogTables.map((table) => ({
+                        key: table.id,
+                        name: table.name,
+                        url: '',
+                        icon: <IconDatabase />,
+                        searchMatch: null,
+                        onClick: () => {
+                            actions.selectSchema(table)
+                        },
+                        menuItems: [
+                            {
+                                label: 'Add join',
+                                onClick: () => {
+                                    actions.selectSourceTable(table.name)
+                                    actions.toggleJoinTableModal()
+                                },
+                            },
+                        ],
+                    })),
+                } as ListItemAccordion
+
+                const warehouseTables = Object.entries(tablesBySourceType).map(([sourceType, tables]) => ({
                     key: sourceType,
                     noun: [sourceType, sourceType],
+                    icon: <DataWarehouseSourceIcon type={sourceType} sizePx={18} disableTooltip />,
                     items: tables.map((table) => ({
                         key: table.id,
                         name: table.name,
@@ -297,28 +296,19 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         ],
                     })),
                 })) as ListItemAccordion[]
+
+                return [phTables, ...warehouseTables]
             },
         ],
         relevantDataWarehouseTables: [
             () => [navigation3000Logic.selectors.searchTerm],
-            (searchTerm): [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][] => {
+            (searchTerm): [DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable, FuseSearchMatch[] | null][] => {
                 if (searchTerm) {
                     return dataWarehouseTablesfuse
                         .search(searchTerm)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return []
-            },
-        ],
-        relevantPosthogTables: [
-            (s) => [s.posthogTables, navigation3000Logic.selectors.searchTerm],
-            (posthogTables, searchTerm): [DatabaseSchemaTable, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
-                    return posthogTablesfuse
-                        .search(searchTerm)
-                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
-                }
-                return posthogTables.map((table) => [table, null])
             },
         ],
         relevantSavedQueries: [
@@ -334,11 +324,9 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
         ],
     })),
     subscriptions({
-        dataWarehouseTables: (dataWarehouseTables) => {
-            dataWarehouseTablesfuse.setCollection(dataWarehouseTables)
-        },
-        posthogTables: (posthogTables) => {
-            posthogTablesfuse.setCollection(posthogTables)
+        allTables: (allTables: DatabaseSchemaTable[]) => {
+            const tables = allTables.filter((n) => n.type === 'posthog' || n.type === 'data_warehouse')
+            dataWarehouseTablesfuse.setCollection(tables)
         },
         dataWarehouseSavedQueries: (dataWarehouseSavedQueries) => {
             savedQueriesfuse.setCollection(dataWarehouseSavedQueries)
