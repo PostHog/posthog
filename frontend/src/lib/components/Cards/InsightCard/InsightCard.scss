@@ -12,8 +12,8 @@
     transition: border 200ms ease;
 
     &--highlighted {
-        border-color: var(--accent-primary);
-        outline: 1px solid var(--accent-primary);
+        border-color: var(--accent);
+        outline: 1px solid var(--accent);
     }
 
     .ErrorBoundary {
@@ -134,7 +134,7 @@
     line-height: 1rem;
     color: var(--text-secondary);
     vertical-align: middle;
-    background: var(--accent-primary-highlight);
+    background: var(--accent-highlight-secondary);
     border-radius: var(--radius);
 
     &.SeriesDisplay__raw-name--action,
@@ -151,7 +151,7 @@
             line-height: 1rem;
             color: var(--bg-surface-primary);
             text-align: center;
-            background: var(--accent-primary);
+            background: var(--accent);
             border-radius: var(--radius);
         }
     }

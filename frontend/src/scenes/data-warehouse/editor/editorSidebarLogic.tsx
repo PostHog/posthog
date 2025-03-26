@@ -5,6 +5,7 @@ import { connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -107,6 +108,12 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                               actions.toggleJoinTableModal()
                                           },
                                       },
+                                      {
+                                          label: 'Copy table name',
+                                          onClick: () => {
+                                              void copyToClipboard(table.name)
+                                          },
+                                      },
                                   ],
                               }))
                             : dataWarehouseTablesBySourceType,
@@ -196,6 +203,12 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                     actions.deleteDataWarehouseSavedQuery(savedQuery.id)
                                 },
                             },
+                            {
+                                label: 'Copy view name',
+                                onClick: () => {
+                                    void copyToClipboard(savedQuery.name)
+                                },
+                            },
                         ],
                     })),
                 } as SidebarCategory,
@@ -268,6 +281,12 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                     actions.toggleJoinTableModal()
                                 },
                             },
+                            {
+                                label: 'Copy table name',
+                                onClick: () => {
+                                    void copyToClipboard(table.name)
+                                },
+                            },
                         ],
                     })),
                 } as ListItemAccordion
@@ -291,6 +310,12 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                 onClick: () => {
                                     actions.selectSourceTable(table.name)
                                     actions.toggleJoinTableModal()
+                                },
+                            },
+                            {
+                                label: 'Copy table name',
+                                onClick: () => {
+                                    void copyToClipboard(table.name)
                                 },
                             },
                         ],

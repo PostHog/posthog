@@ -39,6 +39,8 @@ const getKindField = (metric: ExperimentMetric): NodeKind => {
         ? NodeKind.EventsNode
         : metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig
         ? NodeKind.ActionsNode
+        : metric.metric_config.kind === NodeKind.ExperimentFunnelMetricConfig
+        ? NodeKind.FunnelsQuery
         : NodeKind.DataWarehouseNode
 }
 
@@ -47,6 +49,8 @@ const getEventField = (metric: ExperimentMetric): string | number => {
         ? metric.metric_config.event
         : metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig
         ? metric.metric_config.action
+        : metric.metric_config.kind === NodeKind.ExperimentFunnelMetricConfig
+        ? metric.metric_config.funnel[0].event
         : metric.metric_config.table_name
 }
 

@@ -55,6 +55,7 @@ TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.TRANSFORMATION,
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.BROADCAST,
+    HogFunctionType.EMAIL,
 )
 TYPES_WITH_COMPILED_FILTERS = (
     HogFunctionType.DESTINATION,
@@ -117,7 +118,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
             url_type = "transformations"
         else:
             folder = "Unfiled/Destinations"
-            url_type = f"{self.type}s"
+            url_type = f"destinations"
         return FileSystemRepresentation(
             base_folder=folder,
             type=str(self.type),
