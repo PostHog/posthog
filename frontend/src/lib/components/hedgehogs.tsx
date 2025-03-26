@@ -11,6 +11,8 @@ import featureFlagHog from 'public/hedgehog/feature-flag-hog.png'
 import filmCameraHog from 'public/hedgehog/filmcamera.png'
 import heartHog from 'public/hedgehog/heart-hog.png'
 import hospitalHog from 'public/hedgehog/hospital-hog.png'
+import judgeHog1 from 'public/hedgehog/judge-hog-01.png'
+import judgeHog2 from 'public/hedgehog/judge-hog-02.png'
 import laptopHog1 from 'public/hedgehog/laptop-hog-01.png'
 import laptopHog2 from 'public/hedgehog/laptop-hog-02.png'
 import laptopHog3 from 'public/hedgehog/laptop-hog-03.png'
@@ -153,7 +155,12 @@ export const BurningMoneyHog = (props: HedgehogProps): JSX.Element => {
 export const FilmCameraHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={filmCameraHog} {...props} />
 }
-
 export const SupermanHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={supermanHog} {...props} />
+}
+export const JudgeHog1 = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={judgeHog1} {...props} />
+}
+export const JudgeHog2 = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={judgeHog2} {...props} />
 }
