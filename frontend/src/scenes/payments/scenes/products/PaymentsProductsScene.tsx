@@ -9,6 +9,10 @@ export function PaymentsProductsScene(): JSX.Element {
             <LemonTable
                 columns={[
                     {
+                        dataIndex: 'product_id',
+                        title: 'Product ID',
+                    },
+                    {
                         dataIndex: 'name',
                         title: 'Name',
                     },
@@ -23,11 +27,13 @@ export function PaymentsProductsScene(): JSX.Element {
                 ]}
                 dataSource={[
                     {
+                        product_id: 'phpr_prod_1',
                         name: 'Product 1',
                         price: 100,
                         status: 'active',
                     },
                     {
+                        product_id: 'phpr_prod_2',
                         name: 'Product 2',
                         price: 200,
                         status: 'inactive',
