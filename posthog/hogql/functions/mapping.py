@@ -1482,7 +1482,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
 HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
-    "recording_button": HogQLFunctionMeta("recording_button", 1, 1),
+    "recording_button": HogQLFunctionMeta("recording_button", 1, 2),
     # posthog/models/channel_type/sql.py and posthog/hogql/database/schema/channel_type.py
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
     "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
