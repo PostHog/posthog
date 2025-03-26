@@ -285,14 +285,25 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
     queryset = ErrorTrackingStackFrame.objects.all()
     serializer_class = ErrorTrackingStackFrameSerializer
 
+    @action(methods=["POST"], detail=False)
+    def batch_get(self, request, **kwargs):
+        raw_ids = request.data.get("raw_ids", [])
+        symbol_set = request.data.get("symbol_set", None)
+
+        queryset = self.queryset.filter(team_id=self.team.id)
+
+        if raw_ids:
+            queryset = queryset.filter(raw_id__in=raw_ids)
+
+        if symbol_set:
+            queryset = queryset.filter(symbol_set=symbol_set)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({"results": serializer.data})
+
     def list(self, request, *args, **kwargs):
-        # Check if we're getting data via POST for large raw_ids lists
-        if request.method == "POST":
-            raw_ids = request.data.get("raw_ids", [])
-            symbol_set = request.data.get("symbol_set", None)
-        else:
-            raw_ids = request.GET.getlist("raw_ids", [])
-            symbol_set = request.GET.get("symbol_set", None)
+        raw_ids = request.GET.getlist("raw_ids", [])
+        symbol_set = request.GET.get("symbol_set", None)
 
         queryset = self.queryset.filter(team_id=self.team.id)
 
