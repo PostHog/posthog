@@ -35,6 +35,7 @@ runs:
         - name: Stop/Start stack with Docker Compose
           shell: bash
           run: |
+              docker login -u buildpulseapp -p $BP_DOCKERHUB_TOKEN
               export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
               export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
               cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
@@ -69,7 +70,7 @@ runs:
         - name: Install SAML (python3-saml) dependencies
           shell: bash
           run: |
-              sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl -y
 
         - name: Install pnpm
           uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -103,7 +104,7 @@ runs:
           # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
           # changed (requirements.txt has the already-published version)
           run: |
-              sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
+              sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config -y
               curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
               # Check that the downloaded archive is the expected runtime - a security measure
               anltr_known_md5sum="c875c148991aacd043f733827644a76f"
