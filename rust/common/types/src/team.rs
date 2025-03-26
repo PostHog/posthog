@@ -2,11 +2,14 @@ use chrono::{DateTime, Utc};
 use sqlx::Postgres;
 use uuid::Uuid;
 
+pub type TeamId = i32;
+pub type ProjectId = i64;
+
 // Actually an "environment"
 #[derive(Debug, Clone)]
 pub struct Team {
-    pub id: i32,
-    pub project_id: Option<i64>,
+    pub id: TeamId,
+    pub project_id: Option<ProjectId>,
     pub organization_id: Uuid,
     pub uuid: Uuid,
     pub api_token: String,
@@ -18,7 +21,7 @@ pub struct Team {
 }
 
 impl Team {
-    pub async fn load<'c, E>(e: E, id: i32) -> Result<Option<Team>, sqlx::Error>
+    pub async fn load<'c, E>(e: E, id: TeamId) -> Result<Option<Team>, sqlx::Error>
     where
         E: sqlx::Executor<'c, Database = Postgres>,
     {

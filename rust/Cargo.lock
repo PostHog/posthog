@@ -1363,6 +1363,7 @@ dependencies = [
  "chrono-tz",
  "common-metrics",
  "common-redis",
+ "common-types",
  "itoa",
  "moka",
  "public-suffix",
@@ -1372,6 +1373,7 @@ dependencies = [
  "siphasher 1.0.1",
  "thiserror",
  "tokio",
+ "tracing",
  "url",
 ]
 
@@ -1615,13 +1617,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "csv"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acdc4883a9c96732e4733212c01447ebd805833b7275a73ca3ee080fd77afdaf"
+dependencies = [
+ "csv-core",
+ "itoa",
+ "ryu",
+ "serde",
+]
+
+[[package]]
+name = "csv-core"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d02f3b0da4c6504f86e9cd789d8dbafab48c2321be74e9987593de5a894d93d"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "cyclotron-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "common-metrics",
+ "csv",
  "flate2",
  "futures",
+ "hex",
  "serde",
  "sqlx",
  "thiserror",
@@ -2154,9 +2179,11 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-cookieless",
  "common-geoip",
  "common-metrics",
  "common-redis",
+ "common-types",
  "dateparser",
  "envconfig",
  "flate2",
