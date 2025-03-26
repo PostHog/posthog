@@ -133,7 +133,8 @@ export class CookielessManager {
                 const saltBase64 = await this.redisHelpers.redisGet<string | null>(
                     `cookieless_salt:${yyyymmdd}`,
                     null,
-                    'cookielessServerHashStep'
+                    'cookielessServerHashStep',
+                    { jsonSerialize: false }
                 )
                 if (saltBase64) {
                     cookielessCacheHitCounter.labels({ operation: 'getSaltForDay', day: yyyymmdd }).inc()
@@ -149,7 +150,8 @@ export class CookielessManager {
                     `cookieless_salt:${yyyymmdd}`,
                     newSalt.toString('base64'),
                     'cookielessServerHashStep',
-                    this.config.saltTtlSeconds
+                    this.config.saltTtlSeconds,
+                    { jsonSerialize: false }
                 )
                 if (setResult === 'OK') {
                     this.localSaltMap[yyyymmdd] = newSalt
@@ -160,7 +162,8 @@ export class CookielessManager {
                 const saltBase64Retry = await this.redisHelpers.redisGet<string | null>(
                     `cookieless_salt:${yyyymmdd}`,
                     null,
-                    'cookielessServerHashStep'
+                    'cookielessServerHashStep',
+                    { jsonSerialize: false }
                 )
                 if (!saltBase64Retry) {
                     throw new Error('Failed to get salt from redis')
