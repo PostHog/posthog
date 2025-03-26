@@ -129,6 +129,13 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
     )
 }
 
+export function getEventMetadataDefinitionIcon(definition: PropertyDefinition): JSX.Element {
+    if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_metadata[definition.id]) {
+        return <IconLogomark />
+    }
+    return <IconList />
+}
+
 export function DefinitionHeader({
     to,
     definition,

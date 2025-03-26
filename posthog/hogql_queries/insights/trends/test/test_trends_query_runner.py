@@ -43,6 +43,7 @@ from posthog.schema import (
     CompareItem,
     CountPerActorMathType,
     DayItem,
+    EventMetadataPropertyFilter,
     EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
@@ -3134,6 +3135,50 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[2]["count"] == 2
         assert response.results[3]["count"] == 1
 
+    def test_trends_event_metadata_filter_group(self):
+        self._create_test_groups()
+        self._create_test_events_for_groups()
+        flush_persons_and_events()
+
+        # Equals
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        EventMetadataPropertyFilter(
+                            type="event_metadata", operator="exact", key="$group_0", value="org:5"
+                        )
+                    ],
+                )
+            ],
+            None,
+        )
+        assert response.results[0]["count"] == 6
+
+        # Not Equals
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        EventMetadataPropertyFilter(
+                            type="event_metadata", operator="is_not", key="$group_0", value="org:5"
+                        )
+                    ],
+                )
+            ],
+            None,
+        )
+
+        assert response.results[0]["count"] == 4
+
     def test_trends_event_multiple_breakdowns_normalizes_url(self):
         self._create_events(
             [
@@ -5371,3 +5416,34 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("previous", response.results[3]["compare_label"])
         self.assertEqual("Formula (A-B)", response.results[3]["label"])
         self.assertEqual([0, 1, 0, 0, 2], response.results[3]["data"])
+
+    def test_trends_aggregation_property_avg_person_property(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"score": 5},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"score": 6},  # Event property with same name but different value
+        )
+
+        response = self._run_trends_query(
+            date_from="2020-01-09",
+            date_to="2020-01-19",
+            interval=IntervalType.DAY,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=PropertyMathType.AVG,
+                    math_property="score",
+                    math_property_type="person_properties",  # Specify that we want to use the person property
+                )
+            ],
+        )
+
+        self.assertEqual(response.results[0]["count"], 5.0)  # Should use person property value
+        self.assertEqual(response.results[0]["data"], [0.0, 0.0, 5.0] + [0.0] * 8)

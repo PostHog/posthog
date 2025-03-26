@@ -42,6 +42,7 @@ from ee.hogai.sql.nodes import (
 )
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
+from ee.hogai.session_recordings_filters.nodes import SessionRecordingsFiltersNode
 
 checkpointer = DjangoCheckpointer()
 
@@ -77,7 +78,8 @@ class AssistantGraph:
         builder = self._graph
         path_map = path_map or {
             "insights": AssistantNodeName.INSIGHT_RAG_CONTEXT,
-            "docs": AssistantNodeName.INKEEP_DOCS,
+            "search_documentation": AssistantNodeName.INKEEP_DOCS,
+            "search_session_recordings": AssistantNodeName.SESSION_RECORDINGS_FILTERS,
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
         }
@@ -371,6 +373,13 @@ class AssistantGraph:
         )
         return self
 
+    def add_session_recordings_filters(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
+        builder = self._graph
+        session_recordings_filters_node = SessionRecordingsFiltersNode(self._team)
+        builder.add_node(AssistantNodeName.SESSION_RECORDINGS_FILTERS, session_recordings_filters_node)
+        builder.add_edge(AssistantNodeName.SESSION_RECORDINGS_FILTERS, next_node)
+        return self
+
     def compile_full_graph(self):
         return (
             self.add_memory_initializer()
@@ -387,6 +396,7 @@ class AssistantGraph:
             .add_sql_planner()
             .add_sql_generator()
             .add_query_executor()
+            .add_session_recordings_filters()
             .add_inkeep_docs()
             .compile()
         )

@@ -109,6 +109,12 @@ pub struct Config {
     // once rollout is complete.
     #[envconfig(default = "opt_in")]
     pub filter_mode: TeamFilterMode,
+
+    // flag for "v2" deployment that will initially point to an
+    // isolated Postgres instance per deploy env, and will include
+    // bundled ingest pipeline refactors
+    #[envconfig(default = "false")]
+    pub enable_v2: bool,
 }
 
 #[derive(Clone)]

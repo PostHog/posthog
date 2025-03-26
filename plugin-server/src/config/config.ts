@@ -79,6 +79,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_CONCURRENCY: 10,
         INGESTION_BATCH_SIZE: 500,
         INGESTION_OVERFLOW_ENABLED: false,
+        INGESTION_FORCE_OVERFLOW_TOKENS: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
         PLUGINS_DEFAULT_LOG_LEVEL: isTestEnv() ? PluginLogLevel.Full : PluginLogLevel.Log,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
@@ -136,7 +137,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_URL: '',
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
-        LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
+        LAZY_LOADER_DEFAULT_BUFFER_MS: 100,
 
         // posthog
         POSTHOG_API_KEY: '',
@@ -199,6 +200,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BATCH_SIZE: 300,
+        TRANSFORM_EVENT_HOG_WATCHER_ENABLED: false, // Whether to enable the HogWatcher functionality for transformEvent
+        FILTER_TRANSFORMATIONS_ENABLED_TEAMS: [1, 2],
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
@@ -255,8 +258,6 @@ export function getDefaultConfig(): PluginsServerConfig {
                 24) * // amount of time salt is valid in one timezone
             60 *
             60,
-
-        LAZY_TEAM_MANAGER_COMPARISON: false,
     }
 }
 

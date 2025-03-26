@@ -129,16 +129,18 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return self.series.math == "first_matching_event_for_user"
 
     def _get_math_chain(self) -> list[str | int]:
+        if not self.series.math_property:
+            raise ValueError("No math property set")
         if self.series.math_property == "$session_duration":
             return ["session_duration"]
-        elif isinstance(self.series, DataWarehouseNode) and self.series.math_property:
+        elif isinstance(self.series, DataWarehouseNode):
             return [self.series.math_property]
-        elif self.series.math_property_type == "data_warehouse_person_properties" and self.series.math_property:
+        elif self.series.math_property_type == "data_warehouse_person_properties":
             return ["person", *self.series.math_property.split(".")]
-        elif self.series.math_property:
-            return ["properties", self.series.math_property]
+        elif self.series.math_property_type == "person_properties":
+            return ["person", "properties", self.series.math_property]
         else:
-            raise ValueError("No math property set")
+            return ["properties", self.series.math_property]
 
     def _math_func(self, method: str, override_chain: Optional[list[str | int]] = None) -> ast.Call:
         if override_chain is not None:

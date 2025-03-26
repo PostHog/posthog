@@ -11,7 +11,6 @@ export async function transformEventStep(
         return { event, invocationResults: [], messagePromises: [] }
     }
     const result = await hogTransformer.transformEventAndProduceMessages(event)
-
     if (!result.event) {
         droppedEventCounter.inc()
     }
