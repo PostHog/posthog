@@ -43,7 +43,8 @@ if (user.status >= 400) {
 }
 
 let payload := {
-    'email': inputs.email
+    'email': inputs.email,
+    'custom_attributes': {}
 }
 
 if (inputs.include_all_properties) {
@@ -57,6 +58,12 @@ if (inputs.include_all_properties) {
 for (let key, value in inputs.properties) {
     if (not empty(value)) {
         payload[key] := value
+    }
+}
+
+for (let key, value in inputs.customProperties) {
+    if (not empty(value)) {
+        payload.custom_attributes[key] := value
     }
 }
 
@@ -131,6 +138,15 @@ if (res.status >= 400) {
                 "phone": "{person.properties.phone}",
                 "last_seen_at": "{toUnixTimestamp(event.timestamp)}",
             },
+            "secret": False,
+            "required": False,
+        },
+        {
+            "key": "customProperties",
+            "type": "dictionary",
+            "label": "Custom properties",
+            "description": "Map of custom properties and their values. Check out this page for more details: https://www.intercom.com/help/en/articles/179-create-and-track-custom-data-attributes-cdas",
+            "default": {},
             "secret": False,
             "required": False,
         },
