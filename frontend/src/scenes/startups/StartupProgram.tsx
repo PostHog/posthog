@@ -1,5 +1,5 @@
 import { IconArrowRight, IconCheck, IconCheckCircle, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -33,7 +33,7 @@ export function StartupProgram(): JSX.Element {
         ycValidationError,
         verifiedCompanyName,
     } = useValues(logic)
-    const { billing } = useValues(billingLogic)
+    const { billing, billingLoading } = useValues(billingLogic)
     const { validateYCBatch, setStartupProgramValue } = useActions(logic)
     const programName = isYC ? 'YC Program' : 'Startup Program'
 
@@ -150,7 +150,12 @@ export function StartupProgram(): JSX.Element {
                         <div className="flex items-center justify-between mb-4">
                             <h2 className="text-xl m-0">Step 1: Upgrade to a paid plan</h2>
                         </div>
-                        {billing?.has_active_subscription ? (
+                        {billingLoading ? (
+                            <div className="flex items-center gap-2">
+                                <Spinner className="text-lg" />
+                                <span>Checking if you're on a paid plan</span>
+                            </div>
+                        ) : billing?.has_active_subscription ? (
                             <div className="flex items-center gap-2 text-success">
                                 <IconCheck className="shrink-0" />
                                 <span>You're on a paid plan</span>
@@ -176,7 +181,6 @@ export function StartupProgram(): JSX.Element {
                     <div className="bg-surface-secondary rounded-lg p-6">
                         <div className="flex items-center justify-between mb-4">
                             <h2 className="text-xl m-0">Step 2: Submit application</h2>
-                            {formSubmitted && <IconCheckCircle className="text-success text-2xl" />}
                         </div>
 
                         {formSubmitted ? (
