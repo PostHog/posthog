@@ -107,7 +107,8 @@ export function OutputPane(): JSX.Element {
             {
                 key: '__details',
                 name: '',
-                width: 15,
+                minWidth: 30,
+                width: 30,
                 renderCell: ({ row }: { row: any }) => (
                     <div className="hover-actions-cell flex justify-center items-center">
                         <LemonButton
