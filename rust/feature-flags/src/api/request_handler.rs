@@ -13,7 +13,7 @@ use crate::{
 };
 use axum::{
     extract::State,
-    http::{header::ORIGIN, header::USER_AGENT, HeaderMap},
+    http::{header::CONTENT_TYPE, header::ORIGIN, header::USER_AGENT, HeaderMap},
 };
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
@@ -278,7 +278,7 @@ pub fn decode_request(
     query: &FlagsQueryParams,
 ) -> Result<FlagRequest, FlagError> {
     let content_type = headers
-        .get("content-type")
+        .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
 
@@ -765,7 +765,7 @@ mod tests {
     #[test]
     fn test_decode_request() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from(r#"{"token": "test_token", "distinct_id": "user123"}"#);
         let meta = FlagsQueryParams::default();
 
@@ -780,7 +780,7 @@ mod tests {
     #[test]
     fn test_decode_request_unsupported_content_encoding() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from_static(b"{\"token\": \"test_token\", \"distinct_id\": \"user123\"}");
         let meta = FlagsQueryParams {
             compression: Some(Compression::Unsupported),
@@ -794,7 +794,7 @@ mod tests {
     #[test]
     fn test_decode_request_invalid_base64() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from_static(b"invalid_base64==");
         let meta = FlagsQueryParams {
             compression: Some(Compression::Base64),
@@ -842,7 +842,7 @@ mod tests {
     #[test]
     fn test_decode_request_unsupported_content_type() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "text/plain".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
         let body = Bytes::from_static(b"test");
         let meta = FlagsQueryParams::default();
 
@@ -853,7 +853,7 @@ mod tests {
     #[test]
     fn test_decode_request_malformed_json() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from_static(b"{invalid json}");
         let meta = FlagsQueryParams::default();
 
@@ -865,7 +865,7 @@ mod tests {
     fn test_decode_request_form_urlencoded() {
         let mut headers = HeaderMap::new();
         headers.insert(
-            "content-type",
+            CONTENT_TYPE,
             "application/x-www-form-urlencoded".parse().unwrap(),
         );
         let body = Bytes::from(
