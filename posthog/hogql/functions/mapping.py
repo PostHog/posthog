@@ -1477,6 +1477,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "maxIntersectionsIf": HogQLFunctionMeta("maxIntersectionsIf", 3, 3, aggregate=True),
     "maxIntersectionsPosition": HogQLFunctionMeta("maxIntersectionsPosition", 2, 2, aggregate=True),
     "maxIntersectionsPositionIf": HogQLFunctionMeta("maxIntersectionsPositionIf", 3, 3, aggregate=True),
+    "windowFunnel": HogQLFunctionMeta("windowFunnel", 1, 5, aggregate=True),
 }
 HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
@@ -1530,9 +1531,9 @@ UDFS: dict[str, HogQLFunctionMeta] = {
     "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 6, 6, aggregate=False),
     "aggregate_funnel_array": HogQLFunctionMeta("aggregate_funnel_array", 6, 6, aggregate=False),
     "aggregate_funnel_cohort": HogQLFunctionMeta("aggregate_funnel_cohort", 6, 6, aggregate=False),
-    "aggregate_funnel_trends": HogQLFunctionMeta("aggregate_funnel_trends", 7, 7, aggregate=False),
-    "aggregate_funnel_array_trends": HogQLFunctionMeta("aggregate_funnel_array_trends", 7, 7, aggregate=False),
-    "aggregate_funnel_cohort_trends": HogQLFunctionMeta("aggregate_funnel_cohort_trends", 7, 7, aggregate=False),
+    "aggregate_funnel_trends": HogQLFunctionMeta("aggregate_funnel_trends", 8, 8, aggregate=False),
+    "aggregate_funnel_array_trends": HogQLFunctionMeta("aggregate_funnel_array_trends", 8, 8, aggregate=False),
+    "aggregate_funnel_cohort_trends": HogQLFunctionMeta("aggregate_funnel_cohort_trends", 8, 8, aggregate=False),
     "aggregate_funnel_test": HogQLFunctionMeta("aggregate_funnel_test", 6, 6, aggregate=False),
 }
 # We want CI to fail if there is a breaking change and the version hasn't been incremented

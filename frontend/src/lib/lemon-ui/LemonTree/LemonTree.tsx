@@ -147,7 +147,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         },
         ref
     ): JSX.Element => {
-        const DEPTH_OFFSET = depth === 0 ? 0 : 6 * depth
+        const DEPTH_OFFSET = depth === 0 ? 0 : 16 * depth
 
         const [isContextMenuOpenForItem, setIsContextMenuOpenForItem] = useState<string | undefined>(undefined)
 
@@ -198,16 +198,26 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             disabled={!!item.disabledReason}
                         >
                             <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full gap-y-px">
+                                {/* Node */}
                                 <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
                                     <ContextMenu
                                         onOpenChange={(open) => {
                                             handleContextMenuOpen(open, item.id)
                                         }}
                                     >
+                                        {/* Folder lines */}
+                                        {depth !== 0 && (
+                                            <div
+                                                className="absolute border-l border-secondary h-[calc(100%+2px)] w-px -top-px pointer-events-none z-0"
+                                                // eslint-disable-next-line react/forbid-dom-props
+                                                style={{ left: `${DEPTH_OFFSET}px` }}
+                                            />
+                                        )}
+
                                         <ContextMenuTrigger asChild>
                                             <LemonButton
                                                 className={cn(
-                                                    'group/lemon-tree-button flex-1 flex items-center gap-2 font-normal cursor-pointer',
+                                                    'group/lemon-tree-button flex-1 flex items-center gap-2 font-normal cursor-pointer z-10',
                                                     {
                                                         'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary':
                                                             focusedId === item.id ||

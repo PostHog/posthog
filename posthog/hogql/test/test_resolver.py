@@ -18,6 +18,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
 )
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast, print_prepared_ast
@@ -712,3 +713,13 @@ class TestResolver(BaseTest):
         ):
             node: ast.SelectQuery = self._select(query)
             resolve_types(node, context, dialect="clickhouse")
+
+    def test_nested_table_name(self):
+        self.database.__setattr__("nested.events", EventsTable())
+        query = "SELECT * FROM nested.events"
+        resolve_types(self._select(query), self.context, dialect="hogql")
+
+    def test_deeply_nested_table_name(self):
+        self.database.__setattr__("nested.events.some.other.table", EventsTable())
+        query = "SELECT * FROM nested.events.some.other.table"
+        resolve_types(self._select(query), self.context, dialect="hogql")

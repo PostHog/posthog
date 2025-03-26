@@ -11,6 +11,7 @@ from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
 from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
+from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 
 
@@ -112,6 +113,7 @@ class Command(BaseCommand):
             + PROXY_SERVICE_WORKFLOWS
             + DELETE_PERSONS_WORKFLOWS
             + USAGE_REPORTS_WORKFLOWS
+            + TEST_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))
