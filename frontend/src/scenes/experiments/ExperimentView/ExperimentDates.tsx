@@ -28,8 +28,19 @@ export function ExperimentDates(): JSX.Element {
     // If the experiment has a start date, show the start date and end date
     return (
         <>
-            <ExperimentDate label="Start date" date={start_date} onChange={changeExperimentStartDate} />
-            <ExperimentDate label="End date" date={end_date} onChange={changeExperimentEndDate} />
+            <ExperimentDate
+                label="Start date"
+                date={start_date}
+                data-attr="experiment-start-date"
+                onChange={changeExperimentStartDate}
+            />
+            <ExperimentDate
+                label="End date"
+                date={end_date}
+                data-attr="experiment-end-date"
+                selectionLimitDate={start_date}
+                onChange={changeExperimentEndDate}
+            />
         </>
     )
 }
