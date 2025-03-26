@@ -118,9 +118,9 @@ class UsageReportCounters:
     query_api_rows_read: int
     query_api_duration_ms: int
 
-    # QaaS usage
-    qaas_query_count: int
-    qaas_bytes_read: int
+    # API Queries usage
+    api_queries_query_count: int
+    api_queries_bytes_read: int
 
     # Event Explorer
     event_explorer_app_bytes_read: int
@@ -577,7 +577,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_qaas_metrics(
+def get_teams_with_api_queries_metrics(
     begin: datetime,
     end: datetime,
 ) -> dict[str, list[tuple[int, int]]]:
@@ -593,7 +593,7 @@ def get_teams_with_qaas_metrics(
         AND JSONExtractBool(log_comment, 'qaas')
         GROUP BY team_id
     """
-    with tags_context(usage_report="get_teams_with_qaas_metrics"):
+    with tags_context(usage_report="get_teams_with_api_queries_metrics"):
         results = sync_execute(
             query,
             {
@@ -905,7 +905,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     """
 
     all_metrics = get_all_event_metrics_in_period(period_start, period_end)
-    qaas_usage = get_teams_with_qaas_metrics(period_start, period_end)
+    api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
 
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
@@ -1033,8 +1033,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             metric="query_duration_ms",
             access_method="personal_api_key",
         ),
-        "teams_with_qaas_count": qaas_usage["count"],
-        "teams_with_qaas_read_bytes": qaas_usage["read_bytes"],
+        "teams_with_api_queries_count": api_queries_usage["count"],
+        "teams_with_api_queries_read_bytes": api_queries_usage["read_bytes"],
         "teams_with_event_explorer_app_bytes_read": get_teams_with_query_metric(
             period_start,
             period_end,
@@ -1157,8 +1157,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         query_api_bytes_read=all_data["teams_with_query_api_bytes_read"].get(team.id, 0),
         query_api_rows_read=all_data["teams_with_query_api_rows_read"].get(team.id, 0),
         query_api_duration_ms=all_data["teams_with_query_api_duration_ms"].get(team.id, 0),
-        qaas_query_count=all_data["teams_with_qaas_count"].get(team.id, 0),
-        qaas_bytes_read=all_data["teams_with_qaas_read_bytes"].get(team.id, 0),
+        api_queries_query_count=all_data["teams_with_api_queries_count"].get(team.id, 0),
+        api_queries_bytes_read=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
         event_explorer_app_bytes_read=all_data["teams_with_event_explorer_app_bytes_read"].get(team.id, 0),
         event_explorer_app_rows_read=all_data["teams_with_event_explorer_app_rows_read"].get(team.id, 0),
         event_explorer_app_duration_ms=all_data["teams_with_event_explorer_app_duration_ms"].get(team.id, 0),
