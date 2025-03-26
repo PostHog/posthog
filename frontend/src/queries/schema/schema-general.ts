@@ -20,7 +20,6 @@ import {
     FunnelMathType,
     FunnelsFilterType,
     GroupMathType,
-    GroupTypeIndex,
     HogQLMathType,
     InsightShortId,
     InsightType,
@@ -1514,7 +1513,7 @@ export interface GroupsQuery extends DataNode<GroupsQueryResponse> {
     select?: HogQLExpression[]
     search?: string
     properties?: AnyGroupScopeFilter[]
-    group_type_index: GroupTypeIndex
+    group_type_index: integer
     orderBy?: string[]
     limit?: integer
     offset?: integer
