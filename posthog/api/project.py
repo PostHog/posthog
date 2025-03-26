@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, timedelta
-from functools import cached_property
 from typing import Any, Optional, cast
 from django.db import transaction
 
@@ -805,12 +804,6 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return response.Response(
             ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data, status=200
         )
-
-    @cached_property
-    def user_permissions(self):
-        project = self.get_object() if self.action == "reset_token" else None
-        team = project.get_passthrough_team(self.user_permissions.team_ids_visible_for_user) if project else None
-        return UserPermissions(cast(User, self.request.user), team)
 
 
 class RootProjectViewSet(ProjectViewSet):

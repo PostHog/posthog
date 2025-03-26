@@ -99,13 +99,13 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_ids_visible_for_user(self):
-        assert self.permissions().team_ids_visible_for_user == [self.team.pk]
+        assert self.permissions().team_ids_visible_for_user == (self.team.pk,)
 
     def test_team_ids_visible_for_user_no_explicit_permissions(self):
         self.team.access_control = True
         self.team.save()
 
-        assert self.permissions().team_ids_visible_for_user == []
+        assert self.permissions().team_ids_visible_for_user == ()
 
     def test_team_ids_visible_for_user_explicit_permission(self):
         self.team.access_control = True
@@ -117,10 +117,10 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             level=ExplicitTeamMembership.Level.ADMIN,
         )
 
-        assert self.permissions().team_ids_visible_for_user == [self.team.pk]
+        assert self.permissions().team_ids_visible_for_user == (self.team.pk,)
 
     def test_project_ids_visible_for_user(self):
-        assert self.permissions().project_ids_visible_for_user == [self.team.project_id]
+        assert self.permissions().project_ids_visible_for_user == (self.team.project_id,)
 
     def test_project_ids_visible_for_user_multiple_teams(self):
         # Create a second team with the same project_id
@@ -143,7 +143,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.team.save()
 
         # User shouldn't see any project IDs
-        assert self.permissions().project_ids_visible_for_user == []
+        assert self.permissions().project_ids_visible_for_user == ()
 
     def test_project_ids_visible_for_user_explicit_permission(self):
         self.team.access_control = True
@@ -155,7 +155,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             level=ExplicitTeamMembership.Level.ADMIN,
         )
 
-        assert self.permissions().project_ids_visible_for_user == [self.team.project_id]
+        assert self.permissions().project_ids_visible_for_user == (self.team.project_id,)
 
 
 class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):

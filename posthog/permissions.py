@@ -162,7 +162,7 @@ class OrganizationAdminWritePermissions(BasePermission):
 class TeamMemberAccessPermission(BasePermission):
     """Require effective membership in the environment for any access at all."""
 
-    message = "You don't have access to this environment."
+    message = "You don't have access to the environment."
 
     def has_permission(self, request, view) -> bool:
         try:
@@ -179,7 +179,7 @@ class TeamMemberAccessPermission(BasePermission):
 class AnyTeamInProjectMemberAccessPermission(BasePermission):
     """Require effective membership in any environment of the project for any access at all."""
 
-    message = "You don't have access to this project."
+    message = "You don't have access to the project."
 
     def has_permission(self, request, view) -> bool:
         try:
@@ -536,7 +536,7 @@ class AccessControlPermission(ScopeBasePermission):
         is_member = uac.check_access_level_for_object(team, required_level="member")
 
         if not is_member:
-            self.message = f"You don't have access to the project."
+            self.message = "You don't have access to the project."
             return False
 
         # If the API doesn't have a scope object or a required level for accessing then we can simply allow access

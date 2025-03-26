@@ -34,7 +34,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
         )
         self.assertDictEqual(
-            self.permission_denied_response("You don't have access to the project."),
+            self.permission_denied_response("You don't have access to the environment."),
             response.json(),
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
