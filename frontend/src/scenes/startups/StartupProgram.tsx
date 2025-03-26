@@ -238,14 +238,16 @@ export function StartupProgram(): JSX.Element {
                                 </LemonField>
 
                                 <LemonField name="raised" label="How much in total funding have you raised (USD)">
-                                    <LemonSelect options={RAISED_OPTIONS} />
+                                    <LemonSelect options={RAISED_OPTIONS} className="bg-bg-light" />
                                 </LemonField>
 
                                 <LemonField
                                     name="incorporation_date"
                                     label="The date that your company was incorporated"
                                 >
-                                    <LemonCalendarSelectInput clearable={false} format="YYYY-MM-DD" />
+                                    <div className="bg-bg-light">
+                                        <LemonCalendarSelectInput clearable={false} format="YYYY-MM-DD" />
+                                    </div>
                                 </LemonField>
 
                                 <LemonField name="is_building_with_llms" label="Are you building LLM-powered features?">
@@ -254,6 +256,7 @@ export function StartupProgram(): JSX.Element {
                                             { label: 'Yes', value: 'true' },
                                             { label: 'No', value: 'false' },
                                         ]}
+                                        className="bg-bg-light"
                                     />
                                 </LemonField>
 
@@ -268,6 +271,7 @@ export function StartupProgram(): JSX.Element {
                                                         validateYCBatch()
                                                     }
                                                 }}
+                                                className="bg-bg-light"
                                             />
                                         </LemonField>
                                         {ycValidationState === 'validating' && (
