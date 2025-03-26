@@ -165,12 +165,16 @@ export function Billing(): JSX.Element {
 
             {(showBillingSummary || showCreditCTAHero || showBillingHero) && (
                 <div
-                    className={clsx('flex gap-6 max-w-300', {
+                    className={clsx(
+                        'flex gap-6 max-w-300',
                         // If there's no active subscription, BillingSummary is small so we stack it and invert order with CreditCTAHero or BillingHero
-                        'flex-col': size === 'small' && billing?.has_active_subscription,
-                        'flex-row': size !== 'small' && billing?.has_active_subscription,
-                        'flex-col-reverse': !billing?.has_active_subscription,
-                    })}
+                        billing?.has_active_subscription
+                            ? {
+                                  'flex-col': size === 'small',
+                                  'flex-row': size !== 'small',
+                              }
+                            : 'flex-col-reverse'
+                    )}
                 >
                     {showBillingSummary && (
                         <div className={clsx('flex-1', { 'flex-grow-0': showCreditCTAHero })}>
