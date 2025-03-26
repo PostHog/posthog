@@ -1978,19 +1978,19 @@ export interface ExperimentMetricMathProperties {
 }
 
 export interface ExperimentEventMetricSource {
-    source_type: 'event'
+    type: 'event'
     event: string
     properties?: AnyPropertyFilter[]
 }
 
 export interface ExperimentActionMetricSource {
-    source_type: 'action'
+    type: 'action'
     action: number
     properties?: AnyPropertyFilter[]
 }
 
 export interface ExperimentDataWarehouseMetricSource {
-    source_type: 'data_warehouse'
+    type: 'data_warehouse'
     table_name: string
     timestamp_field: string
     events_join_key: string

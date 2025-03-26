@@ -176,7 +176,7 @@ export function getViewRecordingFilters(
     if (metric.kind === NodeKind.ExperimentMetric) {
         if ((metric as ExperimentMeanMetric).metric_type === ExperimentMetricType.MEAN) {
             const meanMetric = metric as ExperimentMeanMetric
-            if (meanMetric.source.source_type === 'event') {
+            if (meanMetric.source.type === 'event') {
                 return [
                     {
                         id: meanMetric.source.event,
@@ -331,7 +331,7 @@ export function getDefaultCountMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         metric_type: ExperimentMetricType.MEAN,
         source: {
-            source_type: 'event',
+            type: 'event',
             event: '$pageview',
         },
     } as ExperimentMeanMetric
@@ -342,7 +342,7 @@ export function getDefaultContinuousMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         metric_type: ExperimentMetricType.MEAN,
         source: {
-            source_type: 'event',
+            type: 'event',
             event: '$pageview',
         },
         math: ExperimentMetricMathType.Sum,
@@ -472,7 +472,7 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
         }
 
         const meanMetric = metric
-        if (meanMetric.source.source_type !== 'event') {
+        if (meanMetric.source.type !== 'event') {
             return []
         }
 
@@ -496,7 +496,7 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
         }
 
         const meanMetric = metric
-        if (meanMetric.source.source_type !== 'action') {
+        if (meanMetric.source.type !== 'action') {
             return []
         }
 
@@ -520,7 +520,7 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
         }
 
         const meanMetric = metric
-        if (meanMetric.source.source_type !== 'data_warehouse') {
+        if (meanMetric.source.type !== 'data_warehouse') {
             return []
         }
 
@@ -584,7 +584,7 @@ export function filterToMetricConfig(
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                source_type: 'event',
+                type: 'event',
                 event: events[0].id as string,
                 properties: events[0].properties,
             },
@@ -603,7 +603,7 @@ export function filterToMetricConfig(
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                source_type: 'action',
+                type: 'action',
                 action: actions[0].id,
                 properties: actions[0].properties,
             },
@@ -622,7 +622,7 @@ export function filterToMetricConfig(
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                source_type: 'data_warehouse',
+                type: 'data_warehouse',
                 table_name: data_warehouse[0].id,
                 timestamp_field: data_warehouse[0].timestamp_field,
                 events_join_key: data_warehouse[0].events_join_key,
@@ -660,8 +660,8 @@ export function metricToQuery(
     switch (metric.metric_type) {
         case ExperimentMetricType.MEAN: {
             const meanMetric = metric
-            const event = meanMetric.source.source_type === 'event' ? meanMetric.source.event : undefined
-            const name = meanMetric.source.source_type === 'event' ? meanMetric.source.event : undefined
+            const event = meanMetric.source.type === 'event' ? meanMetric.source.event : undefined
+            const name = meanMetric.source.type === 'event' ? meanMetric.source.event : undefined
 
             switch (meanMetric.math) {
                 case ExperimentMetricMathType.Sum:

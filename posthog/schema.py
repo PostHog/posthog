@@ -989,9 +989,9 @@ class ExperimentDataWarehouseMetricSource(BaseModel):
     )
     data_warehouse_join_key: str
     events_join_key: str
-    source_type: Literal["data_warehouse"] = "data_warehouse"
     table_name: str
     timestamp_field: str
+    type: Literal["data_warehouse"] = "data_warehouse"
 
 
 class ExperimentExposureTimeSeries(BaseModel):
@@ -5485,7 +5485,7 @@ class ExperimentActionMetricSource(BaseModel):
             ]
         ]
     ] = None
-    source_type: Literal["action"] = "action"
+    type: Literal["action"] = "action"
 
 
 class ExperimentEventExposureConfig(BaseModel):
@@ -5539,7 +5539,7 @@ class ExperimentEventMetricSource(BaseModel):
             ]
         ]
     ] = None
-    source_type: Literal["event"] = "event"
+    type: Literal["event"] = "event"
 
 
 class ExperimentExposureCriteria(BaseModel):
