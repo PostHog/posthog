@@ -1,9 +1,9 @@
-import { IconServer } from '@posthog/icons'
+import { IconCopy, IconServer } from '@posthog/icons'
 import { IconArrowLeft, IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DatabaseTableTree } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -30,38 +30,53 @@ const EditorSidebarOverlay = (): JSX.Element => {
     const { sidebarOverlayTreeItems, selectedSchema } = useValues(editorSceneLogic)
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
 
+    const copy = (): void => {
+        if (selectedSchema?.name) {
+            void copyToClipboard(selectedSchema.name, 'schema')
+        }
+    }
+
     return (
         <div className="flex flex-col h-full">
-            <header className="flex flex-row items-center h-10 border-b shrink-0 p-1 gap-2">
+            <header className="flex flex-row items-center h-10 border-b shrink-0 p-1 gap-1">
                 <LemonButton size="small" icon={<IconArrowLeft />} onClick={() => setSidebarOverlayOpen(false)} />
-                {selectedSchema?.name && (
-                    <CopyToClipboardInline
-                        className="font-mono"
-                        tooltipMessage={null}
-                        description="schema"
-                        iconStyle={{ color: 'var(--text-secondary)' }}
-                        explicitValue={selectedSchema?.name}
+                <Tooltip title="Click to copy">
+                    <span
+                        className="font-mono cursor-pointer flex-1 whitespace-nowrap overflow-hidden text-ellipsis"
+                        onClick={() => copy()}
                     >
                         {selectedSchema?.name}
-                    </CopyToClipboardInline>
-                )}
-                <LemonMenu
-                    items={[
-                        {
-                            label: 'Add join',
-                            onClick: () => {
-                                if (selectedSchema) {
-                                    selectSourceTable(selectedSchema.name)
-                                    toggleJoinTableModal()
-                                }
+                    </span>
+                </Tooltip>
+                <div className="flex">
+                    {selectedSchema?.name && (
+                        <LemonButton
+                            size="small"
+                            icon={<IconCopy style={{ color: 'var(--text-secondary)' }} />}
+                            noPadding
+                            className="ml-1 mr-1"
+                            data-attr="copy-icon"
+                            onClick={() => copy()}
+                        />
+                    )}
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Add join',
+                                onClick: () => {
+                                    if (selectedSchema) {
+                                        selectSourceTable(selectedSchema.name)
+                                        toggleJoinTableModal()
+                                    }
+                                },
                             },
-                        },
-                    ]}
-                >
-                    <div className="absolute right-1 flex">
-                        <LemonButton size="small" noPadding icon={<IconEllipsis />} />
-                    </div>
-                </LemonMenu>
+                        ]}
+                    >
+                        <div>
+                            <LemonButton size="small" noPadding icon={<IconEllipsis />} />
+                        </div>
+                    </LemonMenu>
+                </div>
             </header>
             <div className="overflow-y-auto flex-1">
                 <DatabaseTableTree items={sidebarOverlayTreeItems} />

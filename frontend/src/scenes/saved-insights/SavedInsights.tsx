@@ -379,6 +379,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
+    [NodeKind.ExperimentFunnelMetricConfig]: {
+        name: 'Experiment Funnel Metric Config',
+        description: 'Configuration for experiment funnel metrics.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentFunnelStepConfig]: {
+        name: 'Experiment Funnel Step Config',
+        description: 'Configuration for experiment funnel steps.',
+        icon: IconFlask,
+        inMenu: false,
+    },
     [NodeKind.TeamTaxonomyQuery]: {
         name: 'Team Taxonomy',
         icon: IconHogQL,

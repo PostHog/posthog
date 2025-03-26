@@ -323,12 +323,28 @@ exports[`processAiEvent() smoke test every model processes command-r7b-12-2024 1
 exports[`processAiEvent() smoke test every model processes deepseek-chat 1`] = `
 {
   "$ai_input_cost_usd": 0.00004,
-  "$ai_output_cost_usd": 0.000065,
-  "$ai_total_cost_usd": 0.000105,
+  "$ai_output_cost_usd": 0.0000445,
+  "$ai_total_cost_usd": 0.0000845,
 }
 `;
 
 exports[`processAiEvent() smoke test every model processes deepseek-chat:free 1`] = `
+{
+  "$ai_input_cost_usd": 0,
+  "$ai_output_cost_usd": 0,
+  "$ai_total_cost_usd": 0,
+}
+`;
+
+exports[`processAiEvent() smoke test every model processes deepseek-chat-v3-0324 1`] = `
+{
+  "$ai_input_cost_usd": 0.000027,
+  "$ai_output_cost_usd": 0.000055,
+  "$ai_total_cost_usd": 0.000082,
+}
+`;
+
+exports[`processAiEvent() smoke test every model processes deepseek-chat-v3-0324:free 1`] = `
 {
   "$ai_input_cost_usd": 0,
   "$ai_output_cost_usd": 0,

@@ -336,6 +336,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
+    /** Whether to enable the HogWatcher functionality for transformEvent */
+    TRANSFORM_EVENT_HOG_WATCHER_ENABLED?: boolean
 
     PROPERTY_DEFS_CONSUMER_GROUP_ID: string
     PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
