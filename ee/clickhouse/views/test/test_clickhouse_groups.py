@@ -2,6 +2,7 @@ from unittest import mock
 from uuid import UUID
 
 from freezegun.api import freeze_time
+from orjson import orjson
 
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql.parser import parse_select
@@ -285,7 +286,10 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response.results, [('{"name": "Mr. Krabs", "industry": "technology"}',)])
+        # Check properties regardless of JSON key order
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(len(response.results[0]), 1)
+        self.assertEqual(orjson.loads(response.results[0][0]), {"name": "Mr. Krabs", "industry": "technology"})
 
         mock_capture.assert_called_once_with(
             distinct_id=str(self.team.uuid),
