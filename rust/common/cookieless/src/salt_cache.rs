@@ -97,7 +97,11 @@ impl SaltCache {
 
         // Try to get it from Redis
         let redis_key = format!("cookieless_salt:{yyyymmdd}");
-        let salt_base64 = match self.redis_client.get_with_format(redis_key.clone(), RedisValueFormat::Utf8).await {
+        let salt_base64 = match self
+            .redis_client
+            .get_with_format(redis_key.clone(), RedisValueFormat::Utf8)
+            .await
+        {
             Ok(value) => Some(value),
             Err(CustomRedisError::NotFound) => None,
             Err(e) => {
@@ -121,7 +125,11 @@ impl SaltCache {
             let salt = match general_purpose::STANDARD.decode(strip_quotes(salt_base64.clone())) {
                 Ok(s) => s,
                 Err(e) => {
-                    tracing::info!("Failed to decode the salt from redis: {} {}", e, salt_base64);
+                    tracing::info!(
+                        "Failed to decode the salt from redis: {} {}",
+                        e,
+                        salt_base64
+                    );
 
                     inc(
                         COOKIELESS_REDIS_ERROR_COUNTER,
@@ -149,7 +157,12 @@ impl SaltCache {
         // Try to set it in Redis with NX (only if it doesn't exist) and with TTL in a single operation
         match self
             .redis_client
-            .set_nx_ex_with_format(redis_key.clone(), new_salt_base64.clone(), SALT_TTL_SECONDS, RedisValueFormat::Utf8)
+            .set_nx_ex_with_format(
+                redis_key.clone(),
+                new_salt_base64.clone(),
+                SALT_TTL_SECONDS,
+                RedisValueFormat::Utf8,
+            )
             .await
         {
             Ok(true) => {
@@ -161,7 +174,11 @@ impl SaltCache {
             }
             Ok(false) => {
                 // Someone else set it, try to get it again
-                let salt_base64_retry = match self.redis_client.get_with_format(redis_key, RedisValueFormat::Utf8).await {
+                let salt_base64_retry = match self
+                    .redis_client
+                    .get_with_format(redis_key, RedisValueFormat::Utf8)
+                    .await
+                {
                     Ok(value) => value,
                     Err(e) => {
                         tracing::info!("Failed to get the salt from redis the second time: {}", e);

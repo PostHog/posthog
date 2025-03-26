@@ -11,7 +11,10 @@ use crate::{
     router,
     team::team_models::Team,
 };
-use axum::{extract::State, http::{HeaderMap, header::ORIGIN, header::USER_AGENT},};
+use axum::{
+    extract::State,
+    http::{header::ORIGIN, header::USER_AGENT, HeaderMap},
+};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use chrono;
