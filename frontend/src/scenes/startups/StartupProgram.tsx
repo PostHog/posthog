@@ -8,6 +8,7 @@ import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -26,6 +27,7 @@ export function StartupProgram(): JSX.Element {
 
     const logic = startupProgramLogic({ isYC })
     const {
+        startupProgram,
         formSubmitted,
         isAlreadyOnStartupPlan,
         isUserOrganizationOwnerOrAdmin,
@@ -36,6 +38,11 @@ export function StartupProgram(): JSX.Element {
     const { billing, billingLoading } = useValues(billingLogic)
     const { validateYCBatch, setStartupProgramValue } = useActions(logic)
     const programName = isYC ? 'YC Program' : 'Startup Program'
+
+    useEffect(() => {
+        // eslint-disable-next-line no-console
+        console.log('📝 Default form values:', startupProgram)
+    }, [])
 
     if (isAlreadyOnStartupPlan) {
         return (
