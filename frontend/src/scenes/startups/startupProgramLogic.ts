@@ -1,9 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { TeamMembershipLevel } from 'lib/constants'
-import { DOMAIN_REGEX } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { isEmail } from 'lib/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -261,10 +259,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 yc_proof_screenshot_url: undefined,
             },
             errors: ({
-                email,
-                first_name,
-                last_name,
-                startup_domain,
                 posthog_organization_name,
                 posthog_organization_id,
                 raised,
@@ -279,18 +273,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 }
 
                 return {
-                    email: !email
-                        ? 'Please enter your email'
-                        : !isEmail(email)
-                        ? 'Please enter a valid email address'
-                        : undefined,
-                    first_name: !first_name ? 'Please enter your first name' : undefined,
-                    last_name: !last_name ? 'Please enter your last name' : undefined,
-                    startup_domain: !startup_domain
-                        ? 'Please enter your company domain'
-                        : !DOMAIN_REGEX.test(startup_domain)
-                        ? 'Please enter a valid domain (e.g. example.com)'
-                        : undefined,
                     posthog_organization_name: !posthog_organization_name
                         ? 'Please enter your PostHog organization name'
                         : undefined,

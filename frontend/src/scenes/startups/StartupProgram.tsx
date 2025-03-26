@@ -202,23 +202,25 @@ export function StartupProgram(): JSX.Element {
                             enableFormOnSubmit
                             className="space-y-3"
                         >
-                            <div className="grid md:grid-cols-2 gap-3">
-                                <LemonField name="first_name" label="First name">
-                                    <LemonInput placeholder="Jane" />
+                            <div className="hidden">
+                                <div className="grid md:grid-cols-2 gap-3">
+                                    <LemonField name="first_name" label="First name">
+                                        <LemonInput placeholder="Jane" />
+                                    </LemonField>
+
+                                    <LemonField name="last_name" label="Last name">
+                                        <LemonInput placeholder="Doe" />
+                                    </LemonField>
+                                </div>
+
+                                <LemonField name="email" label="Email">
+                                    <LemonInput placeholder="you@example.com" />
                                 </LemonField>
 
-                                <LemonField name="last_name" label="Last name">
-                                    <LemonInput placeholder="Doe" />
+                                <LemonField name="startup_domain" label="Company domain">
+                                    <LemonInput placeholder="example.com" />
                                 </LemonField>
                             </div>
-
-                            <LemonField name="email" label="Email">
-                                <LemonInput placeholder="you@example.com" />
-                            </LemonField>
-
-                            <LemonField name="startup_domain" label="Company domain">
-                                <LemonInput placeholder="example.com" />
-                            </LemonField>
 
                             <LemonField
                                 name="posthog_organization_name"
@@ -300,7 +302,7 @@ export function StartupProgram(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
-                                className="mt-3"
+                                className="mt-4"
                                 fullWidth
                                 center
                                 data-attr="startup-program-submit"
