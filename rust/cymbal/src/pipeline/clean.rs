@@ -6,8 +6,8 @@ use serde_json::Value;
 
 use crate::error::PipelineResult;
 
-const SET_ON_EXCEPTION_WARNING_TYPE: &str = "set_on_exception";
-const EXCEPTION_INGESTION_SOURCE: &str = "exception_ingestion";
+// const SET_ON_EXCEPTION_WARNING_TYPE: &str = "set_on_exception";
+// const EXCEPTION_INGESTION_SOURCE: &str = "exception_ingestion";
 
 pub fn clean_set_props(
     mut buffer: Vec<PipelineResult>,
@@ -24,7 +24,7 @@ pub fn clean_set_props(
         other: HashMap<String, Value>,
     }
 
-    let mut warnings = Vec::new();
+    let warnings = Vec::new();
     for item in buffer.iter_mut() {
         let Ok(event) = item else {
             continue;
