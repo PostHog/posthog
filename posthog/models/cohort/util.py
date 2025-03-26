@@ -321,9 +321,6 @@ def recalculate_cohortpeople(
                 size_before=before_count,
             )
 
-        if cohort.is_static:
-            return format_static_cohort_query(cohort, 0, prepend="")
-
         if hogql:
             recalculate_fn = _recalculate_cohortpeople_for_team_hogql
         else:

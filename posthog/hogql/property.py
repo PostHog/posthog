@@ -456,7 +456,7 @@ def property_to_expr(
                 # Using an AND here instead of `in()` or `notIn()`, due to Clickhouses poor handling of `null` values
                 replacement_operator = property.operator
                 if replacement_operator in (PropertyOperator.IN_, PropertyOperator.NOT_IN):
-                    replacement_operator = PropertyOperator.EXACT
+                    replacement_operator = PropertyOperator.EXACT.value
                 exprs = [
                     property_to_expr(
                         Property(
