@@ -220,8 +220,16 @@ export function StartupProgram(): JSX.Element {
                                 <LemonInput placeholder="example.com" />
                             </LemonField>
 
-                            <LemonField name="posthog_organization_name" label="PostHog organization name">
-                                <LemonInput placeholder="Your PostHog organization" />
+                            <LemonField
+                                name="posthog_organization_name"
+                                label="PostHog organization"
+                                info="To apply for a different organization, switch to that organization first"
+                            >
+                                <LemonInput placeholder="Your PostHog organization" disabled />
+                            </LemonField>
+
+                            <LemonField name="posthog_organization_id" className="hidden">
+                                <LemonInput />
                             </LemonField>
 
                             <LemonField name="raised" label="How much in total funding have you raised (USD)">

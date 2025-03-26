@@ -62,6 +62,7 @@ export interface StartupProgramFormValues {
     last_name: string
     startup_domain: string
     posthog_organization_name: string
+    posthog_organization_id: string
     raised: string
     incorporation_date: Dayjs | null
     is_building_with_llms: string
@@ -252,6 +253,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 last_name: values.user?.last_name || '',
                 startup_domain: values.domainFromEmail || '',
                 posthog_organization_name: values.currentOrganization?.name || '',
+                posthog_organization_id: values.currentOrganization?.id || '',
                 raised: '',
                 incorporation_date: null,
                 is_building_with_llms: '',
@@ -264,6 +266,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 last_name,
                 startup_domain,
                 posthog_organization_name,
+                posthog_organization_id,
                 raised,
                 incorporation_date,
                 is_building_with_llms,
@@ -291,6 +294,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                     posthog_organization_name: !posthog_organization_name
                         ? 'Please enter your PostHog organization name'
                         : undefined,
+                    posthog_organization_id: !posthog_organization_id ? 'Please select an organization' : undefined,
                     raised: validateFunding(raised, props.isYC),
                     incorporation_date: validateIncorporationDate(incorporation_date, props.isYC),
                     is_building_with_llms: !is_building_with_llms
