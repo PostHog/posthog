@@ -13,10 +13,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { posthog } from 'posthog-js'
-import { useRef } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -46,7 +44,6 @@ export const scene: SceneExport = {
 export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorTrackingLogic)
     const { query } = useValues(errorTrackingSceneLogic)
-    const floatingContainerRef = useRef<HTMLDivElement>(null)
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
     }
@@ -71,22 +68,20 @@ export function ErrorTrackingScene(): JSX.Element {
     }
 
     return (
-        <FloatingContainerContext.Provider value={floatingContainerRef}>
-            <ErrorTrackingSetupPrompt>
-                <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
-                    <Header />
-                    {hasSentExceptionEventLoading ? null : hasSentExceptionEvent ? (
-                        <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
-                    ) : (
-                        <IngestionStatusCheck />
-                    )}
-                    <ErrorTrackingFilters />
-                    <LemonDivider className="mt-2" />
-                    <ErrorTrackingListOptions />
-                    <Query query={query} context={context} />
-                </BindLogic>
-            </ErrorTrackingSetupPrompt>
-        </FloatingContainerContext.Provider>
+        <ErrorTrackingSetupPrompt>
+            <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
+                <Header />
+                {hasSentExceptionEventLoading ? null : hasSentExceptionEvent ? (
+                    <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
+                ) : (
+                    <IngestionStatusCheck />
+                )}
+                <ErrorTrackingFilters />
+                <LemonDivider className="mt-2" />
+                <ErrorTrackingListOptions />
+                <Query query={query} context={context} />
+            </BindLogic>
+        </ErrorTrackingSetupPrompt>
     )
 }
 
