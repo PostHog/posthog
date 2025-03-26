@@ -89,12 +89,9 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
 
 class AccessControlViewSetMixin(_GenericViewSet):
-    """
-    Adds an "access_controls" action to the viewset that handles access control for the given resource
-
-    Why a mixin? We want to easily add this to any existing resource, including providing easy helpers for adding access control info such
-    as the current users access level to any response.
-    """
+    # Adds an "access_controls" action to the viewset that handles access control for the given resource
+    # Why a mixin? We want to easily add this to any existing resource, including providing easy helpers for adding access control info such
+    # as the current users access level to any response.
 
     # 1. Know that the project level access is covered by the Permission check
     # 2. Get the actual object which we can pass to the serializer to check if the user created it

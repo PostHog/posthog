@@ -463,7 +463,7 @@ export enum ActivationSection {
 export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; icon: ReactNode }> = {
     [ActivationSection.QuickStart]: {
         title: 'Get Started',
-        icon: <IconFeatures className="h-5 w-5 text-accent-primary" />,
+        icon: <IconFeatures className="h-5 w-5 text-accent" />,
     },
     [ActivationSection.ProductAnalytics]: {
         title: 'Product analytics',

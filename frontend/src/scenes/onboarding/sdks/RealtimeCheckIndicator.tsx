@@ -27,12 +27,12 @@ export function RealtimeCheckIndicator({
             ) : (
                 <div className="flex flex-row gap-3 items-center">
                     <div className="font-medium">Verify Installation</div>
-                    <div className="flex items-center gap-2 px-2 py-1 border border-accent-primary rounded-sm">
+                    <div className="flex items-center gap-2 px-2 py-1 border border-accent rounded-sm">
                         <div className="relative flex items-center justify-center">
-                            <div className="absolute w-3 h-3 border-2 border-accent-primary rounded-full animate-ping" />
-                            <div className="w-2 h-2 bg-accent-primary rounded-full" />
+                            <div className="absolute w-3 h-3 border-2 border-accent rounded-full animate-ping" />
+                            <div className="w-2 h-2 bg-accent rounded-full" />
                         </div>
-                        <span className="text-sm text-accent-primary">Waiting for {listeningForName}s</span>
+                        <span className="text-sm text-accent">Waiting for {listeningForName}s</span>
                     </div>
                 </div>
             )}

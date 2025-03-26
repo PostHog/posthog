@@ -1,14 +1,18 @@
 import dataclasses
 import re
-from typing import Any, Optional
 from collections.abc import Iterator
-from django.conf import settings
+from typing import Any, Optional
+
 import pyarrow as pa
 import pymysql
-from pymysql.cursors import SSCursor, Cursor
+from django.conf import settings
+from dlt.common.normalizers.naming.snake_case import NamingConvention
+from pymysql.cursors import Cursor, SSCursor
 
 from posthog.temporal.common.logger import FilteringBoundLogger
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
@@ -16,10 +20,10 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE
+from posthog.temporal.data_imports.pipelines.sql_database.settings import (
+    DEFAULT_CHUNK_SIZE,
+)
 from posthog.warehouse.models import IncrementalFieldType
-
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 def _sanitize_identifier(identifier: str) -> str:
@@ -224,6 +228,9 @@ def mysql_source(
     def get_rows() -> Iterator[Any]:
         arrow_schema = _get_arrow_schema_from_type_name(table_structure)
 
+        # PlanetScale needs this to be set
+        init_command = "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None
+
         with pymysql.connect(
             host=host,
             port=port,
@@ -232,6 +239,7 @@ def mysql_source(
             password=password,
             connect_timeout=5,
             ssl_ca=ssl_ca,
+            init_command=init_command,
         ) as connection:
             with connection.cursor(SSCursor) as cursor:
                 query, args = _build_query(

@@ -3,7 +3,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
@@ -13,6 +13,12 @@ import { editorSizingLogic } from '../editorSizingLogic'
 import { QueryDatabase } from './QueryDatabase'
 import { QueryInfo } from './QueryInfo'
 import { QueryVariables } from './QueryVariables'
+
+enum EditorSidebarTab {
+    QueryDatabase = 'query_database',
+    QueryVariables = 'query_variables',
+    QueryInfo = 'query_info',
+}
 
 export const EditorSidebar = ({
     sidebarRef,
@@ -32,12 +38,20 @@ export const EditorSidebar = ({
     }, [sidebarWidth])
 
     // State to track active tab
-    const [activeTab, setActiveTab] = useState('query_database')
+    const [activeTab, setActiveTab] = useState(EditorSidebarTab.QueryDatabase)
+    const prevLengthRef = useRef(0)
+
+    useEffect(() => {
+        if (variablesForInsight.length > prevLengthRef.current) {
+            setActiveTab(EditorSidebarTab.QueryVariables)
+        }
+        prevLengthRef.current = variablesForInsight.length
+    }, [variablesForInsight])
 
     // Define tabs with icons
     const tabs = [
         {
-            key: 'query_database',
+            key: EditorSidebarTab.QueryDatabase,
             label: (
                 <Tooltip title="Data warehouse">
                     <div className="flex justify-center px-2">
@@ -47,7 +61,7 @@ export const EditorSidebar = ({
             ),
         },
         {
-            key: 'query_variables',
+            key: EditorSidebarTab.QueryVariables,
             label: (
                 <Tooltip title="Query variables">
                     <div className="flex justify-center px-2 relative">
@@ -62,7 +76,7 @@ export const EditorSidebar = ({
             ),
         },
         {
-            key: 'query_info',
+            key: EditorSidebarTab.QueryInfo,
             label: (
                 <Tooltip title="Materialization and query properties">
                     <div className="flex justify-center px-2">
@@ -76,11 +90,11 @@ export const EditorSidebar = ({
     // Render the corresponding component based on active tab
     const renderTabContent = (): JSX.Element => {
         switch (activeTab) {
-            case 'query_database':
+            case EditorSidebarTab.QueryDatabase:
                 return <QueryDatabase isOpen={sidebarOverlayOpen} />
-            case 'query_variables':
+            case EditorSidebarTab.QueryVariables:
                 return <QueryVariables />
-            case 'query_info':
+            case EditorSidebarTab.QueryInfo:
                 return <QueryInfo codeEditorKey={codeEditorKey} />
             default:
                 return <QueryDatabase isOpen={sidebarOverlayOpen} />

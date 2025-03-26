@@ -13,9 +13,9 @@ use crate::metrics::metrics_consts::{
 use crate::metrics::metrics_utils::parse_exception_for_prometheus_label;
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::{OperatorType, PropertyFilter};
-use crate::team::team_models::{ProjectId, TeamId};
 use anyhow::Result;
 use common_metrics::inc;
+use common_types::{ProjectId, TeamId};
 use petgraph::algo::{is_cyclic_directed, toposort};
 use petgraph::graph::DiGraph;
 use serde_json::Value;
