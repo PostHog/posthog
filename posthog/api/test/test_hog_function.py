@@ -1944,21 +1944,13 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_validation_catches_memory_exceeded_in_python_vm(self):
         with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
             """Test that memory exceeded errors during validation in our Python VM are properly handled"""
-            # Create a function that will consume too much memory during validation
-            x_string = "x" * 50000  # 50KB string (under 100KB limit of MAX_HOG_CODE_SIZE_BYTES)
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
                 data={
                     "name": "Memory Hungry Function",
                     "type": "transformation",
-                    "hog": f"""
-                    let arr := [];
-                    let str := '{x_string}';  // 50KB string
-                    let i := 0;
-                    while (i < 2000) {{  // Create 2000 copies = ~100MB, well over the 64MB limit
-                        arr := arr + [str];
-                        i := i + 1;
-                    }}
+                    "hog": """
+                    let arr := arrayMap(x -> toString(x), range(10000000));  // Create array with 10M strings
                     return event;
                     """,
                 },
