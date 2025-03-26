@@ -82,6 +82,13 @@ const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
         data.amount_off_expires_at = data.billing_period.current_period_end
     }
 
+    data.trial = {
+        type: 'standard',
+        status: 'active',
+        target: 'enterprise',
+        expires_at: dayjs().add(1, 'month').toISOString(),
+    }
+
     return data as BillingType
 }
 
