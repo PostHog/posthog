@@ -150,34 +150,6 @@ export const SidePanelSupport = (): JSX.Element => {
                                     </LemonBanner>
                                 </Section>
                             ) : null}
-                            {/* Anthropic Max below, sidelined due to restrictive rate-limits. Commented out for now, but keeping here in case InKeep Max doesn't work out. 
-                            {isCloudOrDev ? (
-                                <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
-                                    <Section title="Ask Max the Hedgehog">
-                                        <>
-                                            <p>
-                                                This Max is direct to the Anthropic API, not via InKeep. (Internal use
-                                                only.)
-                                            </p>
-                                            <LemonButton
-                                                type="primary"
-                                                fullWidth
-                                                center
-                                                onClick={() => {
-                                                    openSidePanel(
-                                                        SidePanelTab.Docs,
-                                                        '/docs/new-to-posthog/understand-posthog?chat=open'
-                                                    )
-                                                }}
-                                                targetBlank={false}
-                                                className="mt-2"
-                                            >
-                                                ✨ Chat with Max
-                                            </LemonButton>
-                                        </>
-                                    </Section>
-                                </FlaggedFeature>
-                            ) : null} */}
 
                             {isCloudOrDev ? (
                                 <Section title="Ask Max AI">
