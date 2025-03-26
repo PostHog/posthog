@@ -5,7 +5,6 @@ use uuid::Uuid;
 pub type TeamId = i32;
 pub type ProjectId = i64;
 
-
 // Actually an "environment"
 #[derive(Debug, Clone)]
 pub struct Team {

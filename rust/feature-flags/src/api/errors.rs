@@ -233,18 +233,18 @@ impl From<CookielessManagerError> for FlagError {
     fn from(error: CookielessManagerError) -> Self {
         match error {
             // Client errors (400)
-            CookielessManagerError::MissingProperty(msg) |
-            CookielessManagerError::InvalidTimestamp(msg) |
-            CookielessManagerError::TimezoneError(msg) |
-            CookielessManagerError::InvalidIdentifyCount(msg) => {
+            CookielessManagerError::MissingProperty(msg)
+            | CookielessManagerError::InvalidTimestamp(msg)
+            | CookielessManagerError::TimezoneError(msg)
+            | CookielessManagerError::InvalidIdentifyCount(msg) => {
                 FlagError::ClientFacing(ClientFacingError::BadRequest(msg))
             }
-            CookielessManagerError::UrlParseError(e) => {
-                FlagError::ClientFacing(ClientFacingError::BadRequest(format!("Invalid URL: {}", e)))
-            }
-            CookielessManagerError::ChronoError(e) => {
-                FlagError::ClientFacing(ClientFacingError::BadRequest(format!("Invalid date/time format: {}", e)))
-            }
+            CookielessManagerError::UrlParseError(e) => FlagError::ClientFacing(
+                ClientFacingError::BadRequest(format!("Invalid URL: {}", e)),
+            ),
+            CookielessManagerError::ChronoError(e) => FlagError::ClientFacing(
+                ClientFacingError::BadRequest(format!("Invalid date/time format: {}", e)),
+            ),
 
             // Server errors (500)
             CookielessManagerError::SaltCacheError(e) => {
