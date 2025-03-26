@@ -143,9 +143,9 @@ export class HogTransformerService {
                 // Get states for all functions to check if any are disabled - only if feature flag is enabled
                 let states: Record<string, { state: HogWatcherState }> = {}
                 if (this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
-                    const timer = transformEventHogWatcherLatency.startTimer()
+                    const timer = transformEventHogWatcherLatency.startTimer({ operation: 'getStates' })
                     states = await this.hogWatcher.getStates(teamHogFunctions.map((hf) => hf.id))
-                    transformEventHogWatcherLatency.observe({ operation: 'getStates' }, timer() * 1000) // Convert seconds to milliseconds
+                    timer()
                 }
 
                 for (const hogFunction of teamHogFunctions) {
@@ -155,7 +155,7 @@ export class HogTransformerService {
                     if (this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
                         const functionState = states[hogFunction.id]
                         if (functionState?.state >= HogWatcherState.disabledForPeriod) {
-                            // Just log that we would have disabled this transformation but we're letting it run
+                            // Just log that we would have disabled this transformation but we're letting it run for testing
                             logger.info(
                                 '🧪',
                                 '[MONITORING MODE] Transformation would be disabled but is allowed to run for testing',
@@ -281,9 +281,9 @@ export class HogTransformerService {
 
                 // Observe the results to update rate limiting state - only if feature flag is enabled
                 if (results.length > 0 && this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
-                    const timer = transformEventHogWatcherLatency.startTimer()
+                    const timer = transformEventHogWatcherLatency.startTimer({ operation: 'observeResults' })
                     await this.hogWatcher.observeResults(results)
-                    transformEventHogWatcherLatency.observe({ operation: 'observeResults' }, timer() * 1000) // Convert seconds to milliseconds
+                    timer()
                 }
 
                 if (transformationsFailed.length > 0) {
