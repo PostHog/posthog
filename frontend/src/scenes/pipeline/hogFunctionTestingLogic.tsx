@@ -53,6 +53,7 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
         deselectForRetry: (eventIds: string[]) => ({ eventIds }),
         resetSelectedForRetry: true,
         setSelectingMany: (selectingMany: boolean) => ({ selectingMany }),
+        setDisplayFilters: (displayFilters: boolean) => ({ displayFilters }),
     }),
     reducers({
         dateRange: [
@@ -104,6 +105,12 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                     ...state.filter((id: string) => !eventIds.includes(id)),
                 ],
                 resetSelectedForRetry: () => [],
+            },
+        ],
+        displayFilters: [
+            false as boolean,
+            {
+                setDisplayFilters: (_, { displayFilters }: { displayFilters: boolean }) => displayFilters,
             },
         ],
     }),

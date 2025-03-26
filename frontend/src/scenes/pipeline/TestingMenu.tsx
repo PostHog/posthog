@@ -4,17 +4,16 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonDialog,
-    LemonDropdown,
     LemonMenu,
     LemonTable,
     LemonTag,
     LemonTagType,
+    Popover,
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
@@ -22,7 +21,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TZLabel } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -48,6 +46,9 @@ import {
 import { hogFunctionTestLogic } from './hogfunctions/hogFunctionTestLogic'
 import { tagTypeForLevel } from './hogfunctions/logs/LogsViewer'
 import { hogFunctionTestingLogic } from './hogFunctionTestingLogic'
+import { useEffect, useRef } from 'react'
+import { TZLabel } from 'lib/components/TZLabel'
+import { Form } from 'kea-forms'
 
 export interface HogFunctionTestingProps {
     id: string
@@ -291,13 +292,26 @@ function EmptyColumn(): JSX.Element {
 
 function RunsFilters({ id }: { id: string }): JSX.Element {
     const logic = hogFunctionTestingLogic({ id })
-    const { eventsLoading, baseEventsQuery } = useValues(logic)
-    const { loadEvents, changeDateRange, loadTotalEvents } = useActions(logic)
+    const { eventsLoading, baseEventsQuery, displayFilters } = useValues(logic)
+    const { loadEvents, changeDateRange, loadTotalEvents, setDisplayFilters } = useActions(logic)
 
     const handleRefresh = (): void => {
         loadEvents()
         loadTotalEvents()
     }
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            console.log('abcde overlayRef value:', overlayRef)
+            if (overlayRef[0] && overlayRef[0].current) {
+                console.log('abcde overlayRef value:', overlayRef[0].current)
+            }
+        }, 5000)
+        
+        return () => clearInterval(interval)
+    }, [])
+
+    const overlayRef = useRef<HTMLButtonElement>(null)
 
     return (
         <div className="flex items-center gap-2">
@@ -315,10 +329,15 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                 dateTo={baseEventsQuery?.before ?? undefined}
                 onChange={changeDateRange}
             />
-            <LemonDropdown
-                closeOnClickInside={false}
-                matchWidth={false}
-                placement="right-end"
+            <Popover
+                additionalRefs={[overlayRef]}
+                visible={displayFilters}
+                onClickOutside={() => {
+                    console.log('abcde onClickOutside', overlayRef)
+                    setDisplayFilters(false)
+                }}
+                placement="bottom"
+                className="max-w-200"
                 overlay={
                     <Form
                         logic={hogFunctionConfigurationLogic}
@@ -326,14 +345,18 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                         formKey="configuration"
                         className="deprecated-space-y-3"
                     >
-                        <HogFunctionFilters embedded={true} />
+                        <HogFunctionFilters embedded={true} ref={overlayRef} />
                     </Form>
                 }
             >
-                <LemonButton size="small" type="secondary">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => setDisplayFilters(!displayFilters)}
+                >
                     Filters
                 </LemonButton>
-            </LemonDropdown>
+            </Popover>
         </div>
     )
 }

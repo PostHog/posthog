@@ -19,6 +19,8 @@ export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'vis
             'aria-haspopup': Required<React.AriaAttributes>['aria-haspopup']
         }
     >
+    /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popovers. */
+    additionalRefs?: React.MutableRefObject<HTMLDivElement | null>[]
 }
 
 /** A wrapper that provides a dropdown for any element supporting `onClick`. Built on top of Popover. */
@@ -34,6 +36,7 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
                 closeOnClickInside = true,
                 trigger = 'click',
                 children,
+                additionalRefs = [],
                 ...popoverProps
             },
             ref
@@ -58,15 +61,18 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
             return (
                 <Popover
                     ref={ref}
+                    additionalRefs={additionalRefs}
                     floatingRef={floatingRef}
                     referenceRef={referenceRef}
                     onClickOutside={(e) => {
+                        console.log('abcde onClickOutside detected', e)
                         if (trigger === 'click') {
                             setVisible(false)
                         }
                         onClickOutside?.(e)
                     }}
                     onClickInside={(e) => {
+                        console.log('abcde onClickInside detected', e)
                         e.stopPropagation()
                         closeOnClickInside && setVisible(false)
                         onClickInside?.(e)

@@ -15,6 +15,7 @@ import { AnyPropertyFilter, EntityTypes, FilterType, HogFunctionFiltersType } fr
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
+import { forwardRef } from 'react'
 
 function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFiltersType> {
     if (!filters) {
@@ -45,7 +46,7 @@ function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFilters
     return sanitized
 }
 
-export function HogFunctionFilters({ embedded = false }: { embedded?: boolean }): JSX.Element {
+export const HogFunctionFilters = forwardRef<HTMLButtonElement, { embedded?: boolean }>(({ embedded = false }, ref) => {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { configuration, type, useMapping, filtersContainPersonProperties } = useValues(hogFunctionConfigurationLogic)
 
@@ -142,6 +143,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                             })
                                         }}
                                         pageKey={`HogFunctionPropertyFilters.${id}`}
+                                        ref={ref}
                                     />
                                 </>
                             )}
@@ -352,4 +354,4 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
             ) : null}
         </div>
     )
-}
+})
