@@ -2,7 +2,7 @@ import { Monaco } from '@monaco-editor/react'
 import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -19,8 +19,8 @@ import { queryExportContext } from '~/queries/query'
 import { DataVisualizationNode, HogQLMetadataResponse, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, ExportContext, QueryTabState } from '~/types'
 
-import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../external/dataWarehouseExternalSceneLogic'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../utils'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { ViewEmptyState } from './ViewLoadingState'
 
@@ -76,7 +76,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     props({} as MultitabEditorLogicProps),
     key((props) => props.key),
     connect({
-        values: [userLogic, ['user']],
+        values: [dataWarehouseViewsLogic, ['dataWarehouseSavedQueries'], userLogic, ['user']],
         actions: [
             dataWarehouseViewsLogic,
             [
@@ -734,6 +734,51 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
     }),
+    urlToAction(({ actions, values, props }) => ({
+        [urls.sqlEditor()]: (_, searchParams) => {
+            if (searchParams.open_query || searchParams.open_view) {
+                let tabAdded = false
+
+                const createQueryTab = (): void => {
+                    if (searchParams.open_query) {
+                        // Open query string
+                        actions.createTab(searchParams.open_query)
+                        tabAdded = true
+                        router.actions.replace(router.values.location.pathname)
+                    } else if (searchParams.open_view) {
+                        // Open view
+                        const viewId = searchParams.open_view
+                        const view = values.dataWarehouseSavedQueries.find((n) => n.id === viewId)
+                        if (!view) {
+                            return
+                        }
+                        actions.editView(view.query.query, view)
+                        tabAdded = true
+                        router.actions.replace(router.values.location.pathname)
+                    }
+                }
+
+                createQueryTab()
+
+                let intervalCount = 0
+                const interval = setInterval(() => {
+                    intervalCount++
+
+                    if (props.monaco && !tabAdded) {
+                        createQueryTab()
+                        if (tabAdded) {
+                            clearInterval(interval)
+                        }
+                    } else if (tabAdded) {
+                        clearInterval(interval)
+                    } else if (intervalCount >= 10_000 / 300) {
+                        // 10 secs over 300ms interval
+                        clearInterval(interval)
+                    }
+                }, 300)
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadQueryTabState()
     }),
