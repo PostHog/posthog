@@ -131,7 +131,7 @@ if (res.status >= 400) {
         {
             "key": "properties",
             "type": "dictionary",
-            "label": "Property mapping",
+            "label": "Default property mapping",
             "description": "Map of Intercom properties and their values.",
             "default": {
                 "name": "{f'{person.properties.first_name} {person.properties.last_name}' == ' ' ? null : f'{person.properties.first_name} {person.properties.last_name}'}",
@@ -144,7 +144,7 @@ if (res.status >= 400) {
         {
             "key": "customProperties",
             "type": "dictionary",
-            "label": "Custom properties",
+            "label": "Custom property mapping",
             "description": "Map of custom properties and their values. Check out this page for more details: https://www.intercom.com/help/en/articles/179-create-and-track-custom-data-attributes-cdas",
             "default": {},
             "secret": False,
