@@ -1128,13 +1128,11 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
             assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
 
-            # Test never_drop_data organization is limited
+            # Test never_drop_data organization is not limited
             self.organization.customer_trust_scores[trust_key] = 0
             self.organization.never_drop_data = True
             self.organization.save()
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-            assert quota_limited_orgs["api_queries_read_bytes"] == {org_id: 1612137599}
+            assert quota_limited_orgs["api_queries_read_bytes"] == {}
             assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-            assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
-                f"@posthog/quota-limits/api_queries_read_bytes", 0, -1
-            )
+            assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
