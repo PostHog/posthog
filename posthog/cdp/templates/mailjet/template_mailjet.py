@@ -3,21 +3,6 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 # See https://dev.mailjet.com/email/reference/contacts/contact-list/
 
-input_provider = {
-    "key": "provider",
-    "type": "choice",
-    "label": "Provider",
-    "secret": False,
-    "required": True,
-    "hidden": True,
-    "default": "mailjet",
-    "choices": [
-        {
-            "label": "Mailjet",
-            "value": "mailjet",
-        },
-    ],
-}
 input_api_key = {
     "key": "api_key",
     "type": "string",
@@ -217,7 +202,6 @@ fun sendEmail(email) {
 return {'sendEmail': sendEmail}
 """.strip(),
     inputs_schema=[
-        input_provider,
         input_api_key,
         input_secret_key,
     ],

@@ -32,7 +32,7 @@ export class CdpApi {
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogExecutor = new HogExecutorService(hub)
+        this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
         this.fetchExecutor = new FetchExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
@@ -125,6 +125,9 @@ export class CdpApi {
 
             const isNewFunction = req.params.id === 'new'
 
+            // Preload any import-able functions for the team
+            await this.hogFunctionManager.loadProviderFunctionsForTeam(parseInt(team_id))
+
             const hogFunction = isNewFunction
                 ? null
                 : await this.hogFunctionManager.fetchHogFunction(req.params.id).catch(() => null)
@@ -161,7 +164,6 @@ export class CdpApi {
             }
 
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
-            await this.hogFunctionManager.enrichWithSharedInputs([compoundConfiguration])
 
             let lastResponse: HogFunctionInvocationResult | null = null
             let logs: LogEntry[] = []
