@@ -109,7 +109,7 @@ const buttonVariants = cva({
             false: '',
         },
         menuItem: {
-            true: 'w-full',
+            true: 'w-full justify-start',
             false: '',
         },
         disabled: {
@@ -380,7 +380,11 @@ function ButtonLabelComponent<E extends ElementType = 'span'>(
     return (
         <Component
             ref={forwardedRef}
-            className={cn(menuItem && 'flex w-full items-center justify-between', 'select-none', props.className)}
+            className={cn(
+                'select-none text-sm',
+                menuItem && 'flex w-full items-center justify-between',
+                props.className
+            )}
             {...props}
         >
             {children}

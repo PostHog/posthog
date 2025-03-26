@@ -68,6 +68,9 @@ export function Default(): JSX.Element {
                         <DropdownMenuSubTrigger>
                             <Button.Root menuItem to="/">
                                 <Button.Label menuItem>More options</Button.Label>
+                                <Button.Icon className="group-data-[state=open]/button-root:rotate-180">
+                                    <IconChevronRight />
+                                </Button.Icon>
                             </Button.Root>
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent>
@@ -103,7 +106,7 @@ export function Default(): JSX.Element {
 
                 {/* The Dropdown content menu */}
                 <DropdownMenuContent loop align="start" className="min-w-[200px]">
-                    <DropdownMenuLabel>Projects</DropdownMenuLabel>
+                    <DropdownMenuLabel inset>Projects</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuCheckboxItem checked={showStatusBar} onCheckedChange={setShowStatusBar} asChild>
                         <Button.Root menuItem>
@@ -149,7 +152,7 @@ export function Default(): JSX.Element {
 
                 {/* The Dropdown content menu */}
                 <DropdownMenuContent loop align="start" className="min-w-[200px]">
-                    <DropdownMenuLabel>Projects</DropdownMenuLabel>
+                    <DropdownMenuLabel inset>Projects</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuRadioGroup
                         value={radioChoice}
