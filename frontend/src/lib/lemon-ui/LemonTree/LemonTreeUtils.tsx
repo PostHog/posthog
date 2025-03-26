@@ -140,7 +140,7 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
             className={cn(
                 'transition-all duration-150 rounded',
                 props.className,
-                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent-primary bg-accent-primary-highlight'
+                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary'
             )}
         >
             {props.children}
