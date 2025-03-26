@@ -87,7 +87,7 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
                 return
             }
 
-            if (props.context?.type === 'groups' && props.context.groupTypeIndex) {
+            if (props.context?.type === 'groups' && typeof props.context.groupTypeIndex === 'number') {
                 try {
                     actions.setDefaultColumns({
                         groupTypeIndex: props.context.groupTypeIndex,
