@@ -81,8 +81,8 @@
                   cohort_id
   FROM cohortpeople
   WHERE (team_id = 99999
-         AND cohort_id = '2'
-         AND version < '4')
+         AND cohort_id = '140'
+         AND version < '2')
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.12
@@ -144,7 +144,7 @@
          99999 as cohort_id,
          99999 as team_id,
          1 AS sign,
-         4 AS version
+         2 AS version
   FROM
     (SELECT id
      FROM person
@@ -166,7 +166,7 @@
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version < 4
+    AND version < 2
     AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
                           join_algorithm = 'auto'
   '''
@@ -178,7 +178,7 @@
   FROM cohortpeople
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND version = 4
+    AND version = 2
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.7
@@ -189,7 +189,7 @@
   FROM cohortpeople
   WHERE team_id IN [1, 2, 3, 4, 5 /* ... */]
     AND cohort_id = 99999
-    AND version < 4
+    AND version < 2
   GROUP BY team_id
   HAVING stale_people_count > 0
   '''
@@ -201,8 +201,8 @@
                   cohort_id
   FROM cohortpeople
   WHERE (team_id = 99999
-         AND cohort_id = '2'
-         AND version < '4')
+         AND cohort_id = '140'
+         AND version < '2')
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.9
@@ -211,7 +211,7 @@
   DELETE
   FROM cohortpeople
   WHERE (team_id = 99999
-         AND cohort_id = '2'
-         AND version < '4')
+         AND cohort_id = '140'
+         AND version < '2')
   '''
 # ---
