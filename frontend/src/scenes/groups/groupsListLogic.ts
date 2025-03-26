@@ -23,7 +23,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
             teamLogic,
             ['currentTeamId'],
             groupsModel,
-            ['groupTypes', 'groupTypeColumns', 'aggregationLabel'],
+            ['groupTypes', 'aggregationLabel'],
             groupsAccessLogic,
             ['groupsEnabled'],
         ],

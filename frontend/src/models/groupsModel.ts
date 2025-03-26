@@ -6,8 +6,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
 import { GroupType, GroupTypeIndex } from '~/types'
 
 import type { groupsModelType } from './groupsModelType'
@@ -92,13 +90,6 @@ export const groupsModel = kea<groupsModelType>([
                     (groupType: GroupType) =>
                         `${TaxonomicFilterGroupType.GroupNamesPrefix}_${groupType.group_type_index}` as unknown as TaxonomicFilterGroupType
                 )
-            },
-        ],
-        groupTypeColumns: [
-            (s) => [s.groupTypes],
-            (groupTypes) => (groupTypeIndex: number | null | undefined) => {
-                const groupType = groupTypes.get(groupTypeIndex as GroupTypeIndex)
-                return groupType?.default_columns || defaultDataTableColumns(NodeKind.GroupsQuery)
             },
         ],
         aggregationLabel: [
