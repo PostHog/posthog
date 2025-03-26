@@ -231,6 +231,34 @@ impl From<sqlx::Error> for FlagError {
 
 impl From<CookielessManagerError> for FlagError {
     fn from(error: CookielessManagerError) -> Self {
-        FlagError::ClientFacing(ClientFacingError::BadRequest(error.to_string()))
+        match error {
+            // Client errors (400)
+            CookielessManagerError::MissingProperty(msg) |
+            CookielessManagerError::InvalidTimestamp(msg) |
+            CookielessManagerError::TimezoneError(msg) |
+            CookielessManagerError::InvalidIdentifyCount(msg) => {
+                FlagError::ClientFacing(ClientFacingError::BadRequest(msg))
+            }
+            CookielessManagerError::UrlParseError(e) => {
+                FlagError::ClientFacing(ClientFacingError::BadRequest(format!("Invalid URL: {}", e)))
+            }
+            CookielessManagerError::ChronoError(e) => {
+                FlagError::ClientFacing(ClientFacingError::BadRequest(format!("Invalid date/time format: {}", e)))
+            }
+
+            // Server errors (500)
+            CookielessManagerError::SaltCacheError(e) => {
+                tracing::error!("Salt cache error: {}", e);
+                FlagError::Internal(format!("Salt cache error: {}", e))
+            }
+            CookielessManagerError::HashError(e) => {
+                tracing::error!("Hash error: {}", e);
+                FlagError::Internal(format!("Hash error: {}", e))
+            }
+            CookielessManagerError::RedisError(e) => {
+                tracing::error!("Redis error in cookieless manager: {}", e);
+                FlagError::RedisUnavailable
+            }
+        }
     }
 }
