@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -46,6 +46,12 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     propertiesViaUrl: true,
                 } as DataTableNode),
             { setQuery: (_, { query }) => query },
+        ],
+    }),
+    selectors({
+        groupTypeName: [
+            (s, p) => [s.aggregationLabel, p.groupTypeIndex],
+            (aggregationLabel, index): string => aggregationLabel(index).singular,
         ],
     }),
 ])

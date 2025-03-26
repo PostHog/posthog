@@ -7,7 +7,7 @@ import { Query } from '~/queries/Query/Query'
 import { groupsListLogic } from './groupsListLogic'
 
 export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Element {
-    const { query } = useValues(groupsListLogic({ groupTypeIndex }))
+    const { query, groupTypeName } = useValues(groupsListLogic({ groupTypeIndex }))
     const { setQuery } = useActions(groupsListLogic({ groupTypeIndex }))
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -34,6 +34,11 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
             context={{
                 refresh: 'blocking',
                 emptyStateHeading: 'No groups found',
+                columns: {
+                    group_name: {
+                        title: groupTypeName,
+                    },
+                },
             }}
             dataAttr="groups-table"
         />
