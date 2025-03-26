@@ -41,6 +41,7 @@ class OrganizationUsageResource(TypedDict):
 # as well as for enforcing limits.
 class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
+    exceptions: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
     feature_flag_requests: Optional[OrganizationUsageResource]

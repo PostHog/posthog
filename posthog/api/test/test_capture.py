@@ -2075,6 +2075,11 @@ class TestCapture(BaseTest):
             {self.team.api_token: timezone.now().timestamp() + 10000},
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
+        replace_limited_team_tokens(
+            QuotaResource.EXCEPTIONS,
+            {self.team.api_token: timezone.now().timestamp() + 10000},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
         self._send_august_2023_version_session_recording_event()
         self.assertEqual(kafka_produce.call_count, 1)
 
@@ -2113,6 +2118,23 @@ class TestCapture(BaseTest):
                     "api_key": self.team.api_token,
                 },
             )
+            self.client.post(
+                "/e/",
+                data={
+                    "data": json.dumps(
+                        [
+                            {
+                                "event": "$exception",
+                                "properties": {
+                                    "distinct_id": "eeee",
+                                    "token": self.team.api_token,
+                                },
+                            },
+                        ]
+                    ),
+                    "api_key": self.team.api_token,
+                },
+            )
 
         with self.settings(QUOTA_LIMITING_ENABLED=True):
             _produce_events()
@@ -2122,11 +2144,17 @@ class TestCapture(BaseTest):
                     "session_recording_snapshot_item_events_test",
                     "events_plugin_ingestion_test",
                     "events_plugin_ingestion_test",
+                    "events_plugin_ingestion_test",
                 ],
             )
 
             replace_limited_team_tokens(
                 QuotaResource.EVENTS,
+                {self.team.api_token: timezone.now().timestamp() + 10000},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
+            replace_limited_team_tokens(
+                QuotaResource.EXCEPTIONS,
                 {self.team.api_token: timezone.now().timestamp() + 10000},
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
@@ -2149,6 +2177,11 @@ class TestCapture(BaseTest):
             )
             replace_limited_team_tokens(
                 QuotaResource.EVENTS,
+                {self.team.api_token: timezone.now().timestamp() - 10000},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
+            replace_limited_team_tokens(
+                QuotaResource.EXCEPTIONS,
                 {self.team.api_token: timezone.now().timestamp() - 10000},
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )

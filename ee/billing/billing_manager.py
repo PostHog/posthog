@@ -313,6 +313,7 @@ class BillingManager:
         if usage_summary:
             usage_info = OrganizationUsageInfo(
                 events=usage_summary["events"],
+                exceptions=usage_summary.get("exceptions", {}),
                 recordings=usage_summary["recordings"],
                 rows_synced=usage_summary.get("rows_synced", {}),
                 feature_flag_requests=usage_summary.get("feature_flag_requests", {}),
