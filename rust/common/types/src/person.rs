@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Person {
-    pub id: i32,
+    pub id: i64,
     pub created_at: DateTime<Utc>,
     pub team_id: i32,
     pub uuid: Uuid,
