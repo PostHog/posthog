@@ -1,4 +1,5 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
@@ -598,6 +599,15 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Billing',
         to: urls.organizationBilling(),
         settings: [],
+    },
+    {
+        level: 'organization',
+        id: 'organization-startup-program',
+        hideSelfHost: true,
+        title: 'Startup program',
+        to: urls.startups(),
+        settings: [],
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
     },
 
     // USER
