@@ -7,8 +7,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:08.349454', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:08.349460', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:08.349454', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:08.349454', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:08.349460', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -37,8 +37,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:08.559255', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:08.559260', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:08.559255', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:08.559255', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:08.559260', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange,
          argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest
   FROM events
   LEFT OUTER JOIN
@@ -68,8 +68,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:09.038745', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:09.038753', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:09.038745', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:09.038745', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:09.038753', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange,
          argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest
   FROM events
   LEFT OUTER JOIN
@@ -99,8 +99,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:09.659589', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:09.659597', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:09.659589', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:09.659589', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:09.659597', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -146,8 +146,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:10.077757', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:10.077763', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:10.077757', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:10.077757', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:10.077763', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange,
          argMin(events.properties, toTimeZone(events.timestamp, 'UTC')) AS earliest
   FROM events
   LEFT OUTER JOIN
@@ -177,8 +177,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:10.726663', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:10.726669', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:10.726663', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:10.726663', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:10.726669', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -208,8 +208,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:10.794522', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:10.794528', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:10.794522', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:10.794522', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:10.794528', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -239,8 +239,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:11.508642', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:11.508649', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:11.508642', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:11.508642', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:11.508649', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime('2022-01-10', 'UTC'), toDateTime('2022-01-11', 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(toDateTime('2022-01-10', 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime('2022-01-10', 'UTC'), toDateTime('2022-01-11', 'UTC')), 10)))), range(0, 10)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -286,8 +286,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:12.072585', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:12.072595', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:12.072585', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:12.072585', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:12.072595', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -333,8 +333,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:12.727511', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:12.727517', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:12.727511', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:12.727511', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:12.727517', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -363,8 +363,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:12.790868', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:12.790874', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:12.790868', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:12.790868', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:12.790874', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -393,8 +393,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:12.854210', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:12.854214', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:12.854210', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:12.854210', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:12.854214', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -423,8 +423,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:12.918303', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:12.918308', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:12.918303', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:12.918303', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:12.918308', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -453,8 +453,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:13.440758', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:13.440764', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:13.440758', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:13.440758', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:13.440764', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
@@ -483,8 +483,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('hour', toStartOfHour(toTimeZone(events.timestamp, 'UTC')), toStartOfHour(now64(6, 'UTC'))), x), 1, 0), range(24)))) AS volumeDay,
-         reverse(sumForEach(arrayMap(x -> if(equals(dateDiff('day', toStartOfDay(toTimeZone(events.timestamp, 'UTC')), toStartOfDay(now64(6, 'UTC'))), x), 1, 0), range(31)))) AS volumeMonth
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:13.774904', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:13.774910', 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffort('2025-03-25T15:35:13.774904', 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffort('2025-03-25T15:35:13.774904', 6, 'UTC'), parseDateTime64BestEffort('2025-03-26T15:35:13.774910', 6, 'UTC')), 10)))), range(0, 10)))) AS volumeDay,
+         sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(events.timestamp, 'UTC'), bin), less(dateDiff('seconds', bin, toTimeZone(events.timestamp, 'UTC')), divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10))), 1, 0), arrayMap(i -> dateAdd(parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', parseDateTime64BestEffortOrNull(NULL, 6, 'UTC'), parseDateTime64BestEffortOrNull(NULL, 6, 'UTC')), 10)))), range(0, 10)))) AS volumeRange
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id,
