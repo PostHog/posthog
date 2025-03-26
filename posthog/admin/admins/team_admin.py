@@ -113,11 +113,13 @@ class TeamAdmin(admin.ModelAdmin):
     ]
 
     def organization_link(self, team: Team):
-        return format_html(
-            '<a href="{}">{}</a>',
-            reverse("admin:posthog_organization_change", args=[team.organization.pk]),
-            team.organization.name,
-        )
+        if team.organization:
+            return format_html(
+                '<a href="{}">{}</a>',
+                reverse("admin:posthog_organization_change", args=[team.organization.pk]),
+                team.organization.name,
+            )
+        return "-"
 
     def project_link(self, team: Team):
         if team.project:
