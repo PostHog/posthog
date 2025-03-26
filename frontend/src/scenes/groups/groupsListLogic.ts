@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -38,7 +38,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.GroupsQuery,
-                        select: defaultDataTableColumns(NodeKind.GroupsQuery),
+                        select: undefined,
                         group_type_index: props.groupTypeIndex,
                     },
                     full: true,
@@ -55,5 +55,17 @@ export const groupsListLogic = kea<groupsListLogicType>([
             (aggregationLabel, groupTypeIndex): string =>
                 groupTypeIndex ? aggregationLabel(groupTypeIndex).singular : 'Group',
         ],
+    }),
+    afterMount(({ actions, values }) => {
+        if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.select === undefined) {
+            const defaultColumns = values.groupTypes.get(values.query.source.group_type_index)?.default_columns
+            actions.setQuery({
+                ...values.query,
+                source: {
+                    ...values.query.source,
+                    select: defaultColumns ?? defaultDataTableColumns(NodeKind.GroupsQuery),
+                },
+            })
+        }
     }),
 ])
