@@ -130,6 +130,7 @@ mod tests {
             project_id: i64::from(id) - 1,
             name: "team".to_string(),
             api_token: token,
+            ..Default::default()
         };
         let serialized_team = serde_json::to_string(&team).expect("Failed to serialise team");
 

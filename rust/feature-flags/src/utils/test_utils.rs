@@ -36,6 +36,7 @@ pub async fn insert_new_team_in_redis(
         project_id: i64::from(id) - 1,
         name: "team".to_string(),
         api_token: token,
+        ..Default::default()
     };
 
     let serialized_team = serde_json::to_string(&team)?;
@@ -203,6 +204,7 @@ pub async fn insert_new_team_in_pg(
         project_id: id as i64,
         name: "team".to_string(),
         api_token: token,
+        ..Default::default()
     };
     let uuid = Uuid::now_v7();
 
