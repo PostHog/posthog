@@ -3219,7 +3219,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         self.assertCountEqual([p4.uuid], [r[0] for r in res])
 
     def test_performed_event_regularly_years_interval(self):
-        # Person 1: Matches the condition - has 2 "Application Opened" events
+        # Person 1: Matches the condition - has 2 "Application Opened" events per year
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
@@ -3239,6 +3239,20 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             distinct_id="p1",
             timestamp=datetime.now() - timedelta(days=1),
         )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=400),
+        )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=401),
+        )
 
         # Person 2: Doesn't match - has only 1 "Application Opened" event
         p2 = _create_person(
@@ -3254,7 +3268,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             timestamp=datetime.now() - timedelta(days=1),
         )
 
-        # Person 3: Doesn't match - has different events, no "Application Opened"
+        # Person 3: Doesn't match - only has 1 Application opened last year
         p3 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p3"],
@@ -3262,21 +3276,36 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         _create_event(
             team=self.team,
-            event="$pageview",
+            event="Application Opened",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
             properties={},
             distinct_id="p3",
             timestamp=datetime.now() - timedelta(days=1),
         )
         _create_event(
             team=self.team,
-            event="$pageview",
+            event="Application Opened",
             properties={},
             distinct_id="p3",
-            timestamp=datetime.now() - timedelta(days=2),
+            timestamp=datetime.now() - timedelta(days=400),
+        )
+        _create_event(
+            team=self.team,
+            event="Other",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=401),
         )
 
         flush_persons_and_events()
 
+        # "Application Opened" gte 2 times per 1 year for at least 2 of the last 2 years
         filter = Filter(
             data={
                 "properties": {
@@ -3292,10 +3321,10 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                                     "negation": False,
                                     "operator": "gte",
                                     "event_type": "events",
-                                    "time_value": 30,
-                                    "min_periods": 1,
+                                    "time_value": 1,
+                                    "min_periods": 2,
                                     "time_interval": "year",
-                                    "total_periods": 1,
+                                    "total_periods": 2,
                                     "operator_value": 2,
                                 }
                             ],
