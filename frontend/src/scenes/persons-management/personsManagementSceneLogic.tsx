@@ -98,14 +98,14 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                                   key: 'groups-0',
                                   label: 'Groups',
                                   url: urls.groups(0),
-                                  content: <Groups groupTypeIndex={0} />,
+                                  content: <Groups groupType={undefined} />,
                               },
                           ]
                         : Array.from(groupTypes.values()).map((groupType) => ({
                               key: `groups-${groupType.group_type_index}`,
                               label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
                               url: urls.groups(groupType.group_type_index),
-                              content: <Groups groupTypeIndex={groupType.group_type_index} />,
+                              content: <Groups groupType={groupType} />,
                           }))),
                 ]
 

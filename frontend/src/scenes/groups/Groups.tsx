@@ -3,16 +3,17 @@ import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsA
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 
 import { Query } from '~/queries/Query/Query'
+import { GroupType } from '~/types'
 
 import { groupsListLogic } from './groupsListLogic'
 
-export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Element {
-    const { query, groupTypeName } = useValues(groupsListLogic({ groupTypeIndex }))
-    const { setQuery } = useActions(groupsListLogic({ groupTypeIndex }))
+export function Groups({ groupType }: { groupType: GroupType | undefined }): JSX.Element {
+    const { query, groupTypeName } = useValues(groupsListLogic({ groupType }))
+    const { setQuery } = useActions(groupsListLogic({ groupType }))
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
-    if (groupTypeIndex === undefined) {
-        throw new Error('groupTypeIndex is undefined')
+    if (groupType === undefined) {
+        throw new Error('groupType is undefined')
     }
 
     if (

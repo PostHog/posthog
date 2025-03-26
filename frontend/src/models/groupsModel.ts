@@ -6,6 +6,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { GroupType, GroupTypeIndex } from '~/types'
 
 import type { groupsModelType } from './groupsModelType'
@@ -43,6 +45,19 @@ export const groupsModel = kea<groupsModelType>([
                     )
                     return values.groupTypesRaw.map((gt) => (gt.group_type_index === groupTypeIndex ? groupType : gt))
                 },
+                setDefaultColumns: async ({
+                    groupTypeIndex,
+                    defaultColumns,
+                }: {
+                    groupTypeIndex: number
+                    defaultColumns: string[]
+                }) => {
+                    const groupType = await api.put(
+                        `/api/projects/${values.currentProjectId}/groups_types/set_default_columns`,
+                        { group_type_index: groupTypeIndex, default_columns: defaultColumns }
+                    )
+                    return values.groupTypesRaw.map((gt) => (gt.group_type_index === groupTypeIndex ? groupType : gt))
+                },
             },
         ],
     })),
@@ -77,6 +92,13 @@ export const groupsModel = kea<groupsModelType>([
                     (groupType: GroupType) =>
                         `${TaxonomicFilterGroupType.GroupNamesPrefix}_${groupType.group_type_index}` as unknown as TaxonomicFilterGroupType
                 )
+            },
+        ],
+        groupTypeColumns: [
+            (s) => [s.groupTypes],
+            (groupTypes) => (groupTypeIndex: number | null | undefined) => {
+                const groupType = groupTypes.get(groupTypeIndex as GroupTypeIndex)
+                return groupType?.default_columns || defaultDataTableColumns(NodeKind.GroupsQuery)
             },
         ],
         aggregationLabel: [

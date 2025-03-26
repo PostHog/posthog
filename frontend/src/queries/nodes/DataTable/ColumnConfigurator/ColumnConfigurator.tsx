@@ -21,7 +21,7 @@ import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { DataTableNode, GroupsQuery } from '~/queries/schema/schema-general'
 import {
     isEventsQuery,
     isGroupsQuery,
@@ -81,7 +81,10 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                 setQuery?.({ ...query, columns })
             }
         },
-        context: query.context || { type: 'team_columns' },
+        context:
+            query.context || isGroupsQuery(query.source)
+                ? { type: 'groups', groupTypeIndex: (query.source as GroupsQuery).group_type_index }
+                : { type: 'team_columns' },
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
 
@@ -209,21 +212,24 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                         </div>
                     </div>
                 </div>
-                {isEventsQuery(query.source) && query.showPersistentColumnConfigurator ? (
-                    <LemonCheckbox
-                        label={
-                            context?.type === 'event_definition'
-                                ? 'Save as default columns for this event type'
-                                : 'Save as default for all project members'
-                        }
-                        className="mt-2"
-                        data-attr="events-table-save-columns-as-default-toggle"
-                        bordered
-                        checked={saveAsDefault}
-                        onChange={toggleSaveAsDefault}
-                        disabledReason={restrictionReason}
-                    />
-                ) : null}
+                {(isEventsQuery(query.source) || isGroupsQuery(query.source)) &&
+                    query.showPersistentColumnConfigurator && (
+                        <LemonCheckbox
+                            label={
+                                context?.type === 'groups'
+                                    ? 'Save as default columns for this group type'
+                                    : context?.type === 'event_definition'
+                                    ? 'Save as default columns for this event type'
+                                    : 'Save as default for all project members'
+                            }
+                            className="mt-2"
+                            data-attr="events-table-save-columns-as-default-toggle"
+                            bordered
+                            checked={saveAsDefault}
+                            onChange={toggleSaveAsDefault}
+                            disabledReason={restrictionReason}
+                        />
+                    )}
             </div>
         </LemonModal>
     )

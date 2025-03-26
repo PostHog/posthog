@@ -6,23 +6,24 @@ import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { DataTableNode } from '~/queries/schema/schema-general'
+import { GroupType } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
 
 export interface GroupsListLogicProps {
-    groupTypeIndex: number
+    groupType: GroupType | undefined
 }
 
 export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
-    key((props: GroupsListLogicProps) => props.groupTypeIndex),
+    key((props: GroupsListLogicProps) => props.groupType?.group_type_index ?? 0),
     path(['groups', 'groupsListLogic']),
     connect({
         values: [
             teamLogic,
             ['currentTeamId'],
             groupsModel,
-            ['groupTypes', 'aggregationLabel'],
+            ['groupTypes', 'groupTypeColumns', 'aggregationLabel'],
             groupsAccessLogic,
             ['groupsEnabled'],
         ],
@@ -37,12 +38,12 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.GroupsQuery,
-                        select: defaultDataTableColumns(NodeKind.GroupsQuery),
-                        group_type_index: props.groupTypeIndex,
+                        select: props.groupType?.default_columns || defaultDataTableColumns(NodeKind.GroupsQuery),
+                        group_type_index: props.groupType?.group_type_index,
                     },
                     full: true,
                     showEventFilter: false,
-                    showColumnConfigurator: true,
+                    showPersistentColumnConfigurator: true,
                     propertiesViaUrl: true,
                 } as DataTableNode),
             { setQuery: (_, { query }) => query },
@@ -50,8 +51,9 @@ export const groupsListLogic = kea<groupsListLogicType>([
     }),
     selectors({
         groupTypeName: [
-            (s, p) => [s.aggregationLabel, p.groupTypeIndex],
-            (aggregationLabel, index): string => aggregationLabel(index).singular,
+            (s, p) => [s.aggregationLabel, p.groupType],
+            (aggregationLabel, groupType): string =>
+                groupType ? aggregationLabel(groupType.group_type_index).singular : 'Group',
         ],
     }),
 ])

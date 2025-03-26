@@ -982,6 +982,27 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 404)
 
+    def test_set_default_columns_success(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/set_default_columns",
+            {"group_type_index": 0, "default_columns": ["$group_0", "$group_1"]},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        group_type_mapping.refresh_from_db()
+        self.assertEqual(group_type_mapping.default_columns, ["$group_0", "$group_1"])
+
+    def test_set_default_columns_not_found(self):
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/set_default_columns",
+            {"group_type_index": 1, "default_columns": ["$group_0", "$group_1"]},
+        )
+        self.assertEqual(response.status_code, 404)
+
     def _create_related_groups_data(self):
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
