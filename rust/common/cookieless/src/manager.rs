@@ -28,9 +28,6 @@ pub enum CookielessManagerError {
     #[error("Invalid URL: {0}")]
     UrlParseError(#[from] url::ParseError),
 
-    #[error("Cookieless mode is disabled")]
-    Disabled,
-
     #[error("Missing required property: {0}")]
     MissingProperty(String),
 
