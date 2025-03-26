@@ -1964,69 +1964,59 @@ export enum ExperimentMetricType {
     MEAN = 'mean',
 }
 
-export interface ExperimentMetric {
+export interface ExperimentMetricBaseProperties {
     kind: NodeKind.ExperimentMetric
     name?: string
-    metric_type: ExperimentMetricType
     inverse?: boolean
-    metric_config:
-        | ExperimentEventMetricConfig
-        | ExperimentActionMetricConfig
-        | ExperimentDataWarehouseMetricConfig
-        | ExperimentFunnelMetricConfig
     time_window_hours?: number
 }
 
-export interface ExperimentFunnelStepConfig {
-    kind: NodeKind.ExperimentFunnelStepConfig
+export interface MathProperties {
+    math?: ExperimentMetricMathType
+    math_hogql?: string
+    math_property?: string
+}
+
+export interface EventSource {
+    source_type: 'event'
+    event: string
+    properties?: AnyPropertyFilter[]
+}
+
+export interface ActionSource {
+    source_type: 'action'
+    action: number
+    properties?: AnyPropertyFilter[]
+}
+
+export interface DataWarehouseSource {
+    source_type: 'data_warehouse'
+    table_name: string
+    timestamp_field: string
+    events_join_key: string
+    data_warehouse_join_key: string
+}
+
+export type SourceDefinition = EventSource | ActionSource | DataWarehouseSource
+
+export interface FunnelStep {
     event: string
     name?: string
     order: integer
     properties?: AnyPropertyFilter[]
 }
 
-export interface ExperimentFunnelMetricConfig {
-    kind: NodeKind.ExperimentFunnelMetricConfig
-    funnel: ExperimentFunnelStepConfig[]
-    // NOTE: Just to make the type system happy
-    math?: ExperimentMetricMathType
-    math_hogql?: string
-    math_property?: string
+export interface ExperimentMeanMetric extends ExperimentMetricBaseProperties, MathProperties {
+    metric_type: ExperimentMetricType.MEAN
+    source: SourceDefinition
 }
 
-export interface ExperimentEventMetricConfig {
-    kind: NodeKind.ExperimentEventMetricConfig
-    event: string
-    name?: string
-    math?: ExperimentMetricMathType
-    math_hogql?: string
-    math_property?: string
-    /** Properties configurable in the interface */
-    properties?: AnyPropertyFilter[]
+export interface ExperimentFunnelMetric extends ExperimentMetricBaseProperties {
+    metric_type: ExperimentMetricType.FUNNEL
+    steps: FunnelStep[]
 }
 
-export interface ExperimentActionMetricConfig {
-    kind: NodeKind.ExperimentActionMetricConfig
-    action: number
-    name?: string
-    math?: ExperimentMetricMathType
-    math_hogql?: string
-    math_property?: string
-    /** Properties configurable in the interface */
-    properties?: AnyPropertyFilter[]
-}
-
-export interface ExperimentDataWarehouseMetricConfig {
-    kind: NodeKind.ExperimentDataWarehouseMetricConfig
-    name?: string
-    table_name: string
-    timestamp_field: string
-    events_join_key: string
-    data_warehouse_join_key: string
-    math?: ExperimentMetricMathType
-    math_hogql?: string
-    math_property?: string
-}
+export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
