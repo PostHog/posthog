@@ -137,10 +137,6 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         handle_cookieless_distinct_id(&context, &request, &team, original_distinct_id.clone())
             .await?;
 
-    // log the original and new distinct_id
-    tracing::info!("Original distinct ID: {}", original_distinct_id);
-    tracing::info!("Distinct ID: {}", distinct_id);
-
     let filtered_flags = fetch_and_filter_flags(&flag_service, project_id, &request).await?;
 
     let (person_prop_overrides, group_prop_overrides, groups, hash_key_override) =
