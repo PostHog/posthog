@@ -24,6 +24,7 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
                 "phone": "+1234567890",
                 "last_seen_at": "1234567890",
             },
+            "customProperties": {},
         }
         inputs.update(kwargs)
         return inputs
@@ -70,6 +71,7 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
                     },
                     "body": {
                         "email": "max@posthog.com",
+                        "custom_attributes": {},
                         "name": "Max AI",
                         "phone": "+1234567890",
                         "last_seen_at": "1234567890",
@@ -85,7 +87,9 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
         }
 
         self.run_function(
-            inputs=self.create_inputs(include_all_properties=False),
+            inputs=self.create_inputs(
+                include_all_properties=False, customProperties={"custom_property": "custom_value"}
+            ),
             globals={
                 "person": {"properties": {"plan": "pay-as-you-go", "company": "PostHog"}},
             },
@@ -107,6 +111,9 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
                     },
                     "body": {
                         "email": "max@posthog.com",
+                        "custom_attributes": {
+                            "custom_property": "custom_value",
+                        },
                         "name": "Max AI",
                         "phone": "+1234567890",
                         "last_seen_at": "1234567890",
@@ -138,6 +145,7 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
                     },
                     "body": {
                         "email": "max@posthog.com",
+                        "custom_attributes": {},
                         "name": "Max AI",
                         "phone": "+1234567890",
                         "last_seen_at": "1234567890",
