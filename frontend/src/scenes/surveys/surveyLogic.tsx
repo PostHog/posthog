@@ -232,7 +232,6 @@ export const surveyLogic = kea<surveyLogicType>([
     actions({
         setSurveyMissing: true,
         editingSurvey: (editing: boolean) => ({ editing }),
-        setShowSkipped: (showSkipped: boolean) => ({ showSkipped }),
         setDefaultForQuestionType: (
             idx: number,
             type: SurveyQuestionType,
@@ -579,18 +578,15 @@ export const surveyLogic = kea<surveyLogicType>([
                     query: `
                         -- QUERYING SINGLE CHOICE RESPONSES
                         SELECT
-                            coalesce(
-                                getSurveyResponse(${questionIndex}, '${question?.id}'),
-                                'Skipped'
-                            ) AS survey_response,
-                            COUNT(*)
+                            getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
+                            COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent'
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
-                            ${!values.showSkipped ? "AND survey_response != 'Skipped'" : ''}
+                            AND survey_response != null
                             AND {filters}
                         GROUP BY survey_response
                     `,
@@ -863,14 +859,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     reloadAllSurveyResults()
                 }
             },
-            setShowSkipped: () => {
-                // Reload single choice results for all questions that are of type SingleChoice
-                values.survey.questions.forEach((question, index) => {
-                    if (question.type === SurveyQuestionType.SingleChoice) {
-                        actions.loadSurveySingleChoiceResults({ questionIndex: index })
-                    }
-                })
-            },
         }
     }),
     reducers({
@@ -878,12 +866,6 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 editingSurvey: (_, { editing }) => editing,
-            },
-        ],
-        showSkipped: [
-            false,
-            {
-                setShowSkipped: (_, { showSkipped }) => showSkipped,
             },
         ],
         surveyMissing: [
