@@ -42,6 +42,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     },
                     full: true,
                     showEventFilter: false,
+                    showColumnConfigurator: true,
                     propertiesViaUrl: true,
                 } as DataTableNode),
             { setQuery: (_, { query }) => query },

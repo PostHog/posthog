@@ -22,7 +22,13 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { isEventsQuery, taxonomicEventFilterToHogQL, trimQuotes } from '~/queries/utils'
+import {
+    isEventsQuery,
+    isGroupsQuery,
+    taxonomicEventFilterToHogQL,
+    taxonomicGroupFilterToHogQL,
+    trimQuotes,
+} from '~/queries/utils'
 import { PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
@@ -60,6 +66,14 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                     source: {
                         ...query.source,
                         orderBy,
+                        select: columns,
+                    },
+                })
+            } else if (isGroupsQuery(query.source)) {
+                setQuery?.({
+                    ...query,
+                    source: {
+                        ...query.source,
                         select: columns,
                     },
                 })
@@ -102,6 +116,18 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
             setColumns(columns.map((c, i) => (i === index ? newColumn : c)))
         }
     }
+
+    const taxonomicGroupTypes = isGroupsQuery(query.source)
+        ? [
+              `${TaxonomicFilterGroupType.GroupsPrefix}_${query.source.group_type_index}` as TaxonomicFilterGroupType,
+              TaxonomicFilterGroupType.HogQLExpression,
+          ]
+        : [
+              TaxonomicFilterGroupType.EventProperties,
+              TaxonomicFilterGroupType.EventFeatureFlags,
+              TaxonomicFilterGroupType.PersonProperties,
+              ...(isEventsQuery(query.source) ? [TaxonomicFilterGroupType.HogQLExpression] : []),
+          ]
 
     return (
         <LemonModal
@@ -165,17 +191,12 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                     <TaxonomicFilter
                                         height={height}
                                         width={width}
-                                        taxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.EventFeatureFlags,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            ...(isEventsQuery(query.source)
-                                                ? [TaxonomicFilterGroupType.HogQLExpression]
-                                                : []),
-                                        ]}
+                                        taxonomicGroupTypes={taxonomicGroupTypes}
                                         value={undefined}
                                         onChange={(group, value) => {
-                                            const column = taxonomicEventFilterToHogQL(group.type, value)
+                                            const column = isGroupsQuery(query.source)
+                                                ? taxonomicGroupFilterToHogQL(group.type, value)
+                                                : taxonomicEventFilterToHogQL(group.type, value)
                                             if (column !== null) {
                                                 selectColumn(column)
                                             }
