@@ -82,7 +82,11 @@ async def query_usage_reports(
         def get_all_org_reports(ps, pe):
             return _get_all_org_reports(ps, pe)
 
+        logger.info("Querying usage reports", period_start=period_start, period_end=period_end)
+
         org_reports = await get_all_org_reports(period_start, period_end)
+
+        logger.info("Querying usage reports complete", org_count=len(org_reports))
 
         return QueryUsageReportsResult(
             org_reports=org_reports,
@@ -212,6 +216,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             )
 
             if not query_usage_reports_result.org_reports:
+                logger.info("No org reports found - skipping send")
                 return
 
             send_usage_reports_inputs = SendUsageReportsInputs(
@@ -231,5 +236,6 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             )
 
         except Exception as e:
+            logger.exception("Error running usage reports", error=e)
             capture_exception(e)
             raise
