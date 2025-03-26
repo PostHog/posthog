@@ -8,8 +8,6 @@ from django.conf import settings
 from django.db import connection, models
 from django.db.models import Case, Q, When, QuerySet
 from django.db.models.expressions import F
-from django.db.models.functions.math import Mod
-from django.db.models.lookups import Exact
 
 from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
@@ -222,6 +220,13 @@ class Cohort(FileSystemSyncMixin, models.Model):
         from posthog.models.cohort.util import recalculate_cohortpeople
         from posthog.tasks.calculate_cohort import clear_stale_cohort
 
+        use_hogql_cohorts = posthoganalytics.feature_enabled(
+            "enable_hogql_cohort_calculation",
+            str(self.team.organization_id),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+        )
+
         logger.warn(
             "cohort_calculation_started",
             id=self.pk,
@@ -231,7 +236,9 @@ class Cohort(FileSystemSyncMixin, models.Model):
         start_time = time.monotonic()
 
         try:
-            count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
+            count = recalculate_cohortpeople(
+                self, pending_version, initiating_user_id=initiating_user_id, hogql=use_hogql_cohorts
+            )
             self.count = count
 
             self.last_calculation = timezone.now()
@@ -268,40 +275,6 @@ class Cohort(FileSystemSyncMixin, models.Model):
         )
 
         clear_stale_cohort.delay(self.pk, before_version=pending_version)
-
-        # Try the hogql version. Don't run this on initial cohort create
-        if pending_version > 0:
-
-            def fn():
-                start_time = time.monotonic()
-                recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id, hogql=True)
-                logger.warn(
-                    "hogql_cohort_calculation_completed",
-                    id=self.pk,
-                    version=pending_version,
-                    duration=(time.monotonic() - start_time),
-                )
-
-            if settings.DEBUG or settings.TEST:
-                fn()
-                return
-
-            if posthoganalytics.feature_enabled(
-                "enable_hogql_cohort_calculation",
-                str(self.team.organization_id),
-                groups={"organization": str(self.team.organization_id)},
-                group_properties={"organization": {"id": str(self.team.organization_id)}},
-            ):
-                try:
-                    fn()
-                except Exception:
-                    logger.exception(
-                        "cohort_hogql_calculation_failed",
-                        id=self.pk,
-                        current_version=self.version,
-                        new_version=pending_version,
-                        exc_info=True,
-                    )
 
     def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
         """
@@ -430,12 +403,7 @@ class Cohort(FileSystemSyncMixin, models.Model):
 
 
 def get_and_update_pending_version(cohort: Cohort):
-    incremented_value = Case(
-        When(pending_version__isnull=True, then=1),
-        When(Exact(Mod(F("pending_version"), 2), 0), then=F("pending_version") + 2),  # Even: Add 2
-        default=F("pending_version") + 3,  # Odd: Add 3
-    )
-    cohort.pending_version = incremented_value
+    cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
     cohort.save(update_fields=["pending_version"])
     cohort.refresh_from_db()
     return cohort.pending_version
