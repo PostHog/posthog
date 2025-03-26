@@ -15,6 +15,8 @@ class DataColorThemeAdmin(admin.ModelAdmin):
 
     @admin.display(description="Team")
     def team_link(self, data_color_theme: DataColorTheme):
+        if not data_color_theme.team:
+            return "-"
         return format_html(
             '<a href="{}">{}</a>',
             reverse("admin:posthog_team_change", args=[data_color_theme.team.pk]),
