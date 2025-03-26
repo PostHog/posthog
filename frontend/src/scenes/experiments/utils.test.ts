@@ -308,7 +308,7 @@ describe('getViewRecordingFilters', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                source_type: 'event',
+                type: 'event',
                 event: 'storybook-click',
             },
         } as ExperimentMeanMetric
@@ -641,7 +641,7 @@ describe('metricToFilter', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                source_type: 'event',
+                type: 'event',
                 event: '$pageview',
                 properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
             },
@@ -671,7 +671,7 @@ describe('metricToFilter', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                source_type: 'action',
+                type: 'action',
                 action: 8,
                 properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
             },
@@ -701,7 +701,7 @@ describe('metricToFilter', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                source_type: 'data_warehouse',
+                type: 'data_warehouse',
                 table_name: 'mysql_payments',
                 timestamp_field: 'timestamp',
                 events_join_key: 'person.properties.email',
@@ -755,7 +755,7 @@ describe('filterToMetricConfig', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                source_type: 'event',
+                type: 'event',
                 event: '$pageview',
                 properties: [
                     {
@@ -794,7 +794,7 @@ describe('filterToMetricConfig', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                source_type: 'action',
+                type: 'action',
                 action: '8',
                 properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
             },
@@ -818,7 +818,7 @@ describe('filterToMetricConfig', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                source_type: 'data_warehouse',
+                type: 'data_warehouse',
                 table_name: 'mysql_payments',
                 timestamp_field: 'timestamp',
                 events_join_key: 'person.properties.email',
@@ -877,7 +877,7 @@ describe('metricToQuery', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                source_type: 'event',
+                type: 'event',
                 event: '$pageview',
             },
         } as ExperimentMeanMetric
@@ -910,7 +910,7 @@ describe('metricToQuery', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
-                source_type: 'event',
+                type: 'event',
                 event: '$pageview',
             },
             math: ExperimentMetricMathType.Sum,
@@ -947,7 +947,7 @@ describe('metricToQuery', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: 'unsupported_type' as ExperimentMetricType,
             source: {
-                source_type: 'event',
+                type: 'event',
                 event: '$pageview',
             },
         } as any

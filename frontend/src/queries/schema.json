@@ -7850,12 +7850,12 @@
                     },
                     "type": "array"
                 },
-                "source_type": {
+                "type": {
                     "const": "action",
                     "type": "string"
                 }
             },
-            "required": ["source_type", "action"],
+            "required": ["type", "action"],
             "type": "object"
         },
         "ExperimentDataWarehouseMetricSource": {
@@ -7867,18 +7867,18 @@
                 "events_join_key": {
                     "type": "string"
                 },
-                "source_type": {
-                    "const": "data_warehouse",
-                    "type": "string"
-                },
                 "table_name": {
                     "type": "string"
                 },
                 "timestamp_field": {
                     "type": "string"
+                },
+                "type": {
+                    "const": "data_warehouse",
+                    "type": "string"
                 }
             },
-            "required": ["source_type", "table_name", "timestamp_field", "events_join_key", "data_warehouse_join_key"],
+            "required": ["type", "table_name", "timestamp_field", "events_join_key", "data_warehouse_join_key"],
             "type": "object"
         },
         "ExperimentEventExposureConfig": {
@@ -7913,12 +7913,12 @@
                     },
                     "type": "array"
                 },
-                "source_type": {
+                "type": {
                     "const": "event",
                     "type": "string"
                 }
             },
-            "required": ["source_type", "event"],
+            "required": ["type", "event"],
             "type": "object"
         },
         "ExperimentExposureCriteria": {
