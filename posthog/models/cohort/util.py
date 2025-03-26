@@ -32,7 +32,6 @@ from posthog.models.cohort.sql import (
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
     STALE_COHORTPEOPLE,
-    RECALCULATE_COHORT_BY_ID_HOGQL_TEST,
 )
 from posthog.models.person.sql import (
     INSERT_PERSON_STATIC_COHORT,
@@ -322,6 +321,9 @@ def recalculate_cohortpeople(
                 size_before=before_count,
             )
 
+        if cohort.is_static:
+            return format_static_cohort_query(cohort, 0, prepend="")
+
         if hogql:
             recalculate_fn = _recalculate_cohortpeople_for_team_hogql
         else:
@@ -384,7 +386,8 @@ def _recalculate_cohortpeople_for_team_hogql(
         cohort_query, cohort_params = format_static_cohort_query(cohort, 0, prepend="")
     elif not cohort.properties.values:
         # Can't match anything, don't insert anything
-        return
+        cohort_query = "SELECT generateUUIDv4() as id WHERE 0 = 19"
+        cohort_params = {}
     else:
         from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
         from posthog.hogql.query import HogQLQueryExecutor
@@ -405,7 +408,7 @@ def _recalculate_cohortpeople_for_team_hogql(
         # statement is used in a subquery. We remove it here.
         cohort_query = cohort_query[: cohort_query.rfind("SETTINGS")]
 
-    recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID_HOGQL_TEST.format(cohort_filter=cohort_query)
+    recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
     tag_queries(kind="cohort_calculation", team_id=team.id, query_type="CohortsQueryHogQL")
     if initiating_user_id:
@@ -417,7 +420,7 @@ def _recalculate_cohortpeople_for_team_hogql(
             **cohort_params,
             "cohort_id": cohort.pk,
             "team_id": team.id,
-            "new_version": pending_version - 1,
+            "new_version": pending_version,
         },
         settings={
             "max_execution_time": 600,
