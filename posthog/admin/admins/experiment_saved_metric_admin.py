@@ -1,11 +1,10 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
+from posthog.models import ExperimentSavedMetric
 
-from posthog.models import Experiment
 
-
-class ExperimentAdmin(admin.ModelAdmin):
+class ExperimentSavedMetricAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "name",
@@ -20,9 +19,9 @@ class ExperimentAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
     @admin.display(description="Team")
-    def team_link(self, experiment: Experiment):
+    def team_link(self, saved_metric: ExperimentSavedMetric):
         return format_html(
             '<a href="{}">{}</a>',
-            reverse("admin:posthog_team_change", args=[experiment.team.pk]),
-            experiment.team.name,
+            reverse("admin:posthog_team_change", args=[saved_metric.team.pk]),
+            saved_metric.team.name,
         )
