@@ -270,6 +270,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 currentModelCount++
             }
 
+            const nextUntitledNumber = getNextUntitledNumber(values.allTabs)
+            const tabName = view?.name || `${NEW_QUERY} ${nextUntitledNumber}`
+
             if (props.monaco) {
                 const uri = props.monaco.Uri.parse(currentModelCount.toString())
                 const model = props.monaco.editor.createModel(query, 'hogQL', uri)
@@ -278,9 +281,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 if (mountedCodeEditorLogic) {
                     initModel(model, mountedCodeEditorLogic)
                 }
-
-                const nextUntitledNumber = getNextUntitledNumber(values.allTabs)
-                const tabName = view?.name || `${NEW_QUERY} ${nextUntitledNumber}`
 
                 actions.addTab({
                     uri,
@@ -302,6 +302,19 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     }
                 })
                 actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
+            } else if (query) {
+                // if navigating from URL without monaco loaded
+                const queries = [
+                    ...values.allTabs,
+                    {
+                        query,
+                        path: currentModelCount.toString(),
+                        view,
+                        name: tabName,
+                    },
+                ]
+                actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
+                actions.setLocalState(activeModelStateKey(props.key), currentModelCount.toString())
             }
         },
         renameTab: ({ tab, newName }) => {
