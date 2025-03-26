@@ -58,7 +58,7 @@ class RunQuotaLimitingWorkflow(PostHogWorkflow):
         try:
             await workflow.execute_activity(
                 run_quota_limiting_all_orgs,
-                {},
+                RunQuotaLimitingAllOrgsInputs(),
                 start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=3,
