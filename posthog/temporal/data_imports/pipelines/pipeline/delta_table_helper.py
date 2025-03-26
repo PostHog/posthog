@@ -1,19 +1,23 @@
-from collections.abc import Sequence
+import concurrent.futures
+import inspect
 import json
-from conditional_cache import lru_cache
+from collections.abc import Sequence
 from typing import Any
+
+import deltalake as deltalake
 import deltalake.exceptions
 import pyarrow as pa
 import pyarrow.compute as pc
+from conditional_cache import lru_cache
+from django.conf import settings
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-import deltalake as deltalake
-from django.conf import settings
+
 from posthog.exceptions_capture import capture_exception
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
-from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
 
@@ -28,6 +32,19 @@ class DeltaTableHelper:
         self._resource_name = resource_name
         self._job = job
         self._logger = logger
+
+    @property
+    def logger(self):
+        """Return a logger to use within this helper.
+
+        We automatically bind the caller as "method".
+        """
+        try:
+            caller = inspect.stack()[1].function
+        except IndexError:
+            return self._logger
+        else:
+            return self._logger.bind(method=caller)
 
     def _get_credentials(self):
         if not settings.AIRBYTE_BUCKET_KEY or not settings.AIRBYTE_BUCKET_SECRET or not settings.AIRBYTE_BUCKET_REGION:
@@ -111,23 +128,23 @@ class DeltaTableHelper:
     def write_to_deltalake(
         self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None
     ) -> deltalake.DeltaTable:
-        delta_table = self.get_delta_table()
+        logger = self.logger.bind(is_first_sync=str(self._is_first_sync))
 
+        delta_table = self.get_delta_table()
         if delta_table:
             delta_table = self._evolve_delta_schema(data.schema)
-
-        self._logger.debug(f"write_to_deltalake: _is_first_sync = {self._is_first_sync}")
+            logger = logger.bind(table_uri=delta_table.table_uri)
 
         use_partitioning = False
         if PARTITION_KEY in data.column_names:
             use_partitioning = True
-            self._logger.debug(f"Using partitioning on {PARTITION_KEY}")
+            logger.debug("Using partitioning on '%s'", PARTITION_KEY)
 
         if is_incremental and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
 
-            self._logger.debug(f"write_to_deltalake: merging...")
+            logger.debug("Starting merge")
 
             # Normalize keys and check the keys actually exist in the dataset
             py_table_column_names = data.column_names
@@ -142,31 +159,48 @@ class DeltaTableHelper:
                 # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
                 unique_partitions = pc.unique(data[PARTITION_KEY])  # type: ignore
 
-                self._logger.debug(f"Running {len(unique_partitions)} optimised merges")
+                logger.debug("Running %d optimised merges", len(unique_partitions))
 
-                for partition in unique_partitions:
-                    partition_predicate_ops = predicate_ops.copy()
-                    partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
-                    predicate = " AND ".join(partition_predicate_ops)
+                future_to_partition = {}
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    for partition in unique_partitions:
+                        partition_predicate_ops = predicate_ops.copy()
+                        partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
+                        predicate = " AND ".join(partition_predicate_ops)
 
-                    filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
+                        filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
 
-                    self._logger.debug(f"Merging partition={partition} with predicate={predicate}")
+                        logger.debug("Submitting merge for '%s' with predicate '%s'", partition, predicate)
 
-                    merge_stats = (
-                        delta_table.merge(
-                            source=filtered_table,
-                            source_alias="source",
-                            target_alias="target",
-                            predicate=predicate,
-                            streamed_exec=True,
-                        )
-                        .when_matched_update_all()
-                        .when_not_matched_insert_all()
-                        .execute()
-                    )
+                        future_to_partition[
+                            executor.submit(
+                                delta_table.merge(
+                                    source=filtered_table,
+                                    source_alias="source",
+                                    target_alias="target",
+                                    predicate=predicate,
+                                    streamed_exec=True,
+                                )
+                                .when_matched_update_all()
+                                .when_not_matched_insert_all()
+                                .execute
+                            )
+                        ] = partition
 
-                    self._logger.debug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
+                    for future in concurrent.futures.as_completed(future_to_partition):
+                        partition = future_to_partition[future]
+
+                        try:
+                            merge_stats = future.result()
+                        except Exception as exc:
+                            logger.exception("Failed to merge partition %s: %s", partition, exc)
+                            raise
+                        else:
+                            logger.debug(
+                                "Stats for successful merge for partition '%s': %s",
+                                partition,
+                                json.dumps(merge_stats),
+                            )
             else:
                 merge_stats = (
                     delta_table.merge(
@@ -180,7 +214,7 @@ class DeltaTableHelper:
                     .when_not_matched_insert_all()
                     .execute()
                 )
-                self._logger.debug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
+                logger.debug("Stats for successful merge: %s", merge_stats)
 
         else:
             mode = "append"
@@ -189,7 +223,7 @@ class DeltaTableHelper:
                 mode = "overwrite"
                 schema_mode = "overwrite"
 
-            self._logger.debug(f"write_to_deltalake: mode = {mode}")
+            logger = logger.bind(mode=mode)
 
             if delta_table is None:
                 storage_options = self._get_credentials()
@@ -210,7 +244,7 @@ class DeltaTableHelper:
                     engine="rust",
                 )  # type: ignore
             except deltalake.exceptions.SchemaMismatchError as e:
-                self._logger.debug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
+                logger.exception("Attempting to overwrite schema due to SchemaMismatchError", exc_info=e)
                 capture_exception(e)
 
                 deltalake.write_deltalake(
