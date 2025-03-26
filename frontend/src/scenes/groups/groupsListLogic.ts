@@ -58,7 +58,9 @@ export const groupsListLogic = kea<groupsListLogicType>([
     }),
     afterMount(({ actions, values }) => {
         if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.select === undefined) {
-            const defaultColumns = values.groupTypes.get(values.query.source.group_type_index)?.default_columns
+            const defaultColumns = values.groupTypes.get(
+                values.query.source.group_type_index as GroupTypeIndex
+            )?.default_columns
             actions.setQuery({
                 ...values.query,
                 source: {

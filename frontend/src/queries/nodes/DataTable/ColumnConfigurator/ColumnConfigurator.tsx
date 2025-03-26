@@ -29,7 +29,7 @@ import {
     taxonomicGroupFilterToHogQL,
     trimQuotes,
 } from '~/queries/utils'
-import { PropertyFilterType } from '~/types'
+import { GroupTypeIndex, PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
@@ -83,7 +83,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         },
         context:
             query.context || isGroupsQuery(query.source)
-                ? { type: 'groups', groupTypeIndex: (query.source as GroupsQuery).group_type_index }
+                ? { type: 'groups', groupTypeIndex: (query.source as GroupsQuery).group_type_index as GroupTypeIndex }
                 : { type: 'team_columns' },
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
