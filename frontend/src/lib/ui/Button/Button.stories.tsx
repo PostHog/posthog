@@ -23,30 +23,73 @@ export default meta
 export function Default(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
-            <Button.Root className="" onClick={() => alert('Clicked default <button>!')} intent="outline">
+            <Button.Root intent="outline">
                 <Button.Label>Regular button</Button.Label>
             </Button.Root>
 
             <Button.Root disabled>
-                <Button.Label>Disabled button</Button.Label>
+                <Button.Label>disabled</Button.Label>
             </Button.Root>
 
-            <Button.Root onClick={() => alert('Clicked default <button>!')} intent="outline">
-                <Button.Label>Regular button</Button.Label>
+            <Button.Root intent="outline">
                 <Button.Icon>
                     <IconSearch />
                 </Button.Icon>
             </Button.Root>
 
-            <Button.Root onClick={() => alert('Clicked default <button>!')} intent="outline">
+            <Button.Root intent="outline">
+                <Button.Label>with icon</Button.Label>
                 <Button.Icon>
+                    <IconSearch />
+                </Button.Icon>
+            </Button.Root>
+
+            <Button.Root intent="outline" fullWidth>
+                <Button.Label>full width</Button.Label>
+                <Button.Icon>
+                    <IconSearch />
+                </Button.Icon>
+            </Button.Root>
+
+            <Button.Root intent="outline" menuItem>
+                <Button.Icon>
+                    <IconSearch />
+                </Button.Icon>
+                <Button.Label menuItem as="mark">
+                    menu item with icons
+                </Button.Label>
+                <Button.Icon>
+                    <IconSearch />
+                </Button.Icon>
+            </Button.Root>
+
+            <Button.Root intent="outline" menuItem>
+                <Button.Icon isTrigger>
+                    <IconSearch />
+                </Button.Icon>
+                <Button.Label menuItem>menu item with trigger (side action)</Button.Label>
+            </Button.Root>
+
+            <Button.Root intent="outline" menuItem>
+                <Button.Label menuItem>menu item with trigger (side action)</Button.Label>
+                <Button.Icon isTrigger>
+                    <IconSearch />
+                </Button.Icon>
+            </Button.Root>
+
+            <Button.Root intent="outline" menuItem>
+                <Button.Icon isTrigger>
+                    <IconSearch />
+                </Button.Icon>
+                <Button.Label menuItem>menu item with trigger (side action)</Button.Label>
+                <Button.Icon isTrigger>
                     <IconSearch />
                 </Button.Icon>
             </Button.Root>
 
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <Button.Root onClick={() => alert('Clicked default <button>!')} intent="outline">
+                    <Button.Root intent="outline">
                         <Button.Icon>
                             <IconSearch />
                         </Button.Icon>

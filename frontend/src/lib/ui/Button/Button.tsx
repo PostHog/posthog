@@ -257,8 +257,8 @@ const iconVariants = cva({
         isTrigger: {
             true: `
                 first:mr-1 first:rounded-l-md first:rounded-r-none
+                first:before:content-[''] first:before:absolute first:before:h-full first:before:w-px first:before:bg-fill-highlight-100
                 last:ml-1 last:rounded-r-md last:rounded-l-none
-                first:after:content-[''] first:after:absolute first:after:h-full first:after:w-px first:after:bg-fill-highlight-100
                 last:after:content-[''] last:after:absolute last:after:h-full last:after:w-px last:after:bg-fill-highlight-100
             `,
             false: '',
@@ -280,16 +280,18 @@ const iconVariants = cva({
             className: `
                 ${BUTTON_INTENT.outline}
                 hover:bg-fill-highlight-100
+                first:before:hidden
                 last:after:hidden
             `,
         },
 
-        // Make icon match the button height
+        // Give a border to the icon when it's a trigger
+        // and make icon match the button height
         {
             size: 'sm',
             isTrigger: true,
             className: `
-                first:after:left-[var(--button-height-sm)]
+                first:before:left-[var(--button-height-sm)]
                 first:ml-[calc(var(--button-padding-x-sm)*-1-1px)] 
                 last:mr-[calc(var(--button-padding-x-sm)*-1-1px)] 
                 last:after:right-[var(--button-height-sm)]
@@ -301,7 +303,7 @@ const iconVariants = cva({
             size: 'base',
             isTrigger: true,
             className: `
-                first:after:left-[var(--button-height-base)]
+                first:before:left-[var(--button-height-base)]
                 first:ml-[calc(var(--button-padding-x-base)*-1-1px)] 
                 last:mr-[calc(var(--button-padding-x-base)*-1-1px)]  
                 last:after:right-[var(--button-height-base)]
@@ -313,7 +315,7 @@ const iconVariants = cva({
             size: 'lg',
             isTrigger: true,
             className: `
-                first:after:left-[var(--button-height-lg)]
+                first:before:left-[var(--button-height-lg)]
                 first:ml-[calc(var(--button-padding-x-lg)*-1-1px)] 
                 last:mr-[calc(var(--button-padding-x-lg)*-1-1px)] 
                 last:after:right-[var(--button-height-lg)]
