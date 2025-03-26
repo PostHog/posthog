@@ -55,6 +55,7 @@ TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.TRANSFORMATION,
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.BROADCAST,
+    HogFunctionType.EMAIL,
 )
 TYPES_WITH_COMPILED_FILTERS = (
     HogFunctionType.DESTINATION,
