@@ -30,7 +30,14 @@ from posthog.models.user import User
 class GroupTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupTypeMapping
-        fields = ["group_type", "group_type_index", "name_singular", "name_plural", "detail_dashboard"]
+        fields = [
+            "group_type",
+            "group_type_index",
+            "name_singular",
+            "name_plural",
+            "detail_dashboard",
+            "default_columns",
+        ]
         read_only_fields = ["group_type", "group_type_index"]
 
 
@@ -70,6 +77,19 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
         group_type_mapping.detail_dashboard = dashboard
+        group_type_mapping.save()
+        return response.Response(self.get_serializer(group_type_mapping).data)
+
+    @action(methods=["PUT"], detail=False)
+    def set_default_columns(self, request: request.Request, **kw):
+        try:
+            group_type_mapping = GroupTypeMapping.objects.get(
+                team=self.team, project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
+            )
+        except GroupTypeMapping.DoesNotExist:
+            raise NotFound()
+
+        group_type_mapping.default_columns = request.data["default_columns"]
         group_type_mapping.save()
         return response.Response(self.get_serializer(group_type_mapping).data)
 

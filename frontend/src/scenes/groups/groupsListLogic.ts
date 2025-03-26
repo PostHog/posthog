@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -6,11 +6,12 @@ import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { DataTableNode } from '~/queries/schema/schema-general'
+import { GroupTypeIndex } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
 
 export interface GroupsListLogicProps {
-    groupTypeIndex: number
+    groupTypeIndex: GroupTypeIndex
 }
 
 export const groupsListLogic = kea<groupsListLogicType>([
@@ -37,11 +38,12 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.GroupsQuery,
-                        select: defaultDataTableColumns(NodeKind.GroupsQuery),
+                        select: undefined,
                         group_type_index: props.groupTypeIndex,
                     },
                     full: true,
                     showEventFilter: false,
+                    showPersistentColumnConfigurator: true,
                     propertiesViaUrl: true,
                 } as DataTableNode),
             { setQuery: (_, { query }) => query },
@@ -50,7 +52,22 @@ export const groupsListLogic = kea<groupsListLogicType>([
     selectors({
         groupTypeName: [
             (s, p) => [s.aggregationLabel, p.groupTypeIndex],
-            (aggregationLabel, index): string => aggregationLabel(index).singular,
+            (aggregationLabel, groupTypeIndex): string =>
+                groupTypeIndex ? aggregationLabel(groupTypeIndex).singular : 'Group',
         ],
+    }),
+    afterMount(({ actions, values }) => {
+        if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.select === undefined) {
+            const defaultColumns = values.groupTypes.get(
+                values.query.source.group_type_index as GroupTypeIndex
+            )?.default_columns
+            actions.setQuery({
+                ...values.query,
+                source: {
+                    ...values.query.source,
+                    select: defaultColumns ?? defaultDataTableColumns(NodeKind.GroupsQuery),
+                },
+            })
+        }
     }),
 ])
