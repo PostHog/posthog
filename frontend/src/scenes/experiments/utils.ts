@@ -8,13 +8,11 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import {
     AnyEntityNode,
     EventsNode,
-    ExperimentActionMetricConfig,
-    ExperimentDataWarehouseMetricConfig,
     ExperimentEventExposureConfig,
-    ExperimentEventMetricConfig,
-    ExperimentFunnelMetricConfig,
+    ExperimentFunnelMetric,
+    ExperimentFunnelMetricStep,
     ExperimentFunnelsQuery,
-    ExperimentFunnelStepConfig,
+    ExperimentMeanMetric,
     ExperimentMetric,
     ExperimentMetricType,
     ExperimentTrendsQuery,
@@ -176,22 +174,25 @@ export function getViewRecordingFilters(
 ): UniversalFiltersGroupValue[] {
     const filters: UniversalFiltersGroupValue[] = []
     if (metric.kind === NodeKind.ExperimentMetric) {
-        if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
-            return [
-                {
-                    id: metric.metric_config.event,
-                    name: metric.metric_config.event,
-                    type: 'events',
-                    properties: [
-                        {
-                            key: `$feature/${featureFlagKey}`,
-                            type: PropertyFilterType.Event,
-                            value: [variantKey],
-                            operator: PropertyOperator.Exact,
-                        },
-                    ],
-                },
-            ]
+        if ((metric as ExperimentMeanMetric).metric_type === ExperimentMetricType.MEAN) {
+            const meanMetric = metric as ExperimentMeanMetric
+            if (meanMetric.source.source_type === 'event') {
+                return [
+                    {
+                        id: meanMetric.source.event,
+                        name: meanMetric.source.event,
+                        type: 'events',
+                        properties: [
+                            {
+                                key: `$feature/${featureFlagKey}`,
+                                type: PropertyFilterType.Event,
+                                value: [variantKey],
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                ]
+            }
         }
         return []
     } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
@@ -314,42 +315,38 @@ export function getDefaultFunnelMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
         metric_type: ExperimentMetricType.FUNNEL,
-        metric_config: {
-            kind: NodeKind.ExperimentFunnelMetricConfig,
-            funnel: [
-                {
-                    kind: NodeKind.ExperimentFunnelStepConfig,
-                    event: '$pageview',
-                    name: '$pageview',
-                    order: 0,
-                    properties: [],
-                },
-            ],
-        },
-    }
+        steps: [
+            {
+                event: '$pageview',
+                name: '$pageview',
+                order: 0,
+                properties: [],
+            },
+        ],
+    } as ExperimentFunnelMetric
 }
 
 export function getDefaultCountMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
         metric_type: ExperimentMetricType.MEAN,
-        metric_config: {
-            kind: NodeKind.ExperimentEventMetricConfig,
+        source: {
+            source_type: 'event',
             event: '$pageview',
         },
-    }
+    } as ExperimentMeanMetric
 }
 
 export function getDefaultContinuousMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
         metric_type: ExperimentMetricType.MEAN,
-        metric_config: {
-            kind: NodeKind.ExperimentEventMetricConfig,
+        source: {
+            source_type: 'event',
             event: '$pageview',
-            math: ExperimentMetricMathType.Sum,
         },
-    }
+        math: ExperimentMetricMathType.Sum,
+    } as ExperimentMeanMetric
 }
 
 export function getDefaultExperimentMetric(metricType: ExperimentMetricType): ExperimentMetric {
@@ -457,7 +454,7 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
             return []
         }
         return (
-            (metric.metric_config as ExperimentFunnelMetricConfig).funnel.map((step, index) => ({
+            metric.steps.map((step, index) => ({
                 id: step.event,
                 name: step.event,
                 event: step.event,
@@ -470,69 +467,76 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
     }
 
     const getEventMetricFilter = (metric: ExperimentMetric): EventsNode[] => {
-        if (
-            metric.metric_type !== ExperimentMetricType.MEAN ||
-            metric.metric_config.kind !== NodeKind.ExperimentEventMetricConfig
-        ) {
+        if (metric.metric_type !== ExperimentMetricType.MEAN) {
+            return []
+        }
+
+        const meanMetric = metric
+        if (meanMetric.source.source_type !== 'event') {
             return []
         }
 
         return [
             {
-                id: metric.metric_config.event,
-                name: metric.metric_config.event,
+                id: meanMetric.source.event,
+                name: meanMetric.source.event,
                 kind: NodeKind.EventsNode,
                 type: 'events',
-                math: metric.metric_config.math,
-                math_property: metric.metric_config.math_property,
-                math_hogql: metric.metric_config.math_hogql,
-                properties: metric.metric_config.properties,
+                math: meanMetric.math,
+                math_property: meanMetric.math_property,
+                math_hogql: meanMetric.math_hogql,
+                properties: meanMetric.source.properties,
             } as EventsNode,
         ]
     }
 
     const getActionMetricFilter = (metric: ExperimentMetric): EventsNode[] => {
-        if (
-            metric.metric_type !== ExperimentMetricType.MEAN ||
-            metric.metric_config.kind !== NodeKind.ExperimentActionMetricConfig
-        ) {
+        if (metric.metric_type !== ExperimentMetricType.MEAN) {
+            return []
+        }
+
+        const meanMetric = metric
+        if (meanMetric.source.source_type !== 'action') {
             return []
         }
 
         return [
             {
-                id: metric.metric_config.action,
-                name: metric.metric_config.name,
+                id: meanMetric.source.action,
+                name: 'action', // Using a fixed string since we don't have a name in the source
                 kind: NodeKind.EventsNode,
                 type: 'actions',
-                math: metric.metric_config.math,
-                math_property: metric.metric_config.math_property,
-                math_hogql: metric.metric_config.math_hogql,
-                properties: metric.metric_config.properties,
+                math: meanMetric.math,
+                math_property: meanMetric.math_property,
+                math_hogql: meanMetric.math_hogql,
+                properties: meanMetric.source.properties,
             } as EventsNode,
         ]
     }
 
     const getDataWarehouseMetricFilter = (metric: ExperimentMetric): EventsNode[] => {
-        if (
-            metric.metric_type !== ExperimentMetricType.MEAN ||
-            metric.metric_config.kind !== NodeKind.ExperimentDataWarehouseMetricConfig
-        ) {
+        if (metric.metric_type !== ExperimentMetricType.MEAN) {
             return []
         }
 
+        const meanMetric = metric
+        if (meanMetric.source.source_type !== 'data_warehouse') {
+            return []
+        }
+
+        const source = meanMetric.source
         return [
             {
                 kind: NodeKind.EventsNode,
                 type: 'data_warehouse',
-                id: metric.metric_config.table_name,
-                name: metric.metric_config.name,
-                timestamp_field: metric.metric_config.timestamp_field,
-                events_join_key: metric.metric_config.events_join_key,
-                data_warehouse_join_key: metric.metric_config.data_warehouse_join_key,
-                math: metric.metric_config.math,
-                math_property: metric.metric_config.math_property,
-                math_hogql: metric.metric_config.math_hogql,
+                id: source.table_name,
+                name: source.table_name,
+                timestamp_field: source.timestamp_field,
+                events_join_key: source.events_join_key,
+                data_warehouse_join_key: source.data_warehouse_join_key,
+                math: meanMetric.math,
+                math_property: meanMetric.math_property,
+                math_hogql: meanMetric.math_hogql,
             } as EventsNode,
         ]
     }
@@ -550,83 +554,86 @@ export function filterToMetricConfig(
     actions: Record<string, any>[] | undefined,
     events: Record<string, any>[] | undefined,
     data_warehouse: Record<string, any>[] | undefined
-):
-    | ExperimentEventMetricConfig
-    | ExperimentActionMetricConfig
-    | ExperimentDataWarehouseMetricConfig
-    | ExperimentFunnelMetricConfig
-    | undefined {
-    const getFunnelMetricConfig = (): ExperimentFunnelMetricConfig | undefined => {
+): ExperimentMeanMetric | ExperimentFunnelMetric | undefined {
+    const getFunnelMetricConfig = (): ExperimentFunnelMetric | undefined => {
         if (metricType !== ExperimentMetricType.FUNNEL) {
             return undefined
         }
 
         return {
-            kind: NodeKind.ExperimentFunnelMetricConfig,
-            funnel:
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            steps:
                 events?.map(
                     (event) =>
                         ({
-                            kind: NodeKind.ExperimentFunnelStepConfig,
                             event: event.id,
                             order: event.order,
                             properties: event.properties,
-                        } as ExperimentFunnelStepConfig)
+                        } as ExperimentFunnelMetricStep)
                 ) || [],
         }
     }
 
-    const getEventMetricConfig = (): ExperimentEventMetricConfig | undefined => {
+    const getEventMetricConfig = (): ExperimentMeanMetric | undefined => {
         if (metricType !== ExperimentMetricType.MEAN || !events?.[0]) {
             return undefined
         }
 
         return {
-            kind: NodeKind.ExperimentEventMetricConfig,
-            event: events[0].id as string,
-            name: events[0].name,
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                source_type: 'event',
+                event: events[0].id as string,
+                properties: events[0].properties,
+            },
             math: events[0].math || ExperimentMetricMathType.TotalCount,
             math_property: events[0].math_property,
             math_hogql: events[0].math_hogql,
-            properties: events[0].properties,
         }
     }
 
-    const getActionMetricConfig = (): ExperimentActionMetricConfig | undefined => {
+    const getActionMetricConfig = (): ExperimentMeanMetric | undefined => {
         if (metricType !== ExperimentMetricType.MEAN || !actions?.[0]) {
             return undefined
         }
 
         return {
-            kind: NodeKind.ExperimentActionMetricConfig,
-            action: actions[0].id,
-            name: actions[0].name,
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                source_type: 'action',
+                action: actions[0].id,
+                properties: actions[0].properties,
+            },
             math: actions[0].math || ExperimentMetricMathType.TotalCount,
             math_property: actions[0].math_property,
             math_hogql: actions[0].math_hogql,
-            properties: actions[0].properties,
         }
     }
 
-    const getDataWarehouseMetricConfig = (): ExperimentDataWarehouseMetricConfig | undefined => {
+    const getDataWarehouseMetricConfig = (): ExperimentMeanMetric | undefined => {
         if (metricType !== ExperimentMetricType.MEAN || !data_warehouse?.[0]) {
             return undefined
         }
 
         return {
-            kind: NodeKind.ExperimentDataWarehouseMetricConfig,
-            name: data_warehouse[0].name,
-            table_name: data_warehouse[0].id,
-            timestamp_field: data_warehouse[0].timestamp_field,
-            events_join_key: data_warehouse[0].events_join_key,
-            data_warehouse_join_key: data_warehouse[0].data_warehouse_join_key,
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                source_type: 'data_warehouse',
+                table_name: data_warehouse[0].id,
+                timestamp_field: data_warehouse[0].timestamp_field,
+                events_join_key: data_warehouse[0].events_join_key,
+                data_warehouse_join_key: data_warehouse[0].data_warehouse_join_key,
+            },
             math: data_warehouse[0].math || ExperimentMetricMathType.TotalCount,
             math_property: data_warehouse[0].math_property,
             math_hogql: data_warehouse[0].math_hogql,
         }
     }
 
-    // Return the first non-undefined configuration
     return (
         getFunnelMetricConfig() || getEventMetricConfig() || getActionMetricConfig() || getDataWarehouseMetricConfig()
     )
@@ -651,18 +658,22 @@ export function metricToQuery(
     }
 
     switch (metric.metric_type) {
-        case ExperimentMetricType.MEAN:
-            switch (metric.metric_config.math) {
+        case ExperimentMetricType.MEAN: {
+            const meanMetric = metric
+            const event = meanMetric.source.source_type === 'event' ? meanMetric.source.event : undefined
+            const name = meanMetric.source.source_type === 'event' ? meanMetric.source.event : undefined
+
+            switch (meanMetric.math) {
                 case ExperimentMetricMathType.Sum:
                     return {
                         ...commonTrendsQueryProps,
                         series: [
                             {
                                 kind: NodeKind.EventsNode,
-                                event: (metric.metric_config as ExperimentEventMetricConfig).event,
-                                name: (metric.metric_config as ExperimentEventMetricConfig).name,
+                                event,
+                                name,
                                 math: ExperimentMetricMathType.Sum,
-                                math_property: (metric.metric_config as ExperimentEventMetricConfig).math_property,
+                                math_property: meanMetric.math_property,
                             },
                         ],
                     } as TrendsQuery
@@ -672,12 +683,13 @@ export function metricToQuery(
                         series: [
                             {
                                 kind: NodeKind.EventsNode,
-                                name: (metric.metric_config as ExperimentEventMetricConfig).name,
-                                event: (metric.metric_config as ExperimentEventMetricConfig).event,
+                                name,
+                                event,
                             },
                         ],
                     } as TrendsQuery
             }
+        }
         case ExperimentMetricType.FUNNEL: {
             const filter = metricToFilter(metric)
             const { events } = filter
