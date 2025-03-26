@@ -33,7 +33,7 @@ import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingLogic } from './errorTrackingLogic'
-import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
+import { errorTrackingSceneLogic, SparklineSelectedPeriod } from './errorTrackingSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { StatusIndicator } from './issue/Indicator'
 import { OccurrenceSparkline, useSparklineData } from './OccurrenceSparkline'
@@ -109,7 +109,7 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
     return (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
-            <LemonSegmentedButton
+            <LemonSegmentedButton<SparklineSelectedPeriod>
                 size="xsmall"
                 value={sparklineSelectedPeriod}
                 options={sparklineOptions}

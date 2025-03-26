@@ -27,7 +27,7 @@ export interface ErrorTrackingIssueSceneLogicProps {
     fingerprint?: string
 }
 
-type ErrorTrackingIssueStatus = ErrorTrackingIssue['status']
+export type ErrorTrackingIssueStatus = ErrorTrackingIssue['status']
 
 export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType>([
     path((key) => ['scenes', 'error-tracking', 'errorTrackingIssueSceneLogic', key]),

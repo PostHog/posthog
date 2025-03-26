@@ -122,7 +122,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                         value: 'day',
                         label: '24h',
                     },
-                ]
+                ] as { value: SparklineSelectedPeriod; label: string }[]
             },
         ],
     })),
