@@ -12,7 +12,8 @@ pub fn get_shard(db: PgPool) -> Shard {
         last_healthy: RwLock::new(Utc::now()),
         check_interval: Duration::milliseconds(0), // We always want to check the limit, for these tests
         depth_limit: 10,
-        should_compress_vm_state: true, // Default is "false" ; just for testing
+        should_compress_vm_state: true, // enabled by default in test suite
+        should_use_bulk_job_copy: true, // enabled by default in test suite
     }
 }
 
@@ -61,7 +62,7 @@ pub async fn test_shard_allows_bulk_inserts_beyond_capacity(db: PgPool) {
 
     // And then we should be able to bulk insert 1000
     let inits = (0..1000).map(|_| create_new_job()).collect::<Vec<_>>();
-    shard.bulk_create_jobs(&inits).await.unwrap();
+    shard.bulk_create_jobs(inits).await.unwrap();
 
     // And the next insert should fail
     let result = shard.create_job(create_new_job()).await;
