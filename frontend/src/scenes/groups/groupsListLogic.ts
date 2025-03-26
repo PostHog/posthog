@@ -11,12 +11,12 @@ import { GroupTypeIndex } from '~/types'
 import type { groupsListLogicType } from './groupsListLogicType'
 
 export interface GroupsListLogicProps {
-    groupTypeIndex: GroupTypeIndex | undefined
+    groupTypeIndex: GroupTypeIndex
 }
 
 export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
-    key((props: GroupsListLogicProps) => props.groupTypeIndex ?? 0),
+    key((props: GroupsListLogicProps) => props.groupTypeIndex),
     path(['groups', 'groupsListLogic']),
     connect({
         values: [
