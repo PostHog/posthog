@@ -6,17 +6,17 @@ import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { GroupType } from '~/types'
+import { GroupTypeIndex } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
 
 export interface GroupsListLogicProps {
-    groupType: GroupType | undefined
+    groupTypeIndex: GroupTypeIndex | undefined
 }
 
 export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
-    key((props: GroupsListLogicProps) => props.groupType?.group_type_index ?? 0),
+    key((props: GroupsListLogicProps) => props.groupTypeIndex ?? 0),
     path(['groups', 'groupsListLogic']),
     connect({
         values: [
@@ -38,8 +38,8 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.GroupsQuery,
-                        select: props.groupType?.default_columns || defaultDataTableColumns(NodeKind.GroupsQuery),
-                        group_type_index: props.groupType?.group_type_index,
+                        select: defaultDataTableColumns(NodeKind.GroupsQuery),
+                        group_type_index: props.groupTypeIndex,
                     },
                     full: true,
                     showEventFilter: false,
@@ -51,9 +51,9 @@ export const groupsListLogic = kea<groupsListLogicType>([
     }),
     selectors({
         groupTypeName: [
-            (s, p) => [s.aggregationLabel, p.groupType],
-            (aggregationLabel, groupType): string =>
-                groupType ? aggregationLabel(groupType.group_type_index).singular : 'Group',
+            (s, p) => [s.aggregationLabel, p.groupTypeIndex],
+            (aggregationLabel, groupTypeIndex): string =>
+                groupTypeIndex ? aggregationLabel(groupTypeIndex).singular : 'Group',
         ],
     }),
 ])
