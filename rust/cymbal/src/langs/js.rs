@@ -51,6 +51,7 @@ impl RawJSFrame {
                 Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
             }
             Err(Error::UnhandledError(e)) => Err(e),
+            Err(Error::EventError(_)) => unreachable!(),
         }
     }
 

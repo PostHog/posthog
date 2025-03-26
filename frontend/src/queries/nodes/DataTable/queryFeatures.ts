@@ -83,6 +83,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.selectAndOrderByColumns)
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.columnConfigurator)
     }
 
     if (

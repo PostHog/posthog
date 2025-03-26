@@ -255,8 +255,8 @@ const TreeNode = React.memo(function TraceNode({
                     timestamp: removeMilliseconds(topLevelTrace.createdAt),
                 })}
                 className={classNames(
-                    'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-primary-highlight',
-                    isSelected && '!bg-accent-primary-highlight'
+                    'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-highlight-secondary',
+                    isSelected && '!bg-accent-highlight-secondary'
                 )}
             >
                 <div className="flex flex-row items-center gap-1.5">

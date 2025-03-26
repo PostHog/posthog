@@ -89,7 +89,13 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                 types: response?.types ?? [],
                             })
                         }
-                        disabledReason={updatingDataWarehouseSavedQuery ? 'Saving...' : ''}
+                        disabledReason={
+                            !isValidView
+                                ? 'Some fields may need an alias'
+                                : updatingDataWarehouseSavedQuery
+                                ? 'Saving...'
+                                : ''
+                        }
                         icon={<IconDownload />}
                         type="tertiary"
                         size="xsmall"

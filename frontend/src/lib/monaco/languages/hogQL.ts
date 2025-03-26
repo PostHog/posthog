@@ -782,6 +782,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'maxIntersectionsPosition',
         'maxIntersectionsPositionIf',
         'getSurveyResponse',
+        'windowFunnel',
     ],
     builtinVariables: [],
     tokenizer: {

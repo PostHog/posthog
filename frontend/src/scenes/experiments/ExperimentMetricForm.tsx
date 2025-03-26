@@ -12,8 +12,9 @@ import { commonActionFilterProps } from './Metrics/Selectors'
 import {
     filterToMetricConfig,
     getAllowedMathTypes,
+    getDefaultExperimentMetric,
     getMathAvailability,
-    metricConfigToFilter,
+    metricToFilter,
     metricToQuery,
 } from './utils'
 
@@ -50,6 +51,18 @@ export function ExperimentMetricForm({
 
     const isDataWarehouseMetric = metric.metric_config.kind === NodeKind.ExperimentDataWarehouseMetricConfig
 
+    const handleSetFilters = ({ actions, events, data_warehouse }: Partial<FilterType>): void => {
+        const metricConfig = filterToMetricConfig(metric.metric_type, actions, events, data_warehouse)
+        if (metricConfig) {
+            handleSetMetric({
+                newMetric: {
+                    ...metric,
+                    metric_config: metricConfig,
+                },
+            })
+        }
+    }
+
     return (
         <div className="deprecated-space-y-4">
             <div>
@@ -58,16 +71,8 @@ export function ExperimentMetricForm({
                     data-attr="metrics-selector"
                     value={metric.metric_type}
                     onChange={(newMetricType: ExperimentMetricType) => {
-                        const newAllowedMathTypes = getAllowedMathTypes(newMetricType)
                         handleSetMetric({
-                            newMetric: {
-                                ...metric,
-                                metric_type: newMetricType,
-                                metric_config: {
-                                    ...metric.metric_config,
-                                    math: newAllowedMathTypes[0],
-                                },
-                            },
+                            newMetric: getDefaultExperimentMetric(newMetricType),
                         })
                     }}
                     options={[
@@ -88,33 +93,43 @@ export function ExperimentMetricForm({
             </div>
             <div>
                 <LemonLabel className="mb-1">Metric</LemonLabel>
-                <ActionFilter
-                    bordered
-                    filters={metricConfigToFilter(metric.metric_config)}
-                    setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-                        // We only support one event/action for experiment metrics
-                        const entity = events?.[0] || actions?.[0] || data_warehouse?.[0]
-                        const metricConfig = filterToMetricConfig(entity)
-                        if (metricConfig) {
-                            handleSetMetric({
-                                newMetric: {
-                                    ...metric,
-                                    metric_config: metricConfig,
-                                },
-                            })
-                        }
-                    }}
-                    typeKey="experiment-metric"
-                    buttonCopy="Add graph series"
-                    showSeriesIndicator={false}
-                    hideRename={true}
-                    entitiesLimit={1}
-                    showNumericalPropsOnly={true}
-                    mathAvailability={mathAvailability}
-                    allowedMathTypes={allowedMathTypes}
-                    dataWarehousePopoverFields={dataWarehousePopoverFields}
-                    {...commonActionFilterProps}
-                />
+
+                {metric.metric_type === ExperimentMetricType.MEAN && (
+                    <ActionFilter
+                        bordered
+                        filters={metricToFilter(metric)}
+                        setFilters={handleSetFilters}
+                        typeKey="experiment-metric"
+                        buttonCopy="Add graph series"
+                        showSeriesIndicator={false}
+                        hideRename={true}
+                        entitiesLimit={1}
+                        showNumericalPropsOnly={true}
+                        mathAvailability={mathAvailability}
+                        allowedMathTypes={allowedMathTypes}
+                        dataWarehousePopoverFields={dataWarehousePopoverFields}
+                        {...commonActionFilterProps}
+                    />
+                )}
+
+                {metric.metric_type === ExperimentMetricType.FUNNEL && (
+                    <ActionFilter
+                        bordered
+                        filters={metricToFilter(metric)}
+                        setFilters={handleSetFilters}
+                        typeKey="experiment-metric"
+                        buttonCopy="Add step"
+                        showSeriesIndicator={false}
+                        hideRename={true}
+                        sortable={true}
+                        showNestedArrow={true}
+                        // showNumericalPropsOnly={true}
+                        mathAvailability={mathAvailability}
+                        allowedMathTypes={allowedMathTypes}
+                        dataWarehousePopoverFields={dataWarehousePopoverFields}
+                        {...commonActionFilterProps}
+                    />
+                )}
             </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
             {metric.metric_type === ExperimentMetricType.MEAN && !isDataWarehouseMetric && (

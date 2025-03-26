@@ -5,7 +5,7 @@ use crate::metrics::metrics_consts::{
     COHORT_CACHE_HIT_COUNTER, COHORT_CACHE_MISS_COUNTER, DB_COHORT_ERRORS_COUNTER,
     DB_COHORT_READS_COUNTER,
 };
-use crate::team::team_models::ProjectId;
+use common_types::ProjectId;
 use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Duration;
@@ -125,11 +125,12 @@ impl CohortCacheManager {
 mod tests {
     use super::*;
     use crate::cohort::cohort_models::Cohort;
-    use crate::team::team_models::{Team, TeamId};
+    use crate::team::team_models::Team;
     use crate::utils::test_utils::{
         insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
         setup_pg_writer_client,
     };
+    use common_types::TeamId;
     use std::sync::Arc;
     use tokio::time::{sleep, Duration};
 
