@@ -2,6 +2,8 @@ import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getClampedExclusionStepRange } from 'scenes/funnels/funnelUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -44,38 +46,66 @@ export function ExclusionRowSuffix({
         updateInsightFilter({ exclusions: newExclusions })
     }
 
+    const handlePropertyFiltersChange = (properties) => {
+        const newExclusions = funnelsFilter?.exclusions?.map((exclusion, exclusionIndex) =>
+            exclusionIndex === index ? { ...exclusion, properties } : exclusion
+        )
+        updateInsightFilter({ exclusions: newExclusions })
+    }
+
     return (
-        <div className={clsx('flex items-center flex-nowrap pl-1 mx-0', isVertical ? 'w-full my-1' : 'w-auto my-0')}>
-            between
-            <LemonSelect
-                className="mx-1"
-                size="small"
-                value={stepRange.funnelFromStep || 0}
-                onChange={onChange}
-                options={Array.from(Array(numberOfSeries).keys())
-                    .slice(0, -1)
-                    .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
-                disabled={!isFunnelWithEnoughSteps}
-            />
-            and
-            <LemonSelect
-                className="ml-1"
-                size="small"
-                value={stepRange.funnelToStep || (stepRange.funnelFromStep ?? 0) + 1}
-                onChange={(toStep: number) => onChange(stepRange.funnelFromStep, toStep)}
-                options={Array.from(Array(numberOfSeries).keys())
-                    .slice((stepRange.funnelFromStep ?? 0) + 1)
-                    .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
-                disabled={!isFunnelWithEnoughSteps}
-            />
-            <LemonButton
-                size="small"
-                icon={<IconTrash />}
-                onClick={onClose}
-                data-attr="delete-prop-exclusion-filter"
-                title="Delete event exclusion series"
-                className="ml-1"
-            />
+        <div
+            className={clsx(
+                'flex flex-col items-start flex-nowrap pl-1 mx-0',
+                isVertical ? 'w-full my-1' : 'w-auto my-0'
+            )}
+        >
+            <div className="mb-2 w-full">
+                <PropertyFilters
+                    pageKey={`funnel-exclusion-${index}`}
+                    propertyFilters={exclusions?.[index]?.properties ?? []}
+                    onChange={handlePropertyFiltersChange}
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.EventFeatureFlags,
+                        TaxonomicFilterGroupType.NumericalEventProperties,
+                    ]}
+                    buttonText="Add exclusion property"
+                />
+            </div>
+            <div className={clsx('flex items-center flex-nowrap', isVertical ? 'w-full' : 'w-auto')}>
+                between
+                <LemonSelect
+                    className="mx-1"
+                    size="small"
+                    value={stepRange.funnelFromStep || 0}
+                    onChange={onChange}
+                    options={Array.from(Array(numberOfSeries).keys())
+                        .slice(0, -1)
+                        .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
+                    disabled={!isFunnelWithEnoughSteps}
+                />
+                and
+                <LemonSelect
+                    className="ml-1"
+                    size="small"
+                    value={stepRange.funnelToStep || (stepRange.funnelFromStep ?? 0) + 1}
+                    onChange={(toStep: number) => onChange(stepRange.funnelFromStep, toStep)}
+                    options={Array.from(Array(numberOfSeries).keys())
+                        .slice((stepRange.funnelFromStep ?? 0) + 1)
+                        .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
+                    disabled={!isFunnelWithEnoughSteps}
+                />
+                <LemonButton
+                    size="small"
+                    icon={<IconTrash />}
+                    onClick={onClose}
+                    data-attr="delete-prop-exclusion-filter"
+                    title="Delete event exclusion series"
+                    className="ml-1"
+                />
+            </div>
         </div>
     )
 }
