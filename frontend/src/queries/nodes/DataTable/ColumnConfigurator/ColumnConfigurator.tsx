@@ -21,7 +21,7 @@ import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode } from '~/queries/schema/schema-general'
 import { isEventsQuery, taxonomicEventFilterToHogQL, trimQuotes } from '~/queries/utils'
 import { PropertyFilterType } from '~/types'
 
@@ -113,7 +113,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     <div className="flex-1">
                         <LemonButton
                             type="secondary"
-                            onClick={() => setColumns(defaultDataTableColumns(NodeKind.EventsQuery))}
+                            onClick={() => setColumns(defaultDataTableColumns(query.source.kind))}
                         >
                             Reset to defaults
                         </LemonButton>
