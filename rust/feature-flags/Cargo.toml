@@ -15,7 +15,6 @@ chrono = { workspace = true }
 common-redis = { path = "../common/redis" }
 envconfig = { workspace = true }
 limiters = { path = "../common/limiters" }
-time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
@@ -31,8 +30,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 sha1 = "0.10.6"
-regex = "1.10.4"
-maxminddb = "0.17"
+regex.workspace = true
 metrics = { workspace = true }
 sqlx = { workspace = true }
 uuid = { workspace = true }
@@ -42,6 +40,7 @@ common-alloc = { path = "../common/alloc" }
 strum = { version = "0.26", features = ["derive"] }
 health = { path = "../common/health" }
 common-metrics = { path = "../common/metrics" }
+common-geoip = { path = "../common/geoip" }
 tower = { workspace = true }
 tower-http = { workspace = true }
 petgraph = "0.6.5"
@@ -54,7 +53,8 @@ dateparser = "0.2.1"
 workspace = true
 
 [dev-dependencies]
+
+rstest = "0.25.0"
 assert-json-diff = { workspace = true }
 reqwest = { workspace = true }
 futures = "0.3.30"
-rstest = "0.25.0"

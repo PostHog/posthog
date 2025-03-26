@@ -1,7 +1,6 @@
-import { IconFolderPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconEllipsis, IconFolderPlus } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
@@ -116,7 +115,7 @@ export function ProjectTree(): JSX.Element {
                     if (!item.record?.href) {
                         return false
                     }
-                    return window.location.href.includes(item.record?.href) ? true : false
+                    return window.location.href.endsWith(item.record?.href)
                 }}
                 onNodeClick={(node) => {
                     if (!isLayoutPanelPinned) {
@@ -239,61 +238,50 @@ export function ProjectTree(): JSX.Element {
                     }
                     return {
                         icon: (
-                            <More
-                                size="xsmall"
-                                onClick={(e) => e.stopPropagation()}
-                                overlay={
-                                    <>
-                                        {item.record?.type === 'folder' || item.record?.type === 'project' ? (
-                                            <LemonButton
-                                                onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    item.record?.path && createFolder(item.record.path)
-                                                }}
-                                                fullWidth
-                                                size="small"
-                                            >
-                                                New Folder
-                                            </LemonButton>
-                                        ) : null}
-                                        {item.record?.path ? (
-                                            <LemonButton
-                                                onClick={() => item.record?.path && rename(item.record.path)}
-                                                fullWidth
-                                                size="small"
-                                            >
-                                                Rename
-                                            </LemonButton>
-                                        ) : null}
-                                        {item.record?.path ? (
-                                            <LemonButton
-                                                onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    handleCopyPath(item.record?.path)
-                                                }}
-                                                fullWidth
-                                                size="small"
-                                            >
-                                                Copy Path
-                                            </LemonButton>
-                                        ) : null}
-                                        {item.record?.created_at ? (
-                                            <LemonButton
-                                                onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    deleteItem(item.record as unknown as FileSystemEntry)
-                                                }}
-                                                fullWidth
-                                                size="small"
-                                            >
-                                                Delete
-                                            </LemonButton>
-                                        ) : null}
-                                    </>
+                            <LemonMenu
+                                placement="top-end"
+                                fallbackPlacements={['bottom-end']}
+                                items={
+                                    [
+                                        item.record?.type === 'folder' || item.record?.type === 'project'
+                                            ? {
+                                                  label: 'New Folder',
+                                                  onClick: () => {
+                                                      item.record?.path && createFolder(item.record.path)
+                                                  },
+                                              }
+                                            : undefined,
+                                        item.record?.path
+                                            ? {
+                                                  label: 'Rename',
+                                                  onClick: () => {
+                                                      item.record?.path && rename(item.record.path)
+                                                  },
+                                              }
+                                            : undefined,
+                                        item.record?.path
+                                            ? {
+                                                  label: 'Copy Path',
+                                                  onClick: () => {
+                                                      handleCopyPath(item.record?.path)
+                                                  },
+                                              }
+                                            : undefined,
+                                        item.record?.path
+                                            ? {
+                                                  label: 'Delete',
+                                                  onClick: () => {
+                                                      deleteItem(item.record as unknown as FileSystemEntry)
+                                                  },
+                                              }
+                                            : undefined,
+                                    ].filter(Boolean) as LemonMenuItems
                                 }
-                            />
+                                maxContentWidth={true}
+                            >
+                                <IconEllipsis className="size-4 text-tertiary" />
+                            </LemonMenu>
                         ),
-                        identifier: item.record?.path || 'more',
                     }
                 }}
             />

@@ -5,6 +5,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::HealthRegistry;
@@ -17,7 +18,7 @@ use tower_http::{
 
 use crate::{
     api::{endpoint, test_endpoint},
-    client::{database::Client as DatabaseClient, geoip::GeoIpClient},
+    client::database::Client as DatabaseClient,
     cohort::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdsToTrack},
     metrics::metrics_utils::team_id_label_filter,

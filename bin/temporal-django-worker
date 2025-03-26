@@ -5,7 +5,7 @@ set -e
 cleanup() {
     echo "Stopping worker..."
     if kill -0 "$worker_pid" >/dev/null 2>&1; then
-        kill "$worker_pid"
+        kill -SIGTERM "$worker_pid"
     else
         echo "Worker process is not running."
     fi
@@ -17,6 +17,11 @@ python3 manage.py start_temporal_worker "$@" &
 
 worker_pid=$!
 
-wait $worker_pid
+# Run wait in a loop in case we trap SIGTERM as that will cause wait to exit
+# potentially not waiting for graceful shutdown. When a SIGTERM is issued,
+# wait will exit with a status equal to signal number + 128.
+while wait $worker_pid; test $? -ge 128
+      do echo "Received signal, waiting for worker to finish"
+done
 
 cleanup
