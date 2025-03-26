@@ -25,7 +25,6 @@ from dlt.common.libs.deltalake import get_delta_tables
 
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.settings.base_variables import TEST
@@ -397,8 +396,6 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
 @dlt.source(max_table_nesting=0)
 def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typing.TTableSchemaColumns):
     """A dlt source representing a HogQL table given by a HogQL query."""
-    modifiers = create_default_modifiers_for_team(team)
-    modifiers.useMaterializedViews = True
 
     async def get_hogql_rows():
         settings = HogQLGlobalSettings(
@@ -409,7 +406,6 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
             execute_hogql_query,
             query,
             team,
-            modifiers=modifiers,
             settings=settings,
             limit_context=LimitContext.SAVED_QUERY,
         )
