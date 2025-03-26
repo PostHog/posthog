@@ -244,30 +244,27 @@ export function StartupProgram(): JSX.Element {
                                     <LemonInput />
                                 </LemonField>
 
-                                <LemonField name="raised" label="How much in total funding have you raised (USD)">
-                                    <LemonSelect options={RAISED_OPTIONS} className="bg-bg-light" />
-                                </LemonField>
+                                {!isYC && (
+                                    <>
+                                        <LemonField
+                                            name="raised"
+                                            label="How much in total funding have you raised (USD)"
+                                        >
+                                            <LemonSelect options={RAISED_OPTIONS} className="bg-bg-light" />
+                                        </LemonField>
 
-                                <LemonField
-                                    name="incorporation_date"
-                                    label="The date that your company was incorporated"
-                                >
-                                    <LemonCalendarSelectInput
-                                        clearable={false}
-                                        format="YYYY-MM-DD"
-                                        buttonProps={{ className: 'bg-bg-light' }}
-                                    />
-                                </LemonField>
-
-                                <LemonField name="is_building_with_llms" label="Are you building LLM-powered features?">
-                                    <LemonSelect
-                                        options={[
-                                            { label: 'Yes', value: 'true' },
-                                            { label: 'No', value: 'false' },
-                                        ]}
-                                        className="bg-bg-light"
-                                    />
-                                </LemonField>
+                                        <LemonField
+                                            name="incorporation_date"
+                                            label="The date that your company was incorporated"
+                                        >
+                                            <LemonCalendarSelectInput
+                                                clearable={false}
+                                                format="YYYY-MM-DD"
+                                                buttonProps={{ className: 'bg-bg-light' }}
+                                            />
+                                        </LemonField>
+                                    </>
+                                )}
 
                                 {isYC && (
                                     <>
@@ -313,6 +310,16 @@ export function StartupProgram(): JSX.Element {
                                         )}
                                     </>
                                 )}
+
+                                <LemonField name="is_building_with_llms" label="Are you building LLM-powered features?">
+                                    <LemonSelect
+                                        options={[
+                                            { label: 'Yes', value: 'true' },
+                                            { label: 'No', value: 'false' },
+                                        ]}
+                                        className="bg-bg-light"
+                                    />
+                                </LemonField>
 
                                 <LemonButton
                                     type="primary"
