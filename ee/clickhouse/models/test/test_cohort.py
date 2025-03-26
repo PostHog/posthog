@@ -1496,12 +1496,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team=self.team,
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
             name="cohort1",
-            pending_version=3,
+            pending_version=None,
         )
         new_version = get_and_update_pending_version(cohort1)
-        assert new_version == 6
+        assert new_version == 1
         new_version = get_and_update_pending_version(cohort1)
-        assert new_version == 8
+        assert new_version == 2
+        new_version = get_and_update_pending_version(cohort1)
+        assert new_version == 3
 
     def test_cohortpeople_action_all_events(self):
         # Create an action that matches all events (no specific event defined)
