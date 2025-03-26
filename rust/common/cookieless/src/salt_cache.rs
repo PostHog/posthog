@@ -195,7 +195,8 @@ impl SaltCache {
                     }
                 };
 
-                let salt = match general_purpose::STANDARD.decode(strip_quotes(&salt_base64_retry)) {
+                let salt = match general_purpose::STANDARD.decode(strip_quotes(&salt_base64_retry))
+                {
                     Ok(s) => s,
                     Err(e) => {
                         tracing::info!("Failed to decode the salt from redis 2: {}", e);
