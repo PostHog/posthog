@@ -88,7 +88,7 @@ export function BrandAccentColors(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <div className="border border-primary flex flex-col gap-2 p-4 items-start">
-                <p className="text-accent">Accent primary</p>
+                <p className="text-accent">Accent</p>
             </div>
 
             <div className="flex flex-col gap-2 border border-primary rounded-md p-2">
