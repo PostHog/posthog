@@ -66,6 +66,7 @@ export interface StartupProgramFormValues {
     is_building_with_llms: string
     yc_batch?: string
     yc_proof_screenshot_url?: string
+    customer_id?: string
 }
 
 export interface StartupProgramLogicProps {
@@ -211,6 +212,11 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 )
             }
         },
+        [billingLogic.actionTypes.loadBillingSuccess]: () => {
+            if (values.billing?.customer_id) {
+                actions.setStartupProgramValue('customer_id', values.billing.customer_id)
+            }
+        },
     })),
     selectors({
         isAlreadyOnStartupPlan: [
@@ -252,6 +258,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 startup_domain: values.domainFromEmail || '',
                 posthog_organization_name: values.currentOrganization?.name || '',
                 posthog_organization_id: values.currentOrganization?.id || '',
+                customer_id: values.billing?.customer_id || '',
                 raised: '',
                 incorporation_date: null,
                 is_building_with_llms: '',

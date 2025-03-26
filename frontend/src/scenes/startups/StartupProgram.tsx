@@ -41,8 +41,8 @@ export function StartupProgram(): JSX.Element {
 
     useEffect(() => {
         // eslint-disable-next-line no-console
-        console.log('📝 Default form values:', startupProgram)
-    }, [])
+        console.log('📝 Form values:', startupProgram)
+    }, [startupProgram])
 
     if (isAlreadyOnStartupPlan) {
         return (
