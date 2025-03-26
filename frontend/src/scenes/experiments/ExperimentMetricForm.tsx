@@ -51,6 +51,18 @@ export function ExperimentMetricForm({
 
     const isDataWarehouseMetric = metric.metric_config.kind === NodeKind.ExperimentDataWarehouseMetricConfig
 
+    const handleSetFilters = ({ actions, events, data_warehouse }: Partial<FilterType>): void => {
+        const metricConfig = filterToMetricConfig(metric.metric_type, actions, events, data_warehouse)
+        if (metricConfig) {
+            handleSetMetric({
+                newMetric: {
+                    ...metric,
+                    metric_config: metricConfig,
+                },
+            })
+        }
+    }
+
     return (
         <div className="deprecated-space-y-4">
             <div>
@@ -86,22 +98,7 @@ export function ExperimentMetricForm({
                     <ActionFilter
                         bordered
                         filters={metricToFilter(metric)}
-                        setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-                            const metricConfig = filterToMetricConfig(
-                                metric.metric_type,
-                                actions,
-                                events,
-                                data_warehouse
-                            )
-                            if (metricConfig) {
-                                handleSetMetric({
-                                    newMetric: {
-                                        ...metric,
-                                        metric_config: metricConfig,
-                                    },
-                                })
-                            }
-                        }}
+                        setFilters={handleSetFilters}
                         typeKey="experiment-metric"
                         buttonCopy="Add graph series"
                         showSeriesIndicator={false}
@@ -119,22 +116,7 @@ export function ExperimentMetricForm({
                     <ActionFilter
                         bordered
                         filters={metricToFilter(metric)}
-                        setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-                            const metricConfig = filterToMetricConfig(
-                                metric.metric_type,
-                                actions,
-                                events,
-                                data_warehouse
-                            )
-                            if (metricConfig) {
-                                handleSetMetric({
-                                    newMetric: {
-                                        ...metric,
-                                        metric_config: metricConfig,
-                                    },
-                                })
-                            }
-                        }}
+                        setFilters={handleSetFilters}
                         typeKey="experiment-metric"
                         buttonCopy="Add step"
                         showSeriesIndicator={false}
