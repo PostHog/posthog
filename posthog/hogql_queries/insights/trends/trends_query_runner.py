@@ -992,7 +992,7 @@ class TrendsQueryRunner(QueryRunner):
                     effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
                 )
                 .get(
-                    effective_project_id=self.team.project_id,
+                    effective_project_id=self.team.project_id,  # type: ignore
                     name=field,
                     type=field_type,
                     group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
