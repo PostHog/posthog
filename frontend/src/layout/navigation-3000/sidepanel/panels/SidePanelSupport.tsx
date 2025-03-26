@@ -182,7 +182,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                 <Section title="Contact us">
                                     <p>Can't find what you need and Max unable to help?</p>
                                     <LemonButton
-                                        type="primary"
+                                        type="secondary"
                                         fullWidth
                                         center
                                         onClick={() => openEmailForm()}
@@ -200,7 +200,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                     in our community forums.
                                 </p>
                                 <LemonButton
-                                    type="primary"
+                                    type="secondary"
                                     fullWidth
                                     center
                                     to="https://posthog.com/questions"
