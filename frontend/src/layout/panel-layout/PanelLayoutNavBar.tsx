@@ -255,13 +255,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 fullWidth
                                                 size="small"
                                                 to={item.to}
-                                                {...(item.sideAction && {
-                                                    sideAction: {
-                                                        ...item.sideAction,
-                                                        divider: true,
-                                                        'data-attr': `menu-item-${item.sideAction.identifier.toLowerCase()}`,
-                                                    },
-                                                })}
                                             >
                                                 <span>{item.id}</span>
                                                 <span className="ml-auto">
@@ -327,14 +320,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 // This makes it a link if it has a to
                                                                 // we handle routing in the handleStaticNavbarItemClick function
                                                                 to={'to' in item ? item.to : undefined}
-                                                                className="[&_.LemonButtonWithSideAction__spacer--divider]:hidden"
-                                                                {...(item.sideAction && {
-                                                                    sideAction: {
-                                                                        ...item.sideAction,
-                                                                        divider: true,
-                                                                        'data-attr': `menu-item-${item.sideAction.identifier.toLowerCase()}`,
-                                                                    },
-                                                                })}
+                                                                // Target the svg inside the side action
+                                                                className="[&+div_svg]:text-secondary"
+                                                                // Only show side action for SavedInsights (PA)
+                                                                {...(item.sideAction &&
+                                                                    item.identifier === 'SavedInsights' && {
+                                                                        sideAction: {
+                                                                            ...item.sideAction,
+                                                                            'data-attr': `menu-item-${item.sideAction.identifier.toLowerCase()}`,
+                                                                        },
+                                                                    })}
                                                             >
                                                                 {item.label}{' '}
                                                                 {item.tag && (
