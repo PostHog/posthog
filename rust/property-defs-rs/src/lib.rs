@@ -22,12 +22,6 @@ use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio::task::JoinHandle;
 use tracing::{error, warn};
 
-// allows us to import private functions from lib.rs to test
-// module under "../tests/" directory
-#[cfg(test)]
-#[path = "../tests/v2_batch_ingestion.rs"]
-mod v2_batch_ingestion_test;
-
 pub mod api;
 pub mod app_context;
 pub mod config;
@@ -99,7 +93,8 @@ pub async fn update_consumer_loop(
     }
 }
 
-async fn process_batch_v2(
+// HACK: making this public so the test suite file can live under "../tests/" dir
+pub async fn process_batch_v2(
     config: &Config,
     cache: Arc<Cache<Update, ()>>,
     pool: &PgPool,
