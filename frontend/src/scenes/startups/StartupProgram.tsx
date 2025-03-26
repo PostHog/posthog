@@ -37,23 +37,6 @@ export function StartupProgram(): JSX.Element {
     const { validateYCBatch, setStartupProgramValue } = useActions(logic)
     const programName = isYC ? 'YC Program' : 'Startup Program'
 
-    if (formSubmitted) {
-        return (
-            <div className="mx-auto max-w-200 mt-6 px-4">
-                <LemonBanner type="success">
-                    <h2 className="mb-2">Thank you for your application!</h2>
-                    <p>
-                        We'll review your application and get back to you as soon as possible. In the meantime, you can
-                        continue using PostHog.
-                    </p>
-                    <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
-                        Return to PostHog
-                    </LemonButton>
-                </LemonBanner>
-            </div>
-        )
-    }
-
     if (isAlreadyOnStartupPlan) {
         return (
             <div className="mx-auto max-w-200 mt-6 px-4">
@@ -195,126 +178,146 @@ export function StartupProgram(): JSX.Element {
                             <h2 className="text-xl m-0">Step 2: Submit application</h2>
                             {formSubmitted && <IconCheckCircle className="text-success text-2xl" />}
                         </div>
-                        <Form
-                            logic={startupProgramLogic}
-                            props={{ isYC }}
-                            formKey="startupProgram"
-                            enableFormOnSubmit
-                            className="space-y-3"
-                        >
-                            <div className="hidden">
-                                <div className="grid md:grid-cols-2 gap-3">
-                                    <LemonField name="first_name" label="First name">
-                                        <LemonInput placeholder="Jane" />
+
+                        {formSubmitted ? (
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-2 text-success">
+                                    <IconCheck className="shrink-0" />
+                                    <span>Application submitted successfully!</span>
+                                </div>
+                                <p className="text-muted">
+                                    Thank you for your application! We'll review it and get back to you as soon as
+                                    possible. In the meantime, you can continue using PostHog.
+                                </p>
+                                <LemonButton type="primary" to={urls.projectHomepage()}>
+                                    Return to PostHog
+                                </LemonButton>
+                            </div>
+                        ) : (
+                            <Form
+                                logic={startupProgramLogic}
+                                props={{ isYC }}
+                                formKey="startupProgram"
+                                enableFormOnSubmit
+                                className="space-y-3"
+                            >
+                                <div className="hidden">
+                                    <div className="grid md:grid-cols-2 gap-3">
+                                        <LemonField name="first_name" label="First name">
+                                            <LemonInput placeholder="Jane" />
+                                        </LemonField>
+
+                                        <LemonField name="last_name" label="Last name">
+                                            <LemonInput placeholder="Doe" />
+                                        </LemonField>
+                                    </div>
+
+                                    <LemonField name="email" label="Email">
+                                        <LemonInput placeholder="you@example.com" />
                                     </LemonField>
 
-                                    <LemonField name="last_name" label="Last name">
-                                        <LemonInput placeholder="Doe" />
+                                    <LemonField name="startup_domain" label="Company domain">
+                                        <LemonInput placeholder="example.com" />
                                     </LemonField>
                                 </div>
 
-                                <LemonField name="email" label="Email">
-                                    <LemonInput placeholder="you@example.com" />
+                                <LemonField
+                                    name="posthog_organization_name"
+                                    label="PostHog organization"
+                                    info="To apply for a different organization, switch to that organization first"
+                                >
+                                    <LemonInput placeholder="Your PostHog organization" disabled />
                                 </LemonField>
 
-                                <LemonField name="startup_domain" label="Company domain">
-                                    <LemonInput placeholder="example.com" />
+                                <LemonField name="posthog_organization_id" className="hidden">
+                                    <LemonInput />
                                 </LemonField>
-                            </div>
 
-                            <LemonField
-                                name="posthog_organization_name"
-                                label="PostHog organization"
-                                info="To apply for a different organization, switch to that organization first"
-                            >
-                                <LemonInput placeholder="Your PostHog organization" disabled />
-                            </LemonField>
+                                <LemonField name="raised" label="How much in total funding have you raised (USD)">
+                                    <LemonSelect options={RAISED_OPTIONS} />
+                                </LemonField>
 
-                            <LemonField name="posthog_organization_id" className="hidden">
-                                <LemonInput />
-                            </LemonField>
+                                <LemonField
+                                    name="incorporation_date"
+                                    label="The date that your company was incorporated"
+                                >
+                                    <LemonCalendarSelectInput clearable={false} format="YYYY-MM-DD" />
+                                </LemonField>
 
-                            <LemonField name="raised" label="How much in total funding have you raised (USD)">
-                                <LemonSelect options={RAISED_OPTIONS} />
-                            </LemonField>
+                                <LemonField name="is_building_with_llms" label="Are you building LLM-powered features?">
+                                    <LemonSelect
+                                        options={[
+                                            { label: 'Yes', value: 'true' },
+                                            { label: 'No', value: 'false' },
+                                        ]}
+                                    />
+                                </LemonField>
 
-                            <LemonField name="incorporation_date" label="The date that your company was incorporated">
-                                <LemonCalendarSelectInput clearable={false} format="YYYY-MM-DD" />
-                            </LemonField>
-
-                            <LemonField name="is_building_with_llms" label="Are you building LLM-powered features?">
-                                <LemonSelect
-                                    options={[
-                                        { label: 'Yes', value: 'true' },
-                                        { label: 'No', value: 'false' },
-                                    ]}
-                                />
-                            </LemonField>
-
-                            {isYC && (
-                                <>
-                                    <LemonField name="yc_batch" label="Which YC batch are you?">
-                                        <LemonSelect
-                                            options={YC_BATCH_OPTIONS}
-                                            onChange={(value) => {
-                                                setStartupProgramValue('yc_batch', value)
-                                                if (value) {
-                                                    validateYCBatch()
-                                                }
-                                            }}
-                                        />
-                                    </LemonField>
-                                    {ycValidationState === 'validating' && (
-                                        <div className="flex items-center gap-2 text-muted">
-                                            <div className="animate-spin">⏳</div>
-                                            <span>Validating YC batch membership...</span>
-                                        </div>
-                                    )}
-                                    {ycValidationState === 'valid' && (
-                                        <LemonBanner type="success">
-                                            <div className="flex items-center gap-2">
-                                                <IconCheckCircle className="text-xl" />
-                                                <span>
-                                                    We were able to confirm your YC membership
-                                                    {verifiedCompanyName && ` for ${verifiedCompanyName}`}!
-                                                </span>
+                                {isYC && (
+                                    <>
+                                        <LemonField name="yc_batch" label="Which YC batch are you?">
+                                            <LemonSelect
+                                                options={YC_BATCH_OPTIONS}
+                                                onChange={(value) => {
+                                                    setStartupProgramValue('yc_batch', value)
+                                                    if (value) {
+                                                        validateYCBatch()
+                                                    }
+                                                }}
+                                            />
+                                        </LemonField>
+                                        {ycValidationState === 'validating' && (
+                                            <div className="flex items-center gap-2 text-muted">
+                                                <div className="animate-spin">⏳</div>
+                                                <span>Validating YC batch membership...</span>
                                             </div>
-                                        </LemonBanner>
-                                    )}
-                                    {ycValidationState === 'invalid' && (
-                                        <>
-                                            <div className="flex items-center gap-2 text-danger mb-2">
-                                                <IconWarning />
-                                                <span>{ycValidationError}</span>
-                                            </div>
-                                            <LemonField
-                                                name="yc_proof_screenshot_url"
-                                                label="YC profile screenshot"
-                                                info="Please upload a screenshot of your YC profile showing that you're using PostHog"
-                                            >
-                                                <ScreenshotUpload />
-                                            </LemonField>
-                                        </>
-                                    )}
-                                </>
-                            )}
+                                        )}
+                                        {ycValidationState === 'valid' && (
+                                            <LemonBanner type="success">
+                                                <div className="flex items-center gap-2">
+                                                    <IconCheckCircle className="text-xl" />
+                                                    <span>
+                                                        We were able to confirm your YC membership
+                                                        {verifiedCompanyName && ` for ${verifiedCompanyName}`}!
+                                                    </span>
+                                                </div>
+                                            </LemonBanner>
+                                        )}
+                                        {ycValidationState === 'invalid' && (
+                                            <>
+                                                <div className="flex items-center gap-2 text-danger mb-2">
+                                                    <IconWarning />
+                                                    <span>{ycValidationError}</span>
+                                                </div>
+                                                <LemonField
+                                                    name="yc_proof_screenshot_url"
+                                                    label="YC profile screenshot"
+                                                    info="Please upload a screenshot of your YC profile showing that you're using PostHog"
+                                                >
+                                                    <ScreenshotUpload />
+                                                </LemonField>
+                                            </>
+                                        )}
+                                    </>
+                                )}
 
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                className="mt-4"
-                                fullWidth
-                                center
-                                data-attr="startup-program-submit"
-                            >
-                                Submit Application
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    htmlType="submit"
+                                    className="mt-4"
+                                    fullWidth
+                                    center
+                                    data-attr="startup-program-submit"
+                                >
+                                    Submit Application
+                                </LemonButton>
 
-                            {/* This will display a form error if user is not on a paid plan. Kea forms requires a child element */}
-                            <LemonField name="_form">
-                                <span />
-                            </LemonField>
-                        </Form>
+                                {/* This will display a form error if user is not on a paid plan. Kea forms requires a child element */}
+                                <LemonField name="_form">
+                                    <span />
+                                </LemonField>
+                            </Form>
+                        )}
                     </div>
                 </div>
             </div>
