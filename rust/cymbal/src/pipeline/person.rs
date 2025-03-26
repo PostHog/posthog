@@ -32,6 +32,7 @@ pub async fn add_person_properties(
                 .unwrap()
                 .indices
                 .push(index);
+            continue;
         }
 
         let m_context = context.clone();
