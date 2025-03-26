@@ -52,13 +52,15 @@ pub fn clean_set_props(
                 Value::String(event.uuid.to_string()),
             );
 
-            warnings.push(IngestionWarning::new(
-                event.team_id,
-                EXCEPTION_INGESTION_SOURCE.to_string(),
-                SET_ON_EXCEPTION_WARNING_TYPE.to_string(),
-                warning_details,
-                None,
-            ));
+            // TODO - once we update SDKs to no longer send this automatically, we
+            // should emit ingestion warnings for set and set_once properties
+            // warnings.push(IngestionWarning::new(
+            //     event.team_id,
+            //     EXCEPTION_INGESTION_SOURCE.to_string(),
+            //     SET_ON_EXCEPTION_WARNING_TYPE.to_string(),
+            //     warning_details,
+            //     None,
+            // ));
         }
 
         event.properties =
