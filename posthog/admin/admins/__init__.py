@@ -5,6 +5,7 @@ from .dashboard_template_admin import DashboardTemplateAdmin
 from .data_color_theme_admin import DataColorThemeAdmin
 from .data_warehouse_table_admin import DataWarehouseTableAdmin
 from .experiment_admin import ExperimentAdmin
+from .experiment_saved_metric_admin import ExperimentSavedMetricAdmin
 from .feature_flag_admin import FeatureFlagAdmin
 from .group_type_mapping_admin import GroupTypeMappingAdmin
 from .insight_admin import InsightAdmin
