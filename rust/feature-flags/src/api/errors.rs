@@ -63,8 +63,8 @@ pub enum FlagError {
     CohortDependencyCycle(String),
     #[error("Person not found")]
     PersonNotFound,
-    #[error("Cookieless error: {0}")]
-    CookielessError(String),
+    #[error(transparent)]
+    CookielessError(#[from] CookielessManagerError),
 }
 
 impl IntoResponse for FlagError {
@@ -180,8 +180,26 @@ impl IntoResponse for FlagError {
             FlagError::PersonNotFound => {
                 (StatusCode::BAD_REQUEST, "Person not found. Please check your distinct_id and try again.".to_string())
             }
-            FlagError::CookielessError(msg) => {
-                (StatusCode::BAD_REQUEST, msg)
+            FlagError::CookielessError(err) => {
+                match err {
+                    // 400 Bad Request errors - client-side issues
+                    CookielessManagerError::MissingProperty(prop) =>
+                        (StatusCode::BAD_REQUEST, format!("Missing required property: {}", prop)),
+                    CookielessManagerError::UrlParseError(e) =>
+                        (StatusCode::BAD_REQUEST, format!("Invalid URL: {}", e)),
+                    CookielessManagerError::InvalidTimestamp(msg) =>
+                        (StatusCode::BAD_REQUEST, format!("Invalid timestamp: {}", msg)),
+
+                    // 500 Internal Server Error - server-side issues
+                    err @ (CookielessManagerError::HashError(_) |
+                          CookielessManagerError::ChronoError(_) |
+                          CookielessManagerError::RedisError(_) |
+                          CookielessManagerError::SaltCacheError(_) |
+                          CookielessManagerError::InvalidIdentifyCount(_)) => {
+                        tracing::error!("Internal cookieless error: {}", err);
+                        (StatusCode::INTERNAL_SERVER_ERROR, "An internal error occurred while processing your request.".to_string())
+                    }
+                }
             }
         }
         .into_response()
@@ -225,40 +243,6 @@ impl From<sqlx::Error> for FlagError {
         match e {
             sqlx::Error::RowNotFound => FlagError::RowNotFound,
             _ => FlagError::DatabaseError(e.to_string()),
-        }
-    }
-}
-
-impl From<CookielessManagerError> for FlagError {
-    fn from(error: CookielessManagerError) -> Self {
-        match error {
-            // Client errors (400)
-            CookielessManagerError::MissingProperty(msg)
-            | CookielessManagerError::InvalidTimestamp(msg)
-            | CookielessManagerError::TimezoneError(msg)
-            | CookielessManagerError::InvalidIdentifyCount(msg) => {
-                FlagError::ClientFacing(ClientFacingError::BadRequest(msg))
-            }
-            CookielessManagerError::UrlParseError(e) => FlagError::ClientFacing(
-                ClientFacingError::BadRequest(format!("Invalid URL: {}", e)),
-            ),
-            CookielessManagerError::ChronoError(e) => FlagError::ClientFacing(
-                ClientFacingError::BadRequest(format!("Invalid date/time format: {}", e)),
-            ),
-
-            // Server errors (500)
-            CookielessManagerError::SaltCacheError(e) => {
-                tracing::error!("Salt cache error: {}", e);
-                FlagError::Internal(format!("Salt cache error: {}", e))
-            }
-            CookielessManagerError::HashError(e) => {
-                tracing::error!("Hash error: {}", e);
-                FlagError::Internal(format!("Hash error: {}", e))
-            }
-            CookielessManagerError::RedisError(e) => {
-                tracing::error!("Redis error in cookieless manager: {}", e);
-                FlagError::RedisUnavailable
-            }
         }
     }
 }

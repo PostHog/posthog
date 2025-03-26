@@ -498,7 +498,7 @@ async fn handle_cookieless_distinct_id(
         .cookieless_manager
         .compute_cookieless_distinct_id(event_data, team_data)
         .await
-        .map_err(|e| FlagError::CookielessError(e.to_string()))
+        .map_err(|e| FlagError::CookielessError(e))
 }
 
 #[cfg(test)]

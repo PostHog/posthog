@@ -37,9 +37,6 @@ pub enum CookielessManagerError {
     #[error("Chrono error: {0}")]
     ChronoError(#[from] chrono::ParseError),
 
-    #[error("Timezone error: {0}")]
-    TimezoneError(String),
-
     #[error("Invalid identify count: {0}")]
     InvalidIdentifyCount(String),
 
