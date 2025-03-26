@@ -116,7 +116,7 @@ export function ProjectTree(): JSX.Element {
                     if (!item.record?.href) {
                         return false
                     }
-                    return window.location.href.includes(item.record?.href) ? true : false
+                    return window.location.href.endsWith(item.record?.href)
                 }}
                 onNodeClick={(node) => {
                     if (!isLayoutPanelPinned) {
