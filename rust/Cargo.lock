@@ -1432,7 +1432,6 @@ dependencies = [
  "serde-pickle",
  "thiserror",
  "tokio",
- "tracing",
 ]
 
 [[package]]
