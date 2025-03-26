@@ -289,8 +289,8 @@ pub fn is_calendar_date_valid(yyyymmdd: &str) -> bool {
     now_utc >= start_of_day_minus_12 && now_utc < end_of_day_plus_14
 }
 
-fn strip_quotes(s: String) -> String {
-    s.trim_matches('"').to_string()
+fn strip_quotes(s: &str) -> &str {
+    s.trim_matches('"')
 }
 
 #[cfg(test)]
