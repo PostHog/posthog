@@ -8,6 +8,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { liveEventsTableLogic } from 'scenes/web-analytics/liveWebAnalyticsLogic'
 
 const SecondsAgoTooltipText = (): JSX.Element | null => {
+    // We connect to liveUserUpdatedSecondsAgo only when the user is hovering over the indicator
+    // otherwise we were causing a lot of unnecessary re-renders. See: https://github.com/PostHog/posthog/pull/30477
     const { liveUserCount, liveUserUpdatedSecondsAgo } = useValues(liveEventsTableLogic)
     const { currentTeam } = useValues(teamLogic)
 
