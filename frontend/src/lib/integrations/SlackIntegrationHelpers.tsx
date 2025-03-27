@@ -32,6 +32,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
     const [currentInputValue, setCurrentInputValue] = useState<string | null>(null)
 
+    // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
     const getSlackChannelOptions = useMemo(
         () =>
             (slackChannels?: SlackChannelType[] | null): LemonInputSelectOption[] | null => {
@@ -51,18 +52,18 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         [slackChannels]
     )
 
-    // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
-    const slackChannelOptions = useMemo(() => {
+    const slackChannelOptions = (): LemonInputSelectOption[] | null => {
         const channels = getSlackChannelOptions(slackChannels)
-        return channels?.filter((x) => {
-            const [id, name] = x.key.split('|#')
-            return name !== 'PRIVATE_CHANNEL_WITHOUT_ACCESS' || id === currentInputValue
-        })
-    }, [slackChannels, value])
+        return channels
+            ? channels.filter((x) => {
+                  const [id, name] = x.key.split('|#')
+                  return name !== 'PRIVATE_CHANNEL_WITHOUT_ACCESS' || id === currentInputValue
+              })
+            : []
+    }
     const showSlackMembershipWarning = value && isMemberOfSlackChannel(value) === false
 
     // Sometimes the parent will only store the channel ID and not the name, so we need to handle that
-
     const modifiedValue = useMemo(() => {
         if (value?.split('|').length === 1) {
             const channel = slackChannels.find((x: SlackChannelType) => x.id === value)
@@ -106,7 +107,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     </p>
                 }
                 options={
-                    slackChannelOptions ??
+                    slackChannelOptions() ??
                     (modifiedValue
                         ? [
                               {
