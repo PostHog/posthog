@@ -426,7 +426,8 @@ export class HogExecutorService {
                                     globals: providerGlobals,
                                 }
                             } catch (e) {
-                                throw new Error(`Error building globals for email provider: ${e}`)
+                                throw new Error(`Error building globals for email provider`, { cause: e })                            }
+
                             }
                         }
                         throw new Error(`Can't import unknown module: ${module}`)
