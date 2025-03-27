@@ -51,3 +51,26 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
         </Tooltip>
     )
 }
+
+const SecondsAgoTooltipText = (): JSX.Element | null => {
+    const { currentTeam } = useValues(teamLogic)
+    const { liveUserUpdatedSecondsAgo, liveUserCount } = useValues(liveEventsTableLogic)
+
+    if (liveUserCount == null) {
+        return null
+    }
+
+    const updatedAgoString =
+        liveUserUpdatedSecondsAgo === 0
+            ? ' (updated just now)'
+            : liveUserUpdatedSecondsAgo == null
+            ? ''
+            : ` (updated ${liveUserUpdatedSecondsAgo} seconds ago)`
+
+    const usersOnlineString = `${humanFriendlyNumber(liveUserCount)} ${
+        liveUserCount === 1 ? 'user is' : 'users are'
+    } online`
+    const inTeamString = currentTeam ? ` in ${currentTeam.name}` : ''
+    const tooltip = `${usersOnlineString}${inTeamString}${updatedAgoString}`
+    return <>{tooltip}</>
+}
