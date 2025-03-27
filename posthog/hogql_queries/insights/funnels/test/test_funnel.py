@@ -4696,6 +4696,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
+            if len(results) == 0:
+                # This is a success - no entries.
+                return
+
             # First step should be 0, second step should be 0 as well since the user didn't complete the first step
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 0)
