@@ -24,12 +24,11 @@ async fn test_simple_batch_write(db: PgPool) {
     process_batch_v2(&config, cache, &db, updates).await;
 
     // fetch results and ensure they landed correctly
-    let event_defs_count: Option<i64> =
-        sqlx::query_scalar!(r#"SELECT count(*) from posthog_eventdefinition"#)
-            .fetch_one(&db)
-            .await
-            .unwrap();
-    assert_eq!(Some(1), event_defs_count);
+    let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(String::from("$pageview"), event_def_name);
 
     let prop_defs_count: Option<i64> =
         sqlx::query_scalar!(r#"SELECT count(*) from posthog_propertydefinition"#)
@@ -57,13 +56,11 @@ async fn test_group_batch_write(db: PgPool) {
     process_batch_v2(&config, cache, &db, updates).await;
 
     // fetch results and ensure they landed correctly
-    let event_defs_count: Option<i64> = sqlx::query_scalar!(
-        r#"SELECT count(*) from posthog_eventdefinition WHERE name = '$groupidentify'"#
-    )
-    .fetch_one(&db)
-    .await
-    .unwrap();
-    assert_eq!(Some(1), event_defs_count);
+    let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(String::from("$groupidentify"), event_def_name);
 
     let prop_defs_count: Option<i64> =
         sqlx::query_scalar!(r#"SELECT count(*) from posthog_propertydefinition WHERE type = 3"#)
@@ -92,13 +89,11 @@ async fn test_person_batch_write(db: PgPool) {
     process_batch_v2(&config, cache, &db, updates).await;
 
     // fetch results and ensure they landed correctly
-    let event_defs_count: Option<i64> = sqlx::query_scalar!(
-        r#"SELECT count(*) from posthog_eventdefinition WHERE name = 'event_with_person'"#
-    )
-    .fetch_one(&db)
-    .await
-    .unwrap();
-    assert_eq!(Some(1), event_defs_count);
+    let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(String::from("event_with_person"), event_def_name);
 
     let prop_defs_count: Option<i64> =
         sqlx::query_scalar!(r#"SELECT count(*) from posthog_propertydefinition WHERE type = 2"#)
