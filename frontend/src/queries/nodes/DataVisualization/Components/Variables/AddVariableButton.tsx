@@ -10,8 +10,10 @@ import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
 export const AddVariableButton = ({
+    title = 'Query variable',
     buttonProps,
 }: {
+    title?: string
     buttonProps?: Pick<LemonButtonProps, 'type' | 'size' | 'sideIcon'>
 }): JSX.Element => {
     const { showEditingUI } = useValues(dataVisualizationLogic)
@@ -85,7 +87,7 @@ export const AddVariableButton = ({
                 ]}
             >
                 <LemonButton type="secondary" icon={<IconPlus />} sideIcon={null} {...buttonProps}>
-                    Query variable
+                    {title}
                 </LemonButton>
             </LemonMenu>
             <NewVariableModal />
