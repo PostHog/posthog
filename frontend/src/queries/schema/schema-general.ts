@@ -1976,24 +1976,30 @@ export type ExperimentMetricMathProperties = {
     math_property?: string
 }
 
+export type ExperimentEventMetricSource = {
+    type: 'event'
+    event: string
+    properties?: AnyPropertyFilter[]
+}
+
+export type ExperimentActionMetricSource = {
+    type: 'action'
+    action: number
+    properties?: AnyPropertyFilter[]
+}
+
+export type ExperimentDataWarehouseMetricSource = {
+    type: 'data_warehouse'
+    table_name: string
+    timestamp_field: string
+    events_join_key: string
+    data_warehouse_join_key: string
+}
+
 export type ExperimentMetricSource =
-    | {
-          type: 'event'
-          event: string
-          properties?: AnyPropertyFilter[]
-      }
-    | {
-          type: 'action'
-          action: number
-          properties?: AnyPropertyFilter[]
-      }
-    | {
-          type: 'data_warehouse'
-          table_name: string
-          timestamp_field: string
-          events_join_key: string
-          data_warehouse_join_key: string
-      }
+    | ExperimentEventMetricSource
+    | ExperimentActionMetricSource
+    | ExperimentDataWarehouseMetricSource
 
 export type ExperimentFunnelMetricStep = {
     event: string

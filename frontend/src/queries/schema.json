@@ -7838,6 +7838,49 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
+        "ExperimentActionMetricSource": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "type": "number"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "action",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "action"],
+            "type": "object"
+        },
+        "ExperimentDataWarehouseMetricSource": {
+            "additionalProperties": false,
+            "properties": {
+                "data_warehouse_join_key": {
+                    "type": "string"
+                },
+                "events_join_key": {
+                    "type": "string"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "data_warehouse",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "table_name", "timestamp_field", "events_join_key", "data_warehouse_join_key"],
+            "type": "object"
+        },
         "ExperimentEventExposureConfig": {
             "additionalProperties": false,
             "properties": {
@@ -7856,6 +7899,26 @@
                 }
             },
             "required": ["kind", "event", "properties"],
+            "type": "object"
+        },
+        "ExperimentEventMetricSource": {
+            "additionalProperties": false,
+            "properties": {
+                "event": {
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "event",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "event"],
             "type": "object"
         },
         "ExperimentExposureCriteria": {
@@ -8204,67 +8267,13 @@
         "ExperimentMetricSource": {
             "anyOf": [
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "event": {
-                            "type": "string"
-                        },
-                        "properties": {
-                            "items": {
-                                "$ref": "#/definitions/AnyPropertyFilter"
-                            },
-                            "type": "array"
-                        },
-                        "type": {
-                            "const": "event",
-                            "type": "string"
-                        }
-                    },
-                    "required": ["type", "event"],
-                    "type": "object"
+                    "$ref": "#/definitions/ExperimentEventMetricSource"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "action": {
-                            "type": "number"
-                        },
-                        "properties": {
-                            "items": {
-                                "$ref": "#/definitions/AnyPropertyFilter"
-                            },
-                            "type": "array"
-                        },
-                        "type": {
-                            "const": "action",
-                            "type": "string"
-                        }
-                    },
-                    "required": ["type", "action"],
-                    "type": "object"
+                    "$ref": "#/definitions/ExperimentActionMetricSource"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "data_warehouse_join_key": {
-                            "type": "string"
-                        },
-                        "events_join_key": {
-                            "type": "string"
-                        },
-                        "table_name": {
-                            "type": "string"
-                        },
-                        "timestamp_field": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "const": "data_warehouse",
-                            "type": "string"
-                        }
-                    },
-                    "required": ["type", "table_name", "timestamp_field", "events_join_key", "data_warehouse_join_key"],
-                    "type": "object"
+                    "$ref": "#/definitions/ExperimentDataWarehouseMetricSource"
                 }
             ]
         },
