@@ -25,6 +25,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Button } from 'lib/ui/Button/Button'
 import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
@@ -214,17 +215,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     <div className="flex justify-between p-1">
                         <OrganizationDropdownMenu />
 
-                        <LemonButton
-                            size="small"
-                            type="tertiary"
-                            tooltip="Search"
-                            onClick={() => toggleSearchBar()}
-                            icon={
-                                <IconWrapper>
-                                    <IconSearch />
-                                </IconWrapper>
-                            }
-                        />
+                        <Button.Root size="base" onClick={() => toggleSearchBar()}>
+                            <Button.Icon>
+                                <IconSearch className="text-secondary" />
+                            </Button.Icon>
+                        </Button.Root>
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
@@ -277,7 +272,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     ))}
                                 </div>
 
-                                <div className="border-b border-secondary h-px my-1" />
+                                <div className="border-b border-primary h-px my-1" />
 
                                 <div className="pt-1 px-1">
                                     <div className="flex justify-between items-center pl-2 pr-0 pb-2">
@@ -359,7 +354,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </ListBox>
                         </ScrollableShadows>
 
-                        <div className="border-b border-secondary h-px " />
+                        <div className="border-b border-primary h-px " />
 
                         <div className="pt-1 px-1 pb-2 flex flex-col gap-px">
                             <LemonButton

@@ -682,6 +682,7 @@ const config = {
                 ...commonColors,
 
                 'primary': 'var(--border-primary)',
+                'secondary': 'var(--border-secondary)',
                 'info': 'var(--border-info)',
                 'warning': 'var(--border-warning)',
                 'error': 'var(--border-error)',

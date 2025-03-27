@@ -1,12 +1,9 @@
 import { IconFolderPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Button } from 'lib/ui/Button/Button'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
-import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
+import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -53,56 +50,20 @@ export function ProjectTree(): JSX.Element {
                 <>
                     {pendingActions.length > 0 ? (
                         <div className="flex gap-1">
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                onClick={cancelPendingActions}
-                                tooltip={`Cancel ${pendingActions.length} ${
-                                    pendingActions.length === 1 ? 'change' : 'changes'
-                                }`}
-                                tooltipPlacement="bottom"
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                size="xsmall"
-                                type="primary"
-                                status="danger"
-                                onClick={applyPendingActions}
-                                tooltip={`Save ${pendingActions.length} ${
-                                    pendingActions.length === 1 ? 'change' : 'changes'
-                                }`}
-                                tooltipPlacement="bottom"
-                            >
-                                Save
-                            </LemonButton>
+                            <Button.Root onClick={cancelPendingActions} size="sm" intent="outline">
+                                <Button.Label size="sm">Cancel</Button.Label>
+                            </Button.Root>
+                            <Button.Root onClick={applyPendingActions} size="sm" intent="outline">
+                                <Button.Label size="sm">Save</Button.Label>
+                            </Button.Root>
                         </div>
                     ) : (
                         <>
-                            {/* <LemonButton
-                                size="small"
-                                type="tertiary"
-                                tooltip="Sort by name"
-                                onClick={() => alert('Sort by name')}
-                                className="shrink-0"
-                                icon={
-                                    <IconWrapper>
-                                        <IconSort />
-                                    </IconWrapper>
-                                }
-                            /> */}
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                tooltip="Create new root folder"
-                                onClick={() => createFolder('')}
-                                className="shrink-0"
-                                icon={
-                                    <IconWrapper>
-                                        <IconFolderPlus />
-                                    </IconWrapper>
-                                }
-                            />
+                            <Button.Root onClick={() => createFolder('')}>
+                                <Button.Icon>
+                                    <IconFolderPlus className="text-tertiary" />
+                                </Button.Icon>
+                            </Button.Root>
                         </>
                     )}
                 </>

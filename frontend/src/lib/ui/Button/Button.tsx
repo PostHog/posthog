@@ -29,8 +29,9 @@ type ButtonIntent = 'default' | 'outline'
 
 const BUTTON_INTENT: Record<ButtonIntent, string> = {
     default:
-        'text-primary not-disabled:hover:bg-fill-highlight-100 data-[state=open]:bg-fill-highlight-50 data-[state=checked]:bg-fill-highlight-50',
-    outline: 'text-primary border border-primary not-disabled:hover:border-tertiary hover:bg-fill-highlight-50',
+        'text-primary not-disabled:hover:bg-fill-button-tertiary-hover data-[state=open]:bg-fill-button-tertiary-active data-[state=checked]:bg-fill-button-tertiary-active',
+    outline:
+        'text-primary border border-secondary not-disabled:hover:border-tertiary hover:bg-fill-button-tertiary-active',
 }
 
 export type ButtonSize = 'sm' | 'base' | 'lg'
@@ -406,6 +407,9 @@ const iconVariants = cva({
 interface ButtonIconProps extends VariantProps<typeof iconVariants> {
     isTrigger?: boolean
     showTriggerDivider?: boolean
+    to?: string
+    disableClientSideRouting?: boolean
+    targetBlank?: boolean
 }
 
 function ButtonIconComponent<E extends ElementType = 'span'>(
@@ -417,6 +421,9 @@ function ButtonIconComponent<E extends ElementType = 'span'>(
         isTrigger,
         customIconSize = false,
         showTriggerDivider = false,
+        to,
+        disableClientSideRouting,
+        targetBlank,
         ...props
     }: PolymorphicComponentProps<E, ButtonIconProps>,
     forwardedRef: PolymorphicRef<E>
@@ -481,17 +488,38 @@ interface ButtonLabelProps extends VariantProps<typeof buttonLabelVariants> {
     menuItem?: boolean
     className?: string
     truncate?: boolean
+    disableClientSideRouting?: boolean
+    targetBlank?: boolean
 }
 
 function ButtonLabelComponent<E extends ElementType = 'span'>(
-    { as, children, size, menuItem, truncate, ...props }: PolymorphicComponentProps<E, ButtonLabelProps>,
+    {
+        as,
+        children,
+        size,
+        menuItem,
+        truncate,
+        to,
+        disableClientSideRouting,
+        targetBlank,
+        ...props
+    }: PolymorphicComponentProps<E, ButtonLabelProps>,
     forwardedRef: PolymorphicRef<E>
 ): JSX.Element {
-    const Component = as || 'span'
+    const Component = to ? Link : as || 'span'
+
+    const linkProps = to
+        ? {
+              role: 'link',
+              disableClientSideRouting,
+              target: targetBlank ? '_blank' : undefined,
+          }
+        : {}
 
     return (
         <Component
             {...(props as any)}
+            {...linkProps}
             ref={forwardedRef as any}
             className={cn(buttonLabelVariants({ size, menuItem, truncate }), props.className)}
         >

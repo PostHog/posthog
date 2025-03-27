@@ -36,6 +36,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                     <Button.Icon>
                         {currentOrganization ? (
                             <UploadedLogo
+                                size="xsmall"
                                 name={currentOrganization.name}
                                 entityId={currentOrganization.id}
                                 mediaId={currentOrganization.logo_media_id}
@@ -47,8 +48,8 @@ export function OrganizationDropdownMenu(): JSX.Element {
                     <Button.Label>
                         {currentOrganization ? currentOrganization.name : 'Select organization'}
                     </Button.Label>
-                    <Button.Icon className="rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none">
-                        <IconChevronRight />
+                    <Button.Icon size="sm">
+                        <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
                     </Button.Icon>
                 </Button.Root>
             </DropdownMenuTrigger>
@@ -60,6 +61,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                         <Button.Root menuItem>
                             <Button.Icon>
                                 <UploadedLogo
+                                    size="xsmall"
                                     name={currentOrganization.name}
                                     entityId={currentOrganization.id}
                                     mediaId={currentOrganization.logo_media_id}
