@@ -1,9 +1,11 @@
-import { IconTrash } from '@posthog/icons'
+import { IconFilter, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconWithCount } from 'lib/lemon-ui/icons'
+import React from 'react'
 import { getClampedExclusionStepRange } from 'scenes/funnels/funnelUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -54,31 +56,18 @@ export function ExclusionRowSuffix({
         updateInsightFilter({ exclusions: newExclusions })
     }
 
+    const [propertyFiltersVisible, setPropertyFiltersVisible] = React.useState(false)
+
     return (
         <div
             className={clsx(
-                'flex flex-col items-start flex-nowrap pl-1 mx-0',
+                'flex flex-col gap-2 items-start flex-nowrap pl-1 mx-0 bg-bg-light rounded p-2',
                 isVertical ? 'w-full my-1' : 'w-auto my-0'
             )}
         >
-            <div className="mb-2 w-full">
-                <PropertyFilters
-                    pageKey={`funnel-exclusion-${index}`}
-                    propertyFilters={exclusions?.[index]?.properties ?? []}
-                    onChange={handlePropertyFiltersChange}
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.NumericalEventProperties,
-                    ]}
-                    buttonText="Add exclusion property"
-                />
-            </div>
-            <div className={clsx('flex items-center flex-nowrap', isVertical ? 'w-full' : 'w-auto')}>
-                between
+            <div className="flex items-center gap-2 w-full">
+                <span>between</span>
                 <LemonSelect
-                    className="mx-1"
                     size="small"
                     value={stepRange.funnelFromStep || 0}
                     onChange={onChange}
@@ -87,9 +76,8 @@ export function ExclusionRowSuffix({
                         .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
                     disabled={!isFunnelWithEnoughSteps}
                 />
-                and
+                <span>and</span>
                 <LemonSelect
-                    className="ml-1"
                     size="small"
                     value={stepRange.funnelToStep || (stepRange.funnelFromStep ?? 0) + 1}
                     onChange={(toStep: number) => onChange(stepRange.funnelFromStep, toStep)}
@@ -98,15 +86,48 @@ export function ExclusionRowSuffix({
                         .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
                     disabled={!isFunnelWithEnoughSteps}
                 />
+                <div className="flex-1" />
+                <IconWithCount
+                    key="property-filter"
+                    count={exclusions?.[index]?.properties?.length || 0}
+                    showZero={false}
+                >
+                    <LemonButton
+                        icon={<IconFilter />}
+                        type="secondary"
+                        size="small"
+                        status="default"
+                        onClick={() => setPropertyFiltersVisible(!propertyFiltersVisible)}
+                        data-attr={`show-prop-filter-${index}`}
+                    >
+                        where
+                    </LemonButton>
+                </IconWithCount>
                 <LemonButton
                     size="small"
                     icon={<IconTrash />}
                     onClick={onClose}
                     data-attr="delete-prop-exclusion-filter"
                     title="Delete event exclusion series"
-                    className="ml-1"
+                    status="default"
+                    type="secondary"
                 />
             </div>
+            {propertyFiltersVisible && (
+                <div className="w-full pl-2">
+                    <PropertyFilters
+                        pageKey={`funnel-exclusion-${index}`}
+                        propertyFilters={exclusions?.[index]?.properties ?? []}
+                        onChange={handlePropertyFiltersChange}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.EventFeatureFlags,
+                            TaxonomicFilterGroupType.NumericalEventProperties,
+                        ]}
+                    />
+                </div>
+            )}
         </div>
     )
 }
