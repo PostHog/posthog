@@ -6,6 +6,7 @@ import {
 } from 'lib/components/InsightLegend/utils'
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
@@ -19,6 +20,7 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
+import { groupsModel } from '~/models/groupsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import {
@@ -93,6 +95,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['dataWarehouseTablesMap'],
             dataThemeLogic,
             ['getTheme'],
+            groupsModel,
+            ['groupsTaxonomicTypes'],
         ],
         actions: [insightDataLogic, ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure']],
     })),
@@ -480,6 +484,26 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return possibilities
             },
         ],
+        propertiesTaxonomicGroupTypes: [
+            (s) => [s.groupsTaxonomicTypes],
+            (groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
+                return [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                    TaxonomicFilterGroupType.NumericalEventProperties,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.CohortsWithAllUsers,
+                    TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.SessionProperties,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                    TaxonomicFilterGroupType.DataWarehouseProperties,
+                ]
+            },
+        ],
+        trendsFormula: [(s) => [s.trendsFilter], (trendsFilter) => (trendsFilter ? getFormula(trendsFilter) : null)],
+        aggregationOptionsForQuery: [(s) => [s.querySource], (querySource) => mattersForAggregation(querySource)],
     }),
 
     listeners(({ actions, values, props }) => ({

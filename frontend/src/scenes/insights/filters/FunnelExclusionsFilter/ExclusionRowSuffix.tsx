@@ -3,7 +3,6 @@ import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import React from 'react'
 import { getClampedExclusionStepRange } from 'scenes/funnels/funnelUtils'
@@ -25,9 +24,14 @@ export function ExclusionRowSuffix({
     isVertical,
 }: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, funnelsFilter, series, isFunnelWithEnoughSteps, exclusionDefaultStepRange } = useValues(
-        insightVizDataLogic(insightProps)
-    )
+    const {
+        querySource,
+        funnelsFilter,
+        series,
+        propertiesTaxonomicGroupTypes,
+        isFunnelWithEnoughSteps,
+        exclusionDefaultStepRange,
+    } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const exclusions = funnelsFilter?.exclusions
@@ -121,12 +125,7 @@ export function ExclusionRowSuffix({
                         pageKey={`funnel-exclusion-${index}`}
                         propertyFilters={exclusions?.[index]?.properties ?? []}
                         onChange={handlePropertyFiltersChange}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.EventFeatureFlags,
-                            TaxonomicFilterGroupType.NumericalEventProperties,
-                        ]}
+                        taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
                         showNestedArrow={true}
                         disablePopover={true}
                     />

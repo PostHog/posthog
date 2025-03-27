@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -20,8 +19,9 @@ import { FunnelVizType } from '../views/Funnels/FunnelVizType'
 export const FUNNEL_STEP_COUNT_LIMIT = 30
 
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
-    const { series, querySource } = useValues(insightVizDataLogic(insightProps))
+    const { series, querySource, propertiesTaxonomicGroupTypes } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { showGroupsOptions } = useValues(groupsModel)
 
     const actionFilters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
     const setActionFilters = (payload: Partial<FilterType>): void => {
@@ -29,8 +29,6 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
             series: actionsAndEventsToSeries(payload as any, true, MathAvailability.FunnelsOnly),
         } as FunnelsQuery)
     }
-
-    const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
 
     if (!actionFilters) {
         return null
@@ -63,16 +61,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
                 sortable
                 showNestedArrow
-                propertiesTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    ...groupsTaxonomicTypes,
-                    TaxonomicFilterGroupType.Cohorts,
-                    TaxonomicFilterGroupType.Elements,
-                    TaxonomicFilterGroupType.SessionProperties,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                ]}
+                propertiesTaxonomicGroupTypes={propertiesTaxonomicGroupTypes}
             />
             <div className="mt-4 deprecated-space-y-4">
                 {showGroupsOptions && (
