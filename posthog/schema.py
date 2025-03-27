@@ -983,17 +983,6 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
-class ExperimentDataWarehouseMetricSource(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    data_warehouse_join_key: str
-    events_join_key: str
-    table_name: str
-    timestamp_field: str
-    type: Literal["data_warehouse"] = "data_warehouse"
-
-
 class ExperimentExposureTimeSeries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1007,7 +996,6 @@ class ExperimentMetricBaseProperties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    inverse: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
     time_window_hours: Optional[float] = None
@@ -1016,6 +1004,17 @@ class ExperimentMetricBaseProperties(BaseModel):
 class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
+
+
+class ExperimentMetricSource3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data_warehouse_join_key: str
+    events_join_key: str
+    table_name: str
+    timestamp_field: str
+    type: Literal["data_warehouse"] = "data_warehouse"
 
 
 class ExperimentMetricType(StrEnum):
@@ -5460,34 +5459,6 @@ class EventsQueryResponse(BaseModel):
     types: list[str]
 
 
-class ExperimentActionMetricSource(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    action: float
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                EventMetadataPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingPropertyFilter,
-                LogEntryPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = None
-    type: Literal["action"] = "action"
-
-
 class ExperimentEventExposureConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5512,34 +5483,6 @@ class ExperimentEventExposureConfig(BaseModel):
             DataWarehousePersonPropertyFilter,
         ]
     ]
-
-
-class ExperimentEventMetricSource(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    event: str
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                EventMetadataPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingPropertyFilter,
-                LogEntryPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = None
-    type: Literal["event"] = "event"
 
 
 class ExperimentExposureCriteria(BaseModel):
@@ -5589,6 +5532,62 @@ class ExperimentFunnelMetricStep(BaseModel):
             ]
         ]
     ] = None
+
+
+class ExperimentMetricSource1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = None
+    type: Literal["event"] = "event"
+
+
+class ExperimentMetricSource2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: float
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = None
+    type: Literal["action"] = "action"
 
 
 class FunnelCorrelationResponse(BaseModel):
@@ -7523,7 +7522,6 @@ class ExperimentFunnelMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    inverse: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
     name: Optional[str] = None
@@ -7535,14 +7533,13 @@ class ExperimentMeanMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    inverse: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     math: Optional[ExperimentMetricMathType] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     metric_type: Literal["mean"] = "mean"
     name: Optional[str] = None
-    source: Union[ExperimentEventMetricSource, ExperimentActionMetricSource, ExperimentDataWarehouseMetricSource]
+    source: Union[ExperimentMetricSource1, ExperimentMetricSource2, ExperimentMetricSource3]
     time_window_hours: Optional[float] = None
 
 
