@@ -42,7 +42,7 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
         )
         return []
 
-    blocks = [
+    blocks: list[RecordingBlock] = [
         {
             "start_time": start_time,
             "end_time": end_time,

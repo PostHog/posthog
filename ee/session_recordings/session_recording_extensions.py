@@ -8,6 +8,7 @@ from prometheus_client import Histogram, Counter
 from posthog import settings
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.storage import object_storage, session_recording_v2_object_storage
+from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 
 logger = structlog.get_logger(__name__)
@@ -188,17 +189,17 @@ def persist_recording_v2(recording_id: str, team_id: int) -> None:
     decompressed_blocks = []
     with SNAPSHOT_PERSIST_TIME_V2_HISTOGRAM.time():
         for block in blocks:
-            decompressed_block, error = storage_client.fetch_block(block["url"])
-            if error:
-                logger.error(
-                    error,
+            try:
+                decompressed_block = storage_client.fetch_block(block["url"])
+                decompressed_blocks.append(decompressed_block)
+            except BlockFetchError:
+                logger.exception(
+                    "Failed to fetch block",
                     recording_id=recording_id,
                     team_id=team_id,
                 )
                 SNAPSHOT_PERSIST_FAILURE_V2_COUNTER.inc()
                 return
-
-            decompressed_blocks.append(decompressed_block)
 
         full_recording_data = "".join(decompressed_blocks)
 

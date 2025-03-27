@@ -10,6 +10,10 @@ from typing import Optional
 logger = structlog.get_logger(__name__)
 
 
+class BlockFetchError(Exception):
+    pass
+
+
 class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
@@ -24,8 +28,8 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def fetch_block(self, block_url: str) -> tuple[Optional[str], Optional[str]]:
-        """Returns a tuple of (decompressed_block, error_message)"""
+    def fetch_block(self, block_url: str) -> str:
+        """Returns the decompressed block or raises BlockFetchError"""
         pass
 
     @abc.abstractmethod
@@ -48,8 +52,8 @@ class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorage
     def is_enabled(self) -> bool:
         return False
 
-    def fetch_block(self, block_url: str) -> tuple[Optional[str], Optional[str]]:
-        return None, "Storage not available"
+    def fetch_block(self, block_url: str) -> str:
+        raise BlockFetchError("Storage not available")
 
     def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
         return None, "Storage not available"
@@ -104,7 +108,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
     def is_enabled(self) -> bool:
         return True
 
-    def fetch_block(self, block_url: str) -> tuple[Optional[str], Optional[str]]:
+    def fetch_block(self, block_url: str) -> str:
         try:
             # Parse URL and extract key and byte range
             parsed_url = urlparse(block_url)
@@ -114,28 +118,29 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
 
             if start_byte is None or end_byte is None:
-                return None, "Invalid byte range in block URL"
+                raise BlockFetchError("Invalid byte range in block URL")
 
             expected_length = end_byte - start_byte + 1
             compressed_block = self.read_bytes(key, first_byte=start_byte, last_byte=end_byte)
 
             if not compressed_block:
-                return None, "Block content not found"
+                raise BlockFetchError("Block content not found")
 
             if len(compressed_block) != expected_length:
-                return (
-                    None,
-                    f"Unexpected data length. Expected {expected_length} bytes, got {len(compressed_block)} bytes",
+                raise BlockFetchError(
+                    f"Unexpected data length. Expected {expected_length} bytes, got {len(compressed_block)} bytes"
                 )
 
             decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
             # Ensure block ends with exactly one newline
             decompressed_block = decompressed_block.rstrip("\n") + "\n"
-            return decompressed_block, None
+            return decompressed_block
 
+        except BlockFetchError:
+            raise
         except Exception as e:
             logger.exception("Failed to read and decompress block", error=e)
-            return None, f"Failed to read and decompress block: {str(e)}"
+            raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
 
     def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
         try:

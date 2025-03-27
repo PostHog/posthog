@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from typing import Any, Optional, cast, Literal
 
+import structlog
 from posthoganalytics.ai.openai import OpenAI
 from urllib.parse import urlparse
 
@@ -65,6 +66,7 @@ from openai.types.chat import (
 )
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.session_recordings.session_recording_v2_service import list_blocks
+from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -92,6 +94,8 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
 )
+
+logger = structlog.get_logger(__name__)
 
 
 def filter_from_params_to_query(params: dict) -> RecordingsQuery:
@@ -913,9 +917,16 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 raise exceptions.NotFound("Block index out of range")
 
             block = blocks[block_index]
-            decompressed_block, error = session_recording_v2_object_storage.client().fetch_block(block["url"])
-            if error:
-                raise exceptions.APIException(error)
+            try:
+                decompressed_block = session_recording_v2_object_storage.client().fetch_block(block["url"])
+            except BlockFetchError:
+                logger.exception(
+                    "Failed to fetch block",
+                    recording_id=recording.session_id,
+                    team_id=self.team.id,
+                    block_index=block_index,
+                )
+                raise exceptions.APIException("Failed to load recording block")
 
             response = HttpResponse(
                 content=decompressed_block,

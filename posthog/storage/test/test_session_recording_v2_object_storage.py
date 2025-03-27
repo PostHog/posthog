@@ -14,6 +14,7 @@ from posthog.settings.session_replay_v2 import (
 from posthog.storage.session_recording_v2_object_storage import (
     client,
     SessionRecordingV2ObjectStorage,
+    BlockFetchError,
 )
 from posthog.test.base import APIBaseTest
 
@@ -114,10 +115,9 @@ class TestSessionRecordingV2Storage(APIBaseTest):
         storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
 
         block_url = f"s3://bucket/key1?range=bytes=0-{len(compressed_data) - 1}"
-        result, error = storage.fetch_block(block_url)
+        result = storage.fetch_block(block_url)
 
-        assert error is None
-        assert result == "test data\n"
+        assert result == test_data
         mock_client.get_object.assert_called_with(
             Bucket=TEST_BUCKET, Key="key1", Range=f"bytes=0-{len(compressed_data) - 1}"
         )
@@ -126,23 +126,23 @@ class TestSessionRecordingV2Storage(APIBaseTest):
         storage = SessionRecordingV2ObjectStorage(MagicMock(), TEST_BUCKET)
 
         # Test URL without byte range
-        result, error = storage.fetch_block("s3://bucket/key1")
-        assert result is None
-        assert error is not None and "Invalid byte range" in error
+        with self.assertRaises(BlockFetchError) as cm:
+            storage.fetch_block("s3://bucket/key1")
+        assert "Invalid byte range" in str(cm.exception)
 
         # Test URL with invalid byte range format
-        result, error = storage.fetch_block("s3://bucket/key1?range=invalid")
-        assert result is None
-        assert error is not None and "Invalid byte range" in error
+        with self.assertRaises(BlockFetchError) as cm:
+            storage.fetch_block("s3://bucket/key1?range=invalid")
+        assert "Invalid byte range" in str(cm.exception)
 
     def test_fetch_block_content_not_found(self):
         mock_client = MagicMock()
         mock_client.get_object.return_value = {"Body": MagicMock(read=MagicMock(return_value=None))}
         storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
 
-        result, error = storage.fetch_block("s3://bucket/key1?range=bytes=0-100")
-        assert result is None
-        assert error == "Block content not found"
+        with self.assertRaises(BlockFetchError) as cm:
+            storage.fetch_block("s3://bucket/key1?range=bytes=0-100")
+        assert "Block content not found" in str(cm.exception)
 
     def test_fetch_block_wrong_content_length(self):
         mock_client = MagicMock()
@@ -151,9 +151,9 @@ class TestSessionRecordingV2Storage(APIBaseTest):
         mock_client.get_object.return_value = {"Body": mock_body}
         storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
 
-        result, error = storage.fetch_block("s3://bucket/key1?range=bytes=0-100")
-        assert result is None
-        assert error is not None and "Unexpected data length" in error
+        with self.assertRaises(BlockFetchError) as cm:
+            storage.fetch_block("s3://bucket/key1?range=bytes=0-100")
+        assert "Unexpected data length" in str(cm.exception)
 
     def test_store_lts_recording_success(self):
         mock_client = MagicMock()
