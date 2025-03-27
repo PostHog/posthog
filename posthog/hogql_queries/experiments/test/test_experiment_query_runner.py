@@ -19,21 +19,20 @@ from posthog.settings import (
     XDIST_SUFFIX,
 )
 from posthog.schema import (
+    ExperimentEventMetricSource,
     ExperimentMetricMathType,
     EventPropertyFilter,
-    ExperimentActionMetricConfig,
-    ExperimentDataWarehouseMetricConfig,
     ExperimentEventExposureConfig,
-    ExperimentEventMetricConfig,
-    ExperimentMetric,
     ExperimentMetricType,
     ExperimentQuery,
     ExperimentSignificanceCode,
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
     PersonsOnEventsMode,
-    ExperimentFunnelMetricConfig,
-    ExperimentFunnelStepConfig,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentFunnelMetricStep,
+    PropertyOperator,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -279,13 +278,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
-        metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.FUNNEL,
-            metric_config=ExperimentFunnelMetricConfig(
-                funnel=[
-                    ExperimentFunnelStepConfig(event="purchase", order=1),
-                ],
-            ),
+        metric = ExperimentFunnelMetric(
+            steps=[
+                ExperimentFunnelMetricStep(event="purchase", order=1),
+            ],
         )
 
         experiment_query = ExperimentQuery(
@@ -342,11 +338,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.stats_config = {"version": 2}
         experiment.save()
 
-        metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.MEAN,
-            metric_config=ExperimentEventMetricConfig(
-                event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"
-            ),
+        metric = ExperimentMeanMetric(
+            source=ExperimentEventMetricSource(event="purchase"),
+            math=ExperimentMetricMathType.SUM,
+            math_property="amount",
         )
 
         experiment_query = ExperimentQuery(
@@ -389,9 +384,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
-        metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.MEAN,
-            metric_config=ExperimentEventMetricConfig(event="purchase"),
+        metric = ExperimentMeanMetric(
+            source=ExperimentEventMetricSource(event="purchase"),
+            math=ExperimentMetricMathType.SUM,
+            math_property="amount",
         )
 
         experiment_query = ExperimentQuery(
@@ -499,14 +495,15 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
-        metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.MEAN,
-            metric_config=ExperimentEventMetricConfig(
+        metric = ExperimentMeanMetric(
+            source=ExperimentEventMetricSource(
                 event="purchase",
                 properties=[
-                    EventPropertyFilter(key="plan", operator="is_not", value="pro", type="event"),
+                    EventPropertyFilter(key="plan", operator=PropertyOperator.IS_NOT, value="pro", type="event"),
                 ],
             ),
+            math=ExperimentMetricMathType.SUM,
+            math_property="amount",
         )
 
         experiment_query = ExperimentQuery(
@@ -582,9 +579,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         action = Action.objects.create(name="purchase", team=self.team, steps_json=[{"event": "purchase"}])
         action.save()
 
-        metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.MEAN,
-            metric_config=ExperimentActionMetricConfig(action=action.id),
+        metric = ExperimentMeanMetric(
+            source=ExperimentActionMetricSource(action=action.id),
+            math=ExperimentMetricMathType.SUM,
+            math_property="amount",
         )
 
         experiment_query = ExperimentQuery(
@@ -791,13 +789,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
-            metric=ExperimentMetric(
-                metric_type=ExperimentMetricType.FUNNEL,
-                metric_config=ExperimentFunnelMetricConfig(
-                    funnel=[
-                        ExperimentFunnelStepConfig(event="purchase", order=1),
-                    ],
-                ),
+            metric=ExperimentFunnelMetric(
+                steps=[
+                    ExperimentFunnelMetricStep(event="purchase", order=1),
+                ],
             ),
         )
         experiment.exposure_criteria = {"filterTestAccounts": True}
@@ -925,9 +920,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         ff_property = f"$feature/{feature_flag.key}"
 
-        metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.MEAN,
-            metric_config=ExperimentEventMetricConfig(event="$pageview"),
+        metric = ExperimentMeanMetric(
+            source=ExperimentEventMetricSource(event="$pageview"),
+            math=ExperimentMetricMathType.SUM,
+            math_property="amount",
         )
 
         experiment_query = ExperimentQuery(
@@ -1034,7 +1030,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @mark.skip("Funnel metrics on data warehouse tables are not supported yet")
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_funnel_metric(self):
-        table_name = self.create_data_warehouse_table_with_usage()
+        # table_name = self.create_data_warehouse_table_with_usage()
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -1045,14 +1041,17 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
-        metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.FUNNEL,
-            metric_config=ExperimentDataWarehouseMetricConfig(
-                table_name=table_name,
-                events_join_key="properties.$user_id",
-                data_warehouse_join_key="userid",
-                timestamp_field="ds",
-            ),
+        metric = ExperimentFunnelMetric(
+            # TODO: fix this once supported
+            # source=ExperimentDataWarehouseMetricSource(
+            #     table_name=table_name,
+            #     events_join_key="properties.$user_id",
+            #     data_warehouse_join_key="userid",
+            #     timestamp_field="ds",
+            # ),
+            steps=[
+                ExperimentFunnelMetricStep(event="purchase", order=1),
+            ],
         )
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,

@@ -983,6 +983,17 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentDataWarehouseMetricSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data_warehouse_join_key: str
+    events_join_key: str
+    table_name: str
+    timestamp_field: str
+    type: Literal["data_warehouse"] = "data_warehouse"
+
+
 class ExperimentExposureTimeSeries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1004,17 +1015,6 @@ class ExperimentMetricBaseProperties(BaseModel):
 class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
-
-
-class ExperimentMetricSource3(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    data_warehouse_join_key: str
-    events_join_key: str
-    table_name: str
-    timestamp_field: str
-    type: Literal["data_warehouse"] = "data_warehouse"
 
 
 class ExperimentMetricType(StrEnum):
@@ -5459,6 +5459,34 @@ class EventsQueryResponse(BaseModel):
     types: list[str]
 
 
+class ExperimentActionMetricSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: float
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = None
+    type: Literal["action"] = "action"
+
+
 class ExperimentEventExposureConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5483,6 +5511,34 @@ class ExperimentEventExposureConfig(BaseModel):
             DataWarehousePersonPropertyFilter,
         ]
     ]
+
+
+class ExperimentEventMetricSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = None
+    type: Literal["event"] = "event"
 
 
 class ExperimentExposureCriteria(BaseModel):
@@ -5540,62 +5596,6 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     )
     metric_type: Literal["funnel"] = "funnel"
     steps: list[ExperimentFunnelMetricStep]
-
-
-class ExperimentMetricSource1(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    event: str
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                EventMetadataPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingPropertyFilter,
-                LogEntryPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = None
-    type: Literal["event"] = "event"
-
-
-class ExperimentMetricSource2(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    action: float
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                EventMetadataPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingPropertyFilter,
-                LogEntryPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = None
-    type: Literal["action"] = "action"
 
 
 class FunnelCorrelationResponse(BaseModel):
@@ -7547,7 +7547,7 @@ class ExperimentMeanMetric(BaseModel):
     math_property: Optional[str] = None
     metric_type: Literal["mean"] = "mean"
     name: Optional[str] = None
-    source: Union[ExperimentMetricSource1, ExperimentMetricSource2, ExperimentMetricSource3]
+    source: Union[ExperimentEventMetricSource, ExperimentActionMetricSource, ExperimentDataWarehouseMetricSource]
     time_window_hours: Optional[float] = None
 
 
@@ -7559,7 +7559,7 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     metric_type: Literal["mean"] = "mean"
-    source: Union[ExperimentMetricSource1, ExperimentMetricSource2, ExperimentMetricSource3]
+    source: Union[ExperimentEventMetricSource, ExperimentActionMetricSource, ExperimentDataWarehouseMetricSource]
 
 
 class ExperimentMetricTypeProps(RootModel[Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps]]):
