@@ -1,4 +1,3 @@
-import useSize from '@react-hook/size'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useRef } from 'react'
@@ -23,8 +22,6 @@ export function FunnelExclusionsFilter(): JSX.Element {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const ref = useRef(null)
-    const [width] = useSize(ref)
-    const isVerticalLayout = !!width && width < 450 // If filter container shrinks below 500px, initiate verticality
 
     const setFilters = (filters: Partial<FilterType>): void => {
         const exclusions = filters.events?.map((entity) => {
@@ -57,8 +54,8 @@ export function FunnelExclusionsFilter(): JSX.Element {
             hideRename
             hideDeleteBtn
             seriesIndicatorType="alpha"
-            renderRow={(props) => <ExclusionRow {...props} isVertical={isVerticalLayout} />}
-            customRowSuffix={(props) => <ExclusionRowSuffix {...props} isVertical={isVerticalLayout} />}
+            renderRow={(props) => <ExclusionRow {...props} isVertical={true} />}
+            customRowSuffix={(props) => <ExclusionRowSuffix {...props} isVertical={true} />}
         />
     )
 }
