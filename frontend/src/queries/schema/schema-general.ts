@@ -1985,6 +1985,7 @@ export type ExperimentEventMetricSource = {
 export type ExperimentActionMetricSource = {
     type: 'action'
     action: number
+    name?: string
     properties?: AnyPropertyFilter[]
 }
 
