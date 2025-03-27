@@ -48,7 +48,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                 </Button.Label>
                 <Button.Icon
                     isTrigger
-                    onClick={(e: React.MouseEvent) => {
+                    onClick={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
                         e.nativeEvent.stopImmediatePropagation()

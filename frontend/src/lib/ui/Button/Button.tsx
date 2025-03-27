@@ -152,6 +152,7 @@ function ButtonRootComponent<E extends ElementType = 'button'>(
     {
         as,
         onClick,
+        onKeyDown,
         children,
         intent,
         size,
@@ -500,6 +501,7 @@ interface ButtonLabelProps extends VariantProps<typeof buttonLabelVariants> {
     truncate?: boolean
     disableClientSideRouting?: boolean
     targetBlank?: boolean
+    onClick?: React.MouseEventHandler
 }
 
 function ButtonLabelComponent<E extends ElementType = 'span'>(
