@@ -134,6 +134,12 @@ def find_teams_with_cache_inconsistencies(
     teams_in_cache = 0
     inconsistency_counts: dict[str, int] = {}
 
+    # Variables used in both branches
+    inconsistent_fields: list[str] = []
+    db_values: dict[str, Any] = {}
+    cache_values: dict[str, Any] = {}
+    team_info: dict[str, Any] = {}
+
     # Get teams to check
     if only_active_surveys:
         # Get teams with active surveys using Django ORM
@@ -173,9 +179,9 @@ def find_teams_with_cache_inconsistencies(
                 db_serialized = CachingTeamSerializer(team).data
                 cache_serialized = CachingTeamSerializer(cached_team).data
 
-                inconsistent_fields: list[str] = []
-                db_values: dict[str, Any] = {}
-                cache_values: dict[str, Any] = {}
+                inconsistent_fields.clear()
+                db_values.clear()
+                cache_values.clear()
 
                 for key in db_serialized:
                     if db_serialized[key] != cache_serialized.get(key):
@@ -187,12 +193,12 @@ def find_teams_with_cache_inconsistencies(
                         inconsistency_counts[key] = inconsistency_counts.get(key, 0) + 1
 
                 if inconsistent_fields:
-                    team_info: dict[str, Any] = {
+                    team_info = {
                         "team_id": team.id,
                         "team_name": team.name,
-                        "inconsistent_fields": inconsistent_fields,
-                        "db_values": db_values,
-                        "cache_values": cache_values,
+                        "inconsistent_fields": inconsistent_fields.copy(),
+                        "db_values": db_values.copy(),
+                        "cache_values": cache_values.copy(),
                     }
                     inconsistent_teams.append(team_info)
     else:
@@ -230,9 +236,9 @@ def find_teams_with_cache_inconsistencies(
                 db_serialized = CachingTeamSerializer(team).data
                 cache_serialized = CachingTeamSerializer(cached_team).data
 
-                inconsistent_fields: list[str] = []
-                db_values: dict[str, Any] = {}
-                cache_values: dict[str, Any] = {}
+                inconsistent_fields.clear()
+                db_values.clear()
+                cache_values.clear()
 
                 for key in db_serialized:
                     if db_serialized[key] != cache_serialized.get(key):
@@ -244,12 +250,12 @@ def find_teams_with_cache_inconsistencies(
                         inconsistency_counts[key] = inconsistency_counts.get(key, 0) + 1
 
                 if inconsistent_fields:
-                    team_info: dict[str, Any] = {
+                    team_info = {
                         "team_id": team.id,
                         "team_name": team.name,
-                        "inconsistent_fields": inconsistent_fields,
-                        "db_values": db_values,
-                        "cache_values": cache_values,
+                        "inconsistent_fields": inconsistent_fields.copy(),
+                        "db_values": db_values.copy(),
+                        "cache_values": cache_values.copy(),
                     }
                     inconsistent_teams.append(team_info)
 
