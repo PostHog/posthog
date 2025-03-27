@@ -201,7 +201,7 @@ def persist_recording_v2(recording_id: str, team_id: int) -> None:
                 SNAPSHOT_PERSIST_FAILURE_V2_COUNTER.inc()
                 return
 
-        full_recording_data = "".join(decompressed_blocks)
+        full_recording_data = "\n".join(decompressed_blocks)
 
         target_key, error = storage_client.store_lts_recording(recording_id, full_recording_data)
         if error:

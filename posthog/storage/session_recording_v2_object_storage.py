@@ -132,8 +132,8 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 )
 
             decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
-            # Ensure block ends with exactly one newline
-            decompressed_block = decompressed_block.rstrip("\n") + "\n"
+            # Strip any trailing newlines
+            decompressed_block = decompressed_block.rstrip("\n")
             return decompressed_block
 
         except BlockFetchError:
