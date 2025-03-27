@@ -16,7 +16,7 @@ type IconProps = {
 // If no icon is provided, use a defaultNodeIcon icon
 // If no defaultNodeIcon icon is provided, use empty div
 export function getIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): JSX.Element {
-    const ICON_CLASSES = 'text-secondary'
+    const ICON_CLASSES = 'text-tertiary'
 
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder'
@@ -38,7 +38,7 @@ export function getIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): 
                 <IconWrapper
                     className={cn(
                         ICON_CLASSES,
-                        'group-hover/lemon-tree-button:opacity-10 transition-opacity duration-150'
+                        'group-hover/lemon-tree-button:opacity-0 transition-opacity duration-150'
                     )}
                 >
                     {isOpen ? <IconFolderOpen /> : <IconFolder />}
@@ -140,7 +140,7 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
             className={cn(
                 'transition-all duration-150 rounded',
                 props.className,
-                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent-primary bg-accent-primary-highlight'
+                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary'
             )}
         >
             {props.children}

@@ -276,18 +276,18 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DataWarehouse]: {
         projectBased: true,
         name: 'Data warehouse',
-        defaultDocsPath: '/docs/data-warehouse',
+        defaultDocsPath: '/docs/cdp/sources',
     },
     [Scene.SQLEditor]: {
         projectBased: true,
         name: 'SQL editor',
-        defaultDocsPath: '/docs/data-warehouse/setup',
+        defaultDocsPath: '/docs/cdp/sources',
         layout: 'app-raw-no-header',
     },
     [Scene.DataWarehouseExternal]: {
         projectBased: true,
         name: 'Data warehouse',
-        defaultDocsPath: '/docs/data-warehouse/setup',
+        defaultDocsPath: '/docs/cdp/sources',
     },
     [Scene.DataWarehouseRedirect]: {
         name: 'Data warehouse redirect',

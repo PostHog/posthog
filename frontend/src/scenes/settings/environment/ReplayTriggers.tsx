@@ -292,6 +292,10 @@ export function ReplayTriggers(): JSX.Element {
                 Use the settings below to control when recordings are started or paused. If no triggers are selected,
                 then recordings will always start if enabled.
             </p>
+            <LemonBanner type="info">
+                Session recording triggers work as OR conditions — the recording starts if <i>any</i> of the set
+                triggers (URL or event) are matched.
+            </LemonBanner>
             <UrlTriggerOptions />
             <UrlBlocklistOptions />
             <EventTriggerOptions />

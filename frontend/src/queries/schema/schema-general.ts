@@ -110,6 +110,8 @@ export enum NodeKind {
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
+    ExperimentFunnelMetricConfig = 'ExperimentFunnelMetricConfig',
+    ExperimentFunnelStepConfig = 'ExperimentFunnelStepConfig',
     ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
     ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
@@ -1967,8 +1969,29 @@ export interface ExperimentMetric {
     name?: string
     metric_type: ExperimentMetricType
     inverse?: boolean
-    metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
+    metric_config:
+        | ExperimentEventMetricConfig
+        | ExperimentActionMetricConfig
+        | ExperimentDataWarehouseMetricConfig
+        | ExperimentFunnelMetricConfig
     time_window_hours?: number
+}
+
+export interface ExperimentFunnelStepConfig {
+    kind: NodeKind.ExperimentFunnelStepConfig
+    event: string
+    name?: string
+    order: integer
+    properties?: AnyPropertyFilter[]
+}
+
+export interface ExperimentFunnelMetricConfig {
+    kind: NodeKind.ExperimentFunnelMetricConfig
+    funnel: ExperimentFunnelStepConfig[]
+    // NOTE: Just to make the type system happy
+    math?: ExperimentMetricMathType
+    math_hogql?: string
+    math_property?: string
 }
 
 export interface ExperimentEventMetricConfig {

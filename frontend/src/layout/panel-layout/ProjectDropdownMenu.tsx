@@ -85,8 +85,8 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                             <IconFolderOpen />
                         </IconWrapper>
                     }
+                    type="tertiary"
                     size="small"
-                    className="hover:bg-fill-highlight-100"
                     sideIcon={
                         <IconWrapper
                             size="sm"
@@ -145,7 +145,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 }
                                 fullWidth
                                 size="small"
-                                data-attr="new-organization-button"
+                                data-attr="new-project-button"
                             >
                                 New project
                             </LemonButton>

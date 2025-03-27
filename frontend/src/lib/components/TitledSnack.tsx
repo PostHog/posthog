@@ -19,7 +19,7 @@ export function TitledSnack({
                     'border-r',
                     'rounded-l rounded-r-none',
                     'overflow-hidden text-ellipsis',
-                    type === 'success' ? 'bg-success-highlight' : 'bg-accent-primary-highlight'
+                    type === 'success' ? 'bg-success-highlight' : 'bg-accent-highlight-secondary'
                 )}
             >
                 <strong>
@@ -32,7 +32,7 @@ export function TitledSnack({
                     'pr-1.5 pl-1 py-1 max-w-full',
                     'rounded-r rounded-l-none',
                     'overflow-hidden text-ellipsis',
-                    type === 'success' ? 'bg-success-highlight' : 'bg-accent-primary-highlight',
+                    type === 'success' ? 'bg-success-highlight' : 'bg-accent-highlight-secondary',
                     'flex flex-1 items-center'
                 )}
             >
