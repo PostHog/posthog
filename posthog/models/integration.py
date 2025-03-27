@@ -422,12 +422,11 @@ class SlackIntegration:
             response = self.client.conversations_info(channel=channel_id)
             channel = response["channel"]
 
-            if channel["is_private"] and not should_include_private_channels:
-                return None
-
             return {
                 "id": channel["id"],
-                "name": channel["name"],
+                "name": channel["name"]
+                if channel["is_private"] and should_include_private_channels
+                else f"PRIVATE_CHANNEL_WITHOUT_ACCESS",
                 "is_private": channel["is_private"],
                 "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
@@ -446,10 +445,12 @@ class SlackIntegration:
 
         while max_page > 0:
             max_page -= 1
-            if type == "public_channel" or type == "private_channel" and should_include_private_channels:
-                res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
-            else:
-                continue
+            res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+
+            if type == "private_channel" and not should_include_private_channels:
+                for channel in res["channels"]:
+                    if channel["is_private"]:
+                        channel["name"] = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
 
             channels.extend(res["channels"])
             cursor = res["response_metadata"]["next_cursor"]
