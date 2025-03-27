@@ -57,6 +57,7 @@ export const APIScopes: APIScope[] = [
     { key: 'group' },
     { key: 'hog_function' },
     { key: 'insight' },
+    { key: 'mcp' },
     { key: 'notebook' },
     { key: 'organization', disabledWhenProjectScoped: true },
     {

@@ -1,6 +1,5 @@
 from typing import Literal, get_args
 
-
 ## API Scopes
 # These are the scopes that are used to define the permissions of the API tokens.
 # Not every model needs a scope - it should more be for top-level things
@@ -13,8 +12,8 @@ APIScopeObject = Literal[
     "annotation",
     "batch_export",
     "cohort",
-    "dashboard",
     "dashboard_template",
+    "dashboard",
     "early_access_feature",
     "error_tracking",
     "event_definition",
@@ -25,16 +24,17 @@ APIScopeObject = Literal[
     "group",
     "hog_function",
     "insight",
+    "mcp",
     "notebook",
-    "organization",
     "organization_member",
+    "organization",
     "person",
     "plugin",
     "project",
     "property_definition",
     "query",  # Covers query and events endpoints
-    "session_recording",
     "session_recording_playlist",
+    "session_recording",
     "sharing_configuration",
     "subscription",
     "survey",

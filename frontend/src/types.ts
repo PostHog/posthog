@@ -4012,6 +4012,7 @@ export type APIScopeObject =
     | 'hog_function'
     | 'insight'
     | 'notebook'
+    | 'mcp'
     | 'organization'
     | 'organization_member'
     | 'person'
