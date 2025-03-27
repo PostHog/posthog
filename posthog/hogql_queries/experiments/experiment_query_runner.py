@@ -37,6 +37,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     CachedExperimentQueryResponse,
     ExperimentFunnelMetric,
+    ExperimentFunnelMetricStep,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentMetricType,
@@ -247,12 +248,12 @@ class ExperimentQueryRunner(QueryRunner):
                 *exposure_query_select,
                 ast.Alias(
                     alias="exposure_identifier",
-                    expr=ast.Field(chain=[*data_warehouse_metric_source.data_warehouse_join_key.split(".")]),
+                    expr=ast.Field(chain=[*data_warehouse_metric_source.events_join_key.split(".")]),
                 ),
             ]
             exposure_query_group_by = [
                 *exposure_query_group_by,
-                ast.Field(chain=[*data_warehouse_metric_source.data_warehouse_join_key.split(".")]),
+                ast.Field(chain=[*data_warehouse_metric_source.events_join_key.split(".")]),
             ]
 
         return ast.SelectQuery(
@@ -262,7 +263,7 @@ class ExperimentQueryRunner(QueryRunner):
             group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
 
-    def _funnel_step_to_filter(self, funnel_step: ExperimentFunnelStep) -> ast.Expr:
+    def _funnel_step_to_filter(self, funnel_step: ExperimentFunnelMetricStep) -> ast.Expr:
         """
         Returns the filter for a single funnel step.
         """
@@ -281,7 +282,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         return event_filter
 
-    def _funnel_steps_to_filter(self, funnel_steps: list[ExperimentFunnelStep]) -> ast.Expr:
+    def _funnel_steps_to_filter(self, funnel_steps: list[ExperimentFunnelMetricStep]) -> ast.Expr:
         """
         Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
         """
@@ -430,7 +431,7 @@ class ExperimentQueryRunner(QueryRunner):
                 )
 
             case _:
-                raise ValueError(f"Unsupported metric config: {self.metric.metric_config}")
+                raise ValueError(f"Unsupported metric: {self.metric}")
 
     def _funnel_steps_to_window_funnel_expr(self, funnel_metric: ExperimentFunnelMetric) -> ast.Expr:
         """
@@ -589,7 +590,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         match self.metric.metric_type:
             case ExperimentMetricType.MEAN:
-                match self.metric.metric_config.math:
+                match self.metric.math:
                     case ExperimentMetricMathType.SUM:
                         probabilities = calculate_probabilities_v2_continuous(
                             control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),

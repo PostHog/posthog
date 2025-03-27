@@ -1,15 +1,10 @@
-from typing import TypeGuard, Union
+from typing import Union
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import property_to_expr
-from posthog.models.team.team import Team
 from posthog.schema import (
-    ExperimentActionMetricSource,
     ExperimentDataWarehouseMetricSource,
-    ExperimentEventMetricSource,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
-    ExperimentMetric,
     ExperimentMetricMathType,
 )
 
