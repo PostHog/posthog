@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { ClimberHog1, ClimberHog2 } from 'lib/components/hedgehogs'
+import { ClimberHog1, ClimberHog2, YCHog } from 'lib/components/hedgehogs'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
@@ -96,26 +96,38 @@ export function StartupProgram(): JSX.Element {
     }
 
     return (
-        <div className="mx-auto max-w-[1200px] -mt-6">
+        <div className="mx-auto max-w-[1200px]">
             <div className="flex flex-col items-center mb-8">
-                <div className="flex items-center justify-center md:gap-8 mb-3">
-                    <div className="flex items-end self-end">
-                        <ClimberHog1 className="w-30 min-w-14 h-auto" />
+                {isYC ? (
+                    <div className="flex flex-col items-center">
+                        <div className="px-4 w-full max-w-100 mb-4">
+                            <YCHog className="h-auto" />
+                        </div>
+                        <div className="text-center">
+                            <h1 className="text-2xl sm:text-3xl mb-2 sm:mb-3">
+                                You've found our secret Y Combinator offer!
+                            </h1>
+                            <p className="text-sm sm:text-base text-muted">
+                                Get $50,000 in credits and exclusive benefits to help you build a better product.
+                            </p>
+                        </div>
                     </div>
-                    <div className="text-center">
-                        <h1 className="text-xl sm:text-3xl mb-2 sm:mb-3">
-                            {isYC
-                                ? "You've found our secret Y Combinator offer!"
-                                : "Apply for PostHog's startup program"}
-                        </h1>
-                        <p className="text-sm sm:text-base text-muted">
-                            Get $50,000 in credits and exclusive benefits to help you build a better product.
-                        </p>
+                ) : (
+                    <div className="flex items-center justify-center -mt-6 md:gap-8 mb-3">
+                        <div className="flex items-end self-end">
+                            <ClimberHog1 className="w-35 min-w-18 h-auto" />
+                        </div>
+                        <div className="text-center">
+                            <h1 className="text-xl sm:text-3xl mb-2 sm:mb-3">Apply for PostHog's startup program</h1>
+                            <p className="text-sm sm:text-base text-muted">
+                                Get $50,000 in credits and exclusive benefits to help you build a better product.
+                            </p>
+                        </div>
+                        <div className="flex items-center">
+                            <ClimberHog2 className="w-35 min-w-18 h-auto" />
+                        </div>
                     </div>
-                    <div className="flex items-center">
-                        <ClimberHog2 className="w-35 min-w-18 h-auto" />
-                    </div>
-                </div>
+                )}
             </div>
 
             <div className="grid md:grid-cols-2 gap-8 mb-8">

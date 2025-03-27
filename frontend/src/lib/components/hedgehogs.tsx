@@ -38,6 +38,7 @@ import warningHog from 'public/hedgehog/warning-hog.png'
 import wavingHog from 'public/hedgehog/waving-hog.png'
 import xRayHog from 'public/hedgehog/x-ray-hog.png'
 import xRayHog2 from 'public/hedgehog/x-ray-hogs-02.png'
+import ycHog from 'public/hedgehog/yc-hog.png'
 import { ImgHTMLAttributes } from 'react'
 
 type HedgehogProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>
@@ -167,4 +168,7 @@ export const ClimberHog1 = (props: HedgehogProps): JSX.Element => {
 }
 export const ClimberHog2 = (props: HedgehogProps): JSX.Element => {
     return <RectangularHedgehog src={climberHog2} {...props} />
+}
+export const YCHog = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={ycHog} {...props} />
 }
