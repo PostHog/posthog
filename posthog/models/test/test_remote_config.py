@@ -158,6 +158,15 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
             "thankYouMessageDescription": "We'll use it to make notebooks better",
         }
 
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Basic survey",
+            description="This should not be included",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=timezone.now(),
+        )
         self.team.survey_config = {"appearance": survey_appearance}
         self.team.save()
 
