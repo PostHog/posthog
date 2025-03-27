@@ -442,9 +442,7 @@ class SlackIntegration:
 
         while max_page > 0:
             max_page -= 1
-            if type == "public_channel":
-                res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
-            elif type == "private_channel" and should_include_private_channels:
+            if type == "public_channel" or type == "private_channel" and should_include_private_channels:
                 res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
             else:
                 continue
