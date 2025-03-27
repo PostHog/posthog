@@ -21,7 +21,8 @@ pub struct Team {
     pub autocapture_web_vitals_opt_in: Option<bool>,
     pub capture_performance_opt_in: Option<bool>,
     pub capture_console_log_opt_in: Option<bool>,
-    pub session_recording_opt_in: bool, // Not nullable in schema
+    #[serde(default)]
+    pub session_recording_opt_in: bool, // Not nullable in schema, so needs to be handled in deserialization
     pub inject_web_apps: Option<bool>,
     pub surveys_opt_in: Option<bool>,
     pub heatmaps_opt_in: Option<bool>,
@@ -48,6 +49,10 @@ pub struct Team {
 
 fn default_timezone() -> String {
     "UTC".to_string()
+}
+
+fn default_session_recording_opt_in() -> bool {
+    false
 }
 
 mod option_i16_as_i16 {
