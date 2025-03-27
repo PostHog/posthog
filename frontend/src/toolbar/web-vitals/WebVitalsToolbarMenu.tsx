@@ -140,9 +140,7 @@ const MetricCard = ({ metric, value }: { metric: WebVitalsMetric; value: number 
 const DottedTooltip = ({ children, title }: { children: React.ReactNode; title: React.ReactNode }): JSX.Element => {
     return (
         <Tooltip title={<div className="text-sm min-w-80">{title}</div>} interactive>
-            <span className="text-sm font-bold border-b border-dotted border-accent-primary cursor-help">
-                {children}
-            </span>
+            <span className="text-sm font-bold border-b border-dotted border-accent cursor-help">{children}</span>
         </Tooltip>
     )
 }

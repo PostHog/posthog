@@ -502,6 +502,9 @@ export function taxonomicGroupFilterToHogQL(
     groupType: TaxonomicFilterGroupType,
     value: TaxonomicFilterValue
 ): string | null {
+    if (groupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)) {
+        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+    }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
     }

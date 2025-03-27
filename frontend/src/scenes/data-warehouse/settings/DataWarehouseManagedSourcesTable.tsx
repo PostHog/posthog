@@ -154,8 +154,8 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
 
 export function getDataWarehouseSourceUrl(service: string): string {
     if (manualLinkSources.includes(service)) {
-        return 'https://posthog.com/docs/data-warehouse/setup#step-1-creating-a-bucket-in-s3'
+        return 'https://posthog.com/docs/cdp/sources/s3'
     }
 
-    return `https://posthog.com/docs/data-warehouse/setup#${service.toLowerCase()}`
+    return `https://posthog.com/docs/cdp/sources/${service.toLowerCase()}`
 }

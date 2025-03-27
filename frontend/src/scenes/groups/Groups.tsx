@@ -3,11 +3,12 @@ import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsA
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 
 import { Query } from '~/queries/Query/Query'
+import { GroupTypeIndex } from '~/types'
 
 import { groupsListLogic } from './groupsListLogic'
 
-export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Element {
-    const { query } = useValues(groupsListLogic({ groupTypeIndex }))
+export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
+    const { query, groupTypeName } = useValues(groupsListLogic({ groupTypeIndex }))
     const { setQuery } = useActions(groupsListLogic({ groupTypeIndex }))
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -34,6 +35,11 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
             context={{
                 refresh: 'blocking',
                 emptyStateHeading: 'No groups found',
+                columns: {
+                    group_name: {
+                        title: groupTypeName,
+                    },
+                },
             }}
             dataAttr="groups-table"
         />

@@ -19,8 +19,9 @@ use serde_json::{json, Value};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use time::format_description::well_known::{Iso8601, Rfc3339};
-use time::{Duration, OffsetDateTime};
+use time::OffsetDateTime;
 
 #[derive(Debug, Deserialize)]
 struct RequestDump {
@@ -104,7 +105,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
 
         let redis = Arc::new(MockRedisClient::new());
         let billing_limiter = RedisLimiter::new(
-            Duration::weeks(1),
+            Duration::from_secs(60 * 60 * 24 * 7),
             redis.clone(),
             QUOTA_LIMITER_CACHE_KEY.to_string(),
             None,

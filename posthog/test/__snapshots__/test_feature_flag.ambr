@@ -214,7 +214,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '64'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -338,7 +338,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '65'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -801,7 +801,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '66'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -1691,7 +1691,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '81'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -2156,6 +2156,7 @@
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."default_columns",
          "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
@@ -2210,6 +2211,7 @@
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."default_columns",
          "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
@@ -2313,6 +2315,7 @@
          "posthog_grouptypemapping"."group_type_index",
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural",
+         "posthog_grouptypemapping"."default_columns",
          "posthog_grouptypemapping"."detail_dashboard_id"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
@@ -2469,7 +2472,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '55'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
   ORDER BY "posthog_filesystem"."id" ASC
@@ -2779,7 +2782,7 @@
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '145'
+  WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag')
   ORDER BY "posthog_filesystem"."id" ASC

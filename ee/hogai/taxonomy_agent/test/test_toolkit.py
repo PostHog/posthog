@@ -269,6 +269,25 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
                 toolkit.retrieve_event_or_action_property_values(item, "date"), f'"{datetime(2024, 1, 1).isoformat()}"'
             )
 
+    def test_retrieve_event_or_action_properties_when_actions_exist_but_action_id_incorrect(self):
+        toolkit = DummyToolkit(self.team)
+        incorrect_action_id = self.action.id + 999  # Ensure it doesn't exist
+
+        result = toolkit.retrieve_event_or_action_properties(incorrect_action_id)
+        self.assertEqual(
+            result,
+            f"Action {incorrect_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again.",
+        )
+
+    def test_retrieve_event_or_action_properties_when_no_actions_exist_and_action_id_incorrect(self):
+        Action.objects.all().delete()
+
+        toolkit = DummyToolkit(self.team)
+        incorrect_action_id = 9999
+
+        result = toolkit.retrieve_event_or_action_properties(incorrect_action_id)
+        self.assertEqual(result, "No actions exist in the project.")
+
     def test_enrich_props_with_descriptions(self):
         toolkit = DummyToolkit(self.team)
         res = toolkit._enrich_props_with_descriptions("event", [("$geoip_city_name", "String")])

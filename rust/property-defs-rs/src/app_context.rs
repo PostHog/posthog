@@ -32,6 +32,7 @@ pub struct AppContext {
     pub skip_writes: bool,
     pub skip_reads: bool,
     pub group_type_cache: Cache<String, i32>, // Keyed on group-type name, and team id
+    pub enable_v2: bool,
 }
 
 impl AppContext {
@@ -56,6 +57,7 @@ impl AppContext {
             skip_writes: config.skip_writes,
             skip_reads: config.skip_reads,
             group_type_cache,
+            enable_v2: config.enable_v2,
         })
     }
 
