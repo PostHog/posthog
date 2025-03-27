@@ -75,47 +75,57 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                 value === null ? (
                     <span className="text-muted">null</span>
                 ) : isJson ? (
-                    <div className="flex gap-2">
-                        <div className="flex-1 max-w-60">
+                    <div className="flex gap-2 w-full">
+                        <div className="w-full overflow-hidden">
                             {showRawJson[column] ? (
                                 <pre
                                     className={clsx(
-                                        'break-all m-0 font-mono',
-                                        wordWrap[column] ? 'whitespace-pre-wrap' : 'hide-scrollbar'
+                                        'm-0 font-mono',
+                                        wordWrap[column]
+                                            ? 'whitespace-pre-wrap break-all'
+                                            : 'overflow-x-auto hide-scrollbar'
                                     )}
                                 >
                                     {String(value)}
                                 </pre>
                             ) : (
-                                <JSONViewer src={jsonValue} name={null} collapsed={1} />
+                                <div className="overflow-x-auto max-w-full">
+                                    <JSONViewer src={jsonValue} name={null} collapsed={1} />
+                                </div>
                             )}
                         </div>
                     </div>
                 ) : (
-                    <span className="whitespace-pre-wrap break-all font-mono">{String(value)}</span>
+                    <div className="overflow-x-auto">
+                        <span className="whitespace-pre-wrap break-all font-mono">{String(value)}</span>
+                    </div>
                 ),
         }
     })
 
     return (
         <LemonModal title="Row Details" isOpen={isOpen} onClose={onClose} width={800}>
-            <div className="max-h-[70vh] overflow-y-auto px-2">
+            <div className="RowDetailsModal max-h-[70vh] overflow-y-auto px-2 overflow-x-hidden">
                 <LemonTable
                     dataSource={tableData}
+                    className="w-full table-fixed"
                     columns={[
                         {
                             title: 'Column',
                             dataIndex: 'column',
-                            className: 'font-semibold max-w-xs',
+                            className: 'font-semibold',
+                            width: '35%',
+                            render: (_, record) => <span title={record.column}>{record.column}</span>,
                         },
                         {
                             title: 'Value',
                             dataIndex: 'value',
-                            className: 'px-4',
+                            className: 'px-4 overflow-hidden',
+                            width: '65%',
                             render: (_, record) => (
-                                <div className="flex items-center gap-2 max-w-">
-                                    <div className="flex-1">{record.value}</div>
-                                    <div className="flex flex-row gap-1">
+                                <div className="flex items-center gap-2 w-full">
+                                    <div className="flex-1 overflow-x-auto pr-2">{record.value}</div>
+                                    <div className="flex flex-row gap-1 flex-shrink-0 ml-auto">
                                         {record.isJson && record.rawValue && record.rawValue != 'null' && (
                                             <LemonButton
                                                 size="small"
