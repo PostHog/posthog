@@ -426,8 +426,7 @@ export class HogExecutorService {
                                     globals: providerGlobals,
                                 }
                             } catch (e) {
-                                throw new Error(`Error building globals for email provider`, { cause: e })                            }
-
+                                throw new Error(`Error building globals for email provider`, { cause: e })
                             }
                         }
                         throw new Error(`Can't import unknown module: ${module}`)
@@ -623,7 +622,11 @@ export class HogExecutorService {
 
             if (item?.bytecode) {
                 // Use the bytecode to compile the field
-                builtInputs[key] = formatInput(item.bytecode, invocation.globals, key)
+                try {
+                    builtInputs[key] = formatInput(item.bytecode, invocation.globals, key)
+                } catch (e) {
+                    throw new Error(`Error formatting input for key ${key}`, { cause: e })
+                }
             }
         })
 
@@ -632,7 +635,11 @@ export class HogExecutorService {
 
             if (item.bytecode) {
                 // Use the bytecode to compile the field
-                builtInputs[key] = formatInput(item.bytecode, invocation.globals, key)
+                try {
+                    builtInputs[key] = formatInput(item.bytecode, invocation.globals, key)
+                } catch (e) {
+                    throw new Error(`Error formatting input for key ${key}`, { cause: e })
+                }
             }
         })
 
