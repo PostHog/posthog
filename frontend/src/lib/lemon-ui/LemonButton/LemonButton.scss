@@ -332,7 +332,8 @@
     }
 
     &.LemonButton--tertiary {
-        &:not([aria-disabled='true']):hover {
+        &:not([aria-disabled='true']):hover,
+        &[data-focused='true']:not([aria-disabled='true']):focus-visible {
             background-color: var(--bg-fill-button-tertiary-hover);
         }
 
