@@ -135,7 +135,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
             ) : isPrivateChannelWithoutAccess(value ?? '') ? (
                 <LemonBanner type="info">
                     This is a private Slack channel. Ask{' '}
-                    <ProfilePicture user={integration.created_by} showName size="md" /> or connect your own Slack
+                    <ProfilePicture user={integration.created_by} showName size="sm" /> or connect your own Slack
                     account to configure private channels.
                 </LemonBanner>
             ) : null}
