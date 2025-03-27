@@ -7,10 +7,5 @@
             <a href="{% url 'admin:send-usage-report' %}">Send Usage Report</a>
         </li>
     {% endif %}
-    {% if show_run_quota_limiting_button %}
-        <li>
-            <a href="{% url 'admin:run-quota-limiting' %}">Run Quota Limiting</a>
-        </li>
-    {% endif %}
     {{ block.super }}
 {% endblock %}

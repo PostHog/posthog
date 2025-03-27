@@ -43,7 +43,8 @@ pub struct CapturedEvent {
     pub now: String,
     #[serde(
         with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none"
+        skip_serializing_if = "Option::is_none",
+        default // Necessary as time::serde::rfc3339::option fails to deserialize if the key is not found
     )]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
