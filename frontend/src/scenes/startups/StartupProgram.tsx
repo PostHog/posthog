@@ -40,6 +40,19 @@ export function StartupProgram(): JSX.Element {
     const { validateYCBatch, setStartupProgramValue } = useActions(logic)
     const programName = isYC ? 'YC Program' : 'Startup Program'
 
+    const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
+        onUpload: (url) => {
+            // eslint-disable-next-line no-console
+            console.log('🖼️ Screenshot uploaded successfully:', { url })
+            setStartupProgramValue('yc_proof_screenshot_url', url)
+            lemonToast.success('Screenshot uploaded successfully')
+        },
+        onError: (detail) => {
+            lemonToast.error(`Error uploading screenshot: ${detail}`)
+            setStartupProgramValue('yc_proof_screenshot_url', undefined)
+        },
+    })
+
     useEffect(() => {
         // eslint-disable-next-line no-console
         console.log('📝 Form values:', startupProgram)
@@ -312,7 +325,22 @@ export function StartupProgram(): JSX.Element {
                                                     <span>{ycValidationError}</span>
                                                 </div>
                                                 <LemonField name="yc_proof_screenshot_url">
-                                                    <ScreenshotUpload />
+                                                    <LemonFileInput
+                                                        accept="image/*"
+                                                        multiple={false}
+                                                        value={filesToUpload}
+                                                        showUploadedFiles
+                                                        onChange={setFilesToUpload}
+                                                        loading={uploading}
+                                                        callToAction={
+                                                            <div className="flex flex-col items-center justify-center deprecated-space-y-2 border border-dashed rounded p-4 w-full">
+                                                                <span className="flex items-center gap-2 font-semibold">
+                                                                    <IconUpload className="text-2xl" /> Upload YC
+                                                                    Profile Screenshot
+                                                                </span>
+                                                            </div>
+                                                        }
+                                                    />
                                                 </LemonField>
                                             </>
                                         )}
@@ -346,46 +374,6 @@ export function StartupProgram(): JSX.Element {
                 </div>
             </div>
         </div>
-    )
-}
-
-function ScreenshotUpload(): JSX.Element {
-    const { setStartupProgramValue } = useActions(startupProgramLogic)
-    const { uploadingScreenshot } = useValues(startupProgramLogic)
-
-    const { setFilesToUpload } = useUploadFiles({
-        onUpload: (url) => {
-            // eslint-disable-next-line no-console
-            console.log('🖼️ Screenshot uploaded successfully:', { url })
-            setStartupProgramValue('yc_proof_screenshot_url', url)
-            lemonToast.success('Screenshot uploaded successfully')
-        },
-        onError: (detail) => {
-            lemonToast.error(`Error uploading screenshot: ${detail}`)
-            setStartupProgramValue('yc_proof_screenshot_url', undefined)
-        },
-    })
-
-    return (
-        <LemonFileInput
-            accept="image/*"
-            multiple={false}
-            onChange={(files) => {
-                if (!files?.length) {
-                    setStartupProgramValue('yc_proof_screenshot_url', undefined)
-                    return
-                }
-                setFilesToUpload(files)
-            }}
-            loading={uploadingScreenshot}
-            callToAction={
-                <div className="flex flex-col items-center justify-center deprecated-space-y-2 border border-dashed rounded p-4 w-full">
-                    <span className="flex items-center gap-2 font-semibold">
-                        <IconUpload className="text-2xl" /> Upload YC Profile Screenshot
-                    </span>
-                </div>
-            }
-        />
     )
 }
 

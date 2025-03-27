@@ -127,7 +127,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
         setYCValidationState: (state: 'none' | 'validating' | 'valid' | 'invalid') => ({ state }),
         setYCValidationError: (error: string | null) => ({ error }),
         setVerifiedCompanyName: (name: string | null) => ({ name }),
-        setUploadingScreenshot: (uploading: boolean) => ({ uploading }),
     }),
     reducers({
         formSubmitted: [
@@ -155,12 +154,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
             {
                 validateYCBatch: () => null,
                 setYCValidationState: (state, { state: newState }) => (newState === 'valid' ? state : null),
-            },
-        ],
-        uploadingScreenshot: [
-            false,
-            {
-                setUploadingScreenshot: (_, { uploading }) => uploading,
             },
         ],
     }),
