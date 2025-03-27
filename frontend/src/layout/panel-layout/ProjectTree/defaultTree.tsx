@@ -141,7 +141,7 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
         {
             path: 'Explore/Data warehouse',
             icon: <IconDatabase />,
-            href: () => urls.dataWarehouse(),
+            href: () => urls.sqlEditor(),
         },
         {
             path: 'Explore/People and groups/Cohorts',

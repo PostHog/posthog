@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+from django.db import transaction
 from django.db.models import QuerySet
 import posthoganalytics
 from rest_framework import filters, serializers, viewsets, pagination, status
@@ -144,6 +145,45 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "results": FileSystemSerializer(files, many=True).data,
                 "count": len(files),
             },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(methods=["POST"], detail=True)
+    def move(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        new_path = request.data.get("new_path")
+        if not new_path:
+            return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
+        if targets and any(target.type != "folder" for target in targets):
+            return Response({"detail": "Cannot move into a file"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if instance.type == "folder":
+            if new_path.startswith(instance.path):
+                return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
+
+            with transaction.atomic():
+                for file in FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/"):
+                    file.path = new_path + file.path[len(instance.path) :]
+                    file.depth = len(split_path(file.path))
+                    file.save()
+
+                if any(target.type == "folder" for target in targets):
+                    # TODO: merge access controls once those are in place
+                    instance.delete()
+                else:
+                    instance.path = new_path
+                    instance.depth = len(split_path(instance.path))
+                    instance.save()
+
+        else:
+            instance.path = new_path
+            instance.depth = len(split_path(instance.path))
+            instance.save()
+
+        return Response(
+            "OK",
             status=status.HTTP_200_OK,
         )
 

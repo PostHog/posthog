@@ -537,7 +537,8 @@ test('capture bad team', async () => {
             } as any as PluginEvent,
             1337,
             now,
-            new UUIDT().toString()
+            new UUIDT().toString(),
+            false
         )
     ).rejects.toThrowError("No team found with ID 1337. Can't ingest event.")
 })
