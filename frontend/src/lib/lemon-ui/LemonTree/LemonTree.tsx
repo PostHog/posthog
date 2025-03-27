@@ -19,7 +19,7 @@ import {
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
-import { getIcon, TreeNodeDroppable } from './LemonTreeUtils'
+import { getIcon, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -233,25 +233,18 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 data-id={item.id}
                                                 active={getItemActiveState(item)}
                                                 menuItem
-                                                // icon={getIcon({
-                                                //     item,
-                                                //     expandedItemIds: expandedItemIds ?? [],
-                                                //     defaultNodeIcon,
-                                                // })}
                                                 // tooltip={displayName}
                                                 // tooltipPlacement="right"
-                                                // style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
                                                 to={item.record?.href ? item.record.href : undefined}
-                                                // sideAction={itemSideAction ? itemSideAction(item) : undefined}
-                                                // buttonWrapper={
-                                                //     enableDragAndDrop && isItemDraggable?.(item) && item.record?.path
-                                                //         ? (button) => (
-                                                //               <TreeNodeDraggable id={item.record?.path} enableDragging>
-                                                //                   {button}
-                                                //               </TreeNodeDraggable>
-                                                //           )
-                                                //         : undefined
-                                                // }
+                                                buttonWrapper={
+                                                    enableDragAndDrop && isItemDraggable?.(item) && item.record?.path
+                                                        ? (button) => (
+                                                              <TreeNodeDraggable id={item.record?.path} enableDragging>
+                                                                  {button}
+                                                              </TreeNodeDraggable>
+                                                          )
+                                                        : undefined
+                                                }
                                             >
                                                 {/* This is a hack to make the button have a left padding since we use important on all tailwind classes */}
                                                 {depth !== 0 && (
@@ -295,7 +288,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     >
                                                         {/* {item.hint ? <div className='flex flex-col gap-1'>{displayName}<div className='text-xxs font-normal'>{item.hint}</div></div> : displayName} */}
                                                         <span className="truncate">{displayName}</span>
-                                                        {/* {item.sideIcon} */}
                                                     </Button.Label>
                                                 )}
                                                 {itemSideAction && (

@@ -242,7 +242,6 @@ export function ProjectTree(): JSX.Element {
                                     </Button.Root>
                                 </ContextMenuItem>
                             ) : null}
-                            {/* Add more menu items as needed */}
                         </ContextMenuGroup>
                     )
                 }}
@@ -279,51 +278,6 @@ export function ProjectTree(): JSX.Element {
                                 </Button.Root>
                             </DropdownMenuItem>
                         </DropdownMenuGroup>
-                        // icon: (
-                        //     <LemonMenu
-                        //         placement="top-end"
-                        //         fallbackPlacements={['bottom-end']}
-                        //         items={
-                        //             [
-                        //                 item.record?.type === 'folder' || item.record?.type === 'project'
-                        //                     ? {
-                        //                           label: 'New Folder',
-                        //                           onClick: () => {
-                        //                               item.record?.path && createFolder(item.record.path)
-                        //                           },
-                        //                       }
-                        //                     : undefined,
-                        //                 item.record?.path
-                        //                     ? {
-                        //                           label: 'Rename',
-                        //                           onClick: () => {
-                        //                               item.record?.path && rename(item.record.path)
-                        //                           },
-                        //                       }
-                        //                     : undefined,
-                        //                 item.record?.path
-                        //                     ? {
-                        //                           label: 'Copy Path',
-                        //                           onClick: () => {
-                        //                               handleCopyPath(item.record?.path)
-                        //                           },
-                        //                       }
-                        //                     : undefined,
-                        //                 item.record?.path
-                        //                     ? {
-                        //                           label: 'Delete',
-                        //                           onClick: () => {
-                        //                               deleteItem(item.record as unknown as FileSystemEntry)
-                        //                           },
-                        //                       }
-                        //                     : undefined,
-                        //             ].filter(Boolean) as LemonMenuItems
-                        //         }
-                        //         maxContentWidth={true}
-                        //     >
-                        //         <IconEllipsis className="size-4 text-tertiary" />
-                        //     </LemonMenu>
-                        // ),
                     )
                 }}
             />

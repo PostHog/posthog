@@ -139,6 +139,8 @@ export interface ButtonRootProps extends VariantProps<typeof buttonVariants> {
     disableClientSideRouting?: boolean
     targetBlank?: boolean
     disabled?: boolean
+    /** Wrap the button component with a custom component. */
+    buttonWrapper?: (button: JSX.Element) => JSX.Element
 }
 
 function ButtonRootComponent<E extends ElementType = 'button'>(
@@ -157,6 +159,7 @@ function ButtonRootComponent<E extends ElementType = 'button'>(
         targetBlank,
         type,
         active,
+        buttonWrapper,
         ...props
     }: PolymorphicComponentProps<E, ButtonRootProps>,
     forwardedRef: PolymorphicRef<E>
@@ -205,28 +208,32 @@ function ButtonRootComponent<E extends ElementType = 'button'>(
         intentContext: intent || 'default',
     }
 
-    return (
-        <ButtonContext.Provider value={contextValue}>
-            <Component
-                ref={forwardedRef}
-                onMouseDown={handleMouseDown}
-                onMouseUp={handleMouseUp}
-                onClick={onClick}
-                className={cn(buttonVariants({ intent, size, fullWidth, menuItem, disabled, active }), className)}
-                // Used to identify the current item in a set of items
-                aria-current={active ? 'true' : 'false'}
-                // Used to identify disabled items
-                aria-disabled={disabled}
-                // Used to identify pressed state
-                aria-pressed={isPressed}
-                {...a11yProps}
-                {...linkProps}
-                {...props}
-            >
-                {children}
-            </Component>
-        </ButtonContext.Provider>
+    let buttonComponent = (
+        <Component
+            ref={forwardedRef}
+            onMouseDown={handleMouseDown}
+            onMouseUp={handleMouseUp}
+            onClick={onClick}
+            className={cn(buttonVariants({ intent, size, fullWidth, menuItem, disabled, active }), className)}
+            // Used to identify the current item in a set of items
+            aria-current={active ? 'true' : 'false'}
+            // Used to identify disabled items
+            aria-disabled={disabled}
+            // Used to identify pressed state
+            aria-pressed={isPressed}
+            {...a11yProps}
+            {...linkProps}
+            {...props}
+        >
+            {children}
+        </Component>
     )
+
+    if (buttonWrapper) {
+        buttonComponent = buttonWrapper(buttonComponent)
+    }
+
+    return <ButtonContext.Provider value={contextValue}>{buttonComponent}</ButtonContext.Provider>
 }
 
 /**
