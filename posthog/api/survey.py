@@ -2,7 +2,8 @@ import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta, UTC
 import re
-from typing import Any, cast
+from typing import Any, cast, TypedDict
+from enum import Enum
 from urllib.parse import urlparse
 
 import nh3
@@ -52,6 +53,27 @@ from posthog.utils_cors import cors_response
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+
+
+class SurveyEventName(str, Enum):
+    SHOWN = "survey shown"
+    DISMISSED = "survey dismissed"
+    SENT = "survey sent"
+
+
+class EventStats(TypedDict):
+    total_count: int
+    unique_persons: int
+    first_seen: str | None
+    last_seen: str | None
+
+
+class SurveyRates(TypedDict):
+    response_rate: float
+    dismissal_rate: float
+
+
+SurveyStats = dict[SurveyEventName, EventStats]
 
 
 class SurveySerializer(serializers.ModelSerializer):
@@ -751,28 +773,42 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(counts)
 
-    def _validate_dates(self, date_from: str | None, date_to: str | None) -> None:
-        """Validate that date_from and date_to are in ISO 8601 format.
+    def _validate_and_parse_dates(
+        self, date_from: str | None, date_to: str | None
+    ) -> tuple[datetime | None, datetime | None]:
+        """Validate and parse date_from and date_to.
 
         Args:
-            date_from: Optional ISO timestamp for start date
-            date_to: Optional ISO timestamp for end date
+            date_from: Optional ISO timestamp for start date with timezone info
+            date_to: Optional ISO timestamp for end date with timezone info
+
+        Returns:
+            Tuple of (parsed_date_from, parsed_date_to) in UTC
 
         Raises:
-            ValidationError: If dates are not in ISO 8601 format
+            ValidationError: If dates are invalid or if date_from is after date_to
         """
-        if date_from or date_to:
-            try:
-                if date_from:
-                    datetime.fromisoformat(date_from.replace("Z", "+00:00"))
-                if date_to:
-                    datetime.fromisoformat(date_to.replace("Z", "+00:00"))
-            except ValueError:
-                raise exceptions.ValidationError(
-                    "Invalid date format. Please use ISO 8601 format (e.g. 2024-01-01T00:00:00Z)"
-                )
+        parsed_from = None
+        parsed_to = None
 
-    def _process_survey_results(self, results) -> dict:
+        try:
+            if date_from:
+                parsed_from = datetime.fromisoformat(date_from).astimezone(UTC)
+
+            if date_to:
+                parsed_to = datetime.fromisoformat(date_to).astimezone(UTC)
+
+            if parsed_from and parsed_to and parsed_from > parsed_to:
+                raise exceptions.ValidationError("date_from must be before date_to")
+
+            return parsed_from, parsed_to
+
+        except ValueError:
+            raise exceptions.ValidationError(
+                "Invalid date format. Please use ISO 8601 format with timezone info (e.g. 2024-01-01T00:00:00Z or 2024-01-01T00:00:00+00:00)"
+            )
+
+    def _process_survey_results(self, results) -> SurveyStats:
         """Process raw survey event results into stats format.
 
         Args:
@@ -782,20 +818,20 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             Dictionary containing processed stats for each event type
         """
         # Initialize stats with zero values for all event types
-        stats = {
-            "survey shown": {
+        stats: SurveyStats = {
+            SurveyEventName.SHOWN: {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
                 "last_seen": None,
             },
-            "survey dismissed": {
+            SurveyEventName.DISMISSED: {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
                 "last_seen": None,
             },
-            "survey sent": {
+            SurveyEventName.SENT: {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
@@ -805,15 +841,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Update stats with actual results
         for event_name, total_count, unique_persons, first_seen, last_seen in results:
-            stats[event_name] = {
-                "total_count": total_count,
-                "unique_persons": unique_persons,
-                "first_seen": first_seen.isoformat() + "Z" if first_seen else None,
-                "last_seen": last_seen.isoformat() + "Z" if last_seen else None,
-            }
+            if event_name in [e.value for e in SurveyEventName]:
+                stats[SurveyEventName(event_name)] = {
+                    "total_count": total_count,
+                    "unique_persons": unique_persons,
+                    "first_seen": first_seen.isoformat() + "Z" if first_seen else None,
+                    "last_seen": last_seen.isoformat() + "Z" if last_seen else None,
+                }
         return stats
 
-    def _calculate_rates(self, stats: dict) -> dict:
+    def _calculate_rates(self, stats: SurveyStats) -> SurveyRates:
         """Calculate response and dismissal rates from stats.
 
         Args:
@@ -822,15 +859,15 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Returns:
             Dictionary containing calculated rates
         """
-        rates = {
+        rates: SurveyRates = {
             "response_rate": 0.0,
             "dismissal_rate": 0.0,
         }
 
-        shown_count = stats.get("survey shown", {}).get("total_count", 0)
+        shown_count = stats.get(SurveyEventName.SHOWN, {}).get("total_count", 0)
         if shown_count > 0:
-            sent_count = stats.get("survey sent", {}).get("total_count", 0)
-            dismissed_count = stats.get("survey dismissed", {}).get("total_count", 0)
+            sent_count = stats.get(SurveyEventName.SENT, {}).get("total_count", 0)
+            dismissed_count = stats.get(SurveyEventName.DISMISSED, {}).get("total_count", 0)
             rates = {
                 "response_rate": round(sent_count / shown_count * 100, 2),
                 "dismissal_rate": round(dismissed_count / shown_count * 100, 2),
@@ -841,20 +878,21 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Get survey statistics from ClickHouse.
 
         Args:
-            date_from: Optional ISO timestamp for start date
-            date_to: Optional ISO timestamp for end date
+            date_from: Optional ISO timestamp for start date with timezone info
+            date_to: Optional ISO timestamp for end date with timezone info
             survey_id: Optional survey ID to filter for. If None, gets stats for all surveys.
 
         Returns:
             Dictionary containing survey statistics and rates
         """
-        self._validate_dates(date_from, date_to)
+        parsed_from, parsed_to = self._validate_and_parse_dates(date_from, date_to)
 
         # Build cache key based on parameters
         cache_key_parts = [f"survey_stats_{self.team_id}"]
         if survey_id:
             cache_key_parts.append(str(survey_id))
-        cache_key_parts.extend([str(date_from), str(date_to)])
+        # Use parsed dates for cache key to ensure consistent caching regardless of input timezone
+        cache_key_parts.extend([str(parsed_from), str(parsed_to)])
         cache_key = "_".join(cache_key_parts)
 
         # Try to get cached results first
@@ -866,12 +904,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         params: dict[str, Any] = {"team_id": str(self.team_id)}
         date_filter = ""
 
-        if date_from:
-            date_filter += " AND timestamp >= parseDateTimeBestEffort(%(date_from)s)"
-            params["date_from"] = date_from
-        if date_to:
-            date_filter += " AND timestamp <= parseDateTimeBestEffort(%(date_to)s)"
-            params["date_to"] = date_to
+        if parsed_from:
+            date_filter += " AND timestamp >= %(date_from)s"
+            params["date_from"] = parsed_from
+        if parsed_to:
+            date_filter += " AND timestamp <= %(date_to)s"
+            params["date_to"] = parsed_to
 
         # Add survey filter if specific survey
         survey_filter = ""
@@ -898,12 +936,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if(count() > 0, max(timestamp), null) as last_seen
             FROM events
             WHERE team_id = %(team_id)s
-            AND event IN ('survey shown', 'survey dismissed', 'survey sent')
+            AND event IN (%(shown)s, %(dismissed)s, %(sent)s)
             {survey_filter}
             {date_filter}
             GROUP BY event
             """,
-            params,
+            {
+                **params,
+                "shown": SurveyEventName.SHOWN.value,
+                "dismissed": SurveyEventName.DISMISSED.value,
+                "sent": SurveyEventName.SENT.value,
+            },
         )
 
         stats = self._process_survey_results(results)
@@ -915,21 +958,15 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
         # Cache results with appropriate timeout
-        if date_to:
-            try:
-                to_dt = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
-                # Cache for 1 hour if looking at historical data
-                if to_dt < datetime.now(UTC):
-                    cache.set(cache_key, response_data, timeout=3600)  # 1 hour cache
-                else:
-                    # Cache for 1 minute if looking at recent/current data
-                    cache.set(cache_key, response_data, timeout=60)
-            except ValueError:
-                # If date parsing fails, use short cache
-                cache.set(cache_key, response_data, timeout=60)
+        if parsed_to:
+            # Cache for 1 hour if looking at historical data
+            if parsed_to < datetime.now(UTC):
+                cache.set(cache_key, response_data, timeout=3600)  # 1 hour cache
+            else:
+                # Cache for 15 minutes if looking at recent/current data
+                cache.set(cache_key, response_data, timeout=900)
         else:
-            # No end date means current data, use short cache
-            cache.set(cache_key, response_data, timeout=60)
+            cache.set(cache_key, response_data, timeout=900)
 
         return response_data
 
