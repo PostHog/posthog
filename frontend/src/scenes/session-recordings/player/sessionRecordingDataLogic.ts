@@ -76,10 +76,8 @@ export function patchMetaEventIntoWebData(
     snapshots: RecordingSnapshot[],
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined
 ): RecordingSnapshot[] {
-    // First collect all the positions where we need to insert meta events
-    const metaEventsToInsert: { index: number; event: RecordingSnapshot }[] = []
-
-    for (let i = 0; i < snapshots.length; i++) {
+    // Iterate in reverse order so we can modify the array while iterating
+    for (let i = snapshots.length - 1; i >= 0; i--) {
         const snapshot = snapshots[i]
         if (snapshot.type !== EventType.FullSnapshot) {
             continue
@@ -98,25 +96,17 @@ export function patchMetaEventIntoWebData(
                 snapshot,
             })
         } else {
-            metaEventsToInsert.push({
-                index: i,
-                event: {
-                    type: EventType.Meta,
-                    timestamp: snapshot.timestamp,
-                    windowId: snapshot.windowId,
-                    data: {
-                        width: parseInt(viewport.width, 10),
-                        height: parseInt(viewport.height, 10),
-                        href: viewport.href || 'unknown',
-                    },
+            snapshots.splice(i, 0, {
+                type: EventType.Meta,
+                timestamp: snapshot.timestamp,
+                windowId: snapshot.windowId,
+                data: {
+                    width: parseInt(viewport.width, 10),
+                    height: parseInt(viewport.height, 10),
+                    href: viewport.href || 'unknown',
                 },
             })
         }
-    }
-
-    // Then insert all meta events, starting from the end so that indices remain valid
-    for (const { index, event } of metaEventsToInsert.reverse()) {
-        snapshots.splice(index, 0, event)
     }
 
     return snapshots

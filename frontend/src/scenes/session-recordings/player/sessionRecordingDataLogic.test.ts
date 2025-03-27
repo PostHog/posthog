@@ -538,57 +538,38 @@ describe('patchMetaEventIntoWebData', () => {
         href: 'https://blah.io',
     })
 
+    function createFullSnapshot(): RecordingSnapshot {
+        return {
+            type: EventType.FullSnapshot,
+            timestamp: 1000,
+            windowId: 'window1',
+            data: {} as any,
+        }
+    }
+
+    function createMeta(width: number, height: number, href: string = 'https://blah.io'): RecordingSnapshot {
+        return {
+            type: EventType.Meta,
+            timestamp: 1000,
+            windowId: 'window1',
+            data: {
+                width: width,
+                height: height,
+                href: href,
+            },
+        }
+    }
+
     it('adds meta event before full snapshot when none exists', () => {
-        const snapshots: RecordingSnapshot[] = [
-            {
-                type: EventType.FullSnapshot,
-                timestamp: 1000,
-                windowId: 'window1',
-                data: {},
-            } as RecordingSnapshot,
-        ]
+        const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
 
         const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp)
 
-        expect(result).toEqual([
-            {
-                type: EventType.Meta,
-                timestamp: 1000,
-                windowId: 'window1',
-                data: {
-                    width: 1024,
-                    height: 768,
-                    href: 'https://blah.io',
-                },
-            },
-            {
-                type: EventType.FullSnapshot,
-                timestamp: 1000,
-                windowId: 'window1',
-                data: {},
-            } as RecordingSnapshot,
-        ])
+        expect(result).toEqual([createMeta(1024, 768), createFullSnapshot()])
     })
 
     it('does not add meta event if one already exists before full snapshot', () => {
-        const snapshots: RecordingSnapshot[] = [
-            {
-                type: EventType.Meta,
-                timestamp: 1000,
-                windowId: 'window1',
-                data: {
-                    width: 800,
-                    height: 600,
-                    href: 'test',
-                },
-            },
-            {
-                type: EventType.FullSnapshot,
-                timestamp: 1000,
-                windowId: 'window1',
-                data: {},
-            } as RecordingSnapshot,
-        ]
+        const snapshots: RecordingSnapshot[] = [createMeta(800, 600, 'http://test'), createFullSnapshot()]
 
         const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp)
 
@@ -599,24 +580,14 @@ describe('patchMetaEventIntoWebData', () => {
 
     it('handles multiple full snapshots correctly', () => {
         const snapshots: RecordingSnapshot[] = [
-            {
-                type: EventType.FullSnapshot,
-                timestamp: 1000,
-                windowId: 'window1',
-                data: {},
-            } as RecordingSnapshot,
+            createFullSnapshot(),
             {
                 type: EventType.IncrementalSnapshot,
                 timestamp: 1500,
                 windowId: 'window1',
                 data: {},
             } as RecordingSnapshot,
-            {
-                type: EventType.FullSnapshot,
-                timestamp: 2000,
-                windowId: 'window1',
-                data: {},
-            } as RecordingSnapshot,
+            createFullSnapshot(),
         ]
 
         const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp)
@@ -631,14 +602,7 @@ describe('patchMetaEventIntoWebData', () => {
 
     it('logs error when viewport dimensions are not available', () => {
         const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined
-        const snapshots: RecordingSnapshot[] = [
-            {
-                type: EventType.FullSnapshot,
-                timestamp: 1000,
-                windowId: 'window1',
-                data: {},
-            } as RecordingSnapshot,
-        ]
+        const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
 
         jest.spyOn(posthog, 'captureException')
 
