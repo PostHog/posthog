@@ -1,8 +1,10 @@
 use std::future::ready;
 use std::sync::Arc;
 
+use axum::debug_handler;
 use axum::extract::DefaultBodyLimit;
 use axum::http::Method;
+use axum::response::IntoResponse;
 use axum::{
     routing::{get, post},
     Router,
@@ -158,6 +160,8 @@ pub fn router<
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
 
+    router = router.route("/i/v0/ping", get(ping));
+
     if let Some(limit) = concurrency_limit {
         router = router.layer(ConcurrencyLimitLayer::new(limit));
     }
@@ -178,4 +182,9 @@ pub fn router<
     } else {
         router
     }
+}
+
+#[debug_handler]
+pub async fn ping() -> impl IntoResponse {
+    "pong".to_string()
 }
