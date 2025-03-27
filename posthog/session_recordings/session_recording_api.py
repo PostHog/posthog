@@ -9,7 +9,7 @@ from json import JSONDecodeError
 from typing import Any, Optional, cast, Literal
 
 from posthoganalytics.ai.openai import OpenAI
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 
 import posthoganalytics
 import requests
@@ -65,7 +65,6 @@ from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
 )
 from posthog.session_recordings.utils import clean_prompt_whitespace
-import snappy
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -938,31 +937,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             if not block_url:
                 raise exceptions.NotFound("Block URL not found")
 
-            # Parse URL and extract key and byte range
-            parsed_url = urlparse(block_url)
-            key = parsed_url.path.lstrip("/")
-            query_params = parse_qs(parsed_url.query)
-            byte_range = query_params.get("range", [""])[0].replace("bytes=", "")
-            start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
-
-            # Read and return the specific byte range from the object
-            if start_byte is None or end_byte is None:
-                raise exceptions.NotFound("Invalid byte range")
-
-            expected_length = end_byte - start_byte + 1
-            compressed_block = session_recording_v2_object_storage.client().read_bytes(
-                key, first_byte=start_byte, last_byte=end_byte
-            )
-
-            if not compressed_block:
-                raise exceptions.NotFound("Block content not found")
-
-            if len(compressed_block) != expected_length:
-                raise exceptions.APIException(
-                    f"Unexpected data length. Expected {expected_length} bytes, got {len(compressed_block)} bytes."
-                )
-
-            decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
+            decompressed_block, error = session_recording_v2_object_storage.client().fetch_block(block_url)
+            if error:
+                raise exceptions.APIException(error)
 
             response = HttpResponse(
                 content=decompressed_block,

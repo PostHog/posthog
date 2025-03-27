@@ -1,6 +1,5 @@
 # EE extended functions for SessionRecording model
 from datetime import timedelta
-from urllib.parse import urlparse, parse_qs
 
 import structlog
 from django.utils import timezone
@@ -205,60 +204,17 @@ def persist_recording_v2(recording_id: str, team_id: int) -> None:
                 SNAPSHOT_PERSIST_FAILURE_V2_COUNTER.inc()
                 return
 
-            # Parse URL and extract key and byte range
-            parsed_url = urlparse(block_url)
-            key = parsed_url.path.lstrip("/")
-            query_params = parse_qs(parsed_url.query)
-            byte_range = query_params.get("range", [""])[0].replace("bytes=", "")
-            start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
-
-            if start_byte is None or end_byte is None:
+            decompressed_block, error = storage_client.fetch_block(block_url)
+            if error:
                 logger.error(
-                    "Invalid byte range in block URL",
-                    recording_id=recording_id,
-                    team_id=team_id,
-                    byte_range=byte_range,
-                )
-                SNAPSHOT_PERSIST_FAILURE_V2_COUNTER.inc()
-                return
-
-            expected_length = end_byte - start_byte + 1
-            compressed_block = storage_client.read_bytes(key, first_byte=start_byte, last_byte=end_byte)
-
-            if not compressed_block:
-                logger.error(
-                    "Block content not found",
-                    recording_id=recording_id,
-                    team_id=team_id,
-                    key=key,
-                )
-                SNAPSHOT_PERSIST_FAILURE_V2_COUNTER.inc()
-                return
-
-            if len(compressed_block) != expected_length:
-                logger.error(
-                    "Unexpected data length",
-                    recording_id=recording_id,
-                    team_id=team_id,
-                    expected_length=expected_length,
-                    actual_length=len(compressed_block),
-                )
-                SNAPSHOT_PERSIST_FAILURE_V2_COUNTER.inc()
-                return
-
-            try:
-                decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
-                # Ensure block ends with exactly one newline
-                decompressed_block = decompressed_block.rstrip("\n") + "\n"
-                decompressed_blocks.append(decompressed_block)
-            except Exception:
-                logger.exception(
-                    "Failed to decompress block",
+                    error,
                     recording_id=recording_id,
                     team_id=team_id,
                 )
                 SNAPSHOT_PERSIST_FAILURE_V2_COUNTER.inc()
                 return
+
+            decompressed_blocks.append(decompressed_block)
 
         # Concatenate all blocks
         full_recording_data = "".join(decompressed_blocks)
