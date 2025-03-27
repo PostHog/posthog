@@ -2651,7 +2651,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [])
 
-            #  bigger step window
+            #  bigger step window
             filters = {
                 **filters,
                 "exclusions": [
@@ -3425,7 +3425,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         },
                     ],
                     "stopped_after_pageview4": [
-                        # {"event": "user signed up"}, # no signup, so not in funnel
+                        # {"event": "user signed up"}, # no signup, so not in funnel
                         {
                             "event": "$pageview",
                             "properties": {"$current_url": "aloha.com"},
@@ -4678,6 +4678,29 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             result = results[0]
             assert [x["count"] for x in result] == [1, 1, 1]
             assert [x["breakdown"] == ["Chrome"] for x in result]
+
+        def test_funnel_with_user_only_completed_second_step(self):
+            # Create a person who only completes the second step of the funnel
+            person_factory(distinct_ids=["only_second_step"], team_id=self.team.pk)
+            self._add_to_cart_event(distinct_id="only_second_step", timestamp=datetime(2021, 5, 2, 0, 0, 0))
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-08 23:59:59",
+                "events": [{"id": "user signed up", "order": 0}, {"id": "added to cart", "order": 1}],
+                "funnel_window_interval": 3122064000,
+                "funnel_window_interval_unit": "second",
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+            # First step should be 0, second step should be 0 as well since the user didn't complete the first step
+            self.assertEqual(results[0]["name"], "user signed up")
+            self.assertEqual(results[0]["count"], 0)
+            self.assertEqual(results[1]["name"], "added to cart")
+            self.assertEqual(results[1]["count"], 0)
 
     return TestGetFunnel
 
