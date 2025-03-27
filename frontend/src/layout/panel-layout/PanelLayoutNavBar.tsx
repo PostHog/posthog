@@ -19,9 +19,11 @@ import { router } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
@@ -33,6 +35,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 import { breadcrumbsLogic } from '../navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -65,6 +68,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen } = useValues(navigationLogic)
     const { sceneBreadcrumbKeys } = useValues(breadcrumbsLogic)
+    const { pinnedDashboards, dashboardsLoading } = useValues(dashboardsModel)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (!isLayoutPanelVisible) {
@@ -131,6 +135,33 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.dashboards(), true)
             },
+            sideAction:
+                pinnedDashboards.length > 0
+                    ? {
+                          identifier: 'pinned-dashboards-dropdown',
+                          dropdown: {
+                              overlay: (
+                                  <LemonMenuOverlay
+                                      items={[
+                                          {
+                                              title: 'Pinned dashboards',
+                                              items: pinnedDashboards.map((dashboard) => ({
+                                                  label: dashboard.name,
+                                                  to: urls.dashboard(dashboard.id),
+                                              })),
+                                              footer: dashboardsLoading && (
+                                                  <div className="px-2 py-1 text-tertiary">
+                                                      <Spinner /> Loading…
+                                                  </div>
+                                              ),
+                                          },
+                                      ]}
+                                  />
+                              ),
+                              placement: 'bottom-end' as const,
+                          },
+                      }
+                    : undefined,
         },
         {
             identifier: 'Notebooks',
@@ -223,24 +254,22 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 icon={<IconWrapper>{item.icon}</IconWrapper>}
                                                 fullWidth
                                                 size="small"
-                                                sideIcon={
-                                                    item.showChevron ? (
-                                                        <IconWrapper size="sm">
-                                                            <IconChevronRight />
-                                                        </IconWrapper>
-                                                    ) : undefined
-                                                }
                                                 to={item.to}
                                             >
                                                 <span>{item.id}</span>
                                                 <span className="ml-auto">
-                                                    {item.id === 'Project' &&
-                                                        isLayoutPanelPinned &&
-                                                        isLayoutPanelVisible && (
+                                                    {item.id === 'Project' && (
+                                                        <span className="flex items-center gap-px">
+                                                            {isLayoutPanelPinned && isLayoutPanelVisible && (
+                                                                <IconWrapper size="sm">
+                                                                    <IconPinFilled />
+                                                                </IconWrapper>
+                                                            )}
                                                             <IconWrapper size="sm">
-                                                                <IconPinFilled />
+                                                                <IconChevronRight />
                                                             </IconWrapper>
-                                                        )}
+                                                        </span>
+                                                    )}
                                                 </span>
                                             </LemonButton>
                                         </ListBox.Item>
@@ -260,8 +289,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                     if (filteredNavItemsIdentifiers.includes(item.identifier)) {
                                                         return null
                                                     }
-                                                    return item.featureFlag &&
-                                                        !featureFlags[item.featureFlag] ? null : (
+
+                                                    const notEnabled =
+                                                        item.featureFlag && !featureFlags[item.featureFlag]
+
+                                                    return notEnabled ? null : (
                                                         <ListBox.Item
                                                             asChild
                                                             key={item.identifier}
@@ -283,30 +315,38 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             <LemonButton
                                                                 key={item.identifier}
                                                                 icon={<IconWrapper>{item.icon}</IconWrapper>}
-                                                                sideIcon={
-                                                                    item.tag ? (
-                                                                        <LemonTag
-                                                                            type={
-                                                                                item.tag === 'alpha'
-                                                                                    ? 'completion'
-                                                                                    : item.tag === 'beta'
-                                                                                    ? 'warning'
-                                                                                    : 'success'
-                                                                            }
-                                                                            size="small"
-                                                                            className="ml-2"
-                                                                        >
-                                                                            {item.tag.toUpperCase()}
-                                                                        </LemonTag>
-                                                                    ) : undefined
-                                                                }
                                                                 fullWidth
                                                                 size="small"
                                                                 // This makes it a link if it has a to
                                                                 // we handle routing in the handleStaticNavbarItemClick function
                                                                 to={'to' in item ? item.to : undefined}
+                                                                // Target the svg inside the side action
+                                                                className="[&+div_svg]:text-secondary"
+                                                                // Only show side action for SavedInsights (PA)
+                                                                {...(item.sideAction &&
+                                                                    item.identifier === 'SavedInsights' && {
+                                                                        sideAction: {
+                                                                            ...item.sideAction,
+                                                                            'data-attr': `menu-item-${item.sideAction.identifier.toLowerCase()}`,
+                                                                        },
+                                                                    })}
                                                             >
-                                                                {item.label}
+                                                                {item.label}{' '}
+                                                                {item.tag && (
+                                                                    <LemonTag
+                                                                        type={
+                                                                            item.tag === 'alpha'
+                                                                                ? 'completion'
+                                                                                : item.tag === 'beta'
+                                                                                ? 'warning'
+                                                                                : 'success'
+                                                                        }
+                                                                        size="small"
+                                                                        className="ml-auto"
+                                                                    >
+                                                                        {item.tag.toUpperCase()}
+                                                                    </LemonTag>
+                                                                )}
                                                             </LemonButton>
                                                         </ListBox.Item>
                                                     )

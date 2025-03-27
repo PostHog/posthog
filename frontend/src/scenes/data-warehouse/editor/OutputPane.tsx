@@ -1,14 +1,16 @@
 import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
 
-import { IconExpand, IconGear } from '@posthog/icons'
+import { IconCopy, IconExpand45, IconGear } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
-import DataGrid, { CellClickArgs } from 'react-data-grid'
+import DataGrid from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
@@ -30,48 +32,6 @@ import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import TabScroller from './TabScroller'
 
-interface ExpandableCellProps {
-    value: any
-    columnName: string
-    isExpanded: boolean
-    onToggleExpand: () => void
-    hasManualWidth: boolean
-}
-
-export function ExpandableCell({
-    value,
-    columnName,
-    isExpanded,
-    onToggleExpand,
-    hasManualWidth,
-}: ExpandableCellProps): JSX.Element {
-    const [isHovered, setIsHovered] = useState(false)
-
-    return (
-        <div
-            className="relative w-full h-full flex items-center gap-1"
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-        >
-            <div className={clsx('flex-1 overflow-hidden', !isExpanded && 'text-ellipsis whitespace-nowrap')}>
-                {value}
-            </div>
-            {isHovered && !isExpanded && !hasManualWidth && (
-                <LemonButton
-                    className="rotate-90 shrink-0"
-                    size="xsmall"
-                    icon={<IconExpand />}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onToggleExpand()
-                    }}
-                    tooltip={`Expand ${columnName} column`}
-                />
-            )}
-        </div>
-    )
-}
-
 interface RowDetailsModalProps {
     isOpen: boolean
     onClose: () => void
@@ -80,23 +40,64 @@ interface RowDetailsModalProps {
 }
 
 function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps): JSX.Element {
+    const [showRawJson, setShowRawJson] = useState<Record<string, boolean>>({})
+
     if (!row) {
         return <></>
     }
 
-    const tableData = columns.map((column) => ({
-        column,
-        value:
-            row[column] === null ? (
-                <span className="text-muted">null</span>
-            ) : typeof row[column] === 'object' ? (
-                <pre className="whitespace-pre-wrap break-all m-0 font-mono">
-                    {JSON.stringify(row[column], null, 2)}
-                </pre>
-            ) : (
-                <span className="whitespace-pre-wrap break-all font-mono">{String(row[column])}</span>
-            ),
-    }))
+    const isJsonString = (str: string): boolean => {
+        try {
+            const parsed = JSON.parse(str)
+            return typeof parsed === 'object' && parsed !== null
+        } catch {
+            return false
+        }
+    }
+
+    const tableData = columns.map((column) => {
+        const value = row[column]
+        const isStringifiedJson = typeof value === 'string' && isJsonString(value)
+        const isJson = typeof value === 'object' || isStringifiedJson
+        const jsonValue = isStringifiedJson ? JSON.parse(value) : value
+
+        return {
+            column,
+            isJson,
+            rawValue:
+                value === null
+                    ? 'null'
+                    : typeof value === 'object' || isStringifiedJson
+                    ? JSON.stringify(value, null, 2)
+                    : String(value),
+            value:
+                value === null ? (
+                    <span className="text-muted">null</span>
+                ) : isJson ? (
+                    <div className="flex gap-2">
+                        <div className="flex-1">
+                            {showRawJson[column] ? (
+                                <pre className="whitespace-pre-wrap break-all m-0 font-mono">
+                                    {JSON.stringify(jsonValue, null, 2)}
+                                </pre>
+                            ) : (
+                                <JSONViewer src={jsonValue} name={null} collapsed={1} />
+                            )}
+                        </div>
+                        <div className="flex-shrink-0">
+                            <LemonButton
+                                size="small"
+                                onClick={() => setShowRawJson((prev) => ({ ...prev, [column]: !prev[column] }))}
+                            >
+                                {showRawJson[column] ? 'Show formatted' : 'Show raw'}
+                            </LemonButton>
+                        </div>
+                    </div>
+                ) : (
+                    <span className="whitespace-pre-wrap break-all font-mono">{String(value)}</span>
+                ),
+        }
+    })
 
     return (
         <LemonModal title="Row Details" isOpen={isOpen} onClose={onClose} width={800}>
@@ -113,6 +114,17 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                             title: 'Value',
                             dataIndex: 'value',
                             className: 'px-4',
+                            render: (_, record) => (
+                                <div className="flex items-center gap-2">
+                                    <div className="flex-1">{record.value}</div>
+                                    <LemonButton
+                                        size="small"
+                                        icon={<IconCopy />}
+                                        onClick={() => void copyToClipboard(record.rawValue, 'value')}
+                                        tooltip="Copy value"
+                                    />
+                                </div>
+                            ),
                         },
                     ]}
                 />
@@ -136,11 +148,35 @@ export function OutputPane(): JSX.Element {
 
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
+    const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null)
+
+    const setProgress = useCallback((loadId: string, progress: number) => {
+        setProgressCache((prev) => ({ ...prev, [loadId]: progress }))
+    }, [])
+
     const columns = useMemo(() => {
         const types = response?.types
 
-        return (
-            response?.columns?.map((column: string, index: number) => {
+        const baseColumns = [
+            {
+                key: '__details',
+                name: '',
+                minWidth: 30,
+                width: 30,
+                renderCell: ({ row }: { row: any }) => (
+                    <div className="hover-actions-cell flex justify-center items-center">
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconExpand45 />}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedRow(row)
+                            }}
+                        />
+                    </div>
+                ),
+            },
+            ...(response?.columns?.map((column: string, index: number) => {
                 const type = types?.[index]?.[1]
 
                 const maxContentLength = Math.max(
@@ -184,9 +220,11 @@ export function OutputPane(): JSX.Element {
                     ...baseColumn,
                     renderCell: (props: any) => props.row[column],
                 }
-            }) ?? []
-        )
-    }, [response])
+            }) ?? []),
+        ]
+
+        return baseColumns
+    }, [response, setSelectedRow])
 
     const rows = useMemo(() => {
         if (!response?.results) {
@@ -205,16 +243,6 @@ export function OutputPane(): JSX.Element {
             return rowObject
         })
     }, [response])
-
-    const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null)
-
-    const handleRowClick = useCallback((args: CellClickArgs<any, any>) => {
-        setSelectedRow(args.row)
-    }, [])
-
-    const setProgress = useCallback((loadId: string, progress: number) => {
-        setProgressCache((prev) => ({ ...prev, [loadId]: progress }))
-    }, [])
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 bg-primary">
@@ -292,7 +320,6 @@ export function OutputPane(): JSX.Element {
                     queryId={queryId}
                     pollResponse={pollResponse}
                     editorKey={editorKey}
-                    onRowClick={handleRowClick}
                     setProgress={setProgress}
                     progress={queryId ? progressCache[queryId] : undefined}
                 />
@@ -396,7 +423,6 @@ const Content = ({
     saveAsInsight,
     queryId,
     pollResponse,
-    onRowClick,
     setProgress,
     progress,
 }: any): JSX.Element | null => {
@@ -433,7 +459,6 @@ const Content = ({
                     className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
                     columns={columns}
                     rows={rows}
-                    onCellClick={onRowClick}
                 />
             </TabScroller>
         )
