@@ -310,6 +310,12 @@ export function StartupProgram(): JSX.Element {
                                                 </LemonField>
                                             </>
                                         )}
+                                        <LemonField
+                                            name="yc_merch_count"
+                                            label="How many merch packs do you need for you and your co-founder(s)?"
+                                        >
+                                            <LemonInput type="number" min={0} max={5} />
+                                        </LemonField>
                                     </>
                                 )}
 
