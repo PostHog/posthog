@@ -228,6 +228,12 @@ export function mightDropEvents(code: string): boolean {
     if (!code) {
         return false
     }
+
+    // First check: if we're just returning the event global, this is always safe
+    if (/\breturn\s+event\b/.test(code)) {
+        return false
+    }
+
     // Direct null/undefined returns
     if (
         code.includes('return null') ||
@@ -251,6 +257,10 @@ export function mightDropEvents(code: string): boolean {
 
         // Check if any of these variables are returned
         for (const varName of nullVars) {
+            // Skip if we're just returning the event global
+            if (varName === 'event') {
+                continue
+            }
             if (new RegExp(`\\breturn\\s+${varName}\\b`).test(code)) {
                 return true
             }
