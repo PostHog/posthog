@@ -3435,6 +3435,7 @@ export interface GroupType {
     name_singular?: string | null
     name_plural?: string | null
     detail_dashboard?: number | null
+    default_columns?: string[]
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>

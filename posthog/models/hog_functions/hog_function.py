@@ -113,7 +113,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
             url_type = "transformations"
         else:
             folder = "Unfiled/Destinations"
-            url_type = f"{self.type}s"
+            url_type = f"destinations"
         return FileSystemRepresentation(
             base_folder=folder,
             type=str(self.type),

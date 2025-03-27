@@ -67,12 +67,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
     }),
     loaders(({ actions, values }) => ({
-        allUnfiledItems: [
+        unfiledItems: [
             [] as FileSystemEntry[],
             {
                 loadUnfiledItems: async () => {
                     const response = await api.fileSystem.unfiled()
-                    return [...values.allUnfiledItems, ...response.results]
+                    return [...values.unfiledItems, ...response.results]
                 },
             },
         ],
@@ -185,14 +185,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
             },
         ],
-        unfiledLoadingCount: [
-            0,
-            {
-                loadUnfiledItems: (state) => state + 1,
-                loadUnfiledItemsSuccess: (state) => state - 1,
-                loadUnfiledItemsFailure: (state) => state - 1,
-            },
-        ],
         pendingActions: [
             [] as ProjectTreeAction[],
             {
@@ -231,26 +223,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.folderStates],
             (folderStates): boolean => Object.values(folderStates).some((state) => state === 'loading'),
         ],
-        unfiledLoading: [(s) => [s.unfiledLoadingCount], (unfiledLoadingCount) => unfiledLoadingCount > 0],
-        unfiledItems: [
-            // Remove from unfiledItems the ones that are in "savedItems"
-            (s) => [s.savedItems, s.allUnfiledItems],
-            (savedItems, allUnfiledItems): FileSystemEntry[] => {
-                const urls = new Set<string>()
-                for (const item of [...savedItems]) {
-                    const key = `${item.type}/${item.ref}`
-                    if (!urls.has(key)) {
-                        urls.add(key)
-                    }
-                }
-                return allUnfiledItems.filter((item) => !urls.has(`${item.type}/${item.ref}`))
-            },
-        ],
         viableItems: [
             // Combine unfiledItems with savedItems and apply pendingActions
             (s) => [s.unfiledItems, s.savedItems, s.pendingActions],
             (unfiledItems, savedItems, pendingActions): FileSystemEntry[] => {
-                const items = [...unfiledItems, ...savedItems]
+                const items = [...savedItems, ...unfiledItems]
                 const itemsByPath = Object.fromEntries(items.map((item) => [item.path, item]))
                 for (const action of pendingActions) {
                     if (action.type === 'move' && action.newPath) {
@@ -299,10 +276,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         loadingPaths: [
             // Paths that are currently being loaded
-            (s) => [s.unfiledLoading, s.savedItemsLoading, s.pendingLoaderLoading, s.pendingActions],
-            (unfiledLoading, savedItemsLoading, pendingLoaderLoading, pendingActions) => {
+            (s) => [s.unfiledItemsLoading, s.savedItemsLoading, s.pendingLoaderLoading, s.pendingActions],
+            (unfiledItemsLoading, savedItemsLoading, pendingLoaderLoading, pendingActions) => {
                 const loadingPaths: Record<string, boolean> = {}
-                if (unfiledLoading) {
+                if (unfiledItemsLoading) {
                     loadingPaths['Unfiled'] = true
                     loadingPaths[''] = true
                 }
@@ -437,6 +414,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 actions.loadFolderSuccess(folder, [...previousFiles, ...files], hasMore)
             } catch (error) {
                 actions.loadFolderFailure(folder, String(error))
+            }
+        },
+        loadFolderSuccess: ({ folder }) => {
+            if (folder === '') {
+                const rootItems = values.folders['']
+                const unfiled = rootItems.find((item) => item.path === 'Unfiled' && item.type === 'folder')
+                if (rootItems.length < 5 && unfiled?.id) {
+                    // TODO: this does not work
+                    actions.toggleFolderOpen('project/' + unfiled.id, true)
+                }
             }
         },
         moveItem: async ({ oldPath, newPath }) => {

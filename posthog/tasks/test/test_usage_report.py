@@ -1088,8 +1088,8 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
         # Queries were read via the API
         assert report.query_api_rows_read == 200
         assert report.event_explorer_api_rows_read == 100
-        assert report.qaas_query_count == 2
-        assert report.qaas_bytes_read > 16000  # locally it's about 16753
+        assert report.api_queries_query_count == 2
+        assert report.api_queries_bytes_read > 16000  # locally it's about 16753
 
 
 @freeze_time("2022-01-10T00:01:00Z")
@@ -1846,6 +1846,10 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                     },
                     "feature_flag_requests": {
                         "usage": 1000,
+                        "limit": None,
+                    },
+                    "api_queries_read_bytes": {
+                        "usage": 1024,
                         "limit": None,
                     },
                 },

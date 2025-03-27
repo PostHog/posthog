@@ -1,7 +1,6 @@
 import { offset } from '@floating-ui/react'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -405,15 +404,6 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
 
 export function MaxChatInterface(): JSX.Element {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const useFeatureFlagSupport = useFeatureFlag('SUPPORT_SIDEBAR_MAX')
-    const useFeatureFlagInKeep = useFeatureFlag('INKEEP_MAX_SUPPORT_SIDEBAR')
-
-    // Check if either feature flag is enabled
-    const isMaxEnabled = useFeatureFlagSupport || useFeatureFlagInKeep
-
-    if (!isMaxEnabled) {
-        return <></>
-    }
 
     return (
         <div className="relative">

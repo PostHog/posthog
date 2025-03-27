@@ -5,14 +5,11 @@ const commonColors = {
     'inherit': 'inherit',
     'current': 'currentColor',
     'transparent': 'transparent',
-    'accent-primary': 'var(--accent-primary)',
-    'accent-primary-hover': 'var(--accent-primary-hover)',
-    'accent-primary-active': 'var(--accent-primary-active)',
-    'accent-primary-highlight': 'var(--accent-primary-highlight)',
-    'accent-secondary': 'var(--accent-secondary)',
-    'accent-secondary-hover': 'var(--accent-secondary-hover)',
-    'accent-secondary-active': 'var(--accent-secondary-active)',
-    'accent-secondary-highlight': 'var(--accent-secondary-highlight)',
+    'accent': 'var(--accent)',
+    'accent-hover': 'var(--accent-hover)',
+    'accent-active': 'var(--accent-active)',
+    'accent-highlight-primary': 'var(--accent-highlight-primary)',
+    'accent-highlight-secondary': 'var(--accent-highlight-secondary)',
 }
 
 const deprecatedColors = {
@@ -273,10 +270,10 @@ const deprecatedColors = {
     'text-secondary-3000': 'var(--text-secondary-3000)',
     'muted-3000': 'var(--muted-3000)',
     'trace-3000': 'var(--trace-3000)',
-    'primary-3000': 'var(--accent-primary)',
+    'primary-3000': 'var(--accent)',
 
-    'primary-3000-hover': 'var(--accent-primary-hover)',
-    'primary-3000-active': 'var(--accent-primary-active)',
+    'primary-3000-hover': 'var(--accent-hover)',
+    'primary-3000-active': 'var(--accent-active)',
     'secondary-3000': 'var(--secondary-3000)',
     'secondary-3000-hover': 'var(--secondary-3000-hover)',
     'accent-3000': 'var(--bg-surface-primary)',

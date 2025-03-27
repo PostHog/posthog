@@ -137,6 +137,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
             r"'00000000-0000-0000-0000-000000000000'",
             query,
         )
+        query = re.sub(r".\"ref\" = '([0-9a-f]{32}|[0-9a-f-]{36}|[0-9]+)'", """."ref" = '0001'""", query)
 
     else:
         query = re.sub(r"(team|project|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)

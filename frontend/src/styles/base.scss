@@ -334,42 +334,27 @@
     // Accent colors (accents can be changed to change the brand colors)
     // Used for interactive elements and highlights, inputs, toggles, charts, etc.
     // //////////////////////////////////////////////////////////
-    --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
-    --accent-primary-hover: hsl(
+    --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
-    --accent-primary-active: hsl(
+    --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
     );
-    --accent-primary-highlight: hsla(
+    --accent-highlight-primary: hsla(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         var(--brand-primary-lightness),
-        10%
+        20%
     );
-    --accent-secondary: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        var(--brand-secondary-lightness)
-    );
-    --accent-secondary-hover: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        calc(var(--brand-secondary-lightness) + 10%)
-    );
-    --accent-secondary-active: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        calc(var(--brand-secondary-lightness) + 15%)
-    );
-    --accent-secondary-highlight: hsla(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        var(--brand-secondary-lightness),
+    --accent-highlight-secondary: hsla(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        var(--brand-primary-lightness),
         10%
     );
 
@@ -778,42 +763,32 @@
 
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
-    --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
-    --accent-primary-hover: hsl(
+    --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
-    --accent-primary-active: hsl(
+    --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
     );
-    --accent-primary-highlight: hsla(
+
+    // Used for highlighting search results, and other subtle accent sitations
+    // Most prominent
+    --accent-highlight-primary: hsla(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         var(--brand-primary-lightness),
-        10%
+        20%
     );
-    --accent-secondary: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        var(--brand-secondary-lightness)
-    );
-    --accent-secondary-hover: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        calc(var(--brand-secondary-lightness) + 10%)
-    );
-    --accent-secondary-active: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        calc(var(--brand-secondary-lightness) + 15%)
-    );
-    --accent-secondary-highlight: hsla(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        var(--brand-secondary-lightness),
+
+    // Less prominent
+    --accent-highlight-secondary: hsla(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        var(--brand-primary-lightness),
         10%
     );
 
@@ -978,7 +953,7 @@
     }
 
     input[type='radio'] {
-        accent-color: var(--accent-primary);
+        accent-color: var(--accent);
     }
 
     input[type='search'] {
@@ -1127,7 +1102,7 @@
 
             &:hover {
                 .text-link {
-                    color: var(--accent-primary) !important;
+                    color: var(--accent) !important;
                 }
             }
         }
