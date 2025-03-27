@@ -297,7 +297,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                     icon: (
                         <DataWarehouseSourceIcon
                             type={
-                                sourceType == 'Self-managed' && tables.length > 0
+                                sourceType === 'Self-managed' && tables.length > 0
                                     ? mapUrlToProvider(tables[0].url_pattern)
                                     : sourceType
                             }
