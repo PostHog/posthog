@@ -12,6 +12,7 @@ use property_defs_rs::{
     process_batch_v2,
     types::{Event, Update},
 };
+
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_simple_batch_write(db: PgPool) {
     let config = Config::init_with_defaults().unwrap();
@@ -22,28 +23,38 @@ async fn test_simple_batch_write(db: PgPool) {
     process_batch_v2(&config, cache, &db, updates).await;
 
     // fetch results and ensure they landed correctly
-    let event_defs_count: u64 =
-        sqlx::query_scalar!(r#"SELECT count(*) from posthog_eventdefinition"#);
-    assert_eq!(1, event_defs_count);
+    let event_defs_count: Option<i64> =
+        sqlx::query_scalar!(r#"SELECT count(*) from posthog_eventdefinition"#)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert_eq!(Some(1), event_defs_count);
 
-    let prop_defs_count: u64 =
-        sqlx::query_scalar!(r#"SELECT count(*) from posthog_propertydefinition"#);
-    assert_eq!(100, prop_defs_count);
+    let prop_defs_count: Option<i64> =
+        sqlx::query_scalar!(r#"SELECT count(*) from posthog_propertydefinition"#)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert_eq!(Some(100), prop_defs_count);
 
-    let event_props_count: u64 =
-        sqlx::query_scalar!(r#"SELECT count(*) from posthog_eventproperty"#);
-    assert_eq!(100, event_props_count);
+    let event_props_count: Option<i64> =
+        sqlx::query_scalar!(r#"SELECT count(*) from posthog_eventproperty"#)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert_eq!(Some(100), event_props_count);
 }
 
 fn gen_test_event_updates(event_name: &'static str, num_props: usize) -> Vec<Update> {
     let prop_kvs = (0..num_props)
-        .map(|ndx| gen_test_prop_key_value(ndx))
+        .map(gen_test_prop_key_value)
         .collect::<Vec<(String, Value)>>();
 
     let mut properties = HashMap::<String, Value>::new();
     for kv in prop_kvs {
         properties.insert(kv.0, kv.1);
     }
+    let properties = json!(properties).to_string();
 
     let event = json!({
         "team_id": 111,
