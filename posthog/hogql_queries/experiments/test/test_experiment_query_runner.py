@@ -387,8 +387,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         metric = ExperimentMeanMetric(
             source=ExperimentEventMetricSource(event="purchase"),
-            math=ExperimentMetricMathType.SUM,
-            math_property="amount",
         )
 
         experiment_query = ExperimentQuery(
@@ -503,8 +501,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     EventPropertyFilter(key="plan", operator=PropertyOperator.IS_NOT, value="pro", type="event"),
                 ],
             ),
-            math=ExperimentMetricMathType.SUM,
-            math_property="amount",
         )
 
         experiment_query = ExperimentQuery(
@@ -582,8 +578,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         metric = ExperimentMeanMetric(
             source=ExperimentActionMetricSource(action=action.id),
-            math=ExperimentMetricMathType.SUM,
-            math_property="amount",
         )
 
         experiment_query = ExperimentQuery(
@@ -923,8 +917,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         metric = ExperimentMeanMetric(
             source=ExperimentEventMetricSource(event="$pageview"),
-            math=ExperimentMetricMathType.SUM,
-            math_property="amount",
         )
 
         experiment_query = ExperimentQuery(
@@ -1294,8 +1286,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             kind="ExperimentQuery",
             metric=ExperimentMeanMetric(
                 source=ExperimentEventMetricSource(event="purchase"),
-                math=ExperimentMetricMathType.SUM,
-                math_property="amount",
             ),
         )
 
@@ -1381,8 +1371,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             kind="ExperimentQuery",
             metric=ExperimentMeanMetric(
                 source=ExperimentEventMetricSource(event="purchase"),
-                math=ExperimentMetricMathType.SUM,
-                math_property="amount",
             ),
         )
 
