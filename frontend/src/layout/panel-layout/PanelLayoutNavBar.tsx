@@ -286,7 +286,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                     item.identifier === 'SavedInsights' && (
                                                                         <Button.Icon
                                                                             isTrigger
-                                                                            onClick={(e) => {
+                                                                            onClick={(e: React.MouseEvent) => {
                                                                                 e.preventDefault()
                                                                                 e.stopPropagation()
                                                                                 e.nativeEvent.stopImmediatePropagation()
