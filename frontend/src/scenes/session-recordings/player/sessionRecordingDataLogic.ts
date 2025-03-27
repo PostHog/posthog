@@ -1035,19 +1035,20 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
         eventViewports: [
             (s) => [s.sessionEventsData],
-            (sessionEventsData): { width: string; height: string; timestamp: string | number }[] =>
+            (sessionEventsData): ViewportResolution[] =>
                 (sessionEventsData || [])
                     .filter((e) => e.properties.$viewport_width && e.properties.$viewport_height)
                     .map((e) => ({
                         width: e.properties.$viewport_width,
                         height: e.properties.$viewport_height,
+                        href: e.properties.$current_url,
                         timestamp: e.timestamp,
                     })),
         ],
         viewportForTimestamp: [
             (s) => [s.eventViewports],
             (eventViewports) =>
-                (timestamp: number): { width: string; height: string } | undefined => {
+                (timestamp: number): ViewportResolution | undefined => {
                     // we do this as a function because in most recordings we don't need the data so we don't need to run this every time
 
                     // First try to find the first event after the timestamp that has viewport dimensions
@@ -1059,6 +1060,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return {
                             width: nextEvent.width,
                             height: nextEvent.height,
+                            href: nextEvent.href,
                         }
                     }
 
@@ -1071,6 +1073,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return {
                             width: previousEvent.width,
                             height: previousEvent.height,
+                            href: previousEvent.href,
                         }
                     }
 
@@ -1197,9 +1200,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         segments: [
-            (s) => [s.snapshots, s.start, s.end, s.trackedWindow, s.viewportForTimestamp],
-            (snapshots, start, end, trackedWindow, viewportForTimestamp): RecordingSegment[] => {
-                return createSegments(snapshots || [], start, end, trackedWindow, viewportForTimestamp)
+            (s) => [s.snapshots, s.start, s.end, s.trackedWindow],
+            (snapshots, start, end, trackedWindow): RecordingSegment[] => {
+                return createSegments(snapshots || [], start, end, trackedWindow)
             },
         ],
 
