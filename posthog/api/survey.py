@@ -848,13 +848,20 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Update stats with actual results
         for event_name, total_count, unique_persons, first_seen, last_seen in results:
-            if event_name in [e.value for e in SurveyEventName]:
-                stats[event_name] = {
-                    "total_count": total_count,
-                    "unique_persons": unique_persons,
-                    "first_seen": first_seen.isoformat() + "Z" if first_seen else None,
-                    "last_seen": last_seen.isoformat() + "Z" if last_seen else None,
-                }
+            event_stats = {
+                "total_count": total_count,
+                "unique_persons": unique_persons,
+                "first_seen": first_seen.isoformat() + "Z" if first_seen else None,
+                "last_seen": last_seen.isoformat() + "Z" if last_seen else None,
+            }
+
+            if event_name == SurveyEventName.SHOWN.value:
+                stats["survey shown"] = event_stats
+            elif event_name == SurveyEventName.DISMISSED.value:
+                stats["survey dismissed"] = event_stats
+            elif event_name == SurveyEventName.SENT.value:
+                stats["survey sent"] = event_stats
+
         return stats
 
     def _calculate_rates(self, stats: SurveyStats) -> SurveyRates:
