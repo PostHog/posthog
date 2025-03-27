@@ -2,6 +2,7 @@ import { EventType, IncrementalSource, mutationData, NodeType } from '@posthog/r
 import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import {
@@ -9,7 +10,9 @@ import {
     deduplicateSnapshots,
     MUTATION_CHUNK_SIZE,
     parseEncodedSnapshots,
+    patchMetaEventIntoWebData,
     sessionRecordingDataLogic,
+    ViewportResolution,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -525,5 +528,127 @@ describe('sessionRecordingDataLogic', () => {
             const chunks = chunkMutationSnapshot(snapshot)
             expect(chunks).toEqual([snapshot])
         })
+    })
+})
+
+describe('patchMetaEventIntoWebData', () => {
+    const mockViewportForTimestamp = (): ViewportResolution => ({
+        width: '1024',
+        height: '768',
+        href: 'https://blah.io',
+    })
+
+    it('adds meta event before full snapshot when none exists', () => {
+        const snapshots: RecordingSnapshot[] = [
+            {
+                type: EventType.FullSnapshot,
+                timestamp: 1000,
+                windowId: 'window1',
+                data: {},
+            } as RecordingSnapshot,
+        ]
+
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp)
+
+        expect(result).toEqual([
+            {
+                type: EventType.Meta,
+                timestamp: 1000,
+                windowId: 'window1',
+                data: {
+                    width: 1024,
+                    height: 768,
+                    href: 'https://blah.io',
+                },
+            },
+            {
+                type: EventType.FullSnapshot,
+                timestamp: 1000,
+                windowId: 'window1',
+                data: {},
+            } as RecordingSnapshot,
+        ])
+    })
+
+    it('does not add meta event if one already exists before full snapshot', () => {
+        const snapshots: RecordingSnapshot[] = [
+            {
+                type: EventType.Meta,
+                timestamp: 1000,
+                windowId: 'window1',
+                data: {
+                    width: 800,
+                    height: 600,
+                    href: 'test',
+                },
+            },
+            {
+                type: EventType.FullSnapshot,
+                timestamp: 1000,
+                windowId: 'window1',
+                data: {},
+            } as RecordingSnapshot,
+        ]
+
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp)
+
+        expect(result).toHaveLength(2)
+        expect(result[0]).toBe(snapshots[0])
+        expect(result[1]).toBe(snapshots[1])
+    })
+
+    it('handles multiple full snapshots correctly', () => {
+        const snapshots: RecordingSnapshot[] = [
+            {
+                type: EventType.FullSnapshot,
+                timestamp: 1000,
+                windowId: 'window1',
+                data: {},
+            } as RecordingSnapshot,
+            {
+                type: EventType.IncrementalSnapshot,
+                timestamp: 1500,
+                windowId: 'window1',
+                data: {},
+            } as RecordingSnapshot,
+            {
+                type: EventType.FullSnapshot,
+                timestamp: 2000,
+                windowId: 'window1',
+                data: {},
+            } as RecordingSnapshot,
+        ]
+
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp)
+
+        expect(result).toHaveLength(5)
+        expect(result[0].type).toBe(EventType.Meta)
+        expect(result[1].type).toBe(EventType.FullSnapshot)
+        expect(result[2].type).toBe(EventType.IncrementalSnapshot)
+        expect(result[3].type).toBe(EventType.Meta)
+        expect(result[4].type).toBe(EventType.FullSnapshot)
+    })
+
+    it('logs error when viewport dimensions are not available', () => {
+        const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined
+        const snapshots: RecordingSnapshot[] = [
+            {
+                type: EventType.FullSnapshot,
+                timestamp: 1000,
+                windowId: 'window1',
+                data: {},
+            } as RecordingSnapshot,
+        ]
+
+        jest.spyOn(posthog, 'captureException')
+
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData)
+
+        expect(posthog.captureException).toHaveBeenCalledWith(
+            new Error('No viewport found for full snapshot'),
+            expect.any(Object)
+        )
+        expect(result).toHaveLength(1)
+        expect(result[0]).toBe(snapshots[0])
     })
 })

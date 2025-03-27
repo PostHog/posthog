@@ -62,8 +62,58 @@ export const MUTATION_CHUNK_SIZE = 5000 // Maximum number of mutations per chunk
 
 let postHogEEModule: PostHogEE
 
+export interface ViewportResolution {
+    width: string
+    height: string
+    href: string
+}
+
 function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
+}
+
+export function patchMetaEventIntoWebData(
+    snapshots: RecordingSnapshot[],
+    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined
+): RecordingSnapshot[] {
+    // First collect all the positions where we need to insert meta events
+    const metaEventsToInsert: { index: number; event: RecordingSnapshot }[] = []
+
+    for (let i = 0; i < snapshots.length; i++) {
+        const snapshot = snapshots[i]
+        if (snapshot.type === EventType.FullSnapshot) {
+            const previousEvent = snapshots[i - 1]
+            if (!previousEvent || previousEvent.type !== EventType.Meta) {
+                const viewport = viewportForTimestamp(snapshot.timestamp)
+                if (!viewport || !viewport.width || !viewport.height) {
+                    posthog.captureException(new Error('No viewport found for full snapshot'), {
+                        snapshot,
+                    })
+                } else {
+                    metaEventsToInsert.push({
+                        index: i,
+                        event: {
+                            type: EventType.Meta,
+                            timestamp: snapshot.timestamp,
+                            windowId: snapshot.windowId,
+                            data: {
+                                width: parseInt(viewport.width, 10),
+                                height: parseInt(viewport.height, 10),
+                                href: viewport.href || 'unknown',
+                            },
+                        },
+                    })
+                }
+            }
+        }
+    }
+
+    // Then insert all meta events, starting from the end so that indices remain valid
+    for (const { index, event } of metaEventsToInsert.reverse()) {
+        snapshots.splice(index, 0, event)
+    }
+
+    return snapshots
 }
 
 /*
@@ -644,7 +694,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     const sessionEventsQuery = hogql`
-                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height
                             FROM events
                             WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
                               AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
@@ -705,6 +755,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                 pathname = undefined
                             }
 
+                            const viewportWidth = event.length > 7 ? event[7] : undefined
+                            const viewportHeight = event.length > 8 ? event[8] : undefined
+
                             return {
                                 id: event[0],
                                 event: event[1],
@@ -715,6 +768,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     $current_url: currentUrl,
                                     $event_type: event[6],
                                     $pathname: pathname,
+                                    $viewport_width: viewportWidth,
+                                    $viewport_height: viewportHeight,
                                 },
                                 playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,
@@ -978,7 +1033,50 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     )?.windowId
                 },
         ],
+        eventViewports: [
+            (s) => [s.sessionEventsData],
+            (sessionEventsData): { width: string; height: string; timestamp: string | number }[] =>
+                (sessionEventsData || [])
+                    .filter((e) => e.properties.$viewport_width && e.properties.$viewport_height)
+                    .map((e) => ({
+                        width: e.properties.$viewport_width,
+                        height: e.properties.$viewport_height,
+                        timestamp: e.timestamp,
+                    })),
+        ],
+        viewportForTimestamp: [
+            (s) => [s.eventViewports],
+            (eventViewports) =>
+                (timestamp: number): { width: string; height: string } | undefined => {
+                    // we do this as a function because in most recordings we don't need the data so we don't need to run this every time
 
+                    // First try to find the first event after the timestamp that has viewport dimensions
+                    const nextEvent = eventViewports
+                        .filter((e) => dayjs(e.timestamp).isSameOrAfter(dayjs(timestamp)))
+                        .sort((a, b) => dayjs(a.timestamp).valueOf() - dayjs(b.timestamp).valueOf())[0]
+
+                    if (nextEvent) {
+                        return {
+                            width: nextEvent.width,
+                            height: nextEvent.height,
+                        }
+                    }
+
+                    // If no event after timestamp, find the closest event before it
+                    const previousEvent = eventViewports
+                        .filter((e) => dayjs(e.timestamp).isBefore(dayjs(timestamp)))
+                        .sort((a, b) => dayjs(b.timestamp).valueOf() - dayjs(a.timestamp).valueOf())[0] // Sort descending to get closest
+
+                    if (previousEvent) {
+                        return {
+                            width: previousEvent.width,
+                            height: previousEvent.height,
+                        }
+                    }
+
+                    return undefined
+                },
+        ],
         sessionPlayerData: [
             (s, p) => [
                 s.sessionPlayerMetaData,
@@ -1099,9 +1197,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         segments: [
-            (s) => [s.snapshots, s.start, s.end, s.trackedWindow],
-            (snapshots, start, end, trackedWindow): RecordingSegment[] => {
-                return createSegments(snapshots || [], start, end, trackedWindow)
+            (s) => [s.snapshots, s.start, s.end, s.trackedWindow, s.viewportForTimestamp],
+            (snapshots, start, end, trackedWindow, viewportForTimestamp): RecordingSegment[] => {
+                return createSegments(snapshots || [], start, end, trackedWindow, viewportForTimestamp)
             },
         ],
 
@@ -1122,15 +1220,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshots: [
-            (s) => [s.snapshotSources, s.snapshotsBySource],
-            (sources, snapshotsBySource): RecordingSnapshot[] => {
+            (s) => [s.snapshotSources, s.snapshotsBySource, s.viewportForTimestamp],
+            (sources, snapshotsBySource, viewportForTimestamp): RecordingSnapshot[] => {
                 const allSnapshots =
                     sources?.flatMap((source) => {
                         const sourceKey = getSourceKey(source)
                         return snapshotsBySource?.[sourceKey]?.snapshots || []
                     }) ?? []
 
-                return deduplicateSnapshots(allSnapshots)
+                return patchMetaEventIntoWebData(deduplicateSnapshots(allSnapshots), viewportForTimestamp)
             },
         ],
 
