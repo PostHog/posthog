@@ -110,12 +110,12 @@ if (inputs.debug) {
         {
             ...SUB_TEMPLATE_COMMON['error-tracking-issue-created'],
             name: 'HTTP Webhook on issue created',
-            description: '',
+            description: 'Send a webhook when an error tracking issue is created.',
         },
         {
             ...SUB_TEMPLATE_COMMON['error-tracking-issue-reopened'],
             name: 'HTTP Webhook on issue reopened',
-            description: '',
+            description: 'Send a webhook when an error tracking issue is reopened.',
         },
     ],
 }
