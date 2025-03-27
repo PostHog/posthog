@@ -47,7 +47,7 @@ pub struct CapturedEvent {
     )]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
-    #[serde(skip_serializing_if = "<&bool>::not")] // only store if true
+    #[serde(skip_serializing_if = "<&bool>::not", default)]
     pub is_cookieless_mode: bool,
 }
 
