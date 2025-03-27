@@ -127,6 +127,8 @@ export function ExclusionRowSuffix({
                             TaxonomicFilterGroupType.EventFeatureFlags,
                             TaxonomicFilterGroupType.NumericalEventProperties,
                         ]}
+                        showNestedArrow={true}
+                        disablePopover={true}
                     />
                 </div>
             )}
