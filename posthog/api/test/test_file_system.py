@@ -451,3 +451,29 @@ class TestFileSystemAPI(APIBaseTest):
             folder = FileSystem.objects.get(path=folder_path, team=self.team)
             self.assertEqual(folder.depth, depth_index)
             self.assertEqual(folder.type, "folder")
+
+    def test_move_files_and_folders(self):
+        """
+        Moving a folder should update all child paths correctly.
+        """
+        # Create a folder and some files inside it
+        folder = FileSystem.objects.create(team=self.team, path="OldFolder", type="folder", created_by=self.user)
+        file1 = FileSystem.objects.create(team=self.team, path="OldFolder/File1", type="doc", created_by=self.user)
+        file2 = FileSystem.objects.create(team=self.team, path="OldFolder/File2", type="doc", created_by=self.user)
+
+        # Move the folder
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{folder.pk}/move",
+            {"new_path": "NewFolder"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        # Check that the folder and files have been moved
+        folder.refresh_from_db()
+        self.assertEqual(folder.path, "NewFolder")
+
+        file1.refresh_from_db()
+        self.assertEqual(file1.path, "NewFolder/File1")
+
+        file2.refresh_from_db()
+        self.assertEqual(file2.path, "NewFolder/File2")
