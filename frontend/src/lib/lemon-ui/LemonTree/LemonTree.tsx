@@ -888,6 +888,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             },
         }))
 
+        useEffect(() => {
+            if (expandedItemIds && expandedItemIds.join(',') !== expandedItemIdsState.join(',')) {
+                setExpandedItemIdsState(expandedItemIds ?? [])
+            }
+        }, [expandedItemIds]) // only trigger if external ids change not when expandedItemIdsState changes
+
         return (
             <DndContext
                 sensors={sensors}
