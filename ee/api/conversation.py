@@ -24,6 +24,7 @@ class MessageSerializer(serializers.Serializer):
     content = serializers.CharField(required=True, max_length=1000)
     conversation = serializers.UUIDField(required=False)
     type = serializers.ChoiceField(choices=["hogql", "max"], required=False)
+    contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     trace_id = serializers.UUIDField(required=True)
 
     def validate(self, data):
@@ -83,6 +84,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             conversation,
             serializer.validated_data["message"],
             user=cast(User, request.user),
+            contextual_tools=serializer.validated_data.get("contextual_tools"),
             is_new_conversation=not conversation_id,
             trace_id=serializer.validated_data["trace_id"],
             graph=graph,

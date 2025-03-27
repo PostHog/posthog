@@ -129,8 +129,6 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         if schema.is_incremental:
             logger.debug(f"Incremental last value being used is: {processed_incremental_last_value}")
 
-        shutdown_monitor.raise_if_is_worker_shutdown()
-
         source: DltSource | SourceResponse
 
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:

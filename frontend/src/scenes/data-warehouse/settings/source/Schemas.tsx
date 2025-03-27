@@ -52,7 +52,6 @@ const StatusTagSetting: Record<string, LemonTagType> = {
     Completed: 'success',
     Error: 'danger',
     Failed: 'danger',
-    Suspended: 'warning',
     'Billing limits': 'danger',
 }
 
@@ -274,13 +273,8 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             if (!schema.status) {
                                 return null
                             }
-                            const isSuspended = schema.status === 'Error' && !schema.should_sync
                             const tagContent = (
-                                <LemonTag
-                                    type={StatusTagSetting[isSuspended ? 'Suspended' : schema.status] || 'default'}
-                                >
-                                    {isSuspended ? 'Suspended' : schema.status}
-                                </LemonTag>
+                                <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
                             )
                             return schema.latest_error && schema.status === 'Error' ? (
                                 <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>

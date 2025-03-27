@@ -26,6 +26,7 @@ import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
     AssistantMessage,
+    AssistantToolCallMessage,
     FailureMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
@@ -36,6 +37,7 @@ import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
 import {
     castAssistantQuery,
     isAssistantMessage,
+    isAssistantToolCallMessage,
     isFailureMessage,
     isHumanMessage,
     isReasoningMessage,
@@ -118,7 +120,11 @@ function MessageGroup({ messages, isFinal: isFinalGroup, onlySummary }: MessageG
                                 <LemonMarkdown>{message.content || '*No text.*'}</LemonMarkdown>
                             </MessageTemplate>
                         )
-                    } else if (isAssistantMessage(message) || isFailureMessage(message)) {
+                    } else if (
+                        isAssistantMessage(message) ||
+                        isAssistantToolCallMessage(message) ||
+                        isFailureMessage(message)
+                    ) {
                         return (
                             <TextAnswer
                                 key={key}
@@ -207,7 +213,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
 })
 
 interface TextAnswerProps {
-    message: (AssistantMessage | FailureMessage) & ThreadMessage
+    message: (AssistantMessage | FailureMessage | AssistantToolCallMessage) & ThreadMessage
     interactable?: boolean
     isFinalGroup?: boolean
 }

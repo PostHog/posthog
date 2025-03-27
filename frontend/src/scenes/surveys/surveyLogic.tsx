@@ -578,7 +578,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     query: `
                         -- QUERYING SINGLE CHOICE RESPONSES
                         SELECT
-                            ${getResponseFieldCondition(questionIndex, question?.id)} AS survey_response,
+                            getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent'
@@ -586,6 +586,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
+                            AND survey_response != null
                             AND {filters}
                         GROUP BY survey_response
                     `,

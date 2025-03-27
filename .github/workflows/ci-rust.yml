@@ -92,18 +92,8 @@ jobs:
                 working-directory: rust
 
         steps:
-            # Checkout project code
-            # Use sparse checkout to only select files in rust directory
-            # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
-              with:
-                  sparse-checkout: 'rust/'
-                  sparse-checkout-cone-mode: false
-
-            # For flags checkout entire repository
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              if: needs.changes.outputs.rust == 'true'
 
             - name: Setup main repo dependencies for flags
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
@@ -169,7 +159,7 @@ jobs:
               run: cd ../ && python manage.py setup_test_environment --only-postgres
 
             - name: Download MaxMind Database
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              if: needs.changes.outputs.rust == 'true'
               run: |
                   cd ../ && ./bin/download-mmdb
 

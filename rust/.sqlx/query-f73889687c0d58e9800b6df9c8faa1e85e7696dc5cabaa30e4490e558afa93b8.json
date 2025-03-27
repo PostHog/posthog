@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT pp.id, pp.created_at, pp.team_id, pp.uuid, pp.properties, pp.is_identified, pp.is_user_id, pp.version\n                FROM posthog_person pp\n                INNER JOIN posthog_persondistinctid\n                    ON pp.id = posthog_persondistinctid.person_id\n                WHERE\n                    posthog_persondistinctid.distinct_id = $1\n                    AND posthog_persondistinctid.team_id = $2\n                    AND pp.team_id = $2\n                LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "team_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "properties",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_identified",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_user_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "f73889687c0d58e9800b6df9c8faa1e85e7696dc5cabaa30e4490e558afa93b8"
+}

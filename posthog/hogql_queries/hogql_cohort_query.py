@@ -334,6 +334,11 @@ class HogQLCohortQuery:
 
         series = self._get_series(prop)
 
+        # Remove when we support years
+        if date_interval == "year":
+            date_interval = "month"
+            time_value = time_value * 12
+
         date_from = f"-{time_value * total_period_count}{date_interval[:1]}"
 
         stickiness_query = StickinessQuery(

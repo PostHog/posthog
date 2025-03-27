@@ -82,7 +82,11 @@ async def query_usage_reports(
         def get_all_org_reports(ps, pe):
             return _get_all_org_reports(ps, pe)
 
+        logger.info("Querying usage reports", period_start=period_start, period_end=period_end)
+
         org_reports = await get_all_org_reports(period_start, period_end)
+
+        logger.info("Querying usage reports complete", org_count=len(org_reports))
 
         return QueryUsageReportsResult(
             org_reports=org_reports,
@@ -138,11 +142,10 @@ async def send_usage_reports(
                 full_report_dict = _get_full_org_usage_report_as_dict(full_report)
 
                 @sync_to_async
-                def async_capture_report(p, oid, frd, ad) -> None:
+                def async_capture_report(oid, frd, ad) -> None:
                     try:
                         at_date_str = ad.isoformat() if ad else None
                         capture_report(
-                            pha_client=p,
                             organization_id=oid,
                             full_report_dict=frd,
                             at_date=at_date_str,
@@ -152,7 +155,7 @@ async def send_usage_reports(
 
                 # First capture the events to PostHog
                 if not inputs.skip_capture_event:
-                    await async_capture_report(pha_client, organization_id, full_report_dict, at_date)
+                    await async_capture_report(organization_id, full_report_dict, at_date)
 
                 @sync_to_async
                 def async_queue_report(p, oid, frd) -> bool:
@@ -213,6 +216,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             )
 
             if not query_usage_reports_result.org_reports:
+                logger.info("No org reports found - skipping send")
                 return
 
             send_usage_reports_inputs = SendUsageReportsInputs(
@@ -232,5 +236,6 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             )
 
         except Exception as e:
+            logger.exception("Error running usage reports", error=e)
             capture_exception(e)
             raise
