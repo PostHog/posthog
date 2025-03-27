@@ -190,16 +190,21 @@ async fn write_event_properties_batch(
     let mut tries = 1;
 
     loop {
-        let result = sqlx::query(r#"
+        let result = sqlx::query(
+            r#"
             INSERT INTO posthog_eventproperty (event, property, team_id, project_id)
-                VALUES (UNNEST($1::text[]), UNNEST($2::text[]), UNNEST($3::int[]), UNNEST($4::int[]))
-                ON CONFLICT DO NOTHING"#,
+                (SELECT * FROM UNNEST(
+                    $1::text[],
+                    $2::text[],
+                    $3::int[],
+                    $4::bigint[])) ON CONFLICT DO NOTHING"#,
         )
         .bind(&batch.event_names)
         .bind(&batch.property_names)
         .bind(&batch.team_ids)
         .bind(&batch.project_ids)
-        .execute(pool).await;
+        .execute(pool)
+        .await;
 
         match result {
             Err(e) => {
@@ -237,9 +242,19 @@ async fn write_property_definitions_batch(
     loop {
         // what if we just ditch properties without a property_type set? why update on conflict at all?
         let result = sqlx::query(r#"
-            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, team_id, project_id, property_type, volume_30_day, query_usage_30_day)
-                VALUES (UNNEST($1::uuid[]), UNNEST($2::text[]), UNNEST($3::smallint[]), UNNEST($4::smallint[]), UNNEST($5::boolean[]), UNNEST($6::int[]), UNNEST($7::int[]), UNNEST($8::text[]), NULL, NULL)
-                ON CONFLICT (coalesce(project_id, team_id::bigint), name, type, coalesce(group_type_index, -1))
+            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, team_id, project_id, property_type)
+                (SELECT * FROM UNNEST(
+                    $1::uuid[],
+                    $2::varchar[],
+                    $3::smallint[],
+                    $4::smallint[],
+                    $5::boolean[],
+                    $6::int[],
+                    $7::bigint[],
+                    $8::varchar[]))
+                ON CONFLICT (
+                    COALESCE(project_id, team_id::bigint), name, type,
+                    COALESCE(group_type_index, -1))
                 DO UPDATE SET property_type=EXCLUDED.property_type
                 WHERE posthog_propertydefinition.property_type IS NULL"#,
             )
@@ -290,13 +305,17 @@ async fn write_event_definitions_batch(
         // TODO: is last_seen_at critical to the product UX? "ON CONFLICT DO NOTHING" may be much cheaper...
         let result = sqlx::query(
             r#"
-            INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day,
-                team_id, project_id, last_seen_at, created_at)
-            VALUES (UNNEST($1::[]uuid), UNNEST($2::text[]), NULL, NULL, UNNEST($3::int[]),
-                    UNNEST($4::int[]), UNNEST($5::timestamptz[]), UNNEST($5::timestamptz[]))
-            ON CONFLICT (coalesce(project_id, team_id::bigint), name) DO UPDATE
-                SET last_seen_at=EXCLUDED.last_seen_at
-                WHERE posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at"#,
+            INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at)
+                (SELECT * FROM UNNEST (
+                    $1::uuid[],
+                    $2::varchar[],
+                    $3::int[],
+                    $4::bigint[],
+                    $5::timestamptz[],
+                    $5::timestamptz[]))
+                ON CONFLICT (coalesce(project_id, team_id::bigint), name) DO UPDATE
+                    SET last_seen_at=EXCLUDED.last_seen_at
+                    WHERE posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at"#,
         )
         .bind(&batch.ids)
         .bind(&batch.names)
