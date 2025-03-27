@@ -78,6 +78,9 @@ export class HogTransformerService {
 
     public async stop(): Promise<void> {
         await this.hogFunctionManager.stop()
+        await this.redis.useClient({ name: 'cleanup' }, async (client) => {
+            await client.quit()
+        })
     }
 
     private async getTransformationFunctions() {

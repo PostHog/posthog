@@ -1288,6 +1288,60 @@ describe('HogTransformer', () => {
             hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS = [teamId]
         })
 
+        it('should skip HogWatcher operations when sample rate is 0', async () => {
+            // Set sample rate to 0
+            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+
+            // Create spies for HogWatcher methods
+            const getStatesSpy = jest.spyOn(hogTransformer['hogWatcher'], 'getStates')
+            const observeResultsSpy = jest.spyOn(hogTransformer['hogWatcher'], 'observeResults')
+
+            // Create a simple transformation
+            const template = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Test Template',
+                description: 'A simple test template',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.test_property := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: template.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(template.hog),
+                id: '11111111-1111-4111-a111-111111111111',
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+
+            const event = createPluginEvent({ event: 'test-event' }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Verify the transformation still worked
+            expect(result.event?.properties?.test_property).toBe(true)
+            expect(result.event?.properties?.$transformations_succeeded).toContain(
+                `${hogFunction.name} (${hogFunction.id})`
+            )
+
+            // Verify HogWatcher methods were not called
+            expect(getStatesSpy).not.toHaveBeenCalled()
+            expect(observeResultsSpy).not.toHaveBeenCalled()
+
+            getStatesSpy.mockRestore()
+            observeResultsSpy.mockRestore()
+        })
+
         it('should log but not skip functions that would be disabled', async () => {
             const logSpy = jest.spyOn(logger, 'info')
 
