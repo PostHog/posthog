@@ -1284,7 +1284,6 @@ describe('HogTransformer', () => {
     // Add the new test suite for HogWatcher integration
     describe('transformEvent HogWatcher integration', () => {
         beforeEach(() => {
-            hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED = true
             hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
             hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS = [teamId]
         })
