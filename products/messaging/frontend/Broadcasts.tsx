@@ -1,5 +1,6 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { useValues } from 'kea'
+import { LemonTabs } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
@@ -8,25 +9,44 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { broadcastsLogic } from './broadcastsLogic'
+import { BroadcastTab, broadcastTabsLogic } from './broadcastTabsLogic'
 import { FunctionsTable } from './FunctionsTable'
 import { MessagingTabs } from './MessagingTabs'
 
+const Broadcast = ({ broadcastId }: { broadcastId: string }): JSX.Element => {
+    const { currentTab } = useValues(broadcastTabsLogic)
+    const { setTab } = useActions(broadcastTabsLogic)
+
+    const tabs = [
+        { key: 'configuration', label: 'Configuration' },
+        { key: 'logs', label: 'Logs' },
+    ]
+
+    return (
+        <div className="flex flex-col">
+            {broadcastId !== 'new' && (
+                <LemonTabs activeKey={currentTab} onChange={(tab) => setTab(tab as BroadcastTab)} tabs={tabs} />
+            )}
+
+            {currentTab === 'configuration' && (
+                <HogFunctionConfiguration
+                    id={broadcastId === 'new' ? null : broadcastId}
+                    templateId={broadcastId === 'new' ? 'template-new-broadcast' : ''}
+                />
+            )}
+            {currentTab === 'logs' && <HogFunctionLogs hogFunctionId={broadcastId} />}
+        </div>
+    )
+}
+
 export function Broadcasts(): JSX.Element {
     const { broadcastId } = useValues(broadcastsLogic)
+
     return broadcastId ? (
-        <div className="flex flex-col gap-4">
-            <HogFunctionConfiguration
-                id={broadcastId === 'new' ? null : broadcastId}
-                templateId={broadcastId === 'new' ? 'template-new-broadcast' : ''}
-            />
-            <div className="border rounded p-3 deprecated-space-y-2 bg-surface-primary">
-                <h2>Broadcast logs</h2>
-                <HogFunctionLogs hogFunctionId={broadcastId} />
-            </div>
-        </div>
+        <Broadcast broadcastId={broadcastId} />
     ) : (
         <>
-            <MessagingTabs key="tabs" />
+            <MessagingTabs />
             <PageHeader
                 caption="Send one time communications to your users"
                 buttons={
