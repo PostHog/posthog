@@ -261,6 +261,8 @@ export function StartupProgram(): JSX.Element {
                                                 clearable={false}
                                                 format="YYYY-MM-DD"
                                                 buttonProps={{ className: 'bg-bg-light' }}
+                                                placeholder=" "
+                                                selectionPeriod="past"
                                             />
                                         </LemonField>
                                     </>

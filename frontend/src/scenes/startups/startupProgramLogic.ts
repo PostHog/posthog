@@ -262,6 +262,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 incorporation_date: null,
                 yc_batch: props.isYC ? '' : undefined,
                 yc_proof_screenshot_url: undefined,
+                yc_merch_count: props.isYC ? 1 : undefined,
             },
             errors: ({ posthog_organization_name, posthog_organization_id, raised, incorporation_date, yc_batch }) => {
                 if (!values.billing?.has_active_subscription) {
