@@ -73,7 +73,14 @@ class SurveyRates(TypedDict):
     dismissal_rate: float
 
 
-SurveyStats = dict[SurveyEventName, EventStats]
+SurveyStats = TypedDict(
+    "SurveyStats",
+    {
+        SurveyEventName.SHOWN.value: EventStats,
+        SurveyEventName.DISMISSED.value: EventStats,
+        SurveyEventName.SENT.value: EventStats,
+    },
+)
 
 
 class SurveySerializer(serializers.ModelSerializer):
@@ -819,19 +826,19 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         # Initialize stats with zero values for all event types
         stats: SurveyStats = {
-            SurveyEventName.SHOWN: {
+            SurveyEventName.SHOWN.value: {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
                 "last_seen": None,
             },
-            SurveyEventName.DISMISSED: {
+            SurveyEventName.DISMISSED.value: {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
                 "last_seen": None,
             },
-            SurveyEventName.SENT: {
+            SurveyEventName.SENT.value: {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
@@ -864,10 +871,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "dismissal_rate": 0.0,
         }
 
-        shown_count = stats.get(SurveyEventName.SHOWN, {}).get("total_count", 0)
+        shown_count = stats[SurveyEventName.SHOWN.value]["total_count"]
         if shown_count > 0:
-            sent_count = stats.get(SurveyEventName.SENT, {}).get("total_count", 0)
-            dismissed_count = stats.get(SurveyEventName.DISMISSED, {}).get("total_count", 0)
+            sent_count = stats[SurveyEventName.SENT.value]["total_count"]
+            dismissed_count = stats[SurveyEventName.DISMISSED.value]["total_count"]
             rates = {
                 "response_rate": round(sent_count / shown_count * 100, 2),
                 "dismissal_rate": round(dismissed_count / shown_count * 100, 2),
