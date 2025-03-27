@@ -101,8 +101,8 @@ if (res.status >= 400) {
             },
         ),
         HogFunctionSubTemplate(
-            name="Post to Microsoft Teams on issue created",
-            description="",
+            name="Post to Teams on issue created",
+            description="Post to a Microsoft Teams channel when an issue is created",
             id=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].id,
             type=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].type,
             filters=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].filters,
@@ -113,8 +113,8 @@ if (res.status >= 400) {
             },
         ),
         HogFunctionSubTemplate(
-            name="Post to Microsoft Teams on issue reopened",
-            description="",
+            name="Post to Teams on issue reopened",
+            description="Post to a Microsoft Teams channel when an issue is reopened",
             id=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].id,
             type=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].type,
             filters=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].filters,
