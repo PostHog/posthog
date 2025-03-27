@@ -65,10 +65,10 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
                     alias="original_revenue",
                     expr=revenue_expression_for_events(tracking_config, do_currency_conversion=False),
                 ),
+                ast.Alias(alias="original_currency", expr=currency_expression_for_all_events(tracking_config)),
                 ast.Alias(
                     alias="revenue", expr=revenue_expression_for_events(tracking_config, self.do_currency_conversion)
                 ),
-                ast.Alias(alias="original_currency", expr=currency_expression_for_all_events(tracking_config)),
                 ast.Alias(
                     alias="currency", expr=ast.Constant(value=(tracking_config.baseCurrency or DEFAULT_CURRENCY).value)
                 ),
@@ -139,9 +139,9 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
                 "*",
                 "event",
                 "original_revenue",
+                "original_currency",
                 "revenue",
-                "original_revenue_currency",
-                "revenue_currency",
+                "currency",
                 "person",
                 "session_id",
                 "timestamp",

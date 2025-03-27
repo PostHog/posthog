@@ -194,15 +194,15 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         "clickhouse_driver.result.QueryResult.get_result",
         return_value=(
             [
-                ("database_with_revenue_column", 42, 42, "USD", "USD"),
-                ("database_with_revenue_column", 43, 43, "USD", "USD"),
-                ("database_with_revenue_column", 44, 44, "USD", "USD"),
+                ("database_with_revenue_column", 42, "USD", 42, "USD"),
+                ("database_with_revenue_column", 43, "USD", 43, "USD"),
+                ("database_with_revenue_column", 44, "USD", 44, "USD"),
             ],
             (
                 "String",
                 "Float64",
-                "Float64",
                 "String",
+                "Float64",
                 "String",
             ),
         ),
@@ -213,27 +213,27 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         assert len(results) == 3
 
         # table_name, revenue
-        assert results[0] == ("database_with_revenue_column", 42, 42, "USD", "USD")
-        assert results[1] == ("database_with_revenue_column", 43, 43, "USD", "USD")
-        assert results[2] == ("database_with_revenue_column", 44, 44, "USD", "USD")
+        assert results[0] == ("database_with_revenue_column", 42, "USD", 42, "USD")
+        assert results[1] == ("database_with_revenue_column", 43, "USD", 43, "USD")
+        assert results[2] == ("database_with_revenue_column", 44, "USD", 44, "USD")
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     @patch(
         "clickhouse_driver.result.QueryResult.get_result",
         return_value=(
             [
-                ("database_with_revenue_column_a", 42, 42, "USD", "USD"),
-                ("database_with_revenue_column_a", 43, 43, "USD", "USD"),
-                ("database_with_revenue_column_a", 44, 44, "USD", "USD"),
-                ("database_with_revenue_column_b", 43, 43, "USD", "USD"),
-                ("database_with_revenue_column_b", 44, 44, "USD", "USD"),
-                ("database_with_revenue_column_b", 45, 45, "USD", "USD"),
+                ("database_with_revenue_column_a", 42, "USD", 42, "USD"),
+                ("database_with_revenue_column_a", 43, "USD", 43, "USD"),
+                ("database_with_revenue_column_a", 44, "USD", 44, "USD"),
+                ("database_with_revenue_column_b", 43, "USD", 43, "USD"),
+                ("database_with_revenue_column_b", 44, "USD", 44, "USD"),
+                ("database_with_revenue_column_b", 45, "USD", 45, "USD"),
             ],
             (
                 "String",
                 "Float64",
-                "Float64",
                 "String",
+                "Float64",
                 "String",
             ),
         ),
@@ -245,25 +245,28 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
 
         # Results are returned in the order defined by the SQL UNION ALL query
         # The first table from dataWarehouseTables should come first
-        assert results[0] == ("database_with_revenue_column_a", 42, 42, "USD", "USD")
-        assert results[1] == ("database_with_revenue_column_a", 43, 43, "USD", "USD")
-        assert results[2] == ("database_with_revenue_column_a", 44, 44, "USD", "USD")
-        assert results[3] == ("database_with_revenue_column_b", 43, 43, "USD", "USD")
-        assert results[4] == ("database_with_revenue_column_b", 44, 44, "USD", "USD")
-        assert results[5] == ("database_with_revenue_column_b", 45, 45, "USD", "USD")
+        assert results[0] == ("database_with_revenue_column_a", 42, "USD", 42, "USD")
+        assert results[1] == ("database_with_revenue_column_a", 43, "USD", 43, "USD")
+        assert results[2] == ("database_with_revenue_column_a", 44, "USD", 44, "USD")
+        assert results[3] == ("database_with_revenue_column_b", 43, "USD", 43, "USD")
+        assert results[4] == ("database_with_revenue_column_b", 44, "USD", 44, "USD")
+        assert results[5] == ("database_with_revenue_column_b", 45, "USD", 45, "USD")
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch(
         "clickhouse_driver.result.QueryResult.get_result",
         return_value=(
             [
-                ("database_with_revenue_column", 42, 42, "USD", "USD"),
-                ("database_with_revenue_column", 43, 43, "USD", "USD"),
-                ("database_with_revenue_column", 44, 44, "USD", "USD"),
+                ("database_with_revenue_column", 42, "USD", 42, "USD"),
+                ("database_with_revenue_column", 43, "USD", 43, "USD"),
+                ("database_with_revenue_column", 44, "USD", 44, "USD"),
             ],
             (
                 "String",
                 "Float64",
+                "String",
+                "Float64",
+                "String",
             ),
         ),
     )
@@ -273,25 +276,28 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         assert len(results) == 3
 
         # table_name, revenue
-        assert results[0] == ("database_with_revenue_column", 42, 42, "USD", "USD")
-        assert results[1] == ("database_with_revenue_column", 43, 43, "USD", "USD")
-        assert results[2] == ("database_with_revenue_column", 44, 44, "USD", "USD")
+        assert results[0] == ("database_with_revenue_column", 42, "USD", 42, "USD")
+        assert results[1] == ("database_with_revenue_column", 43, "USD", 43, "USD")
+        assert results[2] == ("database_with_revenue_column", 44, "USD", 44, "USD")
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch(
         "clickhouse_driver.result.QueryResult.get_result",
         return_value=(
             [
-                ("database_with_revenue_column_a", 42, 42, "USD", "USD"),
-                ("database_with_revenue_column_a", 43, 43, "USD", "USD"),
-                ("database_with_revenue_column_a", 44, 44, "USD", "USD"),
-                ("database_with_revenue_column_b", 43, 43, "USD", "USD"),
-                ("database_with_revenue_column_b", 44, 44, "USD", "USD"),
-                ("database_with_revenue_column_b", 45, 45, "USD", "USD"),
+                ("database_with_revenue_column_a", 42, "USD", 42, "USD"),
+                ("database_with_revenue_column_a", 43, "USD", 43, "USD"),
+                ("database_with_revenue_column_a", 44, "USD", 44, "USD"),
+                ("database_with_revenue_column_b", 43, "USD", 43, "USD"),
+                ("database_with_revenue_column_b", 44, "USD", 44, "USD"),
+                ("database_with_revenue_column_b", 45, "USD", 45, "USD"),
             ],
             (
                 "String",
                 "Float64",
+                "String",
+                "Float64",
+                "String",
             ),
         ),
     )
@@ -302,9 +308,9 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
 
         # Results are returned in the order defined by the SQL UNION ALL query
         # The first table from dataWarehouseTables should come first
-        assert results[0] == ("database_with_revenue_column_a", 42, 42, "USD", "USD")
-        assert results[1] == ("database_with_revenue_column_a", 43, 43, "USD", "USD")
-        assert results[2] == ("database_with_revenue_column_a", 44, 44, "USD", "USD")
-        assert results[3] == ("database_with_revenue_column_b", 43, 43, "USD", "USD")
-        assert results[4] == ("database_with_revenue_column_b", 44, 44, "USD", "USD")
-        assert results[5] == ("database_with_revenue_column_b", 45, 45, "USD", "USD")
+        assert results[0] == ("database_with_revenue_column_a", 42, "USD", 42, "USD")
+        assert results[1] == ("database_with_revenue_column_a", 43, "USD", 43, "USD")
+        assert results[2] == ("database_with_revenue_column_a", 44, "USD", 44, "USD")
+        assert results[3] == ("database_with_revenue_column_b", 43, "USD", 43, "USD")
+        assert results[4] == ("database_with_revenue_column_b", 44, "USD", 44, "USD")
+        assert results[5] == ("database_with_revenue_column_b", 45, "USD", 45, "USD")

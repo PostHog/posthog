@@ -58,14 +58,14 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
                                 ),
                             ),
                             ast.Alias(
+                                alias="original_currency",
+                                expr=currency_expression_for_data_warehouse(tracking_config, table),
+                            ),
+                            ast.Alias(
                                 alias="revenue",
                                 expr=revenue_expression_for_data_warehouse(
                                     tracking_config, table, self.do_currency_conversion
                                 ),
-                            ),
-                            ast.Alias(
-                                alias="original_currency",
-                                expr=currency_expression_for_data_warehouse(tracking_config, table),
                             ),
                             ast.Alias(
                                 alias="currency",
@@ -95,7 +95,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
         )
 
         return RevenueExampleDataWarehouseTablesQueryResponse(
-            columns=["table_name", "original_revenue", "revenue", "original_currency", "currency"],
+            columns=["table_name", "original_revenue", "original_currency", "revenue", "currency"],
             results=response.results,
             timings=response.timings,
             types=response.types,
