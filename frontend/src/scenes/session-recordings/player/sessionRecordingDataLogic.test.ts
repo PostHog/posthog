@@ -645,7 +645,7 @@ describe('patchMetaEventIntoWebData', () => {
         const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData)
 
         expect(posthog.captureException).toHaveBeenCalledWith(
-            new Error('No viewport found for full snapshot'),
+            new Error('No event viewport or meta snapshot found for full snapshot'),
             expect.any(Object)
         )
         expect(result).toHaveLength(1)
