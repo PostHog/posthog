@@ -14,7 +14,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree(): JSX.Element {
-    const { treeData, lastViewedId, viableItems, pendingActions } = useValues(projectTreeLogic)
+    const { treeData, lastViewedId, viableItems, pendingActions, pendingLoaderLoading } = useValues(projectTreeLogic)
 
     const {
         createFolder,
@@ -69,6 +69,7 @@ export function ProjectTree(): JSX.Element {
                                 tooltip={`Save ${pendingActions.length} ${
                                     pendingActions.length === 1 ? 'change' : 'changes'
                                 }`}
+                                loading={pendingLoaderLoading}
                                 tooltipPlacement="bottom"
                             >
                                 Save
