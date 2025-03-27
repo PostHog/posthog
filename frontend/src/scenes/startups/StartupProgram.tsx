@@ -34,6 +34,7 @@ export function StartupProgram(): JSX.Element {
         ycValidationState,
         ycValidationError,
         verifiedCompanyName,
+        startupProgramErrors,
     } = useValues(logic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { validateYCBatch, setStartupProgramValue } = useActions(logic)
@@ -43,6 +44,11 @@ export function StartupProgram(): JSX.Element {
         // eslint-disable-next-line no-console
         console.log('📝 Form values:', startupProgram)
     }, [startupProgram])
+
+    useEffect(() => {
+        // eslint-disable-next-line no-console
+        console.log('❌ Form errors:', startupProgramErrors)
+    }, [startupProgramErrors])
 
     if (isAlreadyOnStartupPlan) {
         return (

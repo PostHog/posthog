@@ -73,6 +73,9 @@ export interface StartupProgramLogicProps {
 }
 
 function validateIncorporationDate(date: Dayjs | null, isYC: boolean): string | undefined {
+    if (isYC) {
+        return undefined
+    }
     if (!date) {
         return 'Please enter your incorporation date'
     }
@@ -82,21 +85,22 @@ function validateIncorporationDate(date: Dayjs | null, isYC: boolean): string | 
     if (date.isAfter(dayjs())) {
         return 'Incorporation date cannot be in the future'
     }
-    if (!isYC && date.isBefore(dayjs().subtract(2, 'year'))) {
+    if (date.isBefore(dayjs().subtract(2, 'year'))) {
         return 'Company must be less than 2 years old to be eligible'
     }
     return undefined
 }
 
 function validateFunding(raised: string | undefined, isYC: boolean): string | undefined {
+    if (isYC) {
+        return undefined
+    }
     if (!raised) {
         return 'Please select how much funding you have raised'
     }
-    if (!isYC) {
-        const raisedAmount = parseInt(raised)
-        if (raisedAmount >= 5000000) {
-            return 'Companies that have raised $5M or more are not eligible for the startup program'
-        }
+    const raisedAmount = parseInt(raised)
+    if (raisedAmount >= 5000000) {
+        return 'Companies that have raised $5M or more are not eligible for the startup program'
     }
     return undefined
 }
