@@ -20,7 +20,7 @@ import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries
 import { DataWarehouseSavedQuery, PipelineStage, ProductKey } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { DataWarehouseSourceIcon } from '../settings/DataWarehouseSourceIcon'
+import { DataWarehouseSourceIcon, mapUrlToProvider } from '../settings/DataWarehouseSourceIcon'
 import { viewLinkLogic } from '../viewLinkLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import type { editorSidebarLogicType } from './editorSidebarLogicType'
@@ -294,7 +294,17 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                 const warehouseTables = Object.entries(tablesBySourceType).map(([sourceType, tables]) => ({
                     key: sourceType,
                     noun: [sourceType, sourceType],
-                    icon: <DataWarehouseSourceIcon type={sourceType} sizePx={18} disableTooltip />,
+                    icon: (
+                        <DataWarehouseSourceIcon
+                            type={
+                                sourceType === 'Self-managed' && tables.length > 0
+                                    ? mapUrlToProvider(tables[0].url_pattern)
+                                    : sourceType
+                            }
+                            sizePx={18}
+                            disableTooltip
+                        />
+                    ),
                     items: tables.map((table) => ({
                         key: table.id,
                         name: table.name,
