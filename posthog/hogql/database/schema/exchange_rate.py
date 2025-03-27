@@ -16,6 +16,8 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 
+DEFAULT_CURRENCY = CurrencyCode.USD
+
 
 class ExchangeRateTable(Table):
     fields: dict[str, FieldOrTable] = {
@@ -49,7 +51,7 @@ def convert_currency_call(
 def currency_expression_for_events(config: RevenueTrackingConfig, event_config: RevenueTrackingEventItem) -> ast.Expr:
     # Shouldn't happen but we need it here to make the type checker happy
     if not event_config.revenueCurrencyProperty:
-        return ast.Constant(value=(config.baseCurrency or CurrencyCode.USD).value)
+        return ast.Constant(value=(config.baseCurrency or DEFAULT_CURRENCY).value)
 
     if event_config.revenueCurrencyProperty.property:
         return ast.Call(
@@ -57,7 +59,7 @@ def currency_expression_for_events(config: RevenueTrackingConfig, event_config: 
             args=[ast.Field(chain=["events", "properties", event_config.revenueCurrencyProperty.property])],
         )
 
-    currency = event_config.revenueCurrencyProperty.static or config.baseCurrency or CurrencyCode.USD
+    currency = event_config.revenueCurrencyProperty.static or config.baseCurrency or DEFAULT_CURRENCY
     return ast.Constant(value=currency.value)
 
 
@@ -117,7 +119,7 @@ def revenue_comparison_and_value_exprs_for_events(
                 convert_currency_call(
                     ast.Field(chain=["events", "properties", event_config.revenueProperty]),
                     currency_expression_for_events(config, event_config),
-                    ast.Constant(value=(config.baseCurrency or CurrencyCode.USD).value),
+                    ast.Constant(value=(config.baseCurrency or DEFAULT_CURRENCY).value),
                     ast.Call(name="_toDate", args=[ast.Field(chain=["events", "timestamp"])]),
                 ),
             ],
@@ -225,7 +227,7 @@ def currency_expression_for_data_warehouse(
 ) -> ast.Expr:
     # Shouldn't happen but we need it here to make the type checker happy
     if not data_warehouse_config.revenueCurrencyColumn:
-        return ast.Constant(value=(config.baseCurrency or CurrencyCode.USD).value)
+        return ast.Constant(value=(config.baseCurrency or DEFAULT_CURRENCY).value)
 
     if data_warehouse_config.revenueCurrencyColumn.property:
         return ast.Call(
@@ -235,7 +237,7 @@ def currency_expression_for_data_warehouse(
             ],
         )
 
-    currency = data_warehouse_config.revenueCurrencyColumn.static or config.baseCurrency or CurrencyCode.USD
+    currency = data_warehouse_config.revenueCurrencyColumn.static or config.baseCurrency or DEFAULT_CURRENCY
     return ast.Constant(value=currency.value)
 
 
@@ -262,7 +264,7 @@ def revenue_expression_for_data_warehouse(
                 convert_currency_call(
                     ast.Field(chain=[data_warehouse_config.tableName, data_warehouse_config.revenueColumn]),
                     currency_expression_for_data_warehouse(config, data_warehouse_config),
-                    ast.Constant(value=(config.baseCurrency or CurrencyCode.USD).value),
+                    ast.Constant(value=(config.baseCurrency or DEFAULT_CURRENCY).value),
                     ast.Call(
                         name="_toDate",
                         args=[

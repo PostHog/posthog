@@ -6,13 +6,13 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
-    CurrencyCode,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleDataWarehouseTablesQueryResponse,
     CachedRevenueExampleDataWarehouseTablesQueryResponse,
 )
 
 from posthog.hogql.database.schema.exchange_rate import (
+    DEFAULT_CURRENCY,
     currency_expression_for_data_warehouse,
     revenue_expression_for_data_warehouse,
 )
@@ -69,7 +69,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
                             ),
                             ast.Alias(
                                 alias="currency",
-                                expr=ast.Constant(value=(tracking_config.baseCurrency or CurrencyCode.USD).value),
+                                expr=ast.Constant(value=(tracking_config.baseCurrency or DEFAULT_CURRENCY).value),
                             ),
                         ],
                         select_from=ast.JoinExpr(table=ast.Field(chain=[table.tableName])),
