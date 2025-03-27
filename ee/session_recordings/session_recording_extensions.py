@@ -9,7 +9,7 @@ import snappy
 from posthog import settings
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.storage import object_storage, session_recording_v2_object_storage
-from posthog.session_recordings.queries.session_replay_events_v2_test import SessionReplayEventsV2Test
+from posthog.session_recordings.session_recording_v2_service import list_blocks
 
 logger = structlog.get_logger(__name__)
 
@@ -159,52 +159,20 @@ def persist_recording_v2(recording_id: str, team_id: int) -> None:
         return
 
     # Load metadata from v2 table
-    metadata = SessionReplayEventsV2Test().get_metadata(recording_id, recording.team)
-    if not metadata:
+    blocks = list_blocks(recording)
+    if not blocks:
         logger.info(
-            "No v2 metadata found for recording, skipping v2 persistence",
+            "No v2 metadata found for recording or recording is incomplete, skipping v2 persistence",
             recording_id=recording_id,
             team_id=team_id,
-        )
-        SNAPSHOT_PERSIST_FAILURE_V2_COUNTER.inc()
-        return
-
-    # Sort blocks by first timestamp
-    blocks = sorted(
-        zip(
-            metadata["block_first_timestamps"],
-            metadata["block_last_timestamps"],
-            metadata["block_urls"],
-        ),
-        key=lambda x: x[0],
-    )
-
-    # If we started recording halfway through the session, we should not persist
-    # as we don't have the complete recording from the start
-    if not blocks or blocks[0][0] != metadata["start_time"]:
-        logger.info(
-            "Recording started halfway through the session or has no blocks, skipping v2 persistence",
-            recording_id=recording_id,
-            team_id=team_id,
-            first_block_timestamp=blocks[0][0] if blocks else None,
-            start_time=metadata["start_time"] if metadata else None,
         )
         SNAPSHOT_PERSIST_FAILURE_V2_COUNTER.inc()
         return
 
     decompressed_blocks = []
     with SNAPSHOT_PERSIST_TIME_V2_HISTOGRAM.time():
-        for _, _, block_url in blocks:
-            if not block_url:
-                logger.error(
-                    "Missing block URL in v2 metadata",
-                    recording_id=recording_id,
-                    team_id=team_id,
-                )
-                SNAPSHOT_PERSIST_FAILURE_V2_COUNTER.inc()
-                return
-
-            decompressed_block, error = storage_client.fetch_block(block_url)
+        for block in blocks:
+            decompressed_block, error = storage_client.fetch_block(block["url"])
             if error:
                 logger.error(
                     error,
