@@ -12,10 +12,24 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
     def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
         pass
 
+    @abc.abstractmethod
+    def write(self, key: str, data: bytes) -> None:
+        pass
+
+    @abc.abstractmethod
+    def is_enabled(self) -> bool:
+        pass
+
 
 class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
     def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
         return None
+
+    def write(self, key: str, data: bytes) -> None:
+        pass
+
+    def is_enabled(self) -> bool:
+        return False
 
 
 class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
@@ -42,6 +56,27 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 s3_response=s3_response,
             )
             return None
+
+    def write(self, key: str, data: bytes) -> None:
+        s3_response = {}
+        try:
+            s3_response = self.aws_client.put_object(
+                Bucket=self.bucket,
+                Key=key,
+                Body=data,
+            )
+        except Exception as e:
+            logger.exception(
+                "session_recording_v2_object_storage.write_failed",
+                bucket=self.bucket,
+                file_name=key,
+                error=e,
+                s3_response=s3_response,
+            )
+            raise Exception("Failed to write recording data") from e
+
+    def is_enabled(self) -> bool:
+        return True
 
 
 _client: SessionRecordingV2ObjectStorageBase = UnavailableSessionRecordingV2ObjectStorage()
