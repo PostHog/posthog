@@ -83,7 +83,7 @@ async def query_usage_reports(
 
         logger.info("Querying all org reports", period_start=period_start, period_end=period_end)
 
-        @sync_to_async
+        @database_sync_to_async
         def async_get_all_usage_data_as_team_rows(p_start, p_end):
             return _get_all_usage_data_as_team_rows(p_start, p_end)
 
