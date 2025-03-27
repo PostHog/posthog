@@ -69,17 +69,6 @@ class HogQLConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if conversation.is_locked:
             raise Conflict("Conversation is locked.")
 
-        # TODO: Replace with your HogQLAssistant implementation
-        # hogql_assistant = HogQLAssistant(
-        #     self.team,
-        #     conversation,
-        #     serializer.validated_data["message"],
-        #     user=cast(User, request.user),
-        #     is_new_conversation=not conversation_id,
-        #     trace_id=serializer.validated_data["trace_id"],
-        # )
-        # return StreamingHttpResponse(hogql_assistant.stream(), content_type=ServerSentEventRenderer.media_type)
-
         # Temporary placeholder response
         return Response({"status": "Not implemented yet"}, status=status.HTTP_501_NOT_IMPLEMENTED)
 
