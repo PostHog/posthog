@@ -1959,62 +1959,56 @@ export interface ExperimentEventExposureConfig {
     properties: AnyPropertyFilter[]
 }
 
-export enum ExperimentMetricType {
+export const enum ExperimentMetricType {
     FUNNEL = 'funnel',
     MEAN = 'mean',
 }
 
-export interface ExperimentMetricBaseProperties {
+export type ExperimentMetricBaseProperties = {
     kind: NodeKind.ExperimentMetric
     name?: string
-    inverse?: boolean
     time_window_hours?: number
 }
 
-export interface ExperimentMetricMathProperties {
+export type ExperimentMetricMathProperties = {
     math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
 }
 
-export interface ExperimentEventMetricSource {
-    type: 'event'
-    event: string
-    properties?: AnyPropertyFilter[]
-}
-
-export interface ExperimentActionMetricSource {
-    type: 'action'
-    action: number
-    properties?: AnyPropertyFilter[]
-}
-
-export interface ExperimentDataWarehouseMetricSource {
-    type: 'data_warehouse'
-    table_name: string
-    timestamp_field: string
-    events_join_key: string
-    data_warehouse_join_key: string
-}
-
 export type ExperimentMetricSource =
-    | ExperimentEventMetricSource
-    | ExperimentActionMetricSource
-    | ExperimentDataWarehouseMetricSource
+    | {
+          type: 'event'
+          event: string
+          properties?: AnyPropertyFilter[]
+      }
+    | {
+          type: 'action'
+          action: number
+          properties?: AnyPropertyFilter[]
+      }
+    | {
+          type: 'data_warehouse'
+          table_name: string
+          timestamp_field: string
+          events_join_key: string
+          data_warehouse_join_key: string
+      }
 
-export interface ExperimentFunnelMetricStep {
+export type ExperimentFunnelMetricStep = {
     event: string
     name?: string
     order: integer
     properties?: AnyPropertyFilter[]
 }
 
-export interface ExperimentMeanMetric extends ExperimentMetricBaseProperties, ExperimentMetricMathProperties {
-    metric_type: ExperimentMetricType.MEAN
-    source: ExperimentMetricSource
-}
+export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
+    ExperimentMetricMathProperties & {
+        metric_type: ExperimentMetricType.MEAN
+        source: ExperimentMetricSource
+    }
 
-export interface ExperimentFunnelMetric extends ExperimentMetricBaseProperties {
+export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.FUNNEL
     steps: ExperimentFunnelMetricStep[]
 }
