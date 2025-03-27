@@ -142,8 +142,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         errorTrackingIssueQuery({
                             issueId: props.id,
                             dateRange: {
-                                date_from: firstSeen.startOf('hour').toISOString(),
-                                date_to: firstSeen.endOf('hour').toISOString(),
+                                date_from: firstSeen.startOf('minute').toISOString(),
+                                date_to: firstSeen.endOf('minute').toISOString(),
                             },
                             volumeResolution: 0,
                         }),
