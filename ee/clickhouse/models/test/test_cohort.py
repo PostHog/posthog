@@ -1562,3 +1562,52 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         # Should still only have 2 people since person 3 has no events
         results = self._get_cohortpeople(cohort)
         self.assertEqual(len(results), 2)
+
+    def test_recalculate_cohort_with_behavioral_or_filter(self):
+        # Create test persons
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"name": "person2"})
+
+        # Create events
+        _create_event(
+            event="aim_purchase",
+            team=self.team,
+            distinct_id="person1",
+            properties={},
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        flush_persons_and_events()
+
+        # Create a cohort with the specified OR filter structure
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="behavioral or filter cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "aim_purchase",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "negation": False,
+                                    "event_type": "events",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Calculate cohort people
+        self.calculate_cohort_hogql_test_harness(cohort, 0)
+
+        # Verify results
+        results = self._get_cohortpeople(cohort)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0][0], p1.uuid)
