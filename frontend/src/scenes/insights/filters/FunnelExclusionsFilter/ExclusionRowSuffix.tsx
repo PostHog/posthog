@@ -58,63 +58,65 @@ export function ExclusionRowSuffix({
 
     const [propertyFiltersVisible, setPropertyFiltersVisible] = React.useState(false)
 
+    const propertyFiltersButton = (
+        <IconWithCount key="property-filter" count={exclusions?.[index]?.properties?.length || 0} showZero={false}>
+            <LemonButton
+                icon={<IconFilter />}
+                title="Show filters"
+                data-attr={`show-prop-filter-${index}`}
+                noPadding
+                onClick={() => setPropertyFiltersVisible(!propertyFiltersVisible)}
+            />
+        </IconWithCount>
+    )
+
     return (
         <div
             className={clsx(
-                'flex flex-col gap-2 items-start flex-nowrap pl-1 mx-0 bg-bg-light rounded p-2',
-                isVertical ? 'w-full my-1' : 'w-auto my-0'
+                'flex flex-col gap-2 items-start flex-nowrap pl-1 mx-0 bg-bg-light rounded p-2 w-full',
+                isVertical ? 'my-1' : 'my-0'
             )}
         >
             <div className="flex items-center gap-2 w-full">
-                <span>between</span>
-                <LemonSelect
-                    size="small"
-                    value={stepRange.funnelFromStep || 0}
-                    onChange={onChange}
-                    options={Array.from(Array(numberOfSeries).keys())
-                        .slice(0, -1)
-                        .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
-                    disabled={!isFunnelWithEnoughSteps}
-                />
-                <span>and</span>
-                <LemonSelect
-                    size="small"
-                    value={stepRange.funnelToStep || (stepRange.funnelFromStep ?? 0) + 1}
-                    onChange={(toStep: number) => onChange(stepRange.funnelFromStep, toStep)}
-                    options={Array.from(Array(numberOfSeries).keys())
-                        .slice((stepRange.funnelFromStep ?? 0) + 1)
-                        .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
-                    disabled={!isFunnelWithEnoughSteps}
-                />
-                <div className="flex-1" />
-                <IconWithCount
-                    key="property-filter"
-                    count={exclusions?.[index]?.properties?.length || 0}
-                    showZero={false}
-                >
-                    <LemonButton
-                        icon={<IconFilter />}
-                        type="secondary"
+                <div className="flex items-center">
+                    <span>between</span>
+                    <LemonSelect
+                        className="mx-1"
                         size="small"
-                        status="default"
-                        onClick={() => setPropertyFiltersVisible(!propertyFiltersVisible)}
-                        data-attr={`show-prop-filter-${index}`}
-                    >
-                        where
-                    </LemonButton>
-                </IconWithCount>
-                <LemonButton
-                    size="small"
-                    icon={<IconTrash />}
-                    onClick={onClose}
-                    data-attr="delete-prop-exclusion-filter"
-                    title="Delete event exclusion series"
-                    status="default"
-                    type="secondary"
-                />
+                        value={stepRange.funnelFromStep || 0}
+                        onChange={onChange}
+                        options={Array.from(Array(numberOfSeries).keys())
+                            .slice(0, -1)
+                            .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
+                        disabled={!isFunnelWithEnoughSteps}
+                    />
+                    <span>and</span>
+                    <LemonSelect
+                        className="ml-1"
+                        size="small"
+                        value={stepRange.funnelToStep || (stepRange.funnelFromStep ?? 0) + 1}
+                        onChange={(toStep: number) => onChange(stepRange.funnelFromStep, toStep)}
+                        options={Array.from(Array(numberOfSeries).keys())
+                            .slice((stepRange.funnelFromStep ?? 0) + 1)
+                            .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
+                        disabled={!isFunnelWithEnoughSteps}
+                    />
+                </div>
+                <div className="flex-1" />
+                <div className="flex items-center gap-1">
+                    {propertyFiltersButton}
+                    <LemonButton
+                        size="small"
+                        icon={<IconTrash />}
+                        onClick={onClose}
+                        data-attr="delete-prop-exclusion-filter"
+                        title="Delete event exclusion series"
+                        noPadding
+                    />
+                </div>
             </div>
             {propertyFiltersVisible && (
-                <div className="w-full pl-2">
+                <div className="w-full mt-2">
                     <PropertyFilters
                         pageKey={`funnel-exclusion-${index}`}
                         propertyFilters={exclusions?.[index]?.properties ?? []}
