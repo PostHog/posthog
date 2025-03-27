@@ -38,6 +38,7 @@ class HogFunctionMappingTemplateSerializer(DataclassSerializer):
 class HogFunctionSubTemplateSerializer(DataclassSerializer):
     class Meta:
         dataclass = HogFunctionSubTemplate
+        extra_kwargs = {"description": {"allow_blank": True}}
 
 
 class HogFunctionTemplateSerializer(DataclassSerializer):

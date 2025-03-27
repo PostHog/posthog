@@ -16,6 +16,8 @@ const ERROR_TRACKING_TEMPLATE_IDS = [
     'template-discord-error-tracking-issue-reopened',
     'template-microsoft-teams-error-tracking-issue-created',
     'template-microsoft-teams-error-tracking-issue-reopened',
+    'template-webhook-error-tracking-issue-created',
+    'template-webhook-error-tracking-issue-reopened',
 ]
 
 export const errorTrackingAlertSceneLogic = kea<errorTrackingAlertSceneLogicType>([

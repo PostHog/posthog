@@ -107,5 +107,15 @@ if (inputs.debug) {
             filters: SUB_TEMPLATE_COMMON['activity-log'].filters,
             type: 'internal_destination',
         },
+        {
+            ...SUB_TEMPLATE_COMMON['error-tracking-issue-created'],
+            name: 'HTTP Webhook on issue created',
+            description: '',
+        },
+        {
+            ...SUB_TEMPLATE_COMMON['error-tracking-issue-reopened'],
+            name: 'HTTP Webhook on issue reopened',
+            description: '',
+        },
     ],
 }
