@@ -292,10 +292,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
                 attrs["transpiled"] = None
 
-                # Test execution to catch memory/execution exceptions
-                is_valid, error_message = validate_bytecode(attrs["bytecode"], attrs.get("inputs", {}))
-                if not is_valid:
-                    raise serializers.ValidationError({"hog": error_message})
+                # Test execution to catch memory/execution exceptions only for transformations
+                if hog_type == "transformation":
+                    is_valid, error_message = validate_bytecode(attrs["bytecode"], attrs.get("inputs", {}))
+                    if not is_valid:
+                        raise serializers.ValidationError({"hog": error_message})
 
         if is_create:
             if not attrs.get("hog"):
