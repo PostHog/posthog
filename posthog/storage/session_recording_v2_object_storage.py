@@ -28,6 +28,15 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
         """Returns a tuple of (decompressed_block, error_message)"""
         pass
 
+    @abc.abstractmethod
+    def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
+        """Returns a tuple of (target_key, error_message)"""
+        pass
+
+    @abc.abstractmethod
+    def is_lts_enabled(self) -> bool:
+        pass
+
 
 class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
     def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
@@ -41,6 +50,12 @@ class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorage
 
     def fetch_block(self, block_url: str) -> tuple[Optional[str], Optional[str]]:
         return None, "Storage not available"
+
+    def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
+        return None, "Storage not available"
+
+    def is_lts_enabled(self) -> bool:
+        return False
 
 
 class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
@@ -121,6 +136,29 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
         except Exception as e:
             logger.exception("Failed to read and decompress block", error=e)
             return None, f"Failed to read and decompress block: {str(e)}"
+
+    def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
+        try:
+            compressed_data = snappy.compress(recording_data.encode("utf-8"))
+            target_key = f"{settings.SESSION_RECORDING_V2_S3_LTS_PREFIX}/{recording_id}"
+            self.write(target_key, compressed_data)
+            logger.info(
+                "Successfully stored LTS recording",
+                recording_id=recording_id,
+                uncompressed_size=len(recording_data),
+                compressed_size=len(compressed_data),
+            )
+            return target_key, None
+        except Exception as e:
+            logger.exception(
+                "Failed to store LTS recording",
+                recording_id=recording_id,
+                error=e,
+            )
+            return None, f"Failed to store LTS recording: {str(e)}"
+
+    def is_lts_enabled(self) -> bool:
+        return bool(settings.SESSION_RECORDING_V2_S3_LTS_PREFIX)
 
 
 _client: SessionRecordingV2ObjectStorageBase = UnavailableSessionRecordingV2ObjectStorage()

@@ -4,7 +4,6 @@ from datetime import timedelta
 import structlog
 from django.utils import timezone
 from prometheus_client import Histogram, Counter
-import snappy
 
 from posthog import settings
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -131,7 +130,7 @@ def persist_recording_v2(recording_id: str, team_id: int) -> None:
     """Persist a recording to S3 using the v2 format"""
 
     storage_client = session_recording_v2_object_storage.client()
-    if not storage_client.is_enabled():
+    if not storage_client.is_enabled() or not storage_client.is_lts_enabled():
         return
 
     recording = SessionRecording.objects.select_related("team").get(session_id=recording_id, team_id=team_id)
@@ -158,7 +157,6 @@ def persist_recording_v2(recording_id: str, team_id: int) -> None:
         recording.save()
         return
 
-    # Load metadata from v2 table
     blocks = list_blocks(recording)
     if not blocks:
         logger.info(
@@ -184,30 +182,18 @@ def persist_recording_v2(recording_id: str, team_id: int) -> None:
 
             decompressed_blocks.append(decompressed_block)
 
-        # Concatenate all blocks
         full_recording_data = "".join(decompressed_blocks)
 
-        # Compress and store the full recording
-        try:
-            compressed_data = snappy.compress(full_recording_data.encode("utf-8"))
-            target_key = f"{settings.SESSION_RECORDING_V2_S3_LTS_PREFIX}/{recording_id}"
-            storage_client.write(target_key, compressed_data)
-            recording.full_recording_v2_path = target_key
-            recording.save()
-            logger.info(
-                "Successfully persisted v2 recording",
-                recording_id=recording_id,
-                team_id=team_id,
-                block_count=len(decompressed_blocks),
-                uncompressed_size=len(full_recording_data),
-                compressed_size=len(compressed_data),
-            )
-            SNAPSHOT_PERSIST_SUCCESS_V2_COUNTER.inc()
-        except Exception:
-            logger.exception(
-                "Failed to persist v2 recording",
+        target_key, error = storage_client.store_lts_recording(recording_id, full_recording_data)
+        if error:
+            logger.error(
+                error,
                 recording_id=recording_id,
                 team_id=team_id,
             )
             SNAPSHOT_PERSIST_FAILURE_V2_COUNTER.inc()
             return
+
+        recording.full_recording_v2_path = target_key
+        recording.save()
+        SNAPSHOT_PERSIST_SUCCESS_V2_COUNTER.inc()
