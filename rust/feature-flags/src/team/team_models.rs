@@ -10,9 +10,12 @@ pub struct Team {
     pub id: TeamId,
     pub name: String,
     pub api_token: String,
+    /// Project ID. This field is not present in Redis cache before Dec 2025, but this is not a problem at all,
+    /// because we know all Teams created before Dec 2025 have `project_id` = `id`. To handle this case gracefully,
+    /// we use 0 as a fallback value in deserialization here, and handle this in `Team::from_redis`.
+    /// Thanks to this default-base approach, we avoid invalidating the whole cache needlessly.
     pub project_id: ProjectId,
     pub uuid: Uuid,
-    // Optional boolean flags
     pub autocapture_opt_out: Option<bool>,
     pub autocapture_exceptions_opt_in: Option<bool>,
     pub autocapture_web_vitals_opt_in: Option<bool>,
@@ -24,10 +27,8 @@ pub struct Team {
     pub heatmaps_opt_in: Option<bool>,
     pub capture_dead_clicks: Option<bool>,
     pub flags_persistence_default: Option<bool>,
-    // Numeric fields
-    pub session_recording_sample_rate: Option<Decimal>, // numeric(3,2) in postgres
+    pub session_recording_sample_rate: Option<Decimal>, // numeric(3,2) in postgres, see https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html#rust_decimal
     pub session_recording_minimum_duration_milliseconds: Option<i32>,
-    // JSON fields
     pub autocapture_web_vitals_allowed_metrics: Option<Json<serde_json::Value>>,
     pub autocapture_exceptions_errors_to_ignore: Option<Json<serde_json::Value>>,
     pub session_recording_linked_flag: Option<Json<serde_json::Value>>,
@@ -35,7 +36,6 @@ pub struct Team {
     pub session_recording_masking_config: Option<Json<serde_json::Value>>,
     pub session_replay_config: Option<Json<serde_json::Value>>,
     pub survey_config: Option<Json<serde_json::Value>>,
-    // Array fields
     pub session_recording_url_trigger_config: Option<Vec<Json<serde_json::Value>>>, // jsonb[] in postgres
     pub session_recording_url_blocklist_config: Option<Vec<Json<serde_json::Value>>>, // jsonb[] in postgres
     pub session_recording_event_trigger_config: Option<Vec<String>>, // text[] in postgres
