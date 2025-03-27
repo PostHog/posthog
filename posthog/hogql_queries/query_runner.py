@@ -782,9 +782,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             is_api=self.query_endpoint_with_personal_key(), team_id=self.team.pk, task_id=self.query_id
         ):
             if self.query_endpoint_with_personal_key():
-                tag_queries(qaas=True)
+                tag_queries(chargeable=True)
             else:
-                clear_tag("qaas")
+                clear_tag("chargeable")
 
             fresh_response_dict = {
                 **self.calculate().model_dump(),

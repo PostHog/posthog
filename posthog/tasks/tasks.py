@@ -77,9 +77,9 @@ def process_query_task(
         from posthog.clickhouse.client import execute_process_query
 
         if api_query_personal_key:
-            tag_queries(qaas=True)
+            tag_queries(chargeable=True)
         else:
-            clear_tag("qaas")
+            clear_tag("chargeable")
 
         execute_process_query(
             team_id=team_id,
