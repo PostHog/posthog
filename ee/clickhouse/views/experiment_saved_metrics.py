@@ -74,12 +74,12 @@ class ExperimentSavedMetricSerializer(TaggedItemSerializerMixin, serializers.Mod
         # pydantic models are used to validate the query
         try:
             if metric_query["kind"] == "ExperimentMetric":
-                if metric_query["metric"]["metric_type"] == ExperimentMetricType.MEAN:
+                if metric_query["metric_type"] == ExperimentMetricType.MEAN:
                     ExperimentMeanMetric(**metric_query)
-                elif metric_query["metric"]["metric_type"] == ExperimentMetricType.FUNNEL:
+                elif metric_query["metric_type"] == ExperimentMetricType.FUNNEL:
                     ExperimentFunnelMetric(**metric_query)
                 else:
-                    raise ValidationError("ExperimentMetric must be 'mean' or 'funnel'")
+                    raise ValidationError("ExperimentMetric metric_type must be 'mean' or 'funnel'")
             elif metric_query["kind"] == "ExperimentTrendsQuery":
                 ExperimentTrendsQuery(**metric_query)
             elif metric_query["kind"] == "ExperimentFunnelsQuery":
