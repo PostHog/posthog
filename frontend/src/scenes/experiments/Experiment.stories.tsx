@@ -2214,17 +2214,14 @@ const EXPERIMENT_QUERY_RESULT_WITH_ASYMMETRIC_INTERVALS: CachedExperimentQueryRe
     kind: NodeKind.ExperimentQuery,
     last_refresh: '2025-02-18T09:14:37.273511Z',
     metric: {
-        inverse: false,
         kind: NodeKind.ExperimentMetric,
-        metric_config: {
+        source: {
+            type: 'event',
             event: 'experiment created',
-            kind: NodeKind.ExperimentEventMetricConfig,
-            math: ExperimentMetricMathType.TotalCount,
-            math_hogql: undefined,
-            math_property: undefined,
-            name: 'experiment created',
-            properties: undefined,
         },
+        math: ExperimentMetricMathType.TotalCount,
+        math_hogql: undefined,
+        math_property: undefined,
         metric_type: ExperimentMetricType.MEAN,
         name: 'Experiments created',
     },

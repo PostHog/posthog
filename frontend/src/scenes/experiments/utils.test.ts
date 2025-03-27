@@ -33,7 +33,7 @@ import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
-    filterToMetricConfig,
+    filterToMetricTypeProps,
     getMinimumDetectableEffect,
     getViewRecordingFilters,
     metricToFilter,
@@ -750,9 +750,8 @@ describe('filterToMetricConfig', () => {
                 },
             ],
         } as Record<string, any>
-        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, [event], undefined)
+        const metricConfig = filterToMetricTypeProps(ExperimentMetricType.MEAN, undefined, [event], undefined)
         expect(metricConfig).toEqual({
-            kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
                 type: 'event',
@@ -789,9 +788,8 @@ describe('filterToMetricConfig', () => {
             order: 0,
             uuid: '29c01ac4-ebc3-4cb8-9d82-287c0487056e',
         } as Record<string, any>
-        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, [action], undefined, undefined)
+        const metricConfig = filterToMetricTypeProps(ExperimentMetricType.MEAN, [action], undefined, undefined)
         expect(metricConfig).toEqual({
-            kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
                 type: 'action',
@@ -813,9 +811,8 @@ describe('filterToMetricConfig', () => {
             events_join_key: 'person.properties.email',
             data_warehouse_join_key: 'customer.email',
         } as Record<string, any>
-        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, undefined, [dataWarehouse])
+        const metricConfig = filterToMetricTypeProps(ExperimentMetricType.MEAN, undefined, undefined, [dataWarehouse])
         expect(metricConfig).toEqual({
-            kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
                 type: 'data_warehouse',

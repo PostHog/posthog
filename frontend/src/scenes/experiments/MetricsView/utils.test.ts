@@ -9,11 +9,11 @@ describe('getMetricTag', () => {
         const experimentMetric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                math: ExperimentMetricMathType.TotalCount,
+            source: {
+                type: 'event',
                 event: 'purchase',
             },
+            math: ExperimentMetricMathType.TotalCount,
         }
 
         const funnelMetric: ExperimentFunnelsQuery = {
@@ -43,8 +43,8 @@ describe('getDefaultMetricTitle', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
+            source: {
+                type: 'event',
                 event: 'purchase completed',
             },
         }
@@ -55,10 +55,9 @@ describe('getDefaultMetricTitle', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
-            metric_config: {
-                kind: NodeKind.ExperimentActionMetricConfig,
+            source: {
+                type: 'action',
                 action: 1,
-                name: 'purchase',
             },
         }
 

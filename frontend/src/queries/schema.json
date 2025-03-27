@@ -7988,6 +7988,23 @@
             "required": ["event", "order"],
             "type": "object"
         },
+        "ExperimentFunnelMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "metric_type": {
+                    "const": "funnel",
+                    "type": "string"
+                },
+                "steps": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentFunnelMetricStep"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["metric_type", "steps"],
+            "type": "object"
+        },
         "ExperimentFunnelsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -8115,6 +8132,29 @@
             "required": ["kind", "metric_type", "source"],
             "type": "object"
         },
+        "ExperimentMeanMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "math": {
+                    "$ref": "#/definitions/ExperimentMetricMathType"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "metric_type": {
+                    "const": "mean",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                }
+            },
+            "required": ["metric_type", "source"],
+            "type": "object"
+        },
         "ExperimentMetric": {
             "anyOf": [
                 {
@@ -8231,6 +8271,16 @@
         "ExperimentMetricType": {
             "enum": ["funnel", "mean"],
             "type": "string"
+        },
+        "ExperimentMetricTypeProps": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentMeanMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentFunnelMetricTypeProps"
+                }
+            ]
         },
         "ExperimentQuery": {
             "additionalProperties": false,
