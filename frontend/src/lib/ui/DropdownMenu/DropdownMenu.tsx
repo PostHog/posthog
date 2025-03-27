@@ -33,11 +33,7 @@ const DropdownMenuItemIndicator = React.forwardRef<
         radio: 'relative',
     }
     return (
-        <DropdownMenuPrimitive.ItemIndicator
-            ref={ref}
-            className={cn(classes[intent || 'checkbox'], className)}
-            {...props}
-        >
+        <DropdownMenuPrimitive.ItemIndicator ref={ref} className={cn(classes[intent], className)} {...props}>
             {intent === 'checkbox' && <IconCheck />}
             {intent === 'radio' && (
                 <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 h-2 w-2 rounded-full bg-black dark:bg-white" />
