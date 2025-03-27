@@ -1,7 +1,7 @@
 import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
 
-import { IconCopy, IconExpand45, IconGear } from '@posthog/icons'
+import { IconCode, IconCopy, IconExpand45, IconGear, IconMinus, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -41,6 +41,7 @@ interface RowDetailsModalProps {
 
 function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps): JSX.Element {
     const [showRawJson, setShowRawJson] = useState<Record<string, boolean>>({})
+    const [wordWrap, setWordWrap] = useState<Record<string, boolean>>({})
 
     if (!row) {
         return <></>
@@ -75,22 +76,19 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                     <span className="text-muted">null</span>
                 ) : isJson ? (
                     <div className="flex gap-2">
-                        <div className="flex-1">
+                        <div className="flex-1 max-w-60">
                             {showRawJson[column] ? (
-                                <pre className="whitespace-pre-wrap break-all m-0 font-mono">
-                                    {JSON.stringify(jsonValue, null, 2)}
+                                <pre
+                                    className={clsx(
+                                        'break-all m-0 font-mono',
+                                        wordWrap[column] ? 'whitespace-pre-wrap' : 'hide-scrollbar'
+                                    )}
+                                >
+                                    {String(value)}
                                 </pre>
                             ) : (
                                 <JSONViewer src={jsonValue} name={null} collapsed={1} />
                             )}
-                        </div>
-                        <div className="flex-shrink-0">
-                            <LemonButton
-                                size="small"
-                                onClick={() => setShowRawJson((prev) => ({ ...prev, [column]: !prev[column] }))}
-                            >
-                                {showRawJson[column] ? 'Show formatted' : 'Show raw'}
-                            </LemonButton>
                         </div>
                     </div>
                 ) : (
@@ -115,14 +113,42 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                             dataIndex: 'value',
                             className: 'px-4',
                             render: (_, record) => (
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 max-w-">
                                     <div className="flex-1">{record.value}</div>
-                                    <LemonButton
-                                        size="small"
-                                        icon={<IconCopy />}
-                                        onClick={() => void copyToClipboard(record.rawValue, 'value')}
-                                        tooltip="Copy value"
-                                    />
+                                    <div className="flex flex-row gap-1">
+                                        {record.isJson && record.rawValue && record.rawValue != 'null' && (
+                                            <LemonButton
+                                                size="small"
+                                                icon={<IconCode />}
+                                                onClick={() =>
+                                                    setShowRawJson((prev) => ({
+                                                        ...prev,
+                                                        [record.column]: !prev[record.column],
+                                                    }))
+                                                }
+                                                tooltip={showRawJson[record.column] ? 'Show formatted' : 'Show raw'}
+                                            />
+                                        )}
+                                        {showRawJson[record.column] && (
+                                            <LemonButton
+                                                size="small"
+                                                icon={wordWrap[record.column] ? <IconMinus /> : <IconPlus />}
+                                                onClick={() =>
+                                                    setWordWrap((prev) => ({
+                                                        ...prev,
+                                                        [record.column]: !prev[record.column],
+                                                    }))
+                                                }
+                                                tooltip={wordWrap[record.column] ? 'Collapse' : 'Expand'}
+                                            />
+                                        )}
+                                        <LemonButton
+                                            size="small"
+                                            icon={<IconCopy />}
+                                            onClick={() => void copyToClipboard(record.rawValue, 'value')}
+                                            tooltip="Copy value"
+                                        />
+                                    </div>
                                 </div>
                             ),
                         },
