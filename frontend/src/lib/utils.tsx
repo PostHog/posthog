@@ -3,6 +3,7 @@ import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import posthog from 'posthog-js'
 import { CSSProperties } from 'react'
 
 import {
@@ -1439,6 +1440,7 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
             .split(' ')
         return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
+        posthog.captureException(e)
         Sentry.captureException(e)
         return null
     }
