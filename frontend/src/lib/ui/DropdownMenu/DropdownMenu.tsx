@@ -29,7 +29,7 @@ const DropdownMenuItemIndicator = React.forwardRef<
     }
 >(({ className, intent, ...props }, ref): JSX.Element => {
     const classes = {
-        checkbox: 'mt-[-6px]',
+        checkbox: '',
         radio: 'relative',
     }
     return (
