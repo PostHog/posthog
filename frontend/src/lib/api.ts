@@ -385,6 +385,9 @@ class ApiRequest {
     public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id)
     }
+    public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('move')
+    }
 
     // # Plugins
     public plugins(orgId?: OrganizationType['id']): ApiRequest {
@@ -1251,6 +1254,9 @@ const api = {
         },
         async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemDetail(id).delete()
+        },
+        async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
         },
     },
 

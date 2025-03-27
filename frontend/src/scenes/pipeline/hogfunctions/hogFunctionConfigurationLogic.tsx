@@ -225,16 +225,22 @@ export type SparklineData = {
 
 // Helper function to check if code might return null/undefined
 export function mightDropEvents(code: string): boolean {
-    if (!code) {
+    const sanitizedCode = code
+        .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '') // Remove comments
+        .replace(/\s+/g, ' ') // Collapse whitespace
+        .trim()
+
+    if (!sanitizedCode) {
         return false
     }
+
     // Direct null/undefined returns
     if (
-        code.includes('return null') ||
-        code.includes('return undefined') ||
-        /\breturn\b\s*;/.test(code) ||
-        /\breturn\b\s*$/.test(code) ||
-        /\bif\s*\([^)]*\)\s*\{\s*\breturn\s+(null|undefined)\b/.test(code)
+        sanitizedCode.includes('return null') ||
+        sanitizedCode.includes('return undefined') ||
+        /\breturn\b\s*;/.test(sanitizedCode) ||
+        /\breturn\b\s*$/.test(sanitizedCode) ||
+        /\bif\s*\([^)]*\)\s*\{\s*\breturn\s+(null|undefined)\b/.test(sanitizedCode)
     ) {
         return true
     }
