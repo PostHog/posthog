@@ -55,7 +55,7 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
 
     # If we started recording halfway through the session, we should not return any blocks
     # as we don't have the complete recording from the start
-    if not blocks or blocks[0]["start_time"] != metadata["start_time"]:
+    if not blocks or "start_time" not in metadata or blocks[0]["start_time"] != metadata["start_time"]:
         return []
 
     return blocks
