@@ -1035,7 +1035,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
         eventViewports: [
             (s) => [s.sessionEventsData],
-            (sessionEventsData): ViewportResolution[] =>
+            (sessionEventsData): (ViewportResolution & { timestamp: string | number })[] =>
                 (sessionEventsData || [])
                     .filter((e) => e.properties.$viewport_width && e.properties.$viewport_height)
                     .map((e) => ({
