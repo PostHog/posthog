@@ -115,11 +115,17 @@ const buttonVariants = cva({
             true: 'opacity-50 cursor-default',
             false: '',
         },
+        // empty
+        active: {
+            true: '',
+            false: '',
+        },
     },
     defaultVariants: {
         intent: 'default',
         size: 'base',
         disabled: false,
+        active: false,
     },
 })
 
@@ -150,6 +156,7 @@ function ButtonRootComponent<E extends ElementType = 'button'>(
         disableClientSideRouting,
         targetBlank,
         type,
+        active,
         ...props
     }: PolymorphicComponentProps<E, ButtonRootProps>,
     forwardedRef: PolymorphicRef<E>
@@ -170,10 +177,10 @@ function ButtonRootComponent<E extends ElementType = 'button'>(
         }
     }
 
-    // If not a native button, add role="button", tabIndex=0, and handle keyboard activation
+    // If not a native button, add role, tabIndex=0, and handle keyboard activation
     const a11yProps = !isNativeButton
         ? {
-              role: 'button',
+              role: menuItem ? 'menuitem' : 'button',
               tabIndex: 0,
               onKeyDown: handleKeyDown,
           }
@@ -181,6 +188,7 @@ function ButtonRootComponent<E extends ElementType = 'button'>(
 
     const linkProps = to
         ? {
+              role: menuItem ? 'menuitem' : 'link',
               disableClientSideRouting,
               target: targetBlank ? '_blank' : undefined,
               to: !disabled ? to : undefined,
@@ -204,9 +212,13 @@ function ButtonRootComponent<E extends ElementType = 'button'>(
                 onMouseDown={handleMouseDown}
                 onMouseUp={handleMouseUp}
                 onClick={onClick}
-                className={cn(buttonVariants({ intent, size, fullWidth, menuItem, disabled }), className)}
-                data-debug-is-menu-item={menuItem ? 'true' : 'false'}
-                disabled={disabled}
+                className={cn(buttonVariants({ intent, size, fullWidth, menuItem, disabled, active }), className)}
+                // Used to identify the current item in a set of items
+                aria-current={active ? 'true' : 'false'}
+                // Used to identify disabled items
+                aria-disabled={disabled}
+                // Used to identify pressed state
+                aria-pressed={isPressed}
                 {...a11yProps}
                 {...linkProps}
                 {...props}
@@ -249,21 +261,44 @@ const iconVariants = cva({
             outline: '',
         },
         size: {
-            sm: 'size-5 [&>*]:size-3 only:-mx-[2px]',
-            base: 'size-6 [&>*]:size-4 only:-mx-[7px]',
-            lg: 'size-7 [&>*]:size-5 only:-mx-[9px]',
+            sm: 'size-5 only:-mx-[2px]',
+            base: 'size-6 only:-mx-[7px]',
+            lg: 'size-7 only:-mx-[9px]',
+        },
+        customIconSize: {
+            true: '',
+            false: '',
         },
         isTrigger: {
             true: `
                 first:mr-1 first:rounded-l-md first:rounded-r-none
-                first:before:content-[''] first:before:absolute first:before:h-full first:before:w-px first:before:bg-fill-highlight-100
                 last:ml-1 last:rounded-r-md last:rounded-l-none
-                last:after:content-[''] last:after:absolute last:after:h-full last:after:w-px last:after:bg-fill-highlight-100
             `,
+            false: '',
+        },
+        showTriggerDivider: {
+            true: '',
             false: '',
         },
     },
     compoundVariants: [
+        // Icon sizes
+        {
+            customIconSize: false,
+            size: 'sm',
+            className: '[&_svg]:size-3',
+        },
+        {
+            customIconSize: false,
+            size: 'base',
+            className: '[&_svg]:size-4',
+        },
+        {
+            customIconSize: false,
+            size: 'lg',
+            className: '[&_svg]:size-5',
+        },
+
         // Only if trigger does it have styles
         {
             intent: 'default',
@@ -284,16 +319,13 @@ const iconVariants = cva({
             `,
         },
 
-        // Give a border to the icon when it's a trigger
-        // and make icon match the button height
+        // Icon match the button height
         {
             size: 'sm',
             isTrigger: true,
             className: `
-                first:before:left-[var(--button-height-sm)]
                 first:ml-[calc(var(--button-padding-x-sm)*-1-1px)] 
                 last:mr-[calc(var(--button-padding-x-sm)*-1-1px)] 
-                last:after:right-[var(--button-height-sm)]
                 ${BUTTON_HEIGHT_SM} 
                 ${BUTTON_ICON_WIDTH_SM}
             `,
@@ -302,10 +334,8 @@ const iconVariants = cva({
             size: 'base',
             isTrigger: true,
             className: `
-                first:before:left-[var(--button-height-base)]
                 first:ml-[calc(var(--button-padding-x-base)*-1-1px)] 
                 last:mr-[calc(var(--button-padding-x-base)*-1-1px)]  
-                last:after:right-[var(--button-height-base)]
                 ${BUTTON_HEIGHT_BASE} 
                 ${BUTTON_ICON_WIDTH_BASE}
             `,
@@ -314,12 +344,49 @@ const iconVariants = cva({
             size: 'lg',
             isTrigger: true,
             className: `
-                first:before:left-[var(--button-height-lg)]
                 first:ml-[calc(var(--button-padding-x-lg)*-1-1px)] 
                 last:mr-[calc(var(--button-padding-x-lg)*-1-1px)] 
-                last:after:right-[var(--button-height-lg)]
                 ${BUTTON_HEIGHT_LG} 
                 ${BUTTON_ICON_WIDTH_LG}
+            `,
+        },
+        // Give a border to the icon when it's a trigger
+        // Initial styles
+        {
+            isTrigger: true,
+            showTriggerDivider: true,
+            className: `
+                first:before:content-[''] first:before:absolute first:before:h-full first:before:w-px first:before:bg-fill-highlight-100
+                last:after:content-[''] last:after:absolute last:after:h-full last:after:w-px last:after:bg-fill-highlight-100
+            `,
+        },
+        // Trigger divider styles by size
+        {
+            size: 'sm',
+            isTrigger: true,
+            showTriggerDivider: true,
+            className: `
+                first:before:left-[var(--button-height-sm)]
+                
+                last:after:right-[var(--button-height-sm)]
+            `,
+        },
+        {
+            size: 'base',
+            isTrigger: true,
+            showTriggerDivider: true,
+            className: `
+                first:before:left-[var(--button-height-base)]
+                last:after:right-[var(--button-height-base)]
+            `,
+        },
+        {
+            size: 'lg',
+            isTrigger: true,
+            showTriggerDivider: true,
+            className: `
+                first:before:left-[var(--button-height-lg)]
+                last:after:right-[var(--button-height-lg)]
             `,
         },
     ],
@@ -331,10 +398,20 @@ const iconVariants = cva({
 
 interface ButtonIconProps extends VariantProps<typeof iconVariants> {
     isTrigger?: boolean
+    showTriggerDivider?: boolean
 }
 
 function ButtonIconComponent<E extends ElementType = 'span'>(
-    { as, children, size, intent, isTrigger, ...props }: PolymorphicComponentProps<E, ButtonIconProps>,
+    {
+        as,
+        children,
+        size,
+        intent,
+        isTrigger,
+        customIconSize = false,
+        showTriggerDivider = false,
+        ...props
+    }: PolymorphicComponentProps<E, ButtonIconProps>,
     forwardedRef: PolymorphicRef<E>
 ): JSX.Element {
     const { sizeContext, intentContext } = useButtonContext()
@@ -349,11 +426,13 @@ function ButtonIconComponent<E extends ElementType = 'span'>(
                     size: size || sizeContext,
                     intent: intent || intentContext,
                     isTrigger,
+                    customIconSize,
+                    showTriggerDivider,
                 })
             )}
             tabIndex={isTrigger ? 0 : undefined}
+            aria-hidden={!isTrigger}
         >
-            {isTrigger && <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" />}
             {children}
         </Component>
     )
@@ -367,14 +446,38 @@ const ButtonIcon = forwardRef(ButtonIconComponent) as <E extends ElementType = '
 /*                              Button.Label                                  */
 /* -------------------------------------------------------------------------- */
 
-interface ButtonLabelProps {
+const buttonLabelVariants = cva({
+    base: `
+        select-none
+    `,
+    variants: {
+        size: {
+            sm: 'text-xs',
+            base: 'text-sm',
+            lg: 'text-base',
+        },
+        menuItem: {
+            true: 'flex w-full items-center justify-between',
+            false: '',
+        },
+        truncate: {
+            true: 'truncate',
+            false: '',
+        },
+    },
+    defaultVariants: {
+        size: 'base',
+    },
+})
+
+interface ButtonLabelProps extends VariantProps<typeof buttonLabelVariants> {
     menuItem?: boolean
     className?: string
     truncate?: boolean
 }
 
 function ButtonLabelComponent<E extends ElementType = 'span'>(
-    { as, children, menuItem, truncate, ...props }: PolymorphicComponentProps<E, ButtonLabelProps>,
+    { as, children, size, menuItem, truncate, ...props }: PolymorphicComponentProps<E, ButtonLabelProps>,
     forwardedRef: PolymorphicRef<E>
 ): JSX.Element {
     const Component = as || 'span'
@@ -383,12 +486,7 @@ function ButtonLabelComponent<E extends ElementType = 'span'>(
         <Component
             {...(props as any)}
             ref={forwardedRef as any}
-            className={cn(
-                'select-none text-sm',
-                menuItem && 'flex w-full items-center justify-between',
-                truncate && 'truncate',
-                props.className
-            )}
+            className={cn(buttonLabelVariants({ size, menuItem, truncate }), props.className)}
         >
             {children}
         </Component>

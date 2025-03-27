@@ -668,6 +668,7 @@ const config = {
                 'primary': 'var(--text-primary)',
                 'primary-inverse': 'var(--text-primary-inverse)',
                 'secondary': 'var(--text-secondary)',
+                'quaternary': 'var(--text-quaternary)',
                 'tertiary': 'var(--text-tertiary)',
                 'success': 'var(--text-success)',
                 'warning': 'var(--text-warning)',

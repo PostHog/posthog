@@ -25,7 +25,7 @@ const iconWrapperVariants = cva({
 
 export type IconWrapperVariantProps = VariantProps<typeof iconWrapperVariants>
 
-export interface IconWrapperProps extends Required<Pick<IconWrapperVariantProps, 'size' | 'intent'>> {
+export interface IconWrapperProps extends IconWrapperVariantProps {
     className?: string
     children: React.ReactNode
     ref?: React.Ref<HTMLDivElement>

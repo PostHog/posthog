@@ -147,10 +147,10 @@ export function Default(): JSX.Element {
                 </DropdownMenuContent>
             </DropdownMenu>
 
-            <Button.Root as="div" className="">
+            <Button.Root as="div">
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button.Icon as="button" isTrigger>
+                        <Button.Icon as="button" isTrigger showTriggerDivider>
                             <IconSearch />
                         </Button.Icon>
                     </DropdownMenuTrigger>
@@ -175,7 +175,7 @@ export function Default(): JSX.Element {
 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button.Icon as="button" isTrigger>
+                        <Button.Icon as="button" isTrigger showTriggerDivider>
                             <IconSearch />
                         </Button.Icon>
                     </DropdownMenuTrigger>

@@ -134,12 +134,12 @@ export function convertFileSystemEntryToFlatTreeDataItem(
             id: `${root}/${item.id || item.path}`,
             name: itemName,
             displayName: (
-                <div className="flex flex-col gap-1">
+                <span className="flex flex-col gap-0">
                     <SearchHighlightMultiple string={itemName} substring={searchTerm} />
-                    <div className="text-xxs font-normal">
+                    <span className="text-xxs font-normal">
                         <SearchHighlightMultiple string={folderPath} substring={searchTerm} />
-                    </div>
-                </div>
+                    </span>
+                </span>
             ),
             icon: ('icon' in item && item.icon) || iconForType(item.type),
             record: item,

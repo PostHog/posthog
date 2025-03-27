@@ -281,7 +281,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                 <div className="pt-1 px-1">
                                     <div className="flex justify-between items-center pl-2 pr-0 pb-2">
-                                        <span className="text-xs font-bold text-tertiary">Products</span>
+                                        <span className="text-xs font-bold text-quaternary">Products</span>
                                     </div>
                                     <div className="flex flex-col gap-px">
                                         {navbarItems.map((section, index) => (
