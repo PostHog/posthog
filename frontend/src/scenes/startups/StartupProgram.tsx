@@ -108,7 +108,8 @@ export function StartupProgram(): JSX.Element {
                                 You've found our secret Y Combinator offer!
                             </h1>
                             <p className="text-sm sm:text-base text-muted">
-                                Get $50,000 in credits and exclusive benefits to help you build a better product.
+                                Get $50,000 in credits (plus extras you'll actually use) to help you get to
+                                product-market fit.
                             </p>
                         </div>
                     </div>
@@ -120,7 +121,8 @@ export function StartupProgram(): JSX.Element {
                         <div className="text-center">
                             <h1 className="text-xl sm:text-3xl mb-2 sm:mb-3">Apply for PostHog's startup program</h1>
                             <p className="text-sm sm:text-base text-muted">
-                                Get $50,000 in credits and exclusive benefits to help you build a better product.
+                                Get $50,000 in credits (plus extras you'll actually use) to help you get to
+                                product-market fit.
                             </p>
                         </div>
                         <div className="flex items-center">
@@ -132,31 +134,29 @@ export function StartupProgram(): JSX.Element {
 
             <div className="grid md:grid-cols-2 gap-8 mb-8">
                 <div className="bg-surface-secondary rounded-lg p-6">
-                    <h2 className="text-xl mb-4">Program Benefits</h2>
+                    <h2 className="text-xl mb-4">What you can get</h2>
                     <div className="space-y-3">
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
-                                <h4 className="font-semibold">$50,000 in PostHog credits</h4>
+                                <h4 className="font-semibold">$50,000 in PostHog credit</h4>
+                                <p className="text-muted text-sm">Valid for 1 year to use across all products</p>
+                            </div>
+                        </div>
+                        <div className="flex items-start">
+                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <div>
+                                <h4 className="font-semibold">Exclusive founder merch</h4>
                                 <p className="text-muted text-sm">
-                                    Valid for 1 year to use across all PostHog products
+                                    Who wouldn't want free laptop stickers, hats, or t-shirts?
                                 </p>
                             </div>
                         </div>
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
-                                <h4 className="font-semibold">Founder merch</h4>
-                                <p className="text-muted text-sm">
-                                    Exclusive PostHog swag pack with stickers, t-shirts, and more
-                                </p>
-                            </div>
-                        </div>
-                        <div className="flex items-start">
-                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
-                            <div>
-                                <h4 className="font-semibold">$25,000 in DigitalOcean credits</h4>
-                                <p className="text-muted text-sm">Through their Hatch program for startups</p>
+                                <h4 className="font-semibold">50% off Mintlify for 6 months</h4>
+                                <p className="text-muted text-sm">The best products deserve the best documentation</p>
                             </div>
                         </div>
                         {isYC && (
@@ -174,15 +174,15 @@ export function StartupProgram(): JSX.Element {
 
                     {!isYC && (
                         <div className="mt-6">
-                            <h3 className="text-lg mb-3">Eligibility Requirements</h3>
+                            <h3 className="text-lg mb-3">As long as</h3>
                             <ul className="space-y-2">
                                 <li className="flex items-center text-sm">
                                     <IconArrowRight className="text-muted shrink-0 mr-2" />
-                                    Company must be less than 2 years old
+                                    Your company was founded less than 2 years ago
                                 </li>
                                 <li className="flex items-center text-sm">
                                     <IconArrowRight className="text-muted shrink-0 mr-2" />
-                                    Less than $5 million in funding
+                                    You've raised less than $5 million in funding
                                 </li>
                             </ul>
                         </div>
@@ -190,10 +190,10 @@ export function StartupProgram(): JSX.Element {
                 </div>
 
                 <div className="space-y-4">
-                    {/* Step 1: Upgrade to a paid plan */}
+                    {/* Step 1: Add billing details */}
                     <div className="bg-surface-secondary rounded-lg p-6">
                         <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xl m-0">Step 1: Upgrade to a paid plan</h2>
+                            <h2 className="text-xl m-0">Step 1: Add billing details</h2>
                         </div>
                         {billingLoading ? (
                             <div className="flex items-center gap-2">
@@ -208,9 +208,11 @@ export function StartupProgram(): JSX.Element {
                         ) : (
                             <div className="flex flex-col items-start gap-2">
                                 <p className="text-muted mb-2">
-                                    To be eligible for the startup program, you need to be on a paid plan. Don't worry -
-                                    you'll only pay for what you use and can set billing limits as low as $0 to control
-                                    your spend.
+                                    To be eligible for the startup program, you need to be on a paid plan.
+                                </p>
+                                <p className="text-muted mb-2">
+                                    Don't worry - you'll only pay for what you use and can set billing limits as low as
+                                    $0 to control your spend.
                                 </p>
                                 <p className="text-muted mb-2 italic">
                                     P.S. You still keep the monthly free allowance for every product!
