@@ -2,7 +2,7 @@ from posthog.cdp.templates.hog_function_template import SUB_TEMPLATE_COMMON, Hog
 
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-webhook",
@@ -112,6 +112,22 @@ if (inputs.debug) {
             name="HTTP Webhook on team activity",
             filters=SUB_TEMPLATE_COMMON["activity-log"].filters,
             type="internal_destination",
+        ),
+        HogFunctionSubTemplate(
+            id="error-tracking-issue-created",
+            name="HTTP Webhook on issue created",
+            description="",
+            free=True,
+            type=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].type,
+            filters=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].filters,
+        ),
+        HogFunctionSubTemplate(
+            id="error-tracking-issue-reopened",
+            name="HTTP Webhook on issue reopened",
+            description="",
+            free=True,
+            type=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].type,
+            filters=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].filters,
         ),
     ],
 )
