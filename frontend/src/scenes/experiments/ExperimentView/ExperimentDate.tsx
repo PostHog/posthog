@@ -45,7 +45,7 @@ const ExperimentDate = ({
                         clearable={false}
                         selectionPeriod="past"
                         buttonProps={{ size: 'xsmall', 'data-attr': `${dataAttr}-picker` }}
-                        selectionLimitDate={dayjs(selectionLimitDate)}
+                        selectionPeriodLimit={selectionLimitDate ? dayjs(selectionLimitDate) : undefined}
                     />
                 ) : (
                     <>
