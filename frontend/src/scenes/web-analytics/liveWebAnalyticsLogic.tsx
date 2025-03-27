@@ -85,10 +85,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             cache.statsInterval = setInterval(() => {
                 actions.pollStats()
             }, 30000)
-
-            cache.nowInterval = setInterval(() => {
-                actions.setNow({ now: new Date() })
-            }, 500)
         },
         beforeUnmount: () => {
             if (cache.statsInterval) {
