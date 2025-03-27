@@ -815,7 +815,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "Invalid date format. Please use ISO 8601 format with timezone info (e.g. 2024-01-01T00:00:00Z or 2024-01-01T00:00:00+00:00)"
             )
 
-    def _process_survey_results(self, results) -> SurveyStats:
+    def _process_survey_results(self, results: EventStats) -> SurveyStats:
         """Process raw survey event results into stats format.
 
         Args:
