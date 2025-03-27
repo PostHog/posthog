@@ -63,7 +63,6 @@ export interface StartupProgramFormValues {
     posthog_organization_id: string
     raised: string
     incorporation_date: Dayjs | null
-    is_building_with_llms: string
     yc_batch?: string
     yc_proof_screenshot_url?: string
     customer_id?: string
@@ -261,18 +260,10 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 customer_id: values.billing?.customer_id || '',
                 raised: '',
                 incorporation_date: null,
-                is_building_with_llms: '',
                 yc_batch: props.isYC ? '' : undefined,
                 yc_proof_screenshot_url: undefined,
             },
-            errors: ({
-                posthog_organization_name,
-                posthog_organization_id,
-                raised,
-                incorporation_date,
-                is_building_with_llms,
-                yc_batch,
-            }) => {
+            errors: ({ posthog_organization_name, posthog_organization_id, raised, incorporation_date, yc_batch }) => {
                 if (!values.billing?.has_active_subscription) {
                     return {
                         _form: 'You need to upgrade to a paid plan before submitting your application',
@@ -286,9 +277,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                     posthog_organization_id: !posthog_organization_id ? 'Please select an organization' : undefined,
                     raised: validateFunding(raised, props.isYC),
                     incorporation_date: validateIncorporationDate(incorporation_date, props.isYC),
-                    is_building_with_llms: !is_building_with_llms
-                        ? 'Please select whether you are building with LLMs'
-                        : undefined,
                     yc_batch: props.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
                     _form: values.ycValidationState === 'invalid' ? values.ycValidationError : undefined,
                 }

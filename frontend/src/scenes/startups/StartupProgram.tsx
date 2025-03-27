@@ -311,16 +311,6 @@ export function StartupProgram(): JSX.Element {
                                     </>
                                 )}
 
-                                <LemonField name="is_building_with_llms" label="Are you building LLM-powered features?">
-                                    <LemonSelect
-                                        options={[
-                                            { label: 'Yes', value: 'true' },
-                                            { label: 'No', value: 'false' },
-                                        ]}
-                                        className="bg-bg-light"
-                                    />
-                                </LemonField>
-
                                 <LemonButton
                                     type="primary"
                                     htmlType="submit"

@@ -32,7 +32,8 @@ Steps:
   - [x] Add non-YC validation (company age < 2 years, funding < $5M)
 - [ ] Validate YC batch membership and ask for another proof otherwise
   - [x] Once YC batch is defined, query https://yc-oss.github.io/api/batches/w25.json (etc) and check based on name<> and domain<>website
-  - [ ] If we couldn't validate YC membership, ask for the screenshot of their profile showing "using PostHog"
+  - [ ] If we couldn't validate YC membership, ask for the screenshot of their profile showing "using PostHog" - in progress but need to fix so that URL is included in submission
+- [ ] Switch organization name to be a disabled field and store organization_id too
 - [ ] Implement form submission
   - [ ] Add loading states and success/error handling
   - [ ] Trigger webhook upon submission
