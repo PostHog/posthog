@@ -1,7 +1,7 @@
 // Button.tsx
 import './Button.css'
 
-import { cva, VariantProps } from 'cva'
+import { cva, type VariantProps } from 'cva'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { cn } from 'lib/utils/css-classes'
 import React, {
