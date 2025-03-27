@@ -408,11 +408,11 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def list_channels(self, authed_user) -> list[dict]:
+    def list_channels(self, should_include_private_channels) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
-        public_channels = self._list_channels_by_type("public_channel", authed_user)
-        private_channels = self._list_channels_by_type("private_channel", authed_user)
+        public_channels = self._list_channels_by_type("public_channel")
+        private_channels = self._list_channels_by_type("private_channel", should_include_private_channels)
         channels = public_channels + private_channels
 
         return sorted(channels, key=lambda x: x["name"])
@@ -433,7 +433,9 @@ class SlackIntegration:
                 return None
             raise
 
-    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"], authed_user) -> list[dict]:
+    def _list_channels_by_type(
+        self, type: Literal["public_channel", "private_channel"], should_include_private_channels: bool = False
+    ) -> list[dict]:
         max_page = 50
         channels = []
         cursor = None
@@ -442,10 +444,10 @@ class SlackIntegration:
             max_page -= 1
             if type == "public_channel":
                 res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+            elif type == "private_channel" and should_include_private_channels:
+                res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
             else:
-                res = self.client.users_conversations(
-                    exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
-                )
+                continue
 
             channels.extend(res["channels"])
             cursor = res["response_metadata"]["next_cursor"]

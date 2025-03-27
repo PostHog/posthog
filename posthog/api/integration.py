@@ -94,7 +94,7 @@ class IntegrationViewSet(
     def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         slack = SlackIntegration(instance)
-        authed_user = instance.config["authed_user"]["id"]
+        should_include_private_channels = instance.created_by_id == request.user.id
 
         channel_id = request.query_params.get("channel_id")
         if channel_id:
@@ -112,7 +112,7 @@ class IntegrationViewSet(
                 "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
             }
-            for channel in slack.list_channels(authed_user)
+            for channel in slack.list_channels(should_include_private_channels)
         ]
 
         return Response({"channels": channels})
