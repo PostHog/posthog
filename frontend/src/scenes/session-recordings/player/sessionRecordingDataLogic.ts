@@ -81,30 +81,36 @@ export function patchMetaEventIntoWebData(
 
     for (let i = 0; i < snapshots.length; i++) {
         const snapshot = snapshots[i]
-        if (snapshot.type === EventType.FullSnapshot) {
-            const previousEvent = snapshots[i - 1]
-            if (!previousEvent || previousEvent.type !== EventType.Meta) {
-                const viewport = viewportForTimestamp(snapshot.timestamp)
-                if (!viewport || !viewport.width || !viewport.height) {
-                    posthog.captureException(new Error('No viewport found for full snapshot'), {
-                        snapshot,
-                    })
-                } else {
-                    metaEventsToInsert.push({
-                        index: i,
-                        event: {
-                            type: EventType.Meta,
-                            timestamp: snapshot.timestamp,
-                            windowId: snapshot.windowId,
-                            data: {
-                                width: parseInt(viewport.width, 10),
-                                height: parseInt(viewport.height, 10),
-                                href: viewport.href || 'unknown',
-                            },
-                        },
-                    })
-                }
-            }
+        if (snapshot.type !== EventType.FullSnapshot) {
+            continue
+        }
+
+        const previousEvent = snapshots[i - 1]
+        const previousEventIsMeta = previousEvent?.type === EventType.Meta
+        if (!previousEventIsMeta) {
+            continue
+        }
+
+        const viewport = viewportForTimestamp(snapshot.timestamp)
+        const thereIsNoViewport = !viewport || !viewport.width || !viewport.height
+        if (thereIsNoViewport) {
+            posthog.captureException(new Error('No viewport found for full snapshot'), {
+                snapshot,
+            })
+        } else {
+            metaEventsToInsert.push({
+                index: i,
+                event: {
+                    type: EventType.Meta,
+                    timestamp: snapshot.timestamp,
+                    windowId: snapshot.windowId,
+                    data: {
+                        width: parseInt(viewport.width, 10),
+                        height: parseInt(viewport.height, 10),
+                        href: viewport.href || 'unknown',
+                    },
+                },
+            })
         }
     }
 
