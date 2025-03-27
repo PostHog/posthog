@@ -51,10 +51,6 @@ fn default_timezone() -> String {
     "UTC".to_string()
 }
 
-fn default_session_recording_opt_in() -> bool {
-    false
-}
-
 mod option_i16_as_i16 {
     use serde::{Deserialize, Deserializer, Serializer};
 
