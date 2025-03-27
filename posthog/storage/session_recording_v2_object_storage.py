@@ -140,8 +140,10 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
     def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
         try:
             compressed_data = snappy.compress(recording_data.encode("utf-8"))
-            target_key = f"{settings.SESSION_RECORDING_V2_S3_LTS_PREFIX}/{recording_id}"
-            self.write(target_key, compressed_data)
+            base_key = f"{settings.SESSION_RECORDING_V2_S3_LTS_PREFIX}/{recording_id}"
+            byte_range = f"bytes=0-{len(compressed_data) - 1}"
+            target_key = f"s3://{self.bucket}/{base_key}?range={byte_range}"
+            self.write(base_key, compressed_data)
             logger.info(
                 "Successfully stored LTS recording",
                 recording_id=recording_id,
