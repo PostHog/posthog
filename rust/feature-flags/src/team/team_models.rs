@@ -21,7 +21,6 @@ pub struct Team {
     pub autocapture_web_vitals_opt_in: Option<bool>,
     pub capture_performance_opt_in: Option<bool>,
     pub capture_console_log_opt_in: Option<bool>,
-    #[serde(default = "default_session_recording_opt_in")]
     pub session_recording_opt_in: bool, // Not nullable in schema
     pub inject_web_apps: Option<bool>,
     pub surveys_opt_in: Option<bool>,
