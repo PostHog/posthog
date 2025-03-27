@@ -4,6 +4,8 @@ import builderHog1 from 'public/hedgehog/builder-hog-01.png'
 import builderHog2 from 'public/hedgehog/builder-hog-02.png'
 import builderHog3 from 'public/hedgehog/builder-hog-03.png'
 import burningMoneyHog from 'public/hedgehog/burning-money-hog.png'
+import climberHog1 from 'public/hedgehog/climber-hog-01.png'
+import climberHog2 from 'public/hedgehog/climber-hog-02.png'
 import detectiveHog from 'public/hedgehog/detective-hog.png'
 import experimentsHog from 'public/hedgehog/experiments-hog.png'
 import explorerHog from 'public/hedgehog/explorer-hog.png'
@@ -159,4 +161,10 @@ export const SupermanHog = (props: HedgehogProps): JSX.Element => {
 }
 export const JudgeHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={judgeHog} {...props} />
+}
+export const ClimberHog1 = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={climberHog1} {...props} />
+}
+export const ClimberHog2 = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={climberHog2} {...props} />
 }

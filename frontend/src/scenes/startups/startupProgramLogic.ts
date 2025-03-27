@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { TeamMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -120,6 +121,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
     key(({ isYC }: StartupProgramLogicProps) => isYC || false),
     connect({
         values: [userLogic, ['user'], organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
+        actions: [paymentEntryLogic, ['showPaymentEntryModal']],
     }),
     actions({
         setFormSubmitted: (submitted: boolean) => ({ submitted }),

@@ -3,7 +3,8 @@ import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast, Spinn
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { SpaceHog } from 'lib/components/hedgehogs'
+import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
+import { ClimberHog1, ClimberHog2 } from 'lib/components/hedgehogs'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
@@ -37,7 +38,7 @@ export function StartupProgram(): JSX.Element {
         startupProgramErrors,
     } = useValues(logic)
     const { billing, billingLoading } = useValues(billingLogic)
-    const { validateYCBatch, setStartupProgramValue } = useActions(logic)
+    const { validateYCBatch, setStartupProgramValue, showPaymentEntryModal } = useActions(logic)
     const programName = isYC ? 'YC Program' : 'Startup Program'
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
@@ -95,17 +96,26 @@ export function StartupProgram(): JSX.Element {
     }
 
     return (
-        <div className="mx-auto max-w-[1200px] mt-6 px-4">
+        <div className="mx-auto max-w-[1200px] -mt-6">
             <div className="flex flex-col items-center mb-8">
-                <SpaceHog className="w-[200px] h-auto mb-3" />
-                <h1 className="text-center text-3xl mb-3">
-                    {isYC ? 'Welcome to PostHog for YC Companies' : 'PostHog for Startups'}
-                </h1>
-                <p className="text-center text-base text-muted max-w-160">
-                    {isYC
-                        ? 'Get started with PostHog, the all-in-one Product OS built for YC founders. Enjoy $50,000 in credits and exclusive benefits.'
-                        : 'Get $50,000 in credits and exclusive benefits to help you build a better product with PostHog.'}
-                </p>
+                <div className="flex items-center justify-center md:gap-8 mb-3">
+                    <div className="flex items-end self-end">
+                        <ClimberHog1 className="w-30 min-w-14 h-auto" />
+                    </div>
+                    <div className="text-center">
+                        <h1 className="text-xl sm:text-3xl mb-2 sm:mb-3">
+                            {isYC
+                                ? "You've found our secret Y Combinator offer!"
+                                : "Apply for PostHog's startup program"}
+                        </h1>
+                        <p className="text-sm sm:text-base text-muted">
+                            Get $50,000 in credits and exclusive benefits to help you build a better product.
+                        </p>
+                    </div>
+                    <div className="flex items-center">
+                        <ClimberHog2 className="w-35 min-w-18 h-auto" />
+                    </div>
+                </div>
             </div>
 
             <div className="grid md:grid-cols-2 gap-8 mb-8">
@@ -190,12 +200,17 @@ export function StartupProgram(): JSX.Element {
                                     you'll only pay for what you use and can set billing limits as low as $0 to control
                                     your spend.
                                 </p>
-                                <p className="text-muted mb-4 italic">
+                                <p className="text-muted mb-2 italic">
                                     P.S. You still keep the monthly free allowance for every product!
                                 </p>
-                                <LemonButton type="primary" to={urls.organizationBilling()}>
+                                <BillingUpgradeCTA
+                                    type="primary"
+                                    data-attr="startup-program-upgrade-cta"
+                                    disableClientSideRouting
+                                    onClick={() => showPaymentEntryModal()}
+                                >
                                     Add billing details
-                                </LemonButton>
+                                </BillingUpgradeCTA>
                             </div>
                         )}
                     </div>
@@ -388,8 +403,6 @@ export function StartupProgram(): JSX.Element {
                                     type="primary"
                                     htmlType="submit"
                                     className="mt-4"
-                                    fullWidth
-                                    center
                                     data-attr="startup-program-submit"
                                 >
                                     Submit Application
