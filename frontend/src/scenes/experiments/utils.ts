@@ -174,13 +174,12 @@ export function getViewRecordingFilters(
 ): UniversalFiltersGroupValue[] {
     const filters: UniversalFiltersGroupValue[] = []
     if (metric.kind === NodeKind.ExperimentMetric) {
-        if ((metric as ExperimentMeanMetric).metric_type === ExperimentMetricType.MEAN) {
-            const meanMetric = metric as ExperimentMeanMetric
-            if (meanMetric.source.type === 'event') {
+        if (metric.metric_type === ExperimentMetricType.MEAN) {
+            if (metric.source.type === 'event') {
                 return [
                     {
-                        id: meanMetric.source.event,
-                        name: meanMetric.source.event,
+                        id: metric.source.event,
+                        name: metric.source.event,
                         type: 'events',
                         properties: [
                             {
