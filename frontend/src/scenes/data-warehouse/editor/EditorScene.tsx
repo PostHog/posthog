@@ -16,12 +16,13 @@ import {
 import { DataVisualizationLogicProps } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
-import { ChartDisplayType, ItemMode } from '~/types'
+import { ItemMode } from '~/types'
 
 import { ViewLinkModal } from '../ViewLinkModal'
 import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { dataNodeKey } from './multitabEditorLogic'
+import { outputPaneLogic } from './outputPaneLogic'
 import { QueryWindow } from './QueryWindow'
 import { EditorSidebar } from './sidebar/EditorSidebar'
 
@@ -78,7 +79,6 @@ export function EditorScene(): JSX.Element {
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,
-        defaultVisualizationType: ChartDisplayType.ActionsLineGraph,
         setQuery: setSourceQuery,
     }
 
@@ -112,16 +112,24 @@ export function EditorScene(): JSX.Element {
                     <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
                         <BindLogic logic={variablesLogic} props={variablesLogicProps}>
                             <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                                <BindLogic logic={multitabEditorLogic} props={{ key: codeEditorKey, monaco, editor }}>
-                                    <div className="EditorScene w-full h-full flex flex-row overflow-hidden" ref={ref}>
-                                        <EditorSidebar sidebarRef={sidebarRef} codeEditorKey={codeEditorKey} />
-                                        <QueryWindow
-                                            onSetMonacoAndEditor={(monaco, editor) =>
-                                                setMonacoAndEditor([monaco, editor])
-                                            }
-                                        />
-                                    </div>
-                                    <ViewLinkModal />
+                                <BindLogic logic={outputPaneLogic} props={{}}>
+                                    <BindLogic
+                                        logic={multitabEditorLogic}
+                                        props={{ key: codeEditorKey, monaco, editor }}
+                                    >
+                                        <div
+                                            className="EditorScene w-full h-full flex flex-row overflow-hidden"
+                                            ref={ref}
+                                        >
+                                            <EditorSidebar sidebarRef={sidebarRef} codeEditorKey={codeEditorKey} />
+                                            <QueryWindow
+                                                onSetMonacoAndEditor={(monaco, editor) =>
+                                                    setMonacoAndEditor([monaco, editor])
+                                                }
+                                            />
+                                        </div>
+                                        <ViewLinkModal />
+                                    </BindLogic>
                                 </BindLogic>
                             </BindLogic>
                         </BindLogic>

@@ -24,7 +24,7 @@ interface QueryWindowProps {
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
-    const { allTabs, activeModelUri, queryInput, editingView, sourceQuery, isValidView } =
+    const { allTabs, activeModelUri, queryInput, editingView, editingInsight, sourceQuery, isValidView } =
         useValues(multitabEditorLogic)
     const {
         renameTab,
@@ -72,6 +72,11 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     <span className="text-xs">
                         Editing {editingView.last_run_at ? 'materialized view' : 'view'} "{editingView.name}"
                     </span>
+                </div>
+            )}
+            {editingInsight && (
+                <div className="h-5 bg-warning-highlight">
+                    <span className="text-xs">Editing insight "{editingInsight.name}"</span>
                 </div>
             )}
             <div className="flex flex-row justify-start align-center w-full ml-2 mr-2">

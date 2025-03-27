@@ -137,8 +137,8 @@ export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, editorKey } = useValues(multitabEditorLogic)
-    const { saveAsInsight, setSourceQuery } = useActions(multitabEditorLogic)
+    const { sourceQuery, exportContext, editorKey, editingInsight } = useValues(multitabEditorLogic)
+    const { saveAsInsight, updateInsight, setSourceQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
@@ -181,7 +181,7 @@ export function OutputPane(): JSX.Element {
 
                 const maxContentLength = Math.max(
                     column.length,
-                    ...response.results.map((row: any[]) => {
+                    ...(response.results || response.result).map((row: any[]) => {
                         const content = row[index]
                         return typeof content === 'string'
                             ? content.length
@@ -291,10 +291,16 @@ export function OutputPane(): JSX.Element {
                                             onClick={() => toggleChartSettingsPanel()}
                                             tooltip="Visualization settings"
                                         />
-
-                                        <LemonButton type="primary" onClick={() => saveAsInsight()}>
-                                            Create insight
-                                        </LemonButton>
+                                        {editingInsight && (
+                                            <LemonButton type="primary" onClick={() => updateInsight()}>
+                                                Save insight
+                                            </LemonButton>
+                                        )}
+                                        {!editingInsight && (
+                                            <LemonButton type="primary" onClick={() => saveAsInsight()}>
+                                                Create insight
+                                            </LemonButton>
+                                        )}
                                     </div>
                                 </div>
                             </div>
