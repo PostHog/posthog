@@ -2,6 +2,8 @@ import * as Sentry from '@sentry/react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import posthog, { CaptureResult, PostHogConfig } from 'posthog-js'
 
+const POSTHOG_TEAM_API_KEY = 'sTMFPsFhdP1Ssg'
+
 interface WindowWithCypressCaptures extends Window {
     // our Cypress tests will use this to check what events were sent to PostHog
     _cypress_posthog_captures?: CaptureResult[]
@@ -84,7 +86,8 @@ export function loadPostHogJS(): void {
                 capture_performance: { web_vitals: true },
                 person_profiles: 'always',
                 __preview_remote_config: true,
-                __preview_flags_v2: true,
+                __preview_flags_v2:
+                    window.location.hostname === 'localhost' || window.JS_POSTHOG_API_KEY === POSTHOG_TEAM_API_KEY,
             })
         )
     } else {
