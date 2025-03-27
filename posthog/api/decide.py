@@ -92,11 +92,8 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
             use_remote_config = True
 
     REMOTE_CONFIG_CACHE_COUNTER.labels(result=use_remote_config).inc()
-    surveys_opt_in = get_surveys_opt_in(team)
-    if surveys_opt_in:
-        surveys_count = get_surveys_count(team)
-        if surveys_count <= 0:
-            surveys_opt_in = False
+
+    surveys_opt_in = get_surveys_opt_in(team) and get_surveys_count(team) > 0
 
     if use_remote_config:
         response = RemoteConfig.get_config_via_token(token, request=request)
