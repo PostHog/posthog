@@ -917,6 +917,10 @@ def get_surveys_opt_in(team: Team) -> bool:
     return team.surveys_opt_in
 
 
+def get_surveys_count(team: Team) -> int:
+    return Survey.objects.filter(team_id=team.id).exclude(archived=True).count()
+
+
 def get_surveys_response(team: Team):
     surveys = SurveyAPISerializer(
         Survey.objects.filter(team_id=team.id)
