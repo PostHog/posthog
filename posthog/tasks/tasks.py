@@ -910,6 +910,16 @@ def ee_persist_finished_recordings() -> None:
         persist_finished_recordings()
 
 
+@shared_task(ignore_result=True)
+def ee_persist_finished_recordings_v2() -> None:
+    try:
+        from ee.session_recordings.persistence_tasks import persist_finished_recordings_v2
+    except ImportError:
+        pass
+    else:
+        persist_finished_recordings_v2()
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,

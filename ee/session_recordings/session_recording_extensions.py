@@ -16,6 +16,10 @@ MINIMUM_AGE_FOR_RECORDING = timedelta(
     minutes=int(settings.get_from_env("SESSION_RECORDING_MINIMUM_AGE_MINUTES", 24 * 60))
 )
 
+MAXIMUM_AGE_FOR_RECORDING_V2 = timedelta(
+    minutes=int(settings.get_from_env("SESSION_RECORDING_V2_MAXIMUM_AGE_MINUTES", 7 * 24 * 60))
+)
+
 SNAPSHOT_PERSIST_TIME_HISTOGRAM = Histogram(
     "snapshot_persist_time_seconds",
     "We persist recording snapshots from S3, how long does that take?",
@@ -60,6 +64,11 @@ SNAPSHOT_PERSIST_FAILURE_V2_COUNTER = Counter(
 SNAPSHOT_PERSIST_TOO_YOUNG_V2_COUNTER = Counter(
     "snapshot_persist_too_young_v2",
     "Count of v2 session recordings that were too young to be persisted",
+)
+
+SNAPSHOT_PERSIST_TOO_OLD_V2_COUNTER = Counter(
+    "snapshot_persist_too_old_v2",
+    "Count of v2 session recordings that were too old to be persisted",
 )
 
 RECORDING_PERSIST_START_V2_COUNTER = Counter(
@@ -150,10 +159,19 @@ def persist_recording_v2(recording_id: str, team_id: int) -> None:
 
     recording.load_metadata()
 
-    if not recording.start_time or timezone.now() < recording.start_time + MINIMUM_AGE_FOR_RECORDING:
-        # Recording is too recent to be persisted.
-        # We can save the metadata as it is still useful for querying, but we can't move to S3 yet.
+    now = timezone.now()
+    if not recording.start_time:
         SNAPSHOT_PERSIST_TOO_YOUNG_V2_COUNTER.inc()
+        recording.save()
+        return
+
+    if recording.start_time > now - MINIMUM_AGE_FOR_RECORDING:
+        SNAPSHOT_PERSIST_TOO_YOUNG_V2_COUNTER.inc()
+        recording.save()
+        return
+
+    if recording.start_time < now - MAXIMUM_AGE_FOR_RECORDING_V2:
+        SNAPSHOT_PERSIST_TOO_OLD_V2_COUNTER.inc()
         recording.save()
         return
 
