@@ -417,10 +417,14 @@ class SlackIntegration:
 
         return sorted(channels, key=lambda x: x["name"])
 
-    def get_channel_by_id(self, channel_id: str) -> Optional[dict]:
+    def get_channel_by_id(self, channel_id: str, should_include_private_channels: bool = False) -> Optional[dict]:
         try:
             response = self.client.conversations_info(channel=channel_id)
             channel = response["channel"]
+
+            if channel["is_private"] and not should_include_private_channels:
+                return None
+
             return {
                 "id": channel["id"],
                 "name": channel["name"],

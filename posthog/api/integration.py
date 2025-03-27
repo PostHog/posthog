@@ -98,7 +98,7 @@ class IntegrationViewSet(
 
         channel_id = request.query_params.get("channel_id")
         if channel_id:
-            channel = slack.get_channel_by_id(channel_id)
+            channel = slack.get_channel_by_id(channel_id, should_include_private_channels)
             if channel:
                 return Response({"channels": [channel]})
             else:
