@@ -1,4 +1,3 @@
-// Button.tsx
 import './Button.css'
 
 import { cva, type VariantProps } from 'cva'
