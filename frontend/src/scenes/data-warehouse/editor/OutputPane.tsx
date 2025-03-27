@@ -1,12 +1,14 @@
 import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
 
-import { IconExpand45, IconGear } from '@posthog/icons'
+import { IconCopy, IconExpand45, IconGear } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
 import DataGrid from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -38,23 +40,64 @@ interface RowDetailsModalProps {
 }
 
 function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps): JSX.Element {
+    const [showRawJson, setShowRawJson] = useState<Record<string, boolean>>({})
+
     if (!row) {
         return <></>
     }
 
-    const tableData = columns.map((column) => ({
-        column,
-        value:
-            row[column] === null ? (
-                <span className="text-muted">null</span>
-            ) : typeof row[column] === 'object' ? (
-                <pre className="whitespace-pre-wrap break-all m-0 font-mono">
-                    {JSON.stringify(row[column], null, 2)}
-                </pre>
-            ) : (
-                <span className="whitespace-pre-wrap break-all font-mono">{String(row[column])}</span>
-            ),
-    }))
+    const isJsonString = (str: string): boolean => {
+        try {
+            const parsed = JSON.parse(str)
+            return typeof parsed === 'object' && parsed !== null
+        } catch {
+            return false
+        }
+    }
+
+    const tableData = columns.map((column) => {
+        const value = row[column]
+        const isStringifiedJson = typeof value === 'string' && isJsonString(value)
+        const isJson = typeof value === 'object' || isStringifiedJson
+        const jsonValue = isStringifiedJson ? JSON.parse(value) : value
+
+        return {
+            column,
+            isJson,
+            rawValue:
+                value === null
+                    ? 'null'
+                    : typeof value === 'object' || isStringifiedJson
+                    ? JSON.stringify(value, null, 2)
+                    : String(value),
+            value:
+                value === null ? (
+                    <span className="text-muted">null</span>
+                ) : isJson ? (
+                    <div className="flex gap-2">
+                        <div className="flex-1">
+                            {showRawJson[column] ? (
+                                <pre className="whitespace-pre-wrap break-all m-0 font-mono">
+                                    {JSON.stringify(jsonValue, null, 2)}
+                                </pre>
+                            ) : (
+                                <JSONViewer src={jsonValue} name={null} collapsed={1} />
+                            )}
+                        </div>
+                        <div className="flex-shrink-0">
+                            <LemonButton
+                                size="small"
+                                onClick={() => setShowRawJson((prev) => ({ ...prev, [column]: !prev[column] }))}
+                            >
+                                {showRawJson[column] ? 'Show formatted' : 'Show raw'}
+                            </LemonButton>
+                        </div>
+                    </div>
+                ) : (
+                    <span className="whitespace-pre-wrap break-all font-mono">{String(value)}</span>
+                ),
+        }
+    })
 
     return (
         <LemonModal title="Row Details" isOpen={isOpen} onClose={onClose} width={800}>
@@ -71,6 +114,17 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                             title: 'Value',
                             dataIndex: 'value',
                             className: 'px-4',
+                            render: (_, record) => (
+                                <div className="flex items-center gap-2">
+                                    <div className="flex-1">{record.value}</div>
+                                    <LemonButton
+                                        size="small"
+                                        icon={<IconCopy />}
+                                        onClick={() => void copyToClipboard(record.rawValue, 'value')}
+                                        tooltip="Copy value"
+                                    />
+                                </div>
+                            ),
                         },
                     ]}
                 />
