@@ -142,10 +142,17 @@ export class HogTransformerService {
 
                 // Get states for all functions to check if any are disabled - only if feature flag is enabled
                 let states: Record<string, { state: HogWatcherState }> = {}
-                if (this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
-                    const timer = transformEventHogWatcherLatency.startTimer({ operation: 'getStates' })
-                    states = await this.hogWatcher.getStates(teamHogFunctions.map((hf) => hf.id))
-                    timer()
+                if (
+                    this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED &&
+                    Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
+                ) {
+                    try {
+                        const timer = transformEventHogWatcherLatency.startTimer({ operation: 'getStates' })
+                        states = await this.hogWatcher.getStates(teamHogFunctions.map((hf) => hf.id))
+                        timer()
+                    } catch (error) {
+                        logger.warn('⚠️', 'HogWatcher getStates failed', { error })
+                    }
                 }
 
                 for (const hogFunction of teamHogFunctions) {
@@ -280,10 +287,18 @@ export class HogTransformerService {
                 }
 
                 // Observe the results to update rate limiting state - only if feature flag is enabled
-                if (results.length > 0 && this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED) {
-                    const timer = transformEventHogWatcherLatency.startTimer({ operation: 'observeResults' })
-                    await this.hogWatcher.observeResults(results)
-                    timer()
+                if (
+                    results.length > 0 &&
+                    this.hub.TRANSFORM_EVENT_HOG_WATCHER_ENABLED &&
+                    Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
+                ) {
+                    try {
+                        const timer = transformEventHogWatcherLatency.startTimer({ operation: 'observeResults' })
+                        await this.hogWatcher.observeResults(results)
+                        timer()
+                    } catch (error) {
+                        logger.warn('⚠️', 'HogWatcher observeResults failed', { error })
+                    }
                 }
 
                 if (transformationsFailed.length > 0) {

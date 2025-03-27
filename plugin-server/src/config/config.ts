@@ -206,6 +206,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
+        CDP_HOG_WATCHER_SAMPLE_RATE: 0.01, // Default to 1% sampling
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
