@@ -14,6 +14,21 @@ import { IntegrationType, SlackChannelType } from '~/types'
 
 import { slackIntegrationLogic } from './slackIntegrationLogic'
 
+const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): LemonInputSelectOption[] | null => {
+    return slackChannels
+        ? slackChannels.map((x) => ({
+              key: `${x.id}|#${x.name}`,
+              labelComponent: (
+                  <span className="flex items-center">
+                      <span>{x.is_private ? `🔒${x.name}` : `#${x.name}`}</span>
+                      <span>{x.is_ext_shared ? <IconSlackExternal className="ml-2" /> : null}</span>
+                  </span>
+              ),
+              label: `${x.id} #${x.name}`,
+          }))
+        : null
+}
+
 export type SlackChannelPickerProps = {
     integration: IntegrationType
     value?: string
@@ -33,29 +48,11 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     const [currentInputValue, setCurrentInputValue] = useState<string | null>(null)
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
-    const getSlackChannelOptions = useMemo(
-        () =>
-            (slackChannels?: SlackChannelType[] | null): LemonInputSelectOption[] | null => {
-                return slackChannels
-                    ? slackChannels.map((x) => ({
-                          key: `${x.id}|#${x.name}`,
-                          labelComponent: (
-                              <span className="flex items-center">
-                                  <span>{x.is_private ? `🔒${x.name}` : `#${x.name}`}</span>
-                                  <span>{x.is_ext_shared ? <IconSlackExternal className="ml-2" /> : null}</span>
-                              </span>
-                          ),
-                          label: `${x.id} #${x.name}`,
-                      }))
-                    : null
-            },
-        [slackChannels]
-    )
+    const rawSlackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
 
     const slackChannelOptions = (): LemonInputSelectOption[] | null => {
-        const channels = getSlackChannelOptions(slackChannels)
-        return channels
-            ? channels.filter((x) => {
+        return rawSlackChannelOptions
+            ? rawSlackChannelOptions.filter((x) => {
                   const [id, name] = x.key.split('|#')
                   return name !== 'PRIVATE_CHANNEL_WITHOUT_ACCESS' || id === currentInputValue
               })
@@ -137,7 +134,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 </LemonBanner>
             ) : isPrivateChannelWithoutAccess(value ?? '') ? (
                 <LemonBanner type="info">
-                    This is a private slack channel. Ask{' '}
+                    This is a private Slack channel. Ask{' '}
                     <ProfilePicture user={integration.created_by} showName size="md" /> or connect your own Slack
                     account to configure private channels.
                 </LemonBanner>
