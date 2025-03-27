@@ -4679,7 +4679,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert [x["count"] for x in result] == [1, 1, 1]
             assert [x["breakdown"] == ["Chrome"] for x in result]
 
-        def test_funnel_with_user_only_completed_second_step(self):
+        def test_funnel_with_long_interval_no_first_step(self):
             # Create a person who only completes the second step of the funnel
             person_factory(distinct_ids=["only_second_step"], team_id=self.team.pk)
             self._add_to_cart_event(distinct_id="only_second_step", timestamp=datetime(2021, 5, 2, 0, 0, 0))

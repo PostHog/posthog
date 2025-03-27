@@ -2541,6 +2541,49 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
             assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
+    def test_funnel_with_long_interval_no_first_step(self):
+        # Create a person who only completes the second step of the funnel
+        _create_person(distinct_ids=["only_second_step"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="added to cart",
+            distinct_id="only_second_step",
+            timestamp=datetime(2021, 5, 2, 0, 0, 0),
+        )
+
+        _create_person(distinct_ids=["only_first_step"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="only_first_step",
+            timestamp=datetime(2021, 5, 3, 0, 0, 0),
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "display": TRENDS_LINEAR,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "events": [{"id": "user signed up", "order": 0}, {"id": "added to cart", "order": 1}],
+            "funnel_window_interval": 3122064000,
+            "funnel_window_interval_unit": "second",
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        # Since in funnel trends we're tracking conversion by day, not aggregated totals,
+        # and the user only completes step 2 without step 1, there should be no conversions for any day
+        for day_result in results[:2] + results[3:]:
+            self.assertEqual(day_result["reached_from_step_count"], 0)
+            self.assertEqual(day_result["reached_to_step_count"], 0)
+            self.assertEqual(day_result["conversion_rate"], 0.0)
+
+        self.assertEqual(results[2]["reached_from_step_count"], 1)
+        self.assertEqual(results[2]["reached_to_step_count"], 0)
+
 
 class TestFunnelTrends(BaseTestFunnelTrends):
     __test__ = True
