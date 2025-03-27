@@ -90,6 +90,8 @@ export interface ActionFilterProps {
     allowedMathTypes?: readonly string[]
     /** Data warehouse popover fields */
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
+    /** Whether to add left padding to the filters div to align with indented content */
+    filtersLeftPadding?: boolean
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -122,6 +124,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         bordered = false,
         allowedMathTypes,
         dataWarehousePopoverFields,
+        filtersLeftPadding,
     },
     ref
 ): JSX.Element {
@@ -183,6 +186,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         showNumericalPropsOnly,
         allowedMathTypes,
         dataWarehousePopoverFields,
+        filtersLeftPadding,
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
