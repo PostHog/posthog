@@ -76,9 +76,9 @@ class SurveyRates(TypedDict):
 SurveyStats = TypedDict(
     "SurveyStats",
     {
-        SurveyEventName.SHOWN.value: EventStats,
-        SurveyEventName.DISMISSED.value: EventStats,
-        SurveyEventName.SENT.value: EventStats,
+        "survey shown": EventStats,
+        "survey dismissed": EventStats,
+        "survey sent": EventStats,
     },
 )
 
@@ -826,19 +826,19 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         # Initialize stats with zero values for all event types
         stats: SurveyStats = {
-            SurveyEventName.SHOWN.value: {
+            "survey shown": {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
                 "last_seen": None,
             },
-            SurveyEventName.DISMISSED.value: {
+            "survey dismissed": {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
                 "last_seen": None,
             },
-            SurveyEventName.SENT.value: {
+            "survey sent": {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
@@ -849,7 +849,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Update stats with actual results
         for event_name, total_count, unique_persons, first_seen, last_seen in results:
             if event_name in [e.value for e in SurveyEventName]:
-                stats[SurveyEventName(event_name)] = {
+                stats[event_name] = {
                     "total_count": total_count,
                     "unique_persons": unique_persons,
                     "first_seen": first_seen.isoformat() + "Z" if first_seen else None,
@@ -871,10 +871,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "dismissal_rate": 0.0,
         }
 
-        shown_count = stats[SurveyEventName.SHOWN.value]["total_count"]
+        shown_count = stats["survey shown"]["total_count"]
         if shown_count > 0:
-            sent_count = stats[SurveyEventName.SENT.value]["total_count"]
-            dismissed_count = stats[SurveyEventName.DISMISSED.value]["total_count"]
+            sent_count = stats["survey sent"]["total_count"]
+            dismissed_count = stats["survey dismissed"]["total_count"]
             rates = {
                 "response_rate": round(sent_count / shown_count * 100, 2),
                 "dismissal_rate": round(dismissed_count / shown_count * 100, 2),
