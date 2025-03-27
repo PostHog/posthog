@@ -58,7 +58,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                 <DropdownMenuSeparator />
                 {currentOrganization && (
                     <DropdownMenuItem asChild>
-                        <Button.Root menuItem>
+                        <Button.Root menuItem active>
                             <Button.Icon>
                                 <UploadedLogo
                                     size="xsmall"
@@ -93,6 +93,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                     <DropdownMenuItem asChild>
                         <Button.Root
                             menuItem
+                            data-attr="new-organization-button"
                             onClick={() =>
                                 guardAvailableFeature(
                                     AvailableFeature.ORGANIZATIONS_PROJECTS,
