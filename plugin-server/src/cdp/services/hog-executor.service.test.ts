@@ -10,6 +10,7 @@ import { logger } from '../../../src/utils/logger'
 import { parseJSON } from '../../utils/json-parse'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../_tests/fixtures'
+import { HogFunctionManagerService } from './hog-function-manager.service'
 
 const setupFetchResponse = (
     invocation: HogFunctionInvocation,
@@ -41,7 +42,7 @@ describe('Hog Executor', () => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
         hub = await createHub()
-        executor = new HogExecutorService(hub)
+        executor = new HogExecutorService(hub, new HogFunctionManagerService(hub))
     })
 
     describe('general event processing', () => {
@@ -297,7 +298,7 @@ describe('Hog Executor', () => {
 
         it('logs telemetry', async () => {
             hub = await createHub({ CDP_HOG_FILTERS_TELEMETRY_TEAMS: '*' })
-            executor = new HogExecutorService(hub)
+            executor = new HogExecutorService(hub, new HogFunctionManagerService(hub))
 
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
