@@ -273,29 +273,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
-    [Scene.DataWarehouse]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/cdp/sources',
-    },
     [Scene.SQLEditor]: {
         projectBased: true,
         name: 'SQL editor',
         defaultDocsPath: '/docs/cdp/sources',
         layout: 'app-raw-no-header',
-    },
-    [Scene.DataWarehouseExternal]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/cdp/sources',
-    },
-    [Scene.DataWarehouseRedirect]: {
-        name: 'Data warehouse redirect',
-    },
-    [Scene.DataWarehouseTable]: {
-        projectBased: true,
-        name: 'Data warehouse table',
-        defaultDocsPath: '/docs/data-warehouse',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -615,10 +597,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
-    [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
-    [urls.dataWarehouseView(':id')]: [Scene.DataWarehouse, 'dataWarehouseView'],
-    [urls.dataWarehouseTable()]: [Scene.DataWarehouseTable, 'dataWarehouseTable'],
-    [urls.dataWarehouseRedirect(':kind')]: [Scene.DataWarehouseRedirect, 'dataWarehouseRedirect'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],

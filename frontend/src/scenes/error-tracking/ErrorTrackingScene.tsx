@@ -56,6 +56,7 @@ export function ErrorTrackingScene(): JSX.Element {
             error: {
                 width: '50%',
                 render: CustomGroupTitleColumn,
+                renderTitle: CustomGroupTitleHeader,
             },
             occurrences: { align: 'center', render: CountColumn },
             sessions: { align: 'center', render: CountColumn },
@@ -115,6 +116,23 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
             />
         </div>
     ) : null
+}
+
+const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
+    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
+    const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
+    const { results } = useValues(errorTrackingDataNodeLogic)
+    const allSelected = results.length == selectedIssueIds.length
+
+    return (
+        <div className="flex gap-2 items-center">
+            <LemonCheckbox
+                checked={allSelected}
+                onChange={() => (allSelected ? setSelectedIssueIds([]) : setSelectedIssueIds(results.map((r) => r.id)))}
+            />
+            {columnName}
+        </div>
+    )
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
