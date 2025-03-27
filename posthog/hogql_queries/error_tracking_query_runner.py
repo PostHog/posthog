@@ -35,7 +35,7 @@ DEFAULT_VOLUME_RESOLUTION = 10
 @dataclass
 class VolumeOptions:
     date_range: DateRange
-    resolution: int = 10
+    resolution: int = DEFAULT_VOLUME_RESOLUTION
 
 
 class ErrorTrackingQueryRunner(QueryRunner):

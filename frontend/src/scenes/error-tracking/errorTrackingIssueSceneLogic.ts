@@ -44,11 +44,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         loadProperties: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         loadSummary: (dateRange: DateRange) => ({ dateRange }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
-        setSummary: (
-            lastSeen: string,
-            properties: Record<string, string>,
-            aggregations: ErrorTrackingIssueAggregations
-        ) => ({ lastSeen, properties, aggregations }),
+        setSummary: (lastSeen: string, aggregations: ErrorTrackingIssueAggregations) => ({ lastSeen, aggregations }),
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
     }),
@@ -169,7 +165,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     'blocking'
                 )
                 const issue = response.results[0]
-                actions.setSummary(issue.last_seen!, JSON.parse(issue.earliest!), issue.aggregations!)
+                actions.setSummary(issue.last_seen!, issue.aggregations!)
                 return null
             },
         },
