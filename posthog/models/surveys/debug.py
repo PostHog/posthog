@@ -13,7 +13,7 @@ def check_team_cache_consistency(team_id_or_token: str) -> dict[str, Any]:
     Returns:
         Dict with information about the team and any inconsistencies
     """
-    result = {
+    result: dict[str, Any] = {
         "team_id": None,
         "team_name": None,
         "has_inconsistency": False,
@@ -95,7 +95,7 @@ def fix_team_cache_consistency(team_id_or_token: str) -> dict[str, Any]:
                 cache_serialized = CachingTeamSerializer(cached_team).data
 
                 all_fixed = True
-                remaining_inconsistencies = []
+                remaining_inconsistencies: list[str] = []
 
                 for key in result["inconsistent_fields"]:
                     if db_serialized[key] != cache_serialized.get(key):
@@ -129,7 +129,7 @@ def find_teams_with_cache_inconsistencies(
     """
     from posthog.models.surveys.survey import Survey
 
-    inconsistent_teams = []
+    inconsistent_teams: list[dict[str, Any]] = []
     teams_checked = 0
     teams_in_cache = 0
     inconsistency_counts: dict[str, int] = {}
@@ -173,9 +173,9 @@ def find_teams_with_cache_inconsistencies(
                 db_serialized = CachingTeamSerializer(team).data
                 cache_serialized = CachingTeamSerializer(cached_team).data
 
-                inconsistent_fields = []
-                db_values = {}
-                cache_values = {}
+                inconsistent_fields: list[str] = []
+                db_values: dict[str, Any] = {}
+                cache_values: dict[str, Any] = {}
 
                 for key in db_serialized:
                     if db_serialized[key] != cache_serialized.get(key):
@@ -187,7 +187,7 @@ def find_teams_with_cache_inconsistencies(
                         inconsistency_counts[key] = inconsistency_counts.get(key, 0) + 1
 
                 if inconsistent_fields:
-                    team_info = {
+                    team_info: dict[str, Any] = {
                         "team_id": team.id,
                         "team_name": team.name,
                         "inconsistent_fields": inconsistent_fields,
@@ -230,9 +230,9 @@ def find_teams_with_cache_inconsistencies(
                 db_serialized = CachingTeamSerializer(team).data
                 cache_serialized = CachingTeamSerializer(cached_team).data
 
-                inconsistent_fields = []
-                db_values = {}
-                cache_values = {}
+                inconsistent_fields: list[str] = []
+                db_values: dict[str, Any] = {}
+                cache_values: dict[str, Any] = {}
 
                 for key in db_serialized:
                     if db_serialized[key] != cache_serialized.get(key):
@@ -244,7 +244,7 @@ def find_teams_with_cache_inconsistencies(
                         inconsistency_counts[key] = inconsistency_counts.get(key, 0) + 1
 
                 if inconsistent_fields:
-                    team_info = {
+                    team_info: dict[str, Any] = {
                         "team_id": team.id,
                         "team_name": team.name,
                         "inconsistent_fields": inconsistent_fields,
