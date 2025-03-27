@@ -7844,6 +7844,9 @@
                 "action": {
                     "type": "number"
                 },
+                "name": {
+                    "type": "string"
+                },
                 "properties": {
                     "items": {
                         "$ref": "#/definitions/AnyPropertyFilter"

@@ -58,6 +58,7 @@ describe('getDefaultMetricTitle', () => {
             source: {
                 type: 'action',
                 action: 1,
+                name: 'purchase',
             },
         }
 

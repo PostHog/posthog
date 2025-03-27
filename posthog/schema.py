@@ -5464,6 +5464,7 @@ class ExperimentActionMetricSource(BaseModel):
         extra="forbid",
     )
     action: float
+    name: Optional[str] = None
     properties: Optional[
         list[
             Union[

@@ -16,7 +16,7 @@ export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
             if (metric.source.type === 'event') {
                 return metric.source.event
             } else if (metric.source.type === 'action') {
-                return `Action ${metric.source.action}`
+                return metric.source.name || `Action ${metric.source.action}`
             }
             return 'Untitled metric'
         case ExperimentMetricType.FUNNEL:
