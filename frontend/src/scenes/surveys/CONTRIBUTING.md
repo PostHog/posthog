@@ -93,29 +93,7 @@ If you ever need more logs, please create a PR and add them.
 
 ### Cache Consistency Issues
 
-When survey functionality isn't working as expected, inconsistencies between database and cache values for `surveys_opt_in` may be the cause. Use these utility functions to debug:
-
-```python
-# In Django shell (python manage.py shell_plus)
-from posthog.models.surveys.util import (
-    check_team_surveys_opt_in_cache,
-    fix_team_surveys_opt_in_cache,
-    find_teams_with_surveys_opt_in_inconsistencies,
-    fix_all_teams_surveys_opt_in_cache
-)
-
-# Check single team
-check_team_surveys_opt_in_cache("team_id_or_token")
-
-# Fix single team
-fix_team_surveys_opt_in_cache("team_id_or_token")
-
-# Find all teams with issues (only active survey teams)
-find_teams_with_surveys_opt_in_inconsistencies()
-
-# Fix all teams with issues
-fix_all_teams_surveys_opt_in_cache()
-```
+When surveys are not loaded in the SDKs (/decide returns surveys: false), it could be caused by cache inconsistencies in the team settings.
 
 #### What is `surveys_opt_in` and why it matters
 
@@ -133,6 +111,28 @@ If cache inconsistencies occur, customers may report that their surveys aren't a
 When to use:
 
 -   When the /decide API response shows surveys_opt_in as false, but surveys are configured and should be active in the app.
+
+```python
+# In Django shell (python manage.py shell_plus)
+from posthog.models.surveys.debug import (
+    check_team_cache_consistency,
+    fix_team_cache_consistency,
+    find_teams_with_cache_inconsistencies,
+    fix_all_teams_cache_consistency
+)
+
+# Check single team
+check_team_cache_consistency("team_id_or_token")
+
+# Fix single team
+fix_team_cache_consistency("team_id_or_token")
+
+# Find all teams with issues (only active survey teams)
+find_teams_with_cache_inconsistencies()
+
+# Fix all teams with issues
+fix_all_teams_cache_consistency()
+```
 
 ### Database debugging
 
