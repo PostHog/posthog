@@ -1,4 +1,4 @@
-import { IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonSnack } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -71,6 +71,9 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                         <IconFolderOpen className="text-tertiary" />
                     </Button.Icon>
                     <Button.Label>Project</Button.Label>
+                    <Button.Icon size="sm">
+                        <IconChevronRight className="text-secondary rotate-90 group-data-[state=open]/button-root:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                    </Button.Icon>
                 </Button.Root>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="start">
