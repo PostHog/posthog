@@ -12,7 +12,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.heartbeat import Heartbeater
 from asgiref.sync import sync_to_async
-
+from posthog.warehouse.util import database_sync_to_async
 from posthog.utils import (
     get_instance_region,
     get_previous_day,
@@ -21,8 +21,11 @@ from posthog.utils import (
 from posthog.tasks.usage_report import (
     get_instance_metadata,
     get_ph_client,
-    _get_all_org_reports,
+    _get_all_usage_data_as_team_rows,
+    _get_teams_for_usage_reports,
+    _get_team_report,
     _get_full_org_usage_report,
+    _add_team_report_to_org_reports,
     _get_full_org_usage_report_as_dict,
     has_non_zero_usage,
     _queue_report,
@@ -78,15 +81,37 @@ async def query_usage_reports(
         period = get_previous_day(at=at_date)
         period_start, period_end = period
 
-        @sync_to_async
-        def get_all_org_reports(ps, pe):
-            return _get_all_org_reports(ps, pe)
+        logger.info("Querying all org reports", period_start=period_start, period_end=period_end)
 
-        logger.info("Querying usage reports", period_start=period_start, period_end=period_end)
+        @database_sync_to_async
+        def async_get_all_usage_data_as_team_rows(p_start, p_end):
+            return _get_all_usage_data_as_team_rows(p_start, p_end)
 
-        org_reports = await get_all_org_reports(period_start, period_end)
+        all_data = await async_get_all_usage_data_as_team_rows(period_start, period_end)
 
-        logger.info("Querying usage reports complete", org_count=len(org_reports))
+        logger.info("Querying all teams")
+
+        @database_sync_to_async
+        def async_get_teams_for_usage_reports():
+            return _get_teams_for_usage_reports()
+
+        teams = await async_get_teams_for_usage_reports()
+
+        logger.info("Querying all teams complete", teams_count=len(teams))
+
+        org_reports: dict[str, OrgReport] = {}
+
+        logger.info("Generating org reports")
+
+        @database_sync_to_async
+        def async_add_team_report_to_org_reports(o_r, t, t_r, p_start):
+            return _add_team_report_to_org_reports(o_r, t, t_r, p_start)
+
+        for team in teams:
+            team_report = _get_team_report(all_data, team)
+            await async_add_team_report_to_org_reports(org_reports, team, team_report, period_start)
+
+        logger.info("Generating org reports complete", org_reports_count=len(org_reports))
 
         return QueryUsageReportsResult(
             org_reports=org_reports,
@@ -133,6 +158,8 @@ async def send_usage_reports(
             },
             groups={"instance": settings.SITE_URL},
         )
+
+        logger.info("Sending usage reports", total_orgs=total_orgs)
 
         for org_report in inputs.org_reports.values():
             try:
