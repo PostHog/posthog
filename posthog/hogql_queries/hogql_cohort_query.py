@@ -418,6 +418,10 @@ class HogQLCohortQuery:
                     if query is not None:
                         queries.append((query, negation))
 
+                if len(queries) == 0:
+                    select = parse_select(f"SELECT person_id as id FROM static_cohort_people WHERE 0")
+                    return (select, True if prop.type == PropertyOperatorType.OR else False)
+
                 all_negated = all(x[1] for x in queries)
                 all_not_negated = all(not x[1] for x in queries)
                 """
