@@ -1154,7 +1154,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdd1d3c0c2f5833f22386f252fe8ed005c7f59fdcddeef025c01b4c3b9fd9ac3"
 dependencies = [
  "once_cell",
- "proc-macro-crate 3.3.0",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "syn 2.0.89",
@@ -2706,7 +2706,7 @@ version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 dependencies = [
- "ahash",
+ "ahash 0.8.11",
  "serde",
 ]
 
