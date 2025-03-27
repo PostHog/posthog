@@ -108,7 +108,7 @@ class TestSessionRecordingV2Storage(APIBaseTest):
     def test_fetch_block_success(self):
         mock_client = MagicMock()
         mock_body = MagicMock()
-        test_data = "test data\n"
+        test_data = "test data"
         compressed_data = snappy.compress(test_data.encode("utf-8"))
         mock_body.read.return_value = compressed_data
         mock_client.get_object.return_value = {"Body": mock_body}
