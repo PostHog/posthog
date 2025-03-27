@@ -53,7 +53,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                         <IconLaptop />
                     </div>
                     <div>Your device</div>
-                    <div>{shortTimeZone(undefined, time.toDate())}</div>
+                    <div className="text-xs">{shortTimeZone(undefined, time.toDate())}</div>
                     <div className="text-muted text-xs">{time.format(DATE_OUTPUT_FORMAT)}</div>
                 </div>
                 {currentTeam && (
@@ -62,7 +62,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                             <IconHome />
                         </div>
                         <div>Project</div>
-                        <div>{shortTimeZone(currentTeam.timezone, time.toDate())}</div>
+                        <div className="text-xs">{shortTimeZone(currentTeam.timezone, time.toDate())}</div>
                         <div className="text-muted text-xs">
                             {time.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}
                         </div>
@@ -74,7 +74,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                             <IconWeb />
                         </div>
                         <div />
-                        <div>UTC</div>
+                        <div className="text-xs">UTC</div>
                         <div className="text-muted text-xs">{time.tz('UTC').format(DATE_OUTPUT_FORMAT)}</div>
                     </div>
                 )}
