@@ -1923,42 +1923,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert "HOG code exceeds maximum size" in update_response.json()["detail"]
             assert f"{MAX_HOG_CODE_SIZE_BYTES // 1024}KB" in update_response.json()["detail"]
 
-    def test_validation_catches_runtime_exceeded_in_python_vm(self):
-        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
-            """Test that runtime exceeded errors during validation in our Python VM are properly handled"""
-            # Create a function with an infinite loop that will exceed the 100ms validation timeout
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Slow Function",
-                    "type": "transformation",
-                    "hog": """
-                    while (true) { print('hello'); } return event;
-                    """,
-                },
-            )
-
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-            assert "Your function is taking too long to run (over 0.1 seconds)" in response.json()["detail"]
-
-    def test_validation_catches_memory_exceeded_in_python_vm(self):
-        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
-            """Test that memory exceeded errors during validation in our Python VM are properly handled"""
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Memory Hungry Function",
-                    "type": "transformation",
-                    "hog": """
-                    let arr := arrayMap(x -> toString(x), range(10000000));  // Create array with 10M strings
-                    return event;
-                    """,
-                },
-            )
-
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-            assert "Your function needs too much memory" in response.json()["detail"]
-
     def test_validation_catches_runtime_exceeded_in_python_vm_for_transformations(self):
         with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
             """Test that runtime exceeded errors during validation in our Python VM are properly handled for transformations"""
