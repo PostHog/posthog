@@ -11,10 +11,13 @@ import {
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentFunnelMetricStep,
+    ExperimentFunnelMetricTypeProps,
     ExperimentFunnelsQuery,
     ExperimentMeanMetric,
+    ExperimentMeanMetricTypeProps,
     ExperimentMetric,
     ExperimentMetricType,
+    ExperimentMetricTypeProps,
     ExperimentTrendsQuery,
     type FunnelsQuery,
     NodeKind,
@@ -548,19 +551,18 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
     }
 }
 
-export function filterToMetricConfig(
+export function filterToMetricTypeProps(
     metricType: ExperimentMetricType,
     actions: Record<string, any>[] | undefined,
     events: Record<string, any>[] | undefined,
     data_warehouse: Record<string, any>[] | undefined
-): ExperimentMeanMetric | ExperimentFunnelMetric | undefined {
-    const getFunnelMetricConfig = (): ExperimentFunnelMetric | undefined => {
+): ExperimentMetricTypeProps | undefined {
+    const getFunnelMetricConfig = (): ExperimentFunnelMetricTypeProps | undefined => {
         if (metricType !== ExperimentMetricType.FUNNEL) {
             return undefined
         }
 
         return {
-            kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.FUNNEL,
             steps:
                 events?.map(
@@ -574,13 +576,12 @@ export function filterToMetricConfig(
         }
     }
 
-    const getEventMetricConfig = (): ExperimentMeanMetric | undefined => {
+    const getEventMetricConfig = (): ExperimentMeanMetricTypeProps | undefined => {
         if (metricType !== ExperimentMetricType.MEAN || !events?.[0]) {
             return undefined
         }
 
         return {
-            kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
                 type: 'event',
@@ -593,13 +594,12 @@ export function filterToMetricConfig(
         }
     }
 
-    const getActionMetricConfig = (): ExperimentMeanMetric | undefined => {
+    const getActionMetricConfig = (): ExperimentMeanMetricTypeProps | undefined => {
         if (metricType !== ExperimentMetricType.MEAN || !actions?.[0]) {
             return undefined
         }
 
         return {
-            kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
                 type: 'action',
@@ -612,13 +612,12 @@ export function filterToMetricConfig(
         }
     }
 
-    const getDataWarehouseMetricConfig = (): ExperimentMeanMetric | undefined => {
+    const getDataWarehouseMetricConfig = (): ExperimentMeanMetricTypeProps | undefined => {
         if (metricType !== ExperimentMetricType.MEAN || !data_warehouse?.[0]) {
             return undefined
         }
 
         return {
-            kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
             source: {
                 type: 'data_warehouse',

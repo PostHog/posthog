@@ -2013,6 +2013,10 @@ export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
     steps: ExperimentFunnelMetricStep[]
 }
 
+export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentMetricTypeProps = ExperimentMeanMetricTypeProps | ExperimentFunnelMetricTypeProps
+
 export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {

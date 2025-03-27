@@ -5534,6 +5534,14 @@ class ExperimentFunnelMetricStep(BaseModel):
     ] = None
 
 
+class ExperimentFunnelMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    metric_type: Literal["funnel"] = "funnel"
+    steps: list[ExperimentFunnelMetricStep]
+
+
 class ExperimentMetricSource1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7541,6 +7549,21 @@ class ExperimentMeanMetric(BaseModel):
     name: Optional[str] = None
     source: Union[ExperimentMetricSource1, ExperimentMetricSource2, ExperimentMetricSource3]
     time_window_hours: Optional[float] = None
+
+
+class ExperimentMeanMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    math: Optional[ExperimentMetricMathType] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    metric_type: Literal["mean"] = "mean"
+    source: Union[ExperimentMetricSource1, ExperimentMetricSource2, ExperimentMetricSource3]
+
+
+class ExperimentMetricTypeProps(RootModel[Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps]]):
+    root: Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps]
 
 
 class ExperimentQueryResponse(BaseModel):

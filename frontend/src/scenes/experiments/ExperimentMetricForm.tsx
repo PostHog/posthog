@@ -10,7 +10,7 @@ import { FilterType } from '~/types'
 
 import { commonActionFilterProps } from './Metrics/Selectors'
 import {
-    filterToMetricConfig,
+    filterToMetricTypeProps,
     getAllowedMathTypes,
     getDefaultExperimentMetric,
     getMathAvailability,
@@ -43,22 +43,18 @@ export function ExperimentMetricForm({
     filterTestAccounts,
 }: {
     metric: ExperimentMetric
-    handleSetMetric: any
+    handleSetMetric: (newMetric: ExperimentMetric) => void
     filterTestAccounts: boolean
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
 
-    const isDataWarehouseMetric = metric.metric_config.kind === NodeKind.ExperimentDataWarehouseMetricConfig
-
     const handleSetFilters = ({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-        const metricConfig = filterToMetricConfig(metric.metric_type, actions, events, data_warehouse)
+        const metricConfig = filterToMetricTypeProps(metric.metric_type, actions, events, data_warehouse)
         if (metricConfig) {
             handleSetMetric({
-                newMetric: {
-                    ...metric,
-                    metric_config: metricConfig,
-                },
+                ...metric,
+                ...metricConfig,
             })
         }
     }
@@ -71,9 +67,7 @@ export function ExperimentMetricForm({
                     data-attr="metrics-selector"
                     value={metric.metric_type}
                     onChange={(newMetricType: ExperimentMetricType) => {
-                        handleSetMetric({
-                            newMetric: getDefaultExperimentMetric(newMetricType),
-                        })
+                        handleSetMetric(getDefaultExperimentMetric(newMetricType))
                     }}
                     options={[
                         {
@@ -132,7 +126,7 @@ export function ExperimentMetricForm({
                 )}
             </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
-            {metric.metric_type === ExperimentMetricType.MEAN && !isDataWarehouseMetric && (
+            {metric.metric_type === ExperimentMetricType.MEAN && metric.source.type !== 'data_warehouse' && (
                 <Query
                     query={{
                         kind: NodeKind.InsightVizNode,
@@ -144,7 +138,7 @@ export function ExperimentMetricForm({
                     readOnly
                 />
             )}
-            {metric.metric_type === ExperimentMetricType.FUNNEL && !isDataWarehouseMetric && (
+            {metric.metric_type === ExperimentMetricType.FUNNEL && (
                 <Query
                     query={{
                         kind: NodeKind.InsightVizNode,
@@ -185,10 +179,8 @@ export function ExperimentMetricForm({
                         orientation="horizontal"
                         onChange={(value) =>
                             handleSetMetric({
-                                newMetric: {
-                                    ...metric,
-                                    time_window_hours: value === 'full' ? undefined : 72,
-                                },
+                                ...metric,
+                                time_window_hours: value === 'full' ? undefined : 72,
                             })
                         }
                         options={[
@@ -205,9 +197,7 @@ export function ExperimentMetricForm({
                     {metric.time_window_hours !== undefined && (
                         <LemonInput
                             value={metric.time_window_hours}
-                            onChange={(value) =>
-                                handleSetMetric({ newMetric: { ...metric, time_window_hours: value || undefined } })
-                            }
+                            onChange={(value) => handleSetMetric({ ...metric, time_window_hours: value || undefined })}
                             type="number"
                             step={1}
                             suffix={<span className="text-sm">hours</span>}

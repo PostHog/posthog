@@ -1,5 +1,5 @@
 import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 
 export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string => {
     if (metric.kind === NodeKind.ExperimentMetric) {
@@ -11,10 +11,15 @@ export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | 
 }
 
 export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
-    if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
-        return metric.metric_config.event
-    } else if (metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
-        return metric.metric_config.name || `Action ${metric.metric_config.action}`
+    switch (metric.metric_type) {
+        case ExperimentMetricType.MEAN:
+            if (metric.source.type === 'event') {
+                return metric.source.event
+            } else if (metric.source.type === 'action') {
+                return `Action ${metric.source.action}`
+            }
+            return 'Untitled metric'
+        case ExperimentMetricType.FUNNEL:
+            return metric.steps[0].event
     }
-    return 'Untitled metric'
 }
