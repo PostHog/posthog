@@ -2,7 +2,6 @@ import time
 from typing import Optional
 from uuid import UUID
 import posthoganalytics
-from sentry_sdk import capture_exception
 
 import requests
 from celery import shared_task
@@ -843,18 +842,6 @@ def send_org_usage_reports() -> None:
     from posthog.tasks.usage_report import send_all_org_usage_reports
 
     send_all_org_usage_reports.delay()
-
-
-@shared_task(ignore_result=True)
-def run_quota_limiting() -> None:
-    try:
-        from ee.billing.quota_limiting import update_all_orgs_billing_quotas
-
-        update_all_orgs_billing_quotas()
-    except ImportError:
-        pass
-    except Exception as e:
-        capture_exception(e)
 
 
 @shared_task(ignore_result=True)

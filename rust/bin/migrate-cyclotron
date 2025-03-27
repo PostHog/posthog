@@ -8,7 +8,5 @@ echo "Performing cyclotron migrations for $CYCLOTRON_DATABASE_URL (DATABASE_NAME
 
 cd $SCRIPT_DIR/..
 
-cargo install sqlx-cli@0.7.3 --locked --no-default-features --features native-tls,postgres
-
 sqlx database create -D "$CYCLOTRON_DATABASE_URL"
 sqlx migrate run -D "$CYCLOTRON_DATABASE_URL" --source cyclotron-core/migrations/

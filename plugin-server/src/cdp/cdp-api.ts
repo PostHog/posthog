@@ -125,9 +125,6 @@ export class CdpApi {
 
             const isNewFunction = req.params.id === 'new'
 
-            // Preload any import-able functions for the team
-            await this.hogFunctionManager.loadProviderFunctionsForTeam(parseInt(team_id))
-
             const hogFunction = isNewFunction
                 ? null
                 : await this.hogFunctionManager.fetchHogFunction(req.params.id).catch(() => null)
@@ -186,6 +183,11 @@ export class CdpApi {
                     logs: filterLogs,
                     metrics: filterMetrics,
                 } = this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
+
+                if (configuration?.type === 'broadcast') {
+                    // Preload any import-able functions for the team
+                    await this.hogFunctionManager.loadProviderFunctionsForTeam(parseInt(team_id))
+                }
 
                 // Add metrics to the logs
                 filterMetrics.forEach((metric) => {

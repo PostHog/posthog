@@ -131,6 +131,8 @@ export interface ActionFilterRowProps {
     allowedMathTypes?: readonly string[]
     /** Fields to display in the data warehouse filter popover */
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
+    /** Whether to add left padding to the filters div to align with suffix content */
+    filtersLeftPadding?: boolean
 }
 
 export function ActionFilterRow({
@@ -162,6 +164,7 @@ export function ActionFilterRow({
     showNumericalPropsOnly,
     allowedMathTypes,
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
+    filtersLeftPadding = false,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -608,7 +611,7 @@ export function ActionFilterRow({
             </div>
 
             {propertyFiltersVisible && (
-                <div className="ActionFilterRow-filters">
+                <div className={`ActionFilterRow-filters${filtersLeftPadding ? ' pl-7' : ''}`}>
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}

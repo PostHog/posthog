@@ -246,8 +246,8 @@ export class HogFunctionManagerService {
     }
 
     // Fetches the provider functions for a team and caches them. Mostly used for the CDP API postFunctionInvocation endpoint.
-    public async loadProviderFunctionsForTeam(teamId: Team['id']): Promise<void> {
-        await this.getHogFunctionsForTeams([teamId], HogFunctionManagerService.PROVIDER_FUNCTION_TYPES)
+    public async loadProviderFunctionsForTeam(teamId: Team['id']): Promise<HogFunctionType[]> {
+        return (await this.getHogFunctionsForTeams([teamId], HogFunctionManagerService.PROVIDER_FUNCTION_TYPES))[teamId]
     }
 
     /**
