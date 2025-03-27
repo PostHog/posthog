@@ -697,13 +697,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         if is_v2_enabled:
             blocks = list_blocks(recording)
-            for block in blocks:
+            for i, block in enumerate(blocks):
                 sources.append(
                     {
                         "source": "blob_v2",
                         "start_timestamp": block["start_time"],
                         "end_timestamp": block["end_time"],
-                        "blob_key": str(len(sources)),  # Use index as blob key
+                        "blob_key": str(i),
                     }
                 )
 
