@@ -146,10 +146,6 @@ module.exports = {
             'warn',
             {
                 forbid: [
-                    // {
-                    //     element: 'Button',
-                    //     message: 'use <LemonButton> instead',
-                    // },
                     {
                         element: 'Input',
                         message: 'use <LemonInput> instead',

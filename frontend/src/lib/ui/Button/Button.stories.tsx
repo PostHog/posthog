@@ -34,7 +34,7 @@ export function Default(): JSX.Element {
                 </Button.Icon>
             </Button.Root>
 
-            <Button.Root disabled>
+            <Button.Root disabled intent="outline">
                 <Button.Label>disabled</Button.Label>
             </Button.Root>
 
