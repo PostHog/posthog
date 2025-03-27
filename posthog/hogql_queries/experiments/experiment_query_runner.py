@@ -36,11 +36,13 @@ from posthog.hogql_queries.experiments.query_logic import (
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     CachedExperimentQueryResponse,
+    ExperimentActionMetricSource,
+    ExperimentDataWarehouseMetricSource,
+    ExperimentEventMetricSource,
     ExperimentFunnelMetric,
     ExperimentFunnelMetricStep,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
-    ExperimentMetricType,
     ExperimentQueryResponse,
     ExperimentSignificanceCode,
     ExperimentQuery,
@@ -295,8 +297,8 @@ class ExperimentQueryRunner(QueryRunner):
         """
         match self.metric:
             case ExperimentMeanMetric() as metric:
-                match metric.source.type:
-                    case "data_warehouse":
+                match metric.source:
+                    case ExperimentDataWarehouseMetricSource():
                         return ast.SelectQuery(
                             select=[
                                 ast.Alias(
@@ -348,7 +350,7 @@ class ExperimentQueryRunner(QueryRunner):
                             ),
                         )
 
-                    case "event" | "action":
+                    case ExperimentEventMetricSource() | ExperimentActionMetricSource():
                         if metric.source.type == "action":
                             try:
                                 action = Action.objects.get(
@@ -454,6 +456,13 @@ class ExperimentQueryRunner(QueryRunner):
             },
         )
 
+    def _get_metric_aggregation_expr(self) -> ast.Expr:
+        match self.metric:
+            case ExperimentMeanMetric():
+                return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+            case ExperimentFunnelMetric():
+                return self._funnel_steps_to_window_funnel_expr(self.metric)
+
     def _get_metrics_aggregated_per_entity_query(
         self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
     ) -> ast.SelectQuery:
@@ -467,11 +476,9 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["exposures", "variant"]),
                 ast.Field(chain=["exposures", "entity_id"]),
                 ast.Alias(
-                    expr=self._funnel_steps_to_window_funnel_expr(self.metric),
+                    expr=self._get_metric_aggregation_expr(),
                     alias="value",
-                )
-                if self.metric.metric_type == ExperimentMetricType.FUNNEL
-                else parse_expr("sum(coalesce(toFloat(metric_events.value), 0)) as value"),
+                ),
             ],
             select_from=ast.JoinExpr(
                 table=exposure_query,
@@ -559,7 +566,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
 
-        if self.metric.metric_type == ExperimentMetricType.FUNNEL:
+        if isinstance(self.metric, ExperimentFunnelMetric):
             return [
                 ExperimentVariantFunnelsBaseStats(
                     failure_count=result[1] - result[2],
@@ -588,8 +595,8 @@ class ExperimentQueryRunner(QueryRunner):
         control_variant = control_variants[0]
         test_variants = [variant for variant in variants if variant.key != CONTROL_VARIANT_KEY]
 
-        match self.metric.metric_type:
-            case ExperimentMetricType.MEAN:
+        match self.metric:
+            case ExperimentMeanMetric():
                 match self.metric.math:
                     case ExperimentMetricMathType.SUM:
                         probabilities = calculate_probabilities_v2_continuous(
@@ -617,7 +624,7 @@ class ExperimentQueryRunner(QueryRunner):
                         )
                         credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
 
-            case ExperimentMetricType.FUNNEL:
+            case ExperimentFunnelMetric():
                 probabilities = calculate_probabilities_v2_funnel(
                     cast(ExperimentVariantFunnelsBaseStats, control_variant),
                     cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
