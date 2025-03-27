@@ -124,8 +124,6 @@ async fn end_to_end_resolver_test() {
         resolved_frames.push(frame.resolve(exception.team_id, &catalog).await.unwrap());
     }
 
-    println!("{:?}", resolved_frames);
-
     // The use of the caching layer is tested here - we should only have hit the server once
     source_mock.assert_hits(1);
     map_mock.assert_hits(1);

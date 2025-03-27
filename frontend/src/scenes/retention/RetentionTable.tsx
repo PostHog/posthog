@@ -34,6 +34,8 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
     const { isDarkModeOn } = useValues(themeLogic)
 
     const totalIntervals = retentionFilter?.totalIntervals ?? 8
+    // only one breakdown value so don't need to highlight using different colors/autoexpand it
+    const isSingleBreakdown = Object.keys(tableRowsSplitByBreakdownValue).length === 1
 
     return (
         <table
@@ -61,18 +63,25 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                             <tr
                                 onClick={() => toggleBreakdown(breakdownValue)}
                                 className={clsx('cursor-pointer', {
-                                    'bg-slate-100': !isDarkModeOn && expandedBreakdowns[breakdownValue],
+                                    'bg-slate-100':
+                                        !isSingleBreakdown && !isDarkModeOn && expandedBreakdowns[breakdownValue],
                                 })}
                             >
-                                <td>
-                                    {expandedBreakdowns[breakdownValue] ? <IconChevronDown /> : <IconChevronRight />}
-                                    <span className="pl-2">
-                                        {breakdownValue === NO_BREAKDOWN_VALUE
-                                            ? 'Weighted Mean'
-                                            : breakdownValue === null || breakdownValue === ''
-                                            ? '(empty)'
-                                            : breakdownValue}{' '}
-                                    </span>
+                                <td className="pr-2">
+                                    <div className="flex items-center gap-2">
+                                        {expandedBreakdowns[breakdownValue] ? (
+                                            <IconChevronDown />
+                                        ) : (
+                                            <IconChevronRight />
+                                        )}
+                                        <span>
+                                            {breakdownValue === NO_BREAKDOWN_VALUE
+                                                ? 'Mean'
+                                                : breakdownValue === null || breakdownValue === ''
+                                                ? '(empty)'
+                                                : breakdownValue}{' '}
+                                        </span>
+                                    </div>
                                 </td>
 
                                 {!hideSizeColumn && <td>{sum(breakdownRows.map((row) => row.cohortSize))}</td>}
@@ -133,9 +142,12 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                 openModal(rowIndex)
                                             }
                                         }}
-                                        className={clsx({ 'bg-slate-100': !isDarkModeOn })}
+                                        className={clsx({
+                                            'bg-slate-100': !isSingleBreakdown && !isDarkModeOn,
+                                        })}
                                     >
-                                        <td className="pl-6">{row.label}</td>
+                                        {/* Only add extra padding if there is more than one breakdown value */}
+                                        <td className={clsx('pl-2', { 'pl-6': !isSingleBreakdown })}>{row.label}</td>
                                         {!hideSizeColumn && (
                                             <td>
                                                 <span className="RetentionTable__TextTab">{row.cohortSize}</span>

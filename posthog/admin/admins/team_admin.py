@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from posthog.admin.inlines.action_inline import ActionInline
 from posthog.admin.inlines.group_type_mapping_inline import GroupTypeMappingInline
+from django.urls import reverse
 
 from posthog.models import Team
 
@@ -112,15 +113,19 @@ class TeamAdmin(admin.ModelAdmin):
     ]
 
     def organization_link(self, team: Team):
-        return format_html(
-            '<a href="/admin/posthog/organization/{}/change/">{}</a>',
-            team.organization.pk,
-            team.organization.name,
-        )
+        if team.organization:
+            return format_html(
+                '<a href="{}">{}</a>',
+                reverse("admin:posthog_organization_change", args=[team.organization.pk]),
+                team.organization.name,
+            )
+        return "-"
 
     def project_link(self, team: Team):
-        return format_html(
-            '<a href="/admin/posthog/project/{}/change/">{}</a>',
-            team.project.pk,
-            team.project.name,
-        )
+        if team.project:
+            return format_html(
+                '<a href="{}">{}</a>',
+                reverse("admin:posthog_project_change", args=[team.project.pk]),
+                team.project.name,
+            )
+        return "-"

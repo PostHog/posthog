@@ -1,10 +1,13 @@
 use aws_config::{BehaviorVersion, Region};
+use common_geoip::GeoIpClient;
 use common_kafka::{
     kafka_consumer::SingleTopicConsumer,
     kafka_producer::{create_kafka_producer, KafkaContext},
     transaction::TransactionalProducer,
 };
+use common_redis::RedisClient;
 use health::{HealthHandle, HealthRegistry};
+use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{sync::Arc, time::Duration};
@@ -24,6 +27,7 @@ use crate::{
         sourcemap::SourcemapProvider,
         Catalog, S3Client,
     },
+    teams::TeamManager,
 };
 
 pub struct AppContext {
@@ -36,6 +40,10 @@ pub struct AppContext {
     pub catalog: Catalog,
     pub resolver: Resolver,
     pub config: Config,
+    pub geoip_client: GeoIpClient,
+
+    pub team_manager: TeamManager,
+    pub billing_limiter: RedisLimiter,
 }
 
 impl AppContext {
@@ -120,6 +128,25 @@ impl AppContext {
         let catalog = Catalog::new(limited_layer);
         let resolver = Resolver::new(config);
 
+        let team_manager = TeamManager::new(config);
+
+        let geoip_client = GeoIpClient::new(config.maxmind_db_path.clone())?;
+
+        let redis_client = RedisClient::new(config.redis_url.clone())?;
+        let redis_client = Arc::new(redis_client);
+
+        // TODO - we expect here rather returning an UnhandledError because the limiter returns an Anyhow::Result,
+        // which we don't want to put into the UnhandledError enum since it basically means "any error"
+        let billing_limiter = RedisLimiter::new(
+            Duration::from_secs(30),
+            redis_client.clone(),
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            None, // The QUOTA_LIMITER_CACHE_KEY already has the full prefix
+            QuotaResource::Exceptions,
+            ServiceName::Cymbal,
+        )
+        .expect("Redis billing limiter construction succeeds");
+
         Ok(Self {
             health_registry,
             worker_liveness,
@@ -130,6 +157,9 @@ impl AppContext {
             catalog,
             resolver,
             config: config.clone(),
+            team_manager,
+            geoip_client,
+            billing_limiter,
         })
     }
 }
