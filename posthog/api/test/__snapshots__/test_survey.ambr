@@ -36,7 +36,7 @@
     AND event IN ('survey shown',
                   'survey dismissed',
                   'survey sent')
-    AND JSONExtractString(properties, '$survey_id') = '018f3499-3d28-0005-09a3-92a5cda409a6'
+    AND JSONExtractString(properties, '$survey_id') = '018f3499-3d28-0005-b3ab-a6cfbd57166e'
   GROUP BY event
   '''
 # ---
