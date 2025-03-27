@@ -33,6 +33,7 @@ export const appMetricsV2Logic = kea<appMetricsV2LogicType>([
                     const params: AppMetricsV2RequestParams = {
                         ...values.filters,
                         breakdown_by: 'name',
+                        name: 'succeeded,failed,disabled_temporarily,disabled_permanently,masked,filtering_failed,inputs_failed,fetch',
                     }
                     return await api.hogFunctions.metrics(props.id, params)
                 },
