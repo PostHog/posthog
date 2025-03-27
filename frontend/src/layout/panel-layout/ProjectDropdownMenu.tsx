@@ -46,7 +46,15 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                 <Button.Label>
                     <ProjectName team={team} />
                 </Button.Label>
-                <Button.Icon to={urls.project(team.id, urls.settings())} isTrigger>
+                <Button.Icon
+                    isTrigger
+                    onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        e.nativeEvent.stopImmediatePropagation()
+                        router.actions.push(urls.project(team.id, urls.settings()))
+                    }}
+                >
                     <IconGear />
                 </Button.Icon>
             </Button.Root>
@@ -107,7 +115,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 })
                             }
                         >
-                            <Button.Root menuItem>
+                            <Button.Root menuItem data-attr="new-project-button">
                                 <Button.Icon>
                                     <IconPlusSmall className="text-tertiary" />
                                 </Button.Icon>
