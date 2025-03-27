@@ -261,7 +261,14 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 yc_proof_screenshot_url: undefined,
                 yc_merch_count: props.isYC ? 1 : undefined,
             },
-            errors: ({ posthog_organization_name, posthog_organization_id, raised, incorporation_date, yc_batch }) => {
+            errors: ({
+                posthog_organization_name,
+                posthog_organization_id,
+                raised,
+                incorporation_date,
+                yc_batch,
+                yc_proof_screenshot_url,
+            }) => {
                 if (!values.billing?.has_active_subscription) {
                     return {
                         _form: 'You need to upgrade to a paid plan before submitting your application',
@@ -276,7 +283,10 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                     raised: validateFunding(raised, props.isYC),
                     incorporation_date: validateIncorporationDate(incorporation_date, props.isYC),
                     yc_batch: props.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
-                    _form: values.ycValidationState === 'invalid' ? values.ycValidationError : undefined,
+                    _form:
+                        values.ycValidationState === 'invalid' && !yc_proof_screenshot_url
+                            ? values.ycValidationError
+                            : undefined,
                 }
             },
             submit: async (formValues: StartupProgramFormValues) => {

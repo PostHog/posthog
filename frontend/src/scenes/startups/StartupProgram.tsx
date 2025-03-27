@@ -1,4 +1,4 @@
-import { IconArrowRight, IconCheck, IconCheckCircle, IconUpload, IconWarning } from '@posthog/icons'
+import { IconArrowRight, IconCheck, IconCheckCircle, IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -42,10 +42,7 @@ export function StartupProgram(): JSX.Element {
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url) => {
-            // eslint-disable-next-line no-console
-            console.log('🖼️ Screenshot uploaded successfully:', { url })
             setStartupProgramValue('yc_proof_screenshot_url', url)
-            lemonToast.success('Screenshot uploaded successfully')
         },
         onError: (detail) => {
             lemonToast.error(`Error uploading screenshot: ${detail}`)
@@ -320,24 +317,58 @@ export function StartupProgram(): JSX.Element {
                                         )}
                                         {ycValidationState === 'invalid' && (
                                             <>
-                                                <div className="flex items-center gap-2 text-danger mb-2">
-                                                    <IconWarning />
-                                                    <span>{ycValidationError}</span>
-                                                </div>
+                                                {!startupProgram.yc_proof_screenshot_url && (
+                                                    <div className="flex items-center gap-2 text-danger mb-2">
+                                                        {ycValidationError}
+                                                    </div>
+                                                )}
                                                 <LemonField name="yc_proof_screenshot_url">
                                                     <LemonFileInput
                                                         accept="image/*"
                                                         multiple={false}
                                                         value={filesToUpload}
-                                                        showUploadedFiles
+                                                        showUploadedFiles={false}
                                                         onChange={setFilesToUpload}
                                                         loading={uploading}
                                                         callToAction={
-                                                            <div className="flex flex-col items-center justify-center deprecated-space-y-2 border border-dashed rounded p-4 w-full">
-                                                                <span className="flex items-center gap-2 font-semibold">
-                                                                    <IconUpload className="text-2xl" /> Upload YC
-                                                                    Profile Screenshot
-                                                                </span>
+                                                            <div className="border border-dashed rounded p-2 w-full">
+                                                                {startupProgram.yc_proof_screenshot_url ? (
+                                                                    <div className="flex items-center justify-center gap-4 w-full">
+                                                                        <span className="font-semibold">
+                                                                            YC profile screenshot
+                                                                        </span>
+                                                                        <div className="relative">
+                                                                            <img
+                                                                                src={
+                                                                                    startupProgram.yc_proof_screenshot_url as string
+                                                                                }
+                                                                                alt="YC Profile"
+                                                                                className="h-10 w-10 rounded object-cover"
+                                                                            />
+                                                                            <LemonButton
+                                                                                type="tertiary"
+                                                                                status="danger"
+                                                                                size="xsmall"
+                                                                                icon={<IconX className="text-sm" />}
+                                                                                onClick={(e) => {
+                                                                                    e.preventDefault()
+                                                                                    setStartupProgramValue(
+                                                                                        'yc_proof_screenshot_url',
+                                                                                        undefined
+                                                                                    )
+                                                                                }}
+                                                                                tooltip="Remove screenshot"
+                                                                                className="absolute -top-1 -right-1 p-0.5 !bg-bg-light rounded-full"
+                                                                                noPadding
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="flex items-center justify-center gap-2">
+                                                                        <IconUpload className="text-2xl" />
+                                                                        <span>Upload YC Profile Screenshot</span>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         }
                                                     />
