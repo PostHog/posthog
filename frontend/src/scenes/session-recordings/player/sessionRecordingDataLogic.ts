@@ -87,14 +87,14 @@ export function patchMetaEventIntoWebData(
 
         const previousEvent = snapshots[i - 1]
         const previousEventIsMeta = previousEvent?.type === EventType.Meta
-        if (!previousEventIsMeta) {
+        if (previousEventIsMeta) {
             continue
         }
 
         const viewport = viewportForTimestamp(snapshot.timestamp)
         const thereIsNoViewport = !viewport || !viewport.width || !viewport.height
         if (thereIsNoViewport) {
-            posthog.captureException(new Error('No viewport found for full snapshot'), {
+            posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
                 snapshot,
             })
         } else {
