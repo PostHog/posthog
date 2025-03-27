@@ -9,6 +9,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { FunnelsQuery } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter } from '~/types'
 
 type ExclusionRowSuffixComponentBaseProps = {
     index: number
@@ -46,7 +47,7 @@ export function ExclusionRowSuffix({
         updateInsightFilter({ exclusions: newExclusions })
     }
 
-    const handlePropertyFiltersChange = (properties) => {
+    const handlePropertyFiltersChange = (properties: AnyPropertyFilter[]): void => {
         const newExclusions = funnelsFilter?.exclusions?.map((exclusion, exclusionIndex) =>
             exclusionIndex === index ? { ...exclusion, properties } : exclusion
         )
