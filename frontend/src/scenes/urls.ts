@@ -70,7 +70,7 @@ export const urls = {
     customCss: (): string => '/themes/custom-css',
     sqlEditor: (query?: string, view_id?: string): string => {
         if (query) {
-            return `/sql?open_query=${query}`
+            return `/sql?open_query=${encodeURIComponent(query)}`
         }
 
         if (view_id) {
