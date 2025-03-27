@@ -17,7 +17,7 @@ python3 manage.py start_temporal_worker "$@" &
 
 worker_pid=$!
 
-# Run wait in a loop in case we trap SIGTERM or SIGINT.
+# Run wait in a loop in case we trap SIGINT or SIGTERM.
 # In both cases, wait will terminate early, potentially not waiting for graceful shutdown.
 while wait $worker_pid
 do
