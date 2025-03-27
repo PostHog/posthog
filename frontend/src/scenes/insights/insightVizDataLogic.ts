@@ -502,8 +502,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 ]
             },
         ],
-        trendsFormula: [(s) => [s.trendsFilter], (trendsFilter) => (trendsFilter ? getFormula(trendsFilter) : null)],
-        aggregationOptionsForQuery: [(s) => [s.querySource], (querySource) => mattersForAggregation(querySource)],
     }),
 
     listeners(({ actions, values, props }) => ({
