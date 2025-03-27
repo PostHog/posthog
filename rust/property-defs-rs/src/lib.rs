@@ -217,7 +217,7 @@ async fn write_event_properties_batch(
                 metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "retry")]);
                 let jitter = rand::random::<u64>() % 50;
                 let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
-                let _unused = tokio::time::sleep(Duration::from_millis(delay));
+                tokio::time::sleep(Duration::from_millis(delay)).await;
                 tries += 1;
             }
 
@@ -279,7 +279,7 @@ async fn write_property_definitions_batch(
                 metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "retry")]);
                 let jitter = rand::random::<u64>() % 50;
                 let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
-                let _unused = tokio::time::sleep(Duration::from_millis(delay));
+                tokio::time::sleep(Duration::from_millis(delay)).await;
                 tries += 1;
             }
 
@@ -336,7 +336,7 @@ async fn write_event_definitions_batch(
                 metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "retry")]);
                 let jitter = rand::random::<u64>() % 50;
                 let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
-                let _unused = tokio::time::sleep(Duration::from_millis(delay));
+                tokio::time::sleep(Duration::from_millis(delay)).await;
                 tries += 1;
             }
             Ok(pgq_result) => {
