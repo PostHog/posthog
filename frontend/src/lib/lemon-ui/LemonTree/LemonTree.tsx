@@ -281,19 +281,21 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     <Button.Label
                                                         menuItem
                                                         truncate
-                                                        className={cn('', {
-                                                            'text-quaternary': item.disabledReason,
-                                                            'flex items-center justify-between gap-2': item.sideIcon,
-                                                        })}
+                                                        className={cn(
+                                                            'flex items-center justify-between gap-2 w-full',
+                                                            {
+                                                                'text-quaternary': item.disabledReason,
+                                                            }
+                                                        )}
                                                     >
                                                         {/* {item.hint ? <div className='flex flex-col gap-1'>{displayName}<div className='text-xxs font-normal'>{item.hint}</div></div> : displayName} */}
-                                                        <span className="truncate">{displayName}</span>
+                                                        <span className="truncate w-full">{displayName}</span>
                                                     </Button.Label>
                                                 )}
                                                 {itemSideAction && (
                                                     <DropdownMenu>
                                                         <DropdownMenuTrigger asChild>
-                                                            <Button.Icon isTrigger customIconSize>
+                                                            <Button.Icon isTrigger customIconSize className="ml-auto">
                                                                 <IconEllipsis className="size-3" />
                                                             </Button.Icon>
                                                         </DropdownMenuTrigger>

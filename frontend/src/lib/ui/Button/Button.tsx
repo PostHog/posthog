@@ -28,10 +28,16 @@ const BUTTON_ICON_WIDTH_LG = 'w-[var(--button-height-lg)]'
 type ButtonIntent = 'default' | 'outline'
 
 const BUTTON_INTENT: Record<ButtonIntent, string> = {
-    default:
-        'text-primary not-disabled:hover:bg-fill-button-tertiary-hover data-[state=open]:bg-fill-button-tertiary-active data-[state=checked]:bg-fill-button-tertiary-active',
-    outline:
-        'text-primary border border-secondary not-disabled:hover:border-tertiary hover:bg-fill-button-tertiary-active',
+    default: `
+            text-primary 
+            not-disabled:hover:bg-fill-button-tertiary-hover 
+            data-[focused=true]:bg-fill-button-tertiary-hover 
+            data-[active=true]:bg-fill-button-tertiary-active 
+            data-[current=true]:bg-fill-button-tertiary-active 
+            data-[state=open]:bg-fill-button-tertiary-active 
+            data-[state=checked]:bg-fill-button-tertiary-active
+        `,
+    outline: 'border border-secondary not-disabled:hover:border-tertiary hover:bg-fill-button-tertiary-active',
 }
 
 export type ButtonSize = 'sm' | 'base' | 'lg'
@@ -116,17 +122,11 @@ const buttonVariants = cva({
             true: 'opacity-50 cursor-default',
             false: '',
         },
-        // empty
-        active: {
-            true: '',
-            false: '',
-        },
     },
     defaultVariants: {
         intent: 'default',
         size: 'base',
         disabled: false,
-        active: false,
     },
 })
 
@@ -140,6 +140,10 @@ export interface ButtonRootProps extends VariantProps<typeof buttonVariants> {
     disableClientSideRouting?: boolean
     targetBlank?: boolean
     disabled?: boolean
+    // Active item in a set of items
+    active?: boolean
+    // Current item in a set of items
+    current?: boolean
     /** Wrap the button component with a custom component. */
     buttonWrapper?: (button: JSX.Element) => JSX.Element
 }
@@ -160,6 +164,7 @@ function ButtonRootComponent<E extends ElementType = 'button'>(
         targetBlank,
         type,
         active,
+        current,
         buttonWrapper,
         ...props
     }: PolymorphicComponentProps<E, ButtonRootProps>,
@@ -215,9 +220,11 @@ function ButtonRootComponent<E extends ElementType = 'button'>(
             onMouseDown={handleMouseDown}
             onMouseUp={handleMouseUp}
             onClick={onClick}
-            className={cn(buttonVariants({ intent, size, fullWidth, menuItem, disabled, active }), className)}
+            className={cn(buttonVariants({ intent, size, fullWidth, menuItem, disabled }), className)}
             // Used to identify the current item in a set of items
-            aria-current={active ? 'true' : 'false'}
+            aria-current={current ? 'true' : 'false'}
+            // Used to identify active items in a set of items
+            data-active={active}
             // Used to identify disabled items
             aria-disabled={disabled}
             // Used to identify pressed state
@@ -410,6 +417,7 @@ interface ButtonIconProps extends VariantProps<typeof iconVariants> {
     to?: string
     disableClientSideRouting?: boolean
     targetBlank?: boolean
+    className?: string
 }
 
 function ButtonIconComponent<E extends ElementType = 'span'>(
@@ -424,6 +432,7 @@ function ButtonIconComponent<E extends ElementType = 'span'>(
         to,
         disableClientSideRouting,
         targetBlank,
+        className,
         ...props
     }: PolymorphicComponentProps<E, ButtonIconProps>,
     forwardedRef: PolymorphicRef<E>
@@ -442,7 +451,8 @@ function ButtonIconComponent<E extends ElementType = 'span'>(
                     isTrigger,
                     customIconSize,
                     showTriggerDivider,
-                })
+                }),
+                className
             )}
             tabIndex={isTrigger ? 0 : undefined}
             aria-hidden={!isTrigger}
@@ -518,10 +528,10 @@ function ButtonLabelComponent<E extends ElementType = 'span'>(
 
     return (
         <Component
-            {...(props as any)}
-            {...linkProps}
             ref={forwardedRef as any}
             className={cn(buttonLabelVariants({ size, menuItem, truncate }), props.className)}
+            {...(props as any)}
+            {...linkProps}
         >
             {children}
         </Component>
