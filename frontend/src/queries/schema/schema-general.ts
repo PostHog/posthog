@@ -111,6 +111,7 @@ export enum NodeKind {
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
+    ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -1965,54 +1966,26 @@ export type ExperimentMetricBaseProperties = {
     time_window_hours?: number
 }
 
-export type ExperimentMetricMathProperties = {
-    math?: ExperimentMetricMathType
-    math_hogql?: string
-    math_property?: string
-}
-
-export type ExperimentEventMetricSource = {
-    type: 'event'
-    event: string
-    properties?: AnyPropertyFilter[]
-}
-
-export type ExperimentActionMetricSource = {
-    type: 'action'
-    action: number
-    name?: string
-    properties?: AnyPropertyFilter[]
-}
-
-export type ExperimentDataWarehouseMetricSource = {
-    type: 'data_warehouse'
+export interface DataWarehouseExperimentNode extends EntityNode {
+    kind: NodeKind.ExperimentDataWarehouseNode
     table_name: string
     timestamp_field: string
     events_join_key: string
     data_warehouse_join_key: string
 }
 
-export type ExperimentMetricSource =
-    | ExperimentEventMetricSource
-    | ExperimentActionMetricSource
-    | ExperimentDataWarehouseMetricSource
+export type ExperimentMetricSource = EventsNode | ActionsNode | DataWarehouseExperimentNode
 
-export type ExperimentFunnelMetricStep = {
-    event: string
-    name?: string
-    order: integer
-    properties?: AnyPropertyFilter[]
+export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // DataWarehouseExperimentNode is not supported yet
+
+export type ExperimentMeanMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.MEAN
+    source: ExperimentMetricSource
 }
-
-export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
-    ExperimentMetricMathProperties & {
-        metric_type: ExperimentMetricType.MEAN
-        source: ExperimentMetricSource
-    }
 
 export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.FUNNEL
-    steps: ExperimentFunnelMetricStep[]
+    series: ExperimentFunnelMetricStep[]
 }
 
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
