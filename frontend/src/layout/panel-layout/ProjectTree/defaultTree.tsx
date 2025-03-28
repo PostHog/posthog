@@ -65,7 +65,7 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
         {
             path: `Create new/Feature`,
             type: 'feature',
-            href: () => urls.featureManagement('new'),
+            href: () => urls.earlyAccessFeature('new'),
         },
         {
             path: `Create new/Repl`,
