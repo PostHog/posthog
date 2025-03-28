@@ -48,9 +48,6 @@ class HogFunctionType(models.TextChoices):
     TRANSFORMATION = "transformation"
 
 
-# These types are also used by the FileSystem. Keep them unique when adding new ones.
-ALL_POSSIBLE_TYPES = [str(x) for x in HogFunctionType.__members__.values()]
-
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.DESTINATION,
     HogFunctionType.TRANSFORMATION,
@@ -103,7 +100,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["HogFunction"]:
         base_qs = HogFunction.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type=ALL_POSSIBLE_TYPES, ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type__startswith="hog/", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         if self.type == HogFunctionType.SITE_APP:
@@ -117,7 +114,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
             url_type = f"destinations"
         return FileSystemRepresentation(
             base_folder=folder,
-            type=str(self.type),
+            type=f"hog/{self.type}",
             ref=str(self.pk),
             name=self.name or "Untitled",
             href=f"/pipeline/{url_type}/hog-{self.pk}/configuration",
