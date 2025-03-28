@@ -259,6 +259,21 @@ export function HogFunctionConfiguration({
                     </div>
                 ) : null}
 
+                {type === 'site_destination' && !id ? (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            children: 'Check out the docs',
+                            to: 'https://posthog.com/docs/cdp/destinations',
+                            targetBlank: true,
+                        }}
+                        dismissKey="site-destination-config-warning"
+                        className="mb-4"
+                    >
+                        Make sure to enable the `opt_in_site_apps` option in the `posthog.init` configuration.
+                    </LemonBanner>
+                ) : null}
+
                 <Form
                     logic={hogFunctionConfigurationLogic}
                     props={logicProps}
