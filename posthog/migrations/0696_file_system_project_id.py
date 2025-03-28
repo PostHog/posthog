@@ -6,6 +6,7 @@ from django.contrib.postgres.operations import AddIndexConcurrently
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Added to support concurrent index creation
     dependencies = [
         ("posthog", "0695_alter_experiment_end_date_and_more"),
     ]
