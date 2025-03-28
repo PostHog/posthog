@@ -195,7 +195,7 @@ export function InsightsTable({
                 formatBreakdownLabel(
                     Array.isArray(item.breakdown_value) ? item.breakdown_value[index] : item.breakdown_value,
                     breakdownFilter,
-                    cohorts?.results,
+                    allCohorts?.results,
                     formatPropertyValueForDisplay,
                     index
                 )
