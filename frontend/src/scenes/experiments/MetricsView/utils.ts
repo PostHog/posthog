@@ -5,7 +5,7 @@ import type {
     ExperimentMetric,
     ExperimentTrendsQuery,
 } from '~/queries/schema/schema-general'
-import { DataWarehouseExperimentNode, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentDataWarehouseNode, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 
 export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string => {
     if (metric.kind === NodeKind.ExperimentMetric) {
@@ -18,7 +18,7 @@ export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | 
 
 export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
     const getDefaultName = (
-        entity: EventsNode | ActionsNode | DataWarehouseExperimentNode
+        entity: EventsNode | ActionsNode | ExperimentDataWarehouseNode
     ): string | null | undefined => {
         if (entity.kind === NodeKind.EventsNode) {
             return entity.name || entity.event

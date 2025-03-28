@@ -9,8 +9,8 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import {
     ActionsNode,
     AnyEntityNode,
-    DataWarehouseExperimentNode,
     EventsNode,
+    ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentFunnelMetricStep,
@@ -479,7 +479,7 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
         return [metric.source]
     }
 
-    const getDataWarehouseMetricFilter = (metric: ExperimentMetric): DataWarehouseExperimentNode[] => {
+    const getDataWarehouseMetricFilter = (metric: ExperimentMetric): ExperimentDataWarehouseNode[] => {
         if (metric.metric_type !== ExperimentMetricType.MEAN) {
             return []
         }
@@ -583,7 +583,7 @@ export function filterToMetricTypeProps(
                 math: dataWarehouseNode.math,
                 math_property: dataWarehouseNode.math_property,
                 math_hogql: dataWarehouseNode.math_hogql,
-            }) as DataWarehouseExperimentNode,
+            }) as ExperimentDataWarehouseNode,
         }
     }
 

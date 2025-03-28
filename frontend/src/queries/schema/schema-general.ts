@@ -1966,7 +1966,7 @@ export type ExperimentMetricBaseProperties = {
     time_window_hours?: number
 }
 
-export interface DataWarehouseExperimentNode extends EntityNode {
+export interface ExperimentDataWarehouseNode extends EntityNode {
     kind: NodeKind.ExperimentDataWarehouseNode
     table_name: string
     timestamp_field: string
@@ -1974,9 +1974,9 @@ export interface DataWarehouseExperimentNode extends EntityNode {
     data_warehouse_join_key: string
 }
 
-export type ExperimentMetricSource = EventsNode | ActionsNode | DataWarehouseExperimentNode
+export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
-export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // DataWarehouseExperimentNode is not supported yet
+export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // ExperimentDataWarehouseNode is not supported yet
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.MEAN

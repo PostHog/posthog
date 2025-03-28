@@ -5109,79 +5109,6 @@ class Response15(BaseModel):
     )
 
 
-class DataWarehouseExperimentNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    custom_name: Optional[str] = None
-    data_warehouse_join_key: str
-    events_join_key: str
-    fixedProperties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                EventMetadataPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingPropertyFilter,
-                LogEntryPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = Field(
-        default=None,
-        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
-    )
-    kind: Literal["ExperimentDataWarehouseNode"] = "ExperimentDataWarehouseNode"
-    math: Optional[
-        Union[
-            BaseMathType,
-            FunnelMathType,
-            PropertyMathType,
-            CountPerActorMathType,
-            ExperimentMetricMathType,
-            Literal["unique_group"],
-            Literal["hogql"],
-        ]
-    ] = None
-    math_group_type_index: Optional[MathGroupTypeIndex] = None
-    math_hogql: Optional[str] = None
-    math_property: Optional[str] = None
-    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
-    math_property_type: Optional[str] = None
-    name: Optional[str] = None
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                EventMetadataPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingPropertyFilter,
-                LogEntryPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = Field(default=None, description="Properties configurable in the interface")
-    response: Optional[dict[str, Any]] = None
-    table_name: str
-    timestamp_field: str
-
-
 class DataWarehouseNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5506,6 +5433,79 @@ class EventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
+
+
+class ExperimentDataWarehouseNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    data_warehouse_join_key: str
+    events_join_key: str
+    fixedProperties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    kind: Literal["ExperimentDataWarehouseNode"] = "ExperimentDataWarehouseNode"
+    math: Optional[
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
+    math_property_type: Optional[str] = None
+    name: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[dict[str, Any]] = None
+    table_name: str
+    timestamp_field: str
 
 
 class ExperimentEventExposureConfig(BaseModel):
@@ -8029,7 +8029,7 @@ class ExperimentMeanMetric(BaseModel):
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["mean"] = "mean"
     name: Optional[str] = None
-    source: Union[EventsNode, ActionsNode, DataWarehouseExperimentNode]
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     time_window_hours: Optional[float] = None
 
 
@@ -8038,7 +8038,7 @@ class ExperimentMeanMetricTypeProps(BaseModel):
         extra="forbid",
     )
     metric_type: Literal["mean"] = "mean"
-    source: Union[EventsNode, ActionsNode, DataWarehouseExperimentNode]
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
 
 
 class ExperimentMetricTypeProps(RootModel[Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps]]):
