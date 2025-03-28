@@ -26,11 +26,11 @@ PROPDEFS_DB="$DB_URL/propdefs"
 # cyclotron points to it's own DB instance in production, and therefore has its own
 # DB namespace in local dev too.
 sqlx database create -D "$CYCLOTRON_DB"
-sqlx migrate run -D "$CYCLOTRON_DB" --source "$SCRIPT_DIR/../rust/cyclotron-core/migrations"
+sqlx migrate run -D "$CYCLOTRON_DB" --source "$SCRIPT_DIR/../cyclotron-core/migrations"
 
 # temporary: since the "old" propdefs tables still live in the Django-owned PG instance, but new
 # "v2" propdefs DB will be isolated and schemas will diverge. here, we create a mirror of the tables
 # in their own namespace in the (shared) Docker Compose local dev DB to simulate this.
 sqlx database create -D "$PROPDEFS_DB"
-sqlx migrate run -D "$PROPDEFS_DB" --source "$SCRIPT_DIR/../rust/property-defs-rs/tests/test_migrations"
+sqlx migrate run -D "$PROPDEFS_DB" --source "$SCRIPT_DIR/../property-defs-rs/tests/test_migrations"
 

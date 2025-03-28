@@ -660,7 +660,7 @@ mod tests {
         }
     }
 
-    #[sqlx::test(migrations = "../migrations", fixtures("webhook_cleanup"))]
+    #[sqlx::test(migrations = "../hook-common/migrations", fixtures("webhook_cleanup"))]
     async fn test_cleanup_impl(db: PgPool) {
         let (mock_cluster, mock_producer) = create_mock_kafka().await;
         mock_cluster
@@ -854,7 +854,7 @@ mod tests {
         check_app_metric_vector_equality(&expected_app_metrics, &received_app_metrics);
     }
 
-    #[sqlx::test(migrations = "../migrations", fixtures("hoghook_cleanup"))]
+    #[sqlx::test(migrations = "../hook-common/migrations", fixtures("hoghook_cleanup"))]
     async fn test_cleanup_impl_hoghooks(db: PgPool) {
         let (mock_cluster, mock_producer) = create_mock_kafka().await;
         mock_cluster
@@ -991,7 +991,7 @@ mod tests {
         assert_eq!(&expected_app_metrics, &received_app_metrics);
     }
 
-    #[sqlx::test(migrations = "../migrations")]
+    #[sqlx::test(migrations = "../hook-common/migrations")]
     async fn test_cleanup_impl_empty_queue(db: PgPool) {
         let (mock_cluster, mock_producer) = create_mock_kafka().await;
         mock_cluster
@@ -1034,7 +1034,7 @@ mod tests {
         assert_eq!(cleanup_stats.failed_agg_row_count, 0);
     }
 
-    #[sqlx::test(migrations = "../migrations", fixtures("webhook_cleanup"))]
+    #[sqlx::test(migrations = "../hook-common/migrations", fixtures("webhook_cleanup"))]
     async fn test_serializable_isolation(db: PgPool) {
         let (_, mock_producer) = create_mock_kafka().await;
         let hog_mode = false;

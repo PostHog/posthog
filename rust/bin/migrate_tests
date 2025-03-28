@@ -19,23 +19,12 @@ sqlx database create -D "$DATABASE_URL"
 # already, so we only want to replicate the tables we need in sqlx::test
 # unit tests, under their own database namespaces. Add more package-level
 # migrations here as we add new services and test suites that touch the DB
-sqlx migrate run -D "$DATABASE_URL" --source "$SCRIPT_DIR/../cyclotron-core/migrations"
-sqlx migrate run -D "$DATABASE_URL" --source "$SCRIPT_DIR/../cymbal/tests/test_migrations"
-sqlx migrate run -D "$DATABASE_URL" --source "$SCRIPT_DIR/../property-defs-rs/tests/test_migrations"
+sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../common/migrations"
+sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../hook-common/migrations"
+sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../batch-import-worker/migrations"
+sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../cyclotron-core/migrations"
+sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../cymbal/tests/test_migrations"
+sqlx migrate run -D "$DATABASE_URL" --ignore-missing --source "$SCRIPT_DIR/../property-defs-rs/tests/test_migrations"
 
-# update the sqlx query cache for the workspace. This requires:
-# 1. A live PG instance at $DATABASE_URL, including a created database on the PG instance
-#
-# 2. All the tables referenced in *all queries in all Rust packages in the workspace* defined
-#    using `sqlx::query*` macros exist on the PG instance that $DATABASE_URL points to
-#
-# NOTE: it is easiest to run `cargo sqlx prepare --workspace` when $DATABASE_URL points to
-#       the shared test DB we define here (see `posthog/rust/.env`) since all the tables
-#       will be created on the same DB, and $DATABASE_URL can only point to one DB at a time.
-#
-#       To emulate production in local dev, some of the tables the Rust services use are owned
-#       by the Django app, and some (cyclotron, propdefs) are isolated on their own DB instances
-
-pushd "$SCRIPT_DIR/.."
-cargo sqlx prepare -D "$DATABASE_URL" --workspace -- --all-targets --all-features
-popd
+# trigger the SQLX query cache refresh while the schemas are migrated and tables are empty
+$SCRIPT_DIR/update_sqlx_query_cache
