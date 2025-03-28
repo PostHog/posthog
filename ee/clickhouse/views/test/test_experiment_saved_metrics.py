@@ -225,7 +225,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
                     "source": {
-                        "type": "event",
+                        "kind": "EventsNode",
                         "event": "$pageview",
                     },
                 },
@@ -248,8 +248,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 "query": {
                     "kind": "ExperimentMetric",
                     "metric_type": "invalid",
-                    "metric_config": {
-                        "kind": "ExperimentEventMetricConfig",
+                    "source": {
+                        "kind": "EventsNode",
                         "event": "$pageview",
                     },
                 },
