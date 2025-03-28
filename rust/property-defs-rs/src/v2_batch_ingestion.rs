@@ -47,12 +47,14 @@ impl EventPropertiesBatch {
         Default::default()
     }
 
-    pub fn append(&mut self, ep: EventProperty) -> bool {
+    pub fn append(&mut self, ep: EventProperty) {
         self.team_ids.push(ep.team_id);
         self.project_ids.push(ep.project_id);
         self.event_names.push(ep.event);
         self.property_names.push(ep.property);
+    }
 
+    pub fn should_flush_batch(&self) -> bool {
         self.team_ids.len() >= V2_WRITE_BATCH_SIZE
     }
 
@@ -87,13 +89,15 @@ impl EventDefinitionsBatch {
         Default::default()
     }
 
-    pub fn append(&mut self, ed: EventDefinition) -> bool {
+    pub fn append(&mut self, ed: EventDefinition) {
         self.ids.push(Uuid::now_v7());
         self.names.push(ed.name);
         self.team_ids.push(ed.team_id);
         self.project_ids.push(ed.project_id);
         self.last_seen_ats.push(ed.last_seen_at);
+    }
 
+    pub fn should_flush_batch(&self) -> bool {
         self.ids.len() >= V2_WRITE_BATCH_SIZE
     }
 
@@ -135,7 +139,7 @@ impl PropertyDefinitionsBatch {
         Default::default()
     }
 
-    pub fn append(&mut self, pd: PropertyDefinition) -> bool {
+    pub fn append(&mut self, pd: PropertyDefinition) {
         let group_type_index: Option<i16> = match &pd.group_type_index {
             Some(gt) => match gt {
                 GroupType::Resolved(_, gti) => Some(*gti as i16),
@@ -153,7 +157,9 @@ impl PropertyDefinitionsBatch {
         self.property_types.push(property_type);
         self.event_types.push(pd.event_type as i16);
         self.group_type_indices.push(group_type_index);
+    }
 
+    pub fn should_flush_batch(&self) -> bool {
         self.ids.len() >= V2_WRITE_BATCH_SIZE
     }
 
@@ -189,7 +195,8 @@ pub async fn process_batch_v2(
     for update in batch {
         match update {
             Update::Event(ed) => {
-                if event_defs.append(ed) {
+                event_defs.append(ed);
+                if event_defs.should_flush_batch() {
                     let pool = pool.clone();
                     handles.push(tokio::spawn(async move {
                         write_event_definitions_batch(event_defs, &pool).await
@@ -198,7 +205,8 @@ pub async fn process_batch_v2(
                 }
             }
             Update::EventProperty(ep) => {
-                if event_props.append(ep) {
+                event_props.append(ep);
+                if event_props.should_flush_batch() {
                     let pool = pool.clone();
                     handles.push(tokio::spawn(async move {
                         write_event_properties_batch(event_props, &pool).await
@@ -207,7 +215,8 @@ pub async fn process_batch_v2(
                 }
             }
             Update::Property(pd) => {
-                if prop_defs.append(pd) {
+                prop_defs.append(pd);
+                if prop_defs.should_flush_batch() {
                     let pool = pool.clone();
                     handles.push(tokio::spawn(async move {
                         write_property_definitions_batch(prop_defs, &pool).await
