@@ -8102,7 +8102,7 @@ class ErrorTrackingQuery(BaseModel):
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
     status: Optional[Status1] = None
-    volumeResolution: Optional[float] = None
+    volumeResolution: int
 
 
 class ExperimentQuery(BaseModel):

@@ -29,13 +29,11 @@ INTERVAL_FUNCTIONS = {
     "month": "toStartOfMonth",
 }
 
-DEFAULT_VOLUME_RESOLUTION = 10
-
 
 @dataclass
 class VolumeOptions:
     date_range: DateRange
-    resolution: int = DEFAULT_VOLUME_RESOLUTION
+    resolution: int
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -55,12 +53,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
         dayRange = DateRange(
             date_from=(datetime.now() - timedelta(hours=24)).isoformat(), date_to=datetime.now().isoformat()
         )
-        volumeResolution: int = (
-            int(self.query.volumeResolution) if self.query.volumeResolution else DEFAULT_VOLUME_RESOLUTION
-        )
         self.sparklineConfigs = {
-            "volumeDay": VolumeOptions(date_range=dayRange, resolution=volumeResolution),
-            "volumeRange": VolumeOptions(date_range=self.query.dateRange, resolution=volumeResolution),
+            "volumeDay": VolumeOptions(date_range=dayRange, resolution=self.query.volumeResolution),
+            "volumeRange": VolumeOptions(date_range=self.query.dateRange, resolution=self.query.volumeResolution),
         }
 
     def to_query(self) -> ast.SelectQuery:

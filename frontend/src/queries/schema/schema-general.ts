@@ -1799,7 +1799,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
-    volumeResolution?: number
+    volumeResolution: integer
     limit?: integer
     offset?: integer
 }

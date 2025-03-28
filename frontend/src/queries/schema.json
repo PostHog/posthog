@@ -7239,10 +7239,10 @@
                     "type": "string"
                 },
                 "volumeResolution": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["dateRange", "kind"],
+            "required": ["dateRange", "kind", "volumeResolution"],
             "type": "object"
         },
         "ErrorTrackingQueryResponse": {
