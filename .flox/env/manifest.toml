@@ -49,6 +49,8 @@ freetds = { pkg-path = "freetds" }
 
 # PostgreSQL
 postgresql = { pkg-path = "postgresql_14" }
+sqlx-cli.pkg-path = "sqlx-cli"
+sqlx-cli.version = "0.8.3"
 
 # Set environment variables in the `[vars]` section. These variables may not
 # reference one another, and are added to the environment without first

@@ -26,6 +26,7 @@ import {
     HogQLFilters,
     HogQLVariable,
     Node,
+    NodeKind,
 } from '~/queries/schema/schema-general'
 
 import { ActionType, DashboardType, InsightShortId, InsightType, RecordingUniversalFilters, ReplayTabs } from './types'
@@ -202,11 +203,9 @@ export const productUrls = {
             ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
         }).url,
     insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
-        combineUrl(
-            `/data-warehouse`,
-            {},
-            { q: JSON.stringify({ kind: 'DataTableNode', full: true, source: { kind: 'HogQLQuery', query, filters } }) }
-        ).url,
+        urls.insightNew({
+            query: { kind: NodeKind.DataTableNode, source: { kind: 'HogQLQuery', query, filters } } as any,
+        }),
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (
         id: InsightShortId,

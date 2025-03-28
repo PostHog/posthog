@@ -61,6 +61,7 @@ impl ServerHandle {
                 api_token: token.clone(),
                 cookieless_server_hash_mode: 0,
                 timezone: "UTC".to_string(),
+                ..Default::default()
             };
 
             // Serialize to JSON

@@ -430,7 +430,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $time: {
             label: '$time (deprecated)',
             description:
-                'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
+                'Use the SQL field `timestamp` instead. This field was previously set on some client side events.',
             system: true,
             examples: ['1681211521.345'],
         },
@@ -919,7 +919,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $timestamp: {
             label: 'Timestamp (deprecated)',
             description:
-                'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
+                'Use the SQL field `timestamp` instead. This field was previously set on some client side events.',
             examples: ['2023-05-20T15:30:00Z'],
             system: true,
         },

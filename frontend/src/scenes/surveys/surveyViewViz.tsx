@@ -419,9 +419,11 @@ export function SingleChoiceQuestionPieChart({
             ) : !surveySingleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
-                <div>
-                    <div className="font-semibold text-secondary">Single choice</div>
-                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                <div className="flex flex-col gap-2">
+                    <div>
+                        <div className="font-semibold text-secondary">Single choice</div>
+                        <div className="text-xl font-bold">{question.question}</div>
+                    </div>
                     <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
                         <div className="relative h-full w-80">
                             <BindLogic logic={insightLogic} props={insightProps}>
