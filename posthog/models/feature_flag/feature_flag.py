@@ -81,11 +81,13 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, models.Model):
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["FeatureFlag"]:
-        base_qs = cls.objects.filter(team=team, deleted=False)
+        base_qs = cls.objects.filter(team__project_id=team.project_id, deleted=False)
         return cls._filter_unfiled_queryset(base_qs, team, type="feature_flag", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
+            project_id=self.team.project_id,
+            team_id=self.team_id,
             base_folder="Unfiled/Feature Flags",
             type="feature_flag",
             ref=str(self.id),
