@@ -6,13 +6,24 @@ from zoneinfo import ZoneInfo
 from freezegun.api import freeze_time
 from parameterized import parameterized
 
-from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
+from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType, FunnelVizType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
-from posthog.schema import FunnelsQuery, FunnelsQueryResponse
+from posthog.schema import (
+    FunnelsQuery,
+    FunnelsQueryResponse,
+    DateRange,
+    EventsNode,
+    FunnelExclusionEventsNode,
+    EventPropertyFilter,
+    PropertyOperator,
+    FunnelConversionWindowTimeUnit,
+    IntervalType,
+    FunnelsFilter,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -2540,6 +2551,127 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
             assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
             assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+
+    def test_exclusion_with_property_filter(self):
+        journeys_for(
+            {
+                "user_excluded": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                    },
+                    {
+                        "event": "exclusion",
+                        "properties": {"exclude_me": "true"},
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 2),
+                    },
+                ],
+                "user_excluded_also": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                    },
+                    {
+                        "event": "exclusion",
+                        "properties": {"exclude_me": "yes"},
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 2),
+                    },
+                ],
+                "user_first_step": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                    }
+                ],
+                "user_included": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                    },
+                    {
+                        "event": "exclusion",
+                        "properties": {"exclude_me": "false"},
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 2),
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-07 23:59:59",
+            ),
+            interval=IntervalType.DAY,
+            series=[
+                EventsNode(
+                    kind="EventsNode",
+                    event="step one",
+                    name="step one",
+                ),
+                EventsNode(
+                    kind="EventsNode",
+                    event="step two",
+                    name="step two",
+                ),
+            ],
+            funnelsFilter=FunnelsFilter(
+                **{
+                    "funnelVizType": FunnelVizType.TRENDS,
+                    "funnelWindowInterval": 10,
+                    "funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.SECOND,
+                    "exclusions": [
+                        FunnelExclusionEventsNode(
+                            kind="EventsNode",
+                            event="exclusion",
+                            properties=[
+                                EventPropertyFilter(
+                                    key="exclude_me",
+                                    value="true",
+                                    operator=PropertyOperator.EXACT,
+                                    type="event",
+                                )
+                            ],
+                            funnelFromStep=0,
+                            funnelToStep=1,
+                        ),
+                        FunnelExclusionEventsNode(
+                            kind="EventsNode",
+                            event="exclusion",
+                            properties=[
+                                EventPropertyFilter(
+                                    key="exclude_me",
+                                    value="yes",
+                                    operator=PropertyOperator.EXACT,
+                                    type="event",
+                                )
+                            ],
+                            funnelFromStep=0,
+                            funnelToStep=1,
+                        ),
+                    ],
+                }
+            ),
+        )
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(len(results), 7)
+        self.assertEqual(results[0]["reached_from_step_count"], 2)  # Both non-excluded users started the funnel
+        self.assertEqual(results[0]["reached_to_step_count"], 1)  # Only one user converted
 
 
 class TestFunnelTrends(BaseTestFunnelTrends):

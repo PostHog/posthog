@@ -3,6 +3,8 @@ from typing import Optional
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
+from django.db.models.expressions import F
+from django.db.models.functions import Coalesce
 
 
 class FileSystem(models.Model):
@@ -11,6 +13,7 @@ class FileSystem(models.Model):
     """
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     id = models.UUIDField(primary_key=True, default=uuid7)
     path = models.TextField()
     depth = models.IntegerField(null=True, blank=True)
@@ -20,6 +23,18 @@ class FileSystem(models.Model):
     meta = models.JSONField(default=dict, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        indexes = [
+            # Index on project_id foreign key
+            models.Index(fields=["project"]),
+            models.Index(fields=["team"]),
+            models.Index(Coalesce(F("project_id"), F("team_id")), F("path"), name="posthog_fs_project_path"),
+            models.Index(Coalesce(F("project_id"), F("team_id")), F("depth"), name="posthog_fs_project_depth"),
+            models.Index(
+                Coalesce(F("project_id"), F("team_id")), F("type"), F("ref"), name="posthog_fs_project_typeref"
+            ),
+        ]
 
     def __str__(self):
         return self.path

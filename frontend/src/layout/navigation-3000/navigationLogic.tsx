@@ -4,7 +4,6 @@ import {
     IconCursorClick,
     IconDashboard,
     IconDatabase,
-    IconFeatures,
     IconGraph,
     IconHome,
     IconLive,
@@ -455,16 +454,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             ),
                         to: urls.max(),
                         tag: 'beta' as const,
-                    })
-                }
-
-                if (featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]) {
-                    sectionOne.splice(4, 0, {
-                        identifier: Scene.FeatureManagement,
-                        label: 'Features',
-                        icon: <IconFeatures />,
-                        logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
-                        to: isUsingSidebar ? undefined : urls.featureManagement(),
                     })
                 }
 
