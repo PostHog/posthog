@@ -7,40 +7,48 @@ import { DashboardTile, FunnelVizType, QueryBasedInsightModel } from '~/types'
 import type { dashboardInsightColorsModalLogicType } from './dashboardInsightColorsModalLogicType'
 import { dashboardLogic } from './dashboardLogic'
 
-function extractBreakdownValues(insightTiles: DashboardTile<QueryBasedInsightModel>[] | null): string[] {
+export function extractBreakdownValues(insightTiles: DashboardTile<QueryBasedInsightModel>[] | null): string[] {
     if (insightTiles == null) {
         return []
     }
 
-    return insightTiles
-        .flatMap((tile) => {
-            if (isInsightVizNode(tile.insight?.query)) {
-                const querySource = tile.insight?.query.source
-                if (
-                    isFunnelsQuery(querySource) &&
-                    (querySource.funnelsFilter?.funnelVizType === undefined ||
-                        querySource.funnelsFilter?.funnelVizType === FunnelVizType.Steps)
-                ) {
-                    const breakdownValues = ['Baseline']
-                    tile.insight?.result.forEach((result: any) => {
-                        const key = getFunnelDatasetKey(result)
-                        const keyParts = JSON.parse(key)
-                        breakdownValues.push(keyParts['breakdown_value'])
-                    })
-                    return breakdownValues
-                } else if (isTrendsQuery(querySource)) {
-                    return tile.insight?.result.map((result: any) => {
-                        const key = getTrendDatasetKey(result)
-                        const keyParts = JSON.parse(key)
-                        return keyParts['breakdown_value']
-                    })
-                }
-                return []
-            }
-            return []
-        })
-        .filter((value) => value != null)
-        .sort()
+    return Array.from(
+        new Set(
+            insightTiles
+                .flatMap((tile) => {
+                    if (isInsightVizNode(tile.insight?.query)) {
+                        const querySource = tile.insight?.query.source
+                        if (
+                            isFunnelsQuery(querySource) &&
+                            (querySource.funnelsFilter?.funnelVizType === undefined ||
+                                querySource.funnelsFilter?.funnelVizType === FunnelVizType.Steps)
+                        ) {
+                            const breakdownValues = ['Baseline']
+                            tile.insight?.result.forEach((result: any) => {
+                                const key = getFunnelDatasetKey(result)
+                                const keyParts = JSON.parse(key)
+                                const breakdownValue = keyParts['breakdown_value']
+                                breakdownValues.push(
+                                    Array.isArray(breakdownValue) ? breakdownValue.join('::') : breakdownValue
+                                )
+                            })
+                            return breakdownValues
+                        } else if (isTrendsQuery(querySource)) {
+                            return tile.insight?.result.map((result: any) => {
+                                const key = getTrendDatasetKey(result)
+                                const keyParts = JSON.parse(key)
+                                const breakdownValue = keyParts['breakdown_value']
+                                return Array.isArray(breakdownValue) ? breakdownValue.join('::') : breakdownValue
+                            })
+                        }
+                        return []
+                    }
+                    return []
+                })
+                .filter((value) => value != null)
+                .sort()
+        )
+    )
 }
 
 export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalLogicType>([
