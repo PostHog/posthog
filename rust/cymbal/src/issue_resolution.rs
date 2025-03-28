@@ -118,7 +118,7 @@ impl Issue {
             self.description
         )
         .fetch_one(executor)
-        .await?
+        .await.expect("Got at least one row back")
         // TODO - I'm fairly sure the Option here is a bug in sqlx, so the unwrap will
         // never be hit, but nonetheless I'm not 100% sure the "no rows" case actually
         // means the insert was not done.
@@ -214,7 +214,7 @@ impl IssueFingerprintOverride {
             issue.id,
             fingerprint,
             first_seen
-        ).fetch_one(executor).await?;
+        ).fetch_one(executor).await.expect("Got at least one row back");
 
         Ok(res)
     }
