@@ -195,3 +195,10 @@ services:
                 condition: service_started
             db:
                 condition: service_healthy
+
+    echo-server:
+        extends:
+            file: docker-compose.base.yml
+            service: echo_server
+        expose:
+            - '18081:18081'

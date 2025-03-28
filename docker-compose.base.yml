@@ -365,3 +365,13 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_started
+
+    # for posthog/rust webhook service tests only
+    echo_server:
+        image: docker.io/library/caddy:2
+        container_name: echo_server
+        restart: on-failure
+        ports:
+            - '18081:8081'
+        volumes:
+            - ./rust/docker/echo-server/Caddyfile:/etc/caddy/Caddyfile
