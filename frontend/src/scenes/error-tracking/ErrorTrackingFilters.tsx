@@ -58,6 +58,12 @@ const UniversalSearch = (): JSX.Element => {
     const searchInputRef = useRef<HTMLInputElement | null>(null)
     const floatingRef = useRef<HTMLDivElement | null>(null)
 
+    const onClose = (query: string): void => {
+        searchInputRef.current?.blur()
+        setSearchQuery(query)
+        setVisible(false)
+    }
+
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         taxonomicFilterLogicKey: 'error-tracking',
         taxonomicGroupTypes: [
@@ -70,13 +76,8 @@ const UniversalSearch = (): JSX.Element => {
             addGroupFilter(taxonomicGroup, value, item, originalQuery)
             setVisible(false)
         },
+        onEnter: onClose,
         autoSelectItem: false,
-    }
-
-    const onClose = (value?: string): void => {
-        searchInputRef.current?.blur()
-        setSearchQuery(value ?? '')
-        setVisible(false)
     }
 
     return (
@@ -94,14 +95,13 @@ const UniversalSearch = (): JSX.Element => {
                 visible={visible}
                 closeOnClickInside={false}
                 floatingRef={floatingRef}
-                onClickOutside={() => onClose()}
+                onClickOutside={() => onClose('')}
             >
                 <TaxonomicFilterSearchInput
                     prefix={<RecordingsUniversalFilterGroup />}
-                    onEnter={onClose}
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
-                    onClose={onClose}
+                    onClose={() => onClose('')}
                     size="small"
                     fullWidth
                 />

@@ -73,7 +73,6 @@ export function TaxonomicFilter({
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { activeTab } = useValues(logic)
-    const { selectSelected } = useActions(logic)
 
     useEffect(() => {
         if (groupType !== TaxonomicFilterGroupType.HogQLExpression) {
@@ -103,11 +102,7 @@ export function TaxonomicFilter({
             >
                 {activeTab !== TaxonomicFilterGroupType.HogQLExpression || taxonomicGroupTypes.length > 1 ? (
                     <div className="relative">
-                        <TaxonomicFilterSearchInput
-                            searchInputRef={searchInputRef}
-                            onClose={onClose}
-                            onEnter={selectSelected}
-                        />
+                        <TaxonomicFilterSearchInput searchInputRef={searchInputRef} onClose={onClose} />
                     </div>
                 ) : null}
                 <InfiniteSelectResults
@@ -126,11 +121,10 @@ export const TaxonomicFilterSearchInput = forwardRef<
     {
         searchInputRef: React.Ref<HTMLInputElement> | null
         onClose: TaxonomicFilterProps['onClose']
-        onEnter: (value?: string) => void
     } & Pick<LemonInputProps, 'onClick' | 'size' | 'prefix' | 'fullWidth'>
->(function UniversalSearchInput({ searchInputRef, onClose, onEnter, ...props }, ref): JSX.Element {
+>(function UniversalSearchInput({ searchInputRef, onClose, ...props }, ref): JSX.Element {
     const { searchQuery, searchPlaceholder } = useValues(taxonomicFilterLogic)
-    const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight } = useActions(taxonomicFilterLogic)
+    const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(taxonomicFilterLogic)
 
     return (
         <LemonInput
@@ -171,7 +165,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
                         e.shiftKey ? tabLeft() : tabRight()
                         break
                     case 'Enter':
-                        onEnter(searchQuery)
+                        selectSelected()
                         break
                     case 'Escape':
                         setSearchQuery('')

@@ -26,6 +26,7 @@ export interface TaxonomicFilterProps {
     // sometimes the filter searches for a different value than provided e.g. a URL will be searched as $current_url
     // in that case the original value is returned here as well as the property that the user chose
     onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any, originalQuery?: string) => void
+    onEnter?: (query: string) => void
     onClose?: () => void
     filter?: LocalFilter
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
