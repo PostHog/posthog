@@ -903,6 +903,38 @@ class _Printer(Visitor):
                 return f"ifNull({op}, 1)"
             return f"ifNull({op}, isNotNull({left}) or isNotNull({right}))"  # Worse case performance, but accurate
 
+        # Special optimization for "In" operator
+        if node.op == ast.CompareOperationOp.In:
+            if isinstance(node.right, (ast.Tuple, ast.Array)):
+                # Check if the right side is all constants
+                left_is_constant = isinstance(node.left, ast.Constant)
+                left_is_null = left_is_constant and node.left.value is None
+                right_is_all_constants = True
+                right_has_null = False
+                for expr in node.right.exprs:
+                    if isinstance(expr, ast.Constant):
+                        if expr.value is None:
+                            right_has_null = True
+                    else:
+                        right_is_all_constants = False
+
+                is_all_constants = all(isinstance(expr, ast.Constant) for expr in node.right.exprs)
+                # Filter out any NULL values from the tuple
+                non_null_exprs = [
+                    expr for expr in node.right.exprs if not (isinstance(expr, ast.Constant) and expr.value is None)
+                ]
+                if len(non_null_exprs) == 0:
+                    # If all values were NULL, the result is always false
+                    return "0"
+                if len(non_null_exprs) < len(node.right.exprs):
+                    # We filtered out some NULLs, create a new tuple
+                    right_filtered = self.visit(ast.Tuple(exprs=non_null_exprs))
+                    return f"ifNull(in({left}, {right_filtered}), 0)"
+            # Handle cases where right is a variable that could be NULL
+            if nullable_right:
+                return f"ifNull({op}, 0)"
+            return op
+
         # Return false if one, but only one of the two sides is a null constant
         if isinstance(node.right, ast.Constant) and node.right.value is None:
             # Both are a constant null

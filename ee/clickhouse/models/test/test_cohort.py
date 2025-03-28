@@ -30,6 +30,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_insert_cohortpeople_queries,
     snapshot_clickhouse_queries,
+    also_test_with_materialized_columns,
 )
 from posthog.models.person.sql import GET_LATEST_PERSON_SQL, GET_PERSON_IDS_BY_FILTER
 
@@ -1565,7 +1566,18 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         results = self._get_cohortpeople(cohort)
         self.assertEqual(len(results), 2)
 
-    def test_recalculate_cohort_with_property_list(self):
+    @also_test_with_materialized_columns(person_properties=["organization_id"])
+    def test_recalculate_cohort_with_list_of_values(self):
+        # Create a specific UUID that we'll use both in the person and cohort filter
+        matching_uuid = str(uuid.uuid4())
+
+        # Create a person with the matching organization_id
+        matching_person = _create_person(
+            distinct_ids=["matching_user"],
+            team_id=self.team.pk,
+            properties={"organization_id": matching_uuid},
+        )
+
         # Create a cohort with the specific filter structure provided
         cohort = Cohort.objects.create(
             team=self.team,
@@ -1581,7 +1593,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                                     "key": "organization_id",
                                     "type": "person",
                                     "value": [
-                                        str(uuid.uuid4()),
+                                        matching_uuid,  # Include our matching UUID
                                         str(uuid.uuid4()),
                                         str(uuid.uuid4()),
                                         str(uuid.uuid4()),
@@ -1618,8 +1630,86 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             json_extract_raw_count = query.lower().count("jsonextractraw")
 
             # Ensure we don't have 11 or more instances of either function
-            self.assertLess(replace_regexp_count, 11, "Too many replaceRegexpAll instances found in query")
-            self.assertLess(json_extract_raw_count, 11, "Too many JSONExtractRaw instances found in query")
+            self.assertLess(replace_regexp_count, 3, "Too many replaceRegexpAll instances found in query")
+            self.assertLess(json_extract_raw_count, 3, "Too many JSONExtractRaw instances found in query")
+
+        # Verify that the person with the matching organization_id is in the cohort
+        results = self._get_cohortpeople(cohort)
+        self.assertEqual(len(results), 1, "Expected one person to be in the cohort")
+        self.assertEqual(
+            str(results[0][0]), str(matching_person.uuid), "Expected the matching person to be in the cohort"
+        )
+
+    @also_test_with_materialized_columns(person_properties=["organization_id"])
+    def test_recalculate_cohort_empty_string_property(self):
+        # Create a person with an empty organization_id
+        matching_person = _create_person(
+            distinct_ids=["matching_user"],
+            team_id=self.team.pk,
+            properties={"organization_id": ""},
+        )
+
+        # Create a cohort with the specific filter structure provided
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="property list cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "organization_id",
+                                    "type": "person",
+                                    "value": [
+                                        "",  # Include our matching UUID
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                    ],
+                                    "negation": False,
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Capture the SQL insert statements when the cohort is calculated
+        with self.capture_queries_startswith(("INSERT INTO cohortpeople", "insert into cohortpeople")) as queries:
+            self.calculate_cohort_hogql_test_harness(cohort, 0)
+
+        # Assert at least one query was captured
+        self.assertTrue(len(queries) > 0, "No queries were captured during cohort calculation")
+
+        # Check that we don't have an excessive number of replaceRegexpAll and JSONExtractRaw functions
+        for query in queries:
+            # Count instances of replaceRegexpAll and JSONExtractRaw
+            replace_regexp_count = query.lower().count("replaceregexpall")
+            json_extract_raw_count = query.lower().count("jsonextractraw")
+
+            # Ensure we don't have 11 or more instances of either function
+            self.assertLess(replace_regexp_count, 3, "Too many replaceRegexpAll instances found in query")
+            self.assertLess(json_extract_raw_count, 3, "Too many JSONExtractRaw instances found in query")
+
+        # Verify that the person with the matching organization_id is in the cohort
+        results = self._get_cohortpeople(cohort)
+        self.assertEqual(len(results), 1, "Expected one person to be in the cohort")
+        self.assertEqual(
+            str(results[0][0]), str(matching_person.uuid), "Expected the matching person to be in the cohort"
+        )
 
     def test_recalculate_cohort_with_missing_filter(self):
         # Create a cohort with the specified OR filter structure
