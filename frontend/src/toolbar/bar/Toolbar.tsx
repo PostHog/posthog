@@ -4,6 +4,7 @@ import {
     IconBolt,
     IconCursorClick,
     IconDay,
+    IconInfo,
     IconLive,
     IconLogomark,
     IconNight,
@@ -36,6 +37,27 @@ import { HedgehogMenu } from '../hedgehog/HedgehogMenu'
 import { ToolbarButton } from './ToolbarButton'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
+
+function PostHogInfo(): JSX.Element {
+    const { posthog } = useValues(toolbarLogic)
+    const isAutocaptureEnabled = posthog?.autocapture?.isEnabled
+    return (
+        <li>
+            <ul>verson: {posthog?.version || 'posthog not available'}</ul>
+            <ul>api host: {posthog?.config.api_host}</ul>
+            <ul>ui host: {posthog?.config.ui_host}</ul>
+            <ul>autocapture running: {isAutocaptureEnabled ? 'true' : 'false'}</ul>
+            <ul>rageclicks running: {isAutocaptureEnabled && posthog?.config.rageclick ? 'true' : 'false'}</ul>
+            <ul>
+                dead clicks running:{' '}
+                {posthog?.deadClicksAutocapture?.lazyLoadedDeadClicksAutocapture ? 'true' : 'false'}
+            </ul>
+            <ul>heatmaps running: {posthog?.heatmaps?.isEnabled ? 'true' : 'false'}</ul>
+            <ul>session recording enabled: {posthog?.sessionRecording?.started ? 'true' : 'false'}</ul>
+            <ul>session recording status: {posthog?.sessionRecording?.status || 'unknown'}</ul>
+        </li>
+    )
+}
 
 function MoreMenu(): JSX.Element {
     const { hedgehogMode, theme } = useValues(toolbarLogic)
@@ -72,6 +94,15 @@ function MoreMenu(): JSX.Element {
                         icon: currentlyLightMode ? <IconNight /> : <IconDay />,
                         label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
                         onClick: () => toggleTheme(),
+                    },
+                    {
+                        icon: <IconInfo />,
+                        label: 'Posthog web sdk info',
+                        items: [
+                            {
+                                label: <PostHogInfo />,
+                            },
+                        ],
                     },
                     {
                         icon: <IconQuestion />,
