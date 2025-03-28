@@ -2,6 +2,7 @@
 
 from django.db import migrations, models
 import django.db.models.deletion
+from django.contrib.postgres.operations import AddIndexConcurrently
 
 
 class Migration(migrations.Migration):
@@ -15,15 +16,15 @@ class Migration(migrations.Migration):
             name="project",
             field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.project"),
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="filesystem",
             index=models.Index(fields=["project"], name="posthog_fil_project_840481_idx"),
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="filesystem",
             index=models.Index(fields=["team"], name="posthog_fil_team_id_4941ed_idx"),
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="filesystem",
             index=models.Index(
                 django.db.models.functions.comparison.Coalesce(models.F("project_id"), models.F("team_id")),
@@ -31,7 +32,7 @@ class Migration(migrations.Migration):
                 name="posthog_fs_project_path",
             ),
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="filesystem",
             index=models.Index(
                 django.db.models.functions.comparison.Coalesce(models.F("project_id"), models.F("team_id")),
@@ -39,7 +40,7 @@ class Migration(migrations.Migration):
                 name="posthog_fs_project_depth",
             ),
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="filesystem",
             index=models.Index(
                 django.db.models.functions.comparison.Coalesce(models.F("project_id"), models.F("team_id")),
