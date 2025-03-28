@@ -48,6 +48,9 @@ class HogFunctionType(models.TextChoices):
     TRANSFORMATION = "transformation"
 
 
+# These types are also used by the FileSystem. Keep them unique when adding new ones.
+ALL_POSSIBLE_TYPES = [str(x) for x in HogFunctionType.__members__.values()]
+
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.DESTINATION,
     HogFunctionType.TRANSFORMATION,
@@ -60,8 +63,6 @@ TYPES_WITH_COMPILED_FILTERS = (
 )
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
-
-TYPES_IN_FILE_SYSTEM = (HogFunctionType.DESTINATION, HogFunctionType.SITE_APP, HogFunctionType.TRANSFORMATION)
 
 
 class HogFunction(FileSystemSyncMixin, UUIDModel):
@@ -102,7 +103,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["HogFunction"]:
         base_qs = HogFunction.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type=list(TYPES_IN_FILE_SYSTEM), ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type=ALL_POSSIBLE_TYPES, ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         if self.type == HogFunctionType.SITE_APP:

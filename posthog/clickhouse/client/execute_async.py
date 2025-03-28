@@ -139,6 +139,7 @@ def execute_process_query(
     query_id: str,
     query_json: dict,
     limit_context: Optional[LimitContext],
+    is_query_service: bool = False,
 ):
     manager = QueryStatusManager(query_id, team_id)
 
@@ -186,6 +187,7 @@ def execute_process_query(
             insight_id=query_status.insight_id,
             dashboard_id=query_status.dashboard_id,
             user=user,
+            is_query_service=is_query_service,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
@@ -223,7 +225,7 @@ def enqueue_process_query_task(
     refresh_requested: bool = False,
     force: bool = False,
     _test_only_bypass_celery: bool = False,
-    api_query_personal_key: bool = False,
+    is_query_service: bool = False,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -248,7 +250,7 @@ def enqueue_process_query_task(
     manager.store_query_status(query_status)
 
     task_signature = process_query_task.si(
-        team.id, user_id, query_id, query_json, api_query_personal_key, LimitContext.QUERY_ASYNC
+        team.id, user_id, query_id, query_json, is_query_service, LimitContext.QUERY_ASYNC
     )
 
     if _test_only_bypass_celery:

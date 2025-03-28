@@ -112,7 +112,7 @@ class Dashboard(FileSystemSyncMixin, models.Model):
             type="dashboard",
             ref=str(self.id),
             name=self.name or "Untitled",
-            href=f"/dashboards/{self.id}",
+            href=f"/dashboard/{self.id}",
             meta={
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,

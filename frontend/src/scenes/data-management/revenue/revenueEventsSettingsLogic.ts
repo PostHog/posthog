@@ -53,7 +53,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         deleteDataWarehouseTable: (dataWarehouseTableName: string) => ({ dataWarehouseTableName }),
         updateDataWarehouseTableColumn: (
             dataWarehouseTableName: string,
-            key: keyof RevenueTrackingDataWarehouseTable & ('timestampColumn' | 'revenueColumn'),
+            key: keyof RevenueTrackingDataWarehouseTable & ('timestampColumn' | 'revenueColumn' | 'distinctIdColumn'),
             newValue: string
         ) => ({ dataWarehouseTableName, key, newValue }),
         updateDataWarehouseTableRevenueCurrencyColumn: (
