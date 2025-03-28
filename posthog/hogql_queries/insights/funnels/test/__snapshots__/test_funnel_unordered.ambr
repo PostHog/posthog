@@ -1461,8 +1461,8 @@
                  prop
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE and(has([1, 2, 3], steps), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
-                                             and isNull(arrayFlatten(array('finance')))))
+     WHERE and(arrayExists(y -> y = steps, [1, 2, 3]), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
+                                                              and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1720,8 +1720,8 @@
                  prop
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE and(has([2, 3], steps), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
-                                          and isNull(arrayFlatten(array('finance')))))
+     WHERE and(arrayExists(y -> y = steps, [2, 3]), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
+                                                           and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1979,8 +1979,8 @@
                  prop
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE and(has([1, 2, 3], steps), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
-                                             and isNull(arrayFlatten(array('technology')))))
+     WHERE and(arrayExists(y -> y = steps, [1, 2, 3]), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
+                                                              and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -2238,8 +2238,8 @@
                  prop
         HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                       and isNull(max(max_steps))))
-     WHERE and(has([2, 3], steps), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
-                                          and isNull(arrayFlatten(array('technology')))))
+     WHERE and(arrayExists(y -> y = steps, [2, 3]), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
+                                                           and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC) AS source
   ORDER BY source.id ASC
   LIMIT 101
