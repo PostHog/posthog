@@ -1,11 +1,13 @@
 mod steps;
 mod trends;
+mod unordered_steps;
+mod unordered_trends;
 
-use std::env;
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::io::{self, BufRead, Write};
 
-#[derive(Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
 enum PropVal {
     String(String),

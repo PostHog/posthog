@@ -39,7 +39,7 @@ class FileSystemSyncMixin(models.Model):
         raise NotImplementedError()
 
     @classmethod
-    def _filter_unfiled_queryset(cls, qs: QuerySet, team: "Team", type: str, ref_field: str) -> QuerySet:
+    def _filter_unfiled_queryset(cls, qs: QuerySet, team: "Team", type: str | list[str], ref_field: str) -> QuerySet:
         """
         Given a base queryset `qs`, annotate a 'ref_id' from `ref_field`,
         then exclude rows that are already saved to FileSystem for (team, file_type).
@@ -49,9 +49,10 @@ class FileSystemSyncMixin(models.Model):
         from django.db.models import F
         from posthog.models.file_system.file_system import FileSystem
 
+        types = [type] if isinstance(type, str) else type
         # Annotate a 'ref_id' from the chosen model field (e.g. 'id', 'short_id')
         annotated_qs = qs.annotate(ref_id=Cast(F(ref_field), output_field=CharField())).annotate(
-            already_saved=Exists(FileSystem.objects.filter(team=team, type=type, ref=OuterRef("ref_id")))
+            already_saved=Exists(FileSystem.objects.filter(team=team, type__in=types, ref=OuterRef("ref_id")))
         )
         return annotated_qs.filter(already_saved=False)
 

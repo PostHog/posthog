@@ -95,7 +95,7 @@ export const SidePanelActivationIcon = ({ className }: { className?: LemonIconPr
             progress={completionPercent / 100}
             strokePercentage={0.15}
             size={20}
-            className={clsx(activeTasks.length > 0 ? 'text-accent-primary' : 'text-muted-alt', className)}
+            className={clsx(activeTasks.length > 0 ? 'text-accent' : 'text-muted-alt', className)}
         >
             <span className="text-xs font-semibold">{activeTasks.length}</span>
         </LemonProgressCircle>

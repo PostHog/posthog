@@ -35,6 +35,7 @@ from posthog.schema import (
     ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
     ExperimentEventMetricConfig,
+    ExperimentFunnelMetricConfig,
     ExperimentMetricMathType,
     ExperimentMetricType,
     ExperimentQueryResponse,
@@ -44,6 +45,7 @@ from posthog.schema import (
     ExperimentVariantTrendsBaseStats,
     DateRange,
     IntervalType,
+    ExperimentFunnelStepConfig,
 )
 from typing import Optional, cast
 from datetime import datetime, timedelta, UTC
@@ -287,6 +289,31 @@ class ExperimentQueryRunner(QueryRunner):
             group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
 
+    def _funnel_step_to_filter(self, funnel_step: ExperimentFunnelStepConfig) -> ast.Expr:
+        """
+        Returns the filter for a single funnel step.
+        """
+
+        event_filter: ast.Expr = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["event"]),
+            right=ast.Constant(value=funnel_step.event),
+        )
+
+        if funnel_step.properties:
+            event_properties = ast.And(
+                exprs=[property_to_expr(property, self.team) for property in funnel_step.properties]
+            )
+            event_filter = ast.And(exprs=[event_filter, event_properties])
+
+        return event_filter
+
+    def _funnel_steps_to_filter(self, funnel_steps: list[ExperimentFunnelStepConfig]) -> ast.Expr:
+        """
+        Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
+        """
+        return ast.Or(exprs=[self._funnel_step_to_filter(funnel_step) for funnel_step in funnel_steps])
+
     def _get_metric_events_query(self, exposure_query: ast.SelectQuery) -> ast.SelectQuery:
         """
         Returns the query to get the relevant metric events. One row per event, so multiple rows per entity.
@@ -388,10 +415,66 @@ class ExperimentQueryRunner(QueryRunner):
                             *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
                             event_filter,
                             *self._get_test_accounts_filter(),
-                            *self._get_metric_property_filters(),
                         ],
                     ),
                 )
+
+            case ExperimentFunnelMetricConfig() as metric_config:
+                return ast.SelectQuery(
+                    select=[
+                        ast.Field(chain=["events", "timestamp"]),
+                        ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", "person_id"])),
+                        ast.Field(chain=["exposure_data", "variant"]),
+                        ast.Field(chain=["events", "event"]),
+                    ],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["events"]),
+                        next_join=ast.JoinExpr(
+                            table=exposure_query,
+                            join_type="INNER JOIN",
+                            alias="exposure_data",
+                            constraint=ast.JoinConstraint(
+                                expr=ast.CompareOperation(
+                                    left=ast.Field(chain=["events", "person_id"]),
+                                    right=ast.Field(chain=["exposure_data", "entity_id"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                ),
+                                constraint_type="ON",
+                            ),
+                        ),
+                    ),
+                    where=ast.And(
+                        exprs=[
+                            *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
+                            *self._get_test_accounts_filter(),
+                            self._funnel_steps_to_filter(metric_config.funnel),
+                        ],
+                    ),
+                )
+
+            case _:
+                raise ValueError(f"Unsupported metric config: {self.metric.metric_config}")
+
+    def _funnel_steps_to_window_funnel_expr(self, funnel_config: ExperimentFunnelMetricConfig) -> ast.Expr:
+        """
+        Returns the expression for the window funnel. The expression returns 1 if the user completed the whole funnel, 0 if they didn't.
+        """
+        # TODO: get conversion time window from funnel config
+        num_steps = len(funnel_config.funnel)
+        conversion_time_window = 6048000000000000
+        funnel_steps_str = ", ".join(
+            [
+                f"event = {ast.Constant(value=step.event).to_hogql()}"
+                for step in sorted(funnel_config.funnel, key=lambda x: x.order)
+            ]
+        )
+        return parse_expr(
+            f"windowFunnel({conversion_time_window})(toDateTime(timestamp), {funnel_steps_str}) = {num_steps}",
+            placeholders={
+                "conversion_time_window": ast.Constant(value=conversion_time_window),
+                "num_steps": ast.Constant(value=num_steps),
+            },
+        )
 
     def _get_metrics_aggregated_per_entity_query(
         self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
@@ -406,10 +489,10 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["exposures", "variant"]),
                 ast.Field(chain=["exposures", "entity_id"]),
                 ast.Alias(
-                    expr=parse_expr("if(any(metric_events.value), 1, 0)"),
+                    expr=self._funnel_steps_to_window_funnel_expr(self.metric.metric_config),
                     alias="value",
                 )
-                if self.metric.metric_type == ExperimentMetricType.FUNNEL
+                if self.metric.metric_config.kind == "ExperimentFunnelMetricConfig"
                 else parse_expr("sum(coalesce(toFloat(metric_events.value), 0)) as value"),
             ],
             select_from=ast.JoinExpr(

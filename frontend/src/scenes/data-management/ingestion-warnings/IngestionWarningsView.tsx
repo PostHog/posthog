@@ -24,6 +24,7 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     replay_timestamp_invalid: 'Replay event timestamp is invalid',
     replay_timestamp_too_far: 'Replay event timestamp was too far in the future',
     replay_message_too_large: 'Replay data was dropped because it was too large to ingest',
+    set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -220,6 +221,21 @@ const WARNING_TYPE_RENDERER = {
                         data-attr="message-too-large-view-recording"
                     />
                 </div>
+            </>
+        )
+    },
+    set_on_exception: function Render(warning: IngestionWarning): JSX.Element {
+        const details: {
+            event_uuid: string
+        } = {
+            event_uuid: warning.details.event_uuid,
+        }
+
+        return (
+            <>
+                {' '}
+                Exception {details.event_uuid} contained $set or $set_once properties, which are ignored on exception
+                events
             </>
         )
     },

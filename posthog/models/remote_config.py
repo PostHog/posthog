@@ -107,7 +107,7 @@ class RemoteConfig(UUIDModel):
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
-        from posthog.api.survey import get_surveys_response
+        from posthog.api.survey import get_surveys_response, get_surveys_opt_in
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -229,7 +229,9 @@ class RemoteConfig(UUIDModel):
 
         config["heatmaps"] = True if team.heatmaps_opt_in else False
 
-        if team.surveys_opt_in:
+        surveys_opt_in = get_surveys_opt_in(team)
+
+        if surveys_opt_in:
             surveys_response = get_surveys_response(team)
             config["surveys"] = surveys_response["surveys"]
 

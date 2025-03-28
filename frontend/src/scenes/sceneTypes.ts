@@ -49,10 +49,7 @@ export enum Scene {
     Surveys = 'Surveys',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
-    DataWarehouse = 'DataWarehouse',
     SQLEditor = 'SQLEditor',
-    DataWarehouseExternal = 'DataWarehouseExternal',
-    DataWarehouseTable = 'DataWarehouseTable',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
@@ -90,8 +87,10 @@ export enum Scene {
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
+    MessagingAutomations = 'MessagingAutomations',
     MessagingProviders = 'MessagingProviders',
     MessagingBroadcasts = 'MessagingBroadcasts',
+    MessagingLibrary = 'MessagingLibrary',
     Wizard = 'Wizard',
 }
 

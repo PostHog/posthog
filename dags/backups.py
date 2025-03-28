@@ -9,7 +9,7 @@ import dagster
 from django.conf import settings
 import pydantic
 from dags.common import JobOwners
-from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 
 from dagster_aws.s3 import S3Resource
@@ -22,7 +22,6 @@ SHARDED_TABLES = [
     "sharded_heatmaps",
     "sharded_ingestion_warnings",
     "sharded_performance_events",
-    "sharded_person_distinct_id",
     "sharded_raw_sessions",
     "sharded_session_replay_embeddings",
     "sharded_session_replay_events",
@@ -41,7 +40,6 @@ NON_SHARDED_TABLES = [
     "exchange_rate",
     "groups",
     "infi_clickhouse_orm_migrations",
-    "infi_clickhouse_orm_migrations_tmp",
     "log_entries",
     "metrics_query_log",
     "metrics_time_to_see_data",
@@ -50,7 +48,6 @@ NON_SHARDED_TABLES = [
     "person_collapsing",
     "person_distinct_id",
     "person_distinct_id2",
-    "person_distinct_id_backup",
     "person_distinct_id_overrides",
     "person_overrides",
     "person_static_cohort",
@@ -316,9 +313,17 @@ def run_backup(
         return
 
     if backup.shard:
-        cluster.map_any_host_in_shards({backup.shard: backup.create}).result()
+        cluster.map_any_host_in_shards_by_role(
+            {backup.shard: backup.create},
+            node_role=NodeRole.DATA,
+            workload=Workload.ONLINE,
+        ).result()
     else:
-        cluster.any_host_by_role(backup.create, NodeRole.DATA).result()
+        cluster.any_host_by_role(
+            backup.create,
+            node_role=NodeRole.DATA,
+            workload=Workload.ONLINE,
+        ).result()
 
     return backup
 
@@ -404,7 +409,7 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
         incremental=incremental,
     )
     return dagster.RunRequest(
-        run_key=timestamp,
+        run_key=f"{timestamp}-{table}",
         run_config={
             "ops": {
                 "get_latest_backup": {"config": config.model_dump()},

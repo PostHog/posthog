@@ -337,6 +337,24 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             </>
         )
     }
+    if (group.type === TaxonomicFilterGroupType.EventMetadata) {
+        const _definition = definition as PropertyDefinition
+        return (
+            <>
+                {sharedComponents}
+                <DefinitionPopover.Grid cols={2}>
+                    <DefinitionPopover.Card title="Type" value={_definition.property_type ?? '-'} />
+                </DefinitionPopover.Grid>
+                <LemonDivider className="DefinitionPopover my-4" />
+                <DefinitionPopover.Section>
+                    <DefinitionPopover.Card
+                        title="Sent as"
+                        value={<span className="text-xs font-mono">{_definition.id}</span>}
+                    />
+                </DefinitionPopover.Section>
+            </>
+        )
+    }
     if (isDataWarehouse) {
         const _definition = definition as DataWarehouseTableForInsight
         const columnOptions = Object.values(_definition.fields).map((column) => ({

@@ -213,6 +213,18 @@ export enum LicensePlan {
     Cloud = 'cloud',
 }
 
+export enum BillingPlan {
+    Free = 'free',
+    Paid = 'paid',
+    Teams = 'teams',
+    Enterprise = 'enterprise',
+}
+
+export enum StartupProgramLabel {
+    YC = 'YC',
+    Startup = 'Startup',
+}
+
 export enum Realm {
     Cloud = 'cloud',
     Demo = 'demo',
@@ -736,9 +748,9 @@ export enum SavedInsightsTabs {
 }
 
 export enum ReplayTabs {
-    Templates = 'templates',
     Home = 'home',
     Playlists = 'playlists',
+    Templates = 'templates',
     Settings = 'settings',
 }
 
@@ -798,6 +810,7 @@ export enum PropertyFilterType {
     Meta = 'meta',
     /** Event properties */
     Event = 'event',
+    EventMetadata = 'event_metadata',
     /** Person properties */
     Person = 'person',
     Element = 'element',
@@ -825,6 +838,11 @@ interface BasePropertyFilter {
 export interface EventPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Event
     /** @default 'exact' */
+    operator: PropertyOperator
+}
+
+export interface EventMetadataPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.EventMetadata
     operator: PropertyOperator
 }
 
@@ -895,6 +913,7 @@ export type AnyPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
+    | EventMetadataPropertyFilter
     | SessionPropertyFilter
     | CohortPropertyFilter
     | RecordingPropertyFilter
@@ -1815,6 +1834,8 @@ export interface BillingType {
         target: 'paid' | 'teams' | 'enterprise'
         expires_at: string
     }
+    billing_plan: BillingPlan | null
+    startup_program_label?: StartupProgramLabel | null
     account_owner?: {
         email?: string
         name?: string
@@ -3361,6 +3382,7 @@ export enum PropertyType {
 
 export enum PropertyDefinitionType {
     Event = 'event',
+    EventMetadata = 'event_metadata',
     Person = 'person',
     Group = 'group',
     Session = 'session',
@@ -3412,6 +3434,8 @@ export interface GroupType {
     group_type_index: GroupTypeIndex
     name_singular?: string | null
     name_plural?: string | null
+    detail_dashboard?: number | null
+    default_columns?: string[]
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
@@ -4872,6 +4896,7 @@ export type HogFunctionTypeType =
     | 'activity'
     | 'alert'
     | 'broadcast'
+    | 'automation'
 
 export type HogFunctionType = {
     id: string

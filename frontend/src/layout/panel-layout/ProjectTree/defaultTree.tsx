@@ -11,7 +11,6 @@ import {
     IconNotification,
     IconPeople,
     IconPlug,
-    IconRocket,
     IconServer,
     IconSparkles,
     IconTarget,
@@ -109,12 +108,6 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
             href: () => urls.eventDefinitions(),
         },
         {
-            path: 'Explore/Data management/Actions',
-            icon: <IconRocket />,
-            href: () => urls.actions(),
-        },
-
-        {
             path: 'Explore/Data management/Property Definitions',
             icon: <IconDatabase />,
             href: () => urls.propertyDefinitions(),
@@ -148,7 +141,7 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
         {
             path: 'Explore/Data warehouse',
             icon: <IconDatabase />,
-            href: () => urls.dataWarehouse(),
+            href: () => urls.sqlEditor(),
         },
         {
             path: 'Explore/People and groups/Cohorts',

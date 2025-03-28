@@ -1,24 +1,6 @@
-import {
-    IconAI,
-    IconBook,
-    IconChevronDown,
-    IconDatabase,
-    IconFeatures,
-    IconGraph,
-    IconHelmet,
-    IconMap,
-    IconMessage,
-    IconPieChart,
-    IconPlug,
-    IconRewindPlay,
-    IconStack,
-    IconTestTube,
-    IconToggle,
-} from '@posthog/icons'
+import { IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
-import { LemonCollapse } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -30,90 +12,19 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
+import { AvailableFeature, BillingPlanType, ProductKey, SidePanelTab } from '~/types'
 
-import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
-import { MaxChatInterface } from './sidePanelMaxChatInterface'
 import { sidePanelStatusLogic } from './sidePanelStatusLogic'
-const PRODUCTS = [
-    {
-        name: 'Product OS',
-        slug: 'product-os',
-        icon: <IconStack className="text-danger h-5 w-5" />,
-    },
-    {
-        name: 'Product analytics',
-        slug: 'product-analytics',
-        icon: <IconGraph className="text-[#2F80FA] h-5 w-5" />,
-    },
-    {
-        name: 'Web analytics',
-        slug: 'web-analytics',
-        icon: <IconPieChart className="text-[#36C46F] h-5 w-5" />,
-    },
-    {
-        name: 'Session replay',
-        slug: 'session-replay',
-        icon: <IconRewindPlay className="text-warning h-5 w-5" />,
-    },
-    {
-        name: 'Feature flags',
-        slug: 'feature-flags',
-        icon: <IconToggle className="text-[#30ABC6] h-5 w-5" />,
-    },
-    {
-        name: 'Experiments',
-        slug: 'experiments',
-        icon: <IconTestTube className="text-[#B62AD9] h-5 w-5" />,
-    },
-    {
-        name: 'Surveys',
-        slug: 'surveys',
-        icon: <IconMessage className="text-danger h-5 w-5" />,
-    },
-    {
-        name: 'Data pipelines',
-        slug: 'cdp',
-        icon: <IconPlug className="text-[#2EA2D3] h-5 w-5" />,
-    },
-    {
-        name: 'Data warehouse',
-        slug: 'data-warehouse',
-        icon: <IconDatabase className="text-[#8567FF] h-5 w-5" />,
-    },
-    {
-        name: 'AI engineering',
-        slug: 'ai-engineering',
-        icon: <IconAI className="text-[#681291] dark:text-[#C170E8] h-5 w-5" />,
-    },
-]
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
     return (
         <section className="mb-6">
-            {title === 'Explore the docs' ? (
-                <LemonCollapse
-                    panels={[
-                        {
-                            key: 'docs',
-                            header: (
-                                <div className="flex items-center gap-1.5">
-                                    <IconBook className="text-warning h-5 w-5" />
-                                    <span>{title}</span>
-                                </div>
-                            ),
-                            content: children,
-                        },
-                    ]}
-                />
-            ) : (
-                <>
-                    <h3>{title}</h3>
-                    {children}
-                </>
-            )}
+            <>
+                <h3>{title}</h3>
+                {children}
+            </>
         </section>
     )
 }
@@ -169,7 +80,7 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                         </div>
                     </div>
                     {/* If placing a support message, comment out (don't remove) the section below */}
-                    {supportPlans?.map((plan) => {
+                    {supportPlans?.map((plan: BillingPlanType) => {
                         // If they have an addon plan, only show the addon plan
                         const currentPlan =
                             plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
@@ -198,66 +109,26 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
 
 export const SidePanelSupport = (): JSX.Element => {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { preflight, isCloud } = useValues(preflightLogic)
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { status } = useValues(sidePanelStatusLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
-    const { openEmailForm, closeEmailForm, openMaxChatInterface, closeMaxChatInterface } = useActions(theLogic)
-    const { isEmailFormOpen, isMaxChatInterfaceOpen } = useValues(theLogic)
+    const { openEmailForm, closeEmailForm } = useActions(theLogic)
+    const { isEmailFormOpen } = useValues(theLogic)
 
     const region = preflight?.region
 
     return (
         <>
-            <div className="overflow-y-auto" data-attr="side-panel-support-container">
+            <div className="overflow-y-auto flex flex-col h-full" data-attr="side-panel-support-container">
                 <SidePanelPaneHeader title="Help" />
-                <div className="p-3 max-w-160 w-full mx-auto">
+                <div className="p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center">
                     {isEmailFormOpen ? (
                         <SupportFormBlock onCancel={() => closeEmailForm()} />
-                    ) : isMaxChatInterfaceOpen ? (
-                        <div className="deprecated-space-y-4">
-                            <MaxChatInterface />
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => closeMaxChatInterface()}
-                                fullWidth
-                                center
-                                className="mt-2"
-                            >
-                                End Chat
-                            </LemonButton>
-                        </div>
                     ) : (
                         <>
-                            <Section title="Search docs & community questions">
-                                <AlgoliaSearch />
-                            </Section>
-
-                            <Section title="Explore the docs">
-                                <ul className="border rounded divide-y bg-surface-primary dark:bg-transparent font-title font-medium">
-                                    {PRODUCTS.map((product, index) => (
-                                        <li key={index}>
-                                            <Link
-                                                to={`https://posthog.com/docs/${product.slug}`}
-                                                className="group flex items-center justify-between px-2 py-1.5"
-                                            >
-                                                <div className="flex items-center gap-1.5">
-                                                    {product.icon}
-                                                    <span className="text-text-3000 opacity-75 group-hover:opacity-100">
-                                                        {product.name}
-                                                    </span>
-                                                </div>
-                                                <div>
-                                                    <IconChevronDown className="text-text-3000 h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
-                                                </div>
-                                            </Link>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </Section>
-
                             {status !== 'operational' ? (
                                 <Section title="">
                                     <LemonBanner type={status.includes('outage') ? 'error' : 'warning'}>
@@ -280,37 +151,38 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </Section>
                             ) : null}
 
-                            {isCloud ? (
-                                <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
-                                    <Section title="Ask Max the Hedgehog">
-                                        <>
-                                            <p>
-                                                Max is PostHog's support AI who can answer support questions, help you
-                                                with troubleshooting, find info in our documentation, write HogQL
-                                                queries, regex expressions, etc.
-                                            </p>
-                                            <LemonButton
-                                                type="primary"
-                                                fullWidth
-                                                center
-                                                onClick={() => {
-                                                    openMaxChatInterface()
-                                                }}
-                                                targetBlank={false}
-                                                className="mt-2"
-                                            >
-                                                ✨ Chat with Max
-                                            </LemonButton>
-                                        </>
-                                    </Section>
-                                </FlaggedFeature>
+                            {isCloudOrDev ? (
+                                <Section title="Ask Max AI">
+                                    <div>
+                                        <p>Max AI can now answer 80%+ of the support questions we receive! Nice.</p>
+                                        <p>
+                                            Let Max read 100s of pages of docs for you, write SQL queries and
+                                            expressions, regex patterns, etc.
+                                        </p>
+                                        <LemonButton
+                                            type="primary"
+                                            fullWidth
+                                            center
+                                            onClick={() => {
+                                                openSidePanel(
+                                                    SidePanelTab.Docs,
+                                                    '/docs/new-to-posthog/understand-posthog?chat=open'
+                                                )
+                                            }}
+                                            targetBlank={false}
+                                            className="mt-2"
+                                        >
+                                            Chat with Max AI
+                                        </LemonButton>
+                                    </div>
+                                </Section>
                             ) : null}
 
-                            {isCloud ? (
+                            {isCloudOrDev ? (
                                 <Section title="Contact us">
-                                    <p>Can't find what you need in the docs?</p>
+                                    <p>Can't find what you need and Max unable to help?</p>
                                     <LemonButton
-                                        type="primary"
+                                        type="secondary"
                                         fullWidth
                                         center
                                         onClick={() => openEmailForm()}
@@ -325,9 +197,18 @@ export const SidePanelSupport = (): JSX.Element => {
                             <Section title="Ask the community">
                                 <p>
                                     Questions about features, how-tos, or use cases? There are thousands of discussions
-                                    in our community forums.{' '}
-                                    <Link to="https://posthog.com/questions">Ask a question</Link>
+                                    in our community forums.
                                 </p>
+                                <LemonButton
+                                    type="secondary"
+                                    fullWidth
+                                    center
+                                    to="https://posthog.com/questions"
+                                    targetBlank
+                                    className="mt-2"
+                                >
+                                    Ask the community
+                                </LemonButton>
                             </Section>
 
                             <Section title="Share feedback">

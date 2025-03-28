@@ -4,6 +4,7 @@ import datetime as dt
 import signal
 from concurrent.futures import ThreadPoolExecutor
 
+import structlog
 from django.conf import settings
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -11,6 +12,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.sentry import SentryInterceptor
+
+logger = structlog.get_logger(__name__)
 
 
 def _debug_pyarrows():
@@ -64,12 +67,16 @@ async def start_worker(
         max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
     )
 
-    # catch the TERM signal, and stop the worker gracefully
+    # catch the TERM and INT signals, and stop the worker gracefully
     # https://github.com/temporalio/sdk-python#worker-shutdown
-    async def shutdown_worker():
+    async def shutdown_worker(s: str):
+        logger.info("%s received, initiating Temporal worker shutdown", s)
         await worker.shutdown()
+        logger.info("Finished Temporal worker shutdown")
 
     loop = asyncio.get_event_loop()
-    loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(shutdown_worker()))
+    shutdown_tasks = set()
+    loop.add_signal_handler(signal.SIGINT, lambda: shutdown_tasks.add(asyncio.create_task(shutdown_worker("SIGINT"))))
+    loop.add_signal_handler(signal.SIGTERM, lambda: shutdown_tasks.add(asyncio.create_task(shutdown_worker("SIGTERM"))))
 
     await worker.run()
