@@ -215,7 +215,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                                         right=ast.Field(chain=["bin"]),
                                     ),
                                     ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Lt,
+                                        op=ast.CompareOperationOp.LtEq,
                                         left=ast.Call(
                                             name="dateDiff",
                                             args=[

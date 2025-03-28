@@ -1,3 +1,4 @@
+from datetime import timedelta
 from unittest import TestCase
 from freezegun import freeze_time
 
@@ -400,6 +401,65 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._calculate(assignee={"type": "user_group", "id": str(user_group.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
+
+    @freeze_time("2020-01-12")
+    @snapshot_clickhouse_queries
+    def test_volume_aggregation_simple(self):
+        results = self._calculate(
+            volumeResolution=3, dateRange=DateRange(date_from="2020-01-10", date_to="2020-01-11")
+        )["results"]
+        self.assertEqual(len(results), 3)
+
+        ## Make sure resolution is correct
+        for result in results:
+            aggregations = result["aggregations"]
+            self.assertEqual(len(aggregations["volumeDay"]), 3)
+            self.assertEqual(len(aggregations["volumeRange"]), 3)
+
+        ## Make sure occurences are correct
+        first_aggregations = results[0]["aggregations"]
+        self.assertEqual(first_aggregations["volumeDay"], [0, 0, 0])  # Should not appear in the last 24hours
+        self.assertEqual(first_aggregations["volumeRange"], [0, 1, 0])
+
+    @freeze_time("2025-05-05")
+    @snapshot_clickhouse_queries
+    def test_volume_aggregation_advanced(self):
+        issue_id = "e9ac529f-ac1c-4a96-bd3a-102334368d64"
+        issue_fingerprint = "fingerprint"
+        self.create_issue(issue_id, issue_fingerprint)
+        for ts in range(0, 24):
+            event_properties = {
+                "$exception_issue_id": issue_id,
+                "$exception_fingerprint": issue_fingerprint,
+                "$exception_list": [],
+            }
+            for distinct_id in range(0, 5):
+                event_ts = now() - timedelta(hours=ts)
+                _create_event(
+                    distinct_id=f"{issue_id}_{ts}_{distinct_id}",
+                    event="$exception",
+                    team=self.team,
+                    properties=event_properties,
+                    timestamp=event_ts,
+                )
+        flush_persons_and_events()
+
+        results = self._calculate(
+            volumeResolution=4, issueId=issue_id, dateRange=DateRange(date_from="2025-05-04", date_to="2025-05-06")
+        )["results"]
+        self.assertEqual(len(results), 1)
+
+        ## Make sure resolution is correct
+        for result in results:
+            aggregations = result["aggregations"]
+            self.assertEqual(len(aggregations["volumeDay"]), 4)
+            self.assertEqual(len(aggregations["volumeRange"]), 4)
+
+        ## Make sure occurences are correct
+        first_aggregations = results[0]["aggregations"]
+        self.assertEqual(sum(first_aggregations["volumeRange"]), 24 * 5)
+        self.assertEqual(first_aggregations["volumeRange"], [60, 60, 0, 0])
+        self.assertEqual(first_aggregations["volumeDay"], [30.0, 30.0, 30.0, 30.0])
 
 
 class TestSearchTokenizer(TestCase):
