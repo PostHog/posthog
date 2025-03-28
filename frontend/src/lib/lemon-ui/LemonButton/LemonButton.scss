@@ -67,7 +67,7 @@
     flex-shrink: 0;
     align-items: center;
     padding: 0;
-    font-family: var(--font-title);
+    font-family: var(--font-button);
     appearance: none !important; // Important as this gets overridden by Ant styles...
     cursor: pointer;
     user-select: none;
@@ -333,8 +333,19 @@
 
     &.LemonButton--tertiary {
         &:not([aria-disabled='true']):hover,
-        &.LemonButton--active {
-            background-color: var(--border-primary);
+        &[data-focused='true']:not([aria-disabled='true']):focus-visible {
+            background-color: var(--bg-fill-button-tertiary-hover);
+        }
+
+        &.LemonButton--active,
+        &[aria-expanded='true'] {
+            background-color: var(--bg-fill-button-tertiary-active);
+
+            // When inside a LemonButtonWithSideAction, we don't want the side button to have a background color (until hovered)
+            // This is because we changed the background color for tertiary to be based on a background color with opacity
+            .LemonButtonWithSideAction__side-button & {
+                background-color: transparent;
+            }
         }
 
         &.LemonButton--status-danger {

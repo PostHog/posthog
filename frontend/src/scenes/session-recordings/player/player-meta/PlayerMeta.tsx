@@ -24,24 +24,38 @@ import { Logo } from '~/toolbar/assets/Logo'
 import { playerMetaLogic } from './playerMetaLogic'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 
-function URLOrScreen({ url }: { url: string | undefined }): JSX.Element | null {
-    if (isObject(url) && 'href' in url) {
+export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isValidUrl: boolean } {
+    let urlToUse: string | undefined = typeof lastUrl === 'string' ? lastUrl : undefined
+    if (isObject(lastUrl)) {
         // regression protection, we saw a user whose site was sometimes sending the string-ified location object
         // this is a best-effort attempt to show the href in that case
-        url = url['href'] as string | undefined
+        // we've also seen lastUrl arrive as the empty object
+        const maybeHref = lastUrl?.href
+        if (typeof maybeHref === 'string') {
+            urlToUse = maybeHref
+        }
     }
 
-    if (!url) {
-        return null
+    if (!urlToUse || urlToUse.trim() === '') {
+        return { urlToUse: undefined, isValidUrl: false }
     }
 
-    // re-using the rrweb web schema means that this might be a mobile replay screen name
     let isValidUrl = false
     try {
-        new URL(url || '')
+        new URL(urlToUse)
         isValidUrl = true
     } catch (_e) {
         // no valid url
+    }
+
+    return { urlToUse, isValidUrl }
+}
+
+function URLOrScreen({ lastUrl }: { lastUrl: unknown }): JSX.Element | null {
+    const { urlToUse, isValidUrl } = parseUrl(lastUrl)
+
+    if (!urlToUse) {
+        return null
     }
 
     return (
@@ -50,17 +64,17 @@ function URLOrScreen({ url }: { url: string | undefined }): JSX.Element | null {
             <span className="flex flex-row items-center deprecated-space-x-1 truncate">
                 {isValidUrl ? (
                     <Tooltip title="Click to open url">
-                        <Link to={url} target="_blank" className="truncate">
-                            {url}
+                        <Link to={urlToUse} target="_blank" className="truncate">
+                            {urlToUse}
                         </Link>
                     </Tooltip>
                 ) : (
-                    url
+                    urlToUse
                 )}
                 <span className="flex items-center">
                     <CopyToClipboardInline
-                        description={url}
-                        explicitValue={url}
+                        description={urlToUse}
+                        explicitValue={urlToUse}
                         iconStyle={{ color: 'var(--text-secondary)' }}
                         selectable={true}
                     />
@@ -147,7 +161,8 @@ export function PlayerMeta(): JSX.Element {
             label: <IconWindow value={index + 1} className="text-secondary" />,
             labelInMenu: (
                 <div className="flex flex-row deprecated-space-x-1 space-between items-center">
-                    Follow window: <IconWindow value={index + 1} className="text-secondary" />
+                    Follow window:&nbsp;
+                    <IconWindow value={index + 1} className="text-secondary" />
                 </div>
             ),
             value: windowId,

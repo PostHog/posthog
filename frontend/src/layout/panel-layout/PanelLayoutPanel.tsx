@@ -30,21 +30,21 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
             >
                 <div className="flex justify-between p-1 bg-surface-tertiary">
                     <ProjectDropdownMenu />
-                    <div className="flex gap-1 items-center justify-end">
+                    <div className="flex gap-px items-center justify-end">
                         {!isMobileLayout && (
                             <LemonButton
                                 size="small"
                                 type="tertiary"
                                 tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
                                 onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
-                                className="hover:bg-fill-highlight-100 shrink-0"
+                                className="shrink-0"
                                 icon={
                                     isLayoutPanelPinned ? (
-                                        <IconWrapper>
+                                        <IconWrapper size="sm">
                                             <IconPinFilled />
                                         </IconWrapper>
                                     ) : (
-                                        <IconWrapper>
+                                        <IconWrapper size="sm">
                                             <IconPin />
                                         </IconWrapper>
                                     )

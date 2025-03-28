@@ -1,16 +1,16 @@
 import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
 
-import { IconExpand, IconGear } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTable, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { IconCopy, IconExpand45, IconGear } from '@posthog/icons'
+import { LemonButton, LemonModal, LemonTable, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
-import DataGrid, { CellClickArgs } from 'react-data-grid'
+import DataGrid from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
@@ -30,52 +30,7 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
-import { InfoTab } from './OutputPaneTabs/InfoTab'
-import { LineageTab } from './OutputPaneTabs/lineageTab'
-import { lineageTabLogic } from './OutputPaneTabs/lineageTabLogic'
-import TabScroller from './OutputPaneTabs/TabScroller'
-
-interface ExpandableCellProps {
-    value: any
-    columnName: string
-    isExpanded: boolean
-    onToggleExpand: () => void
-    hasManualWidth: boolean
-}
-
-export function ExpandableCell({
-    value,
-    columnName,
-    isExpanded,
-    onToggleExpand,
-    hasManualWidth,
-}: ExpandableCellProps): JSX.Element {
-    const [isHovered, setIsHovered] = useState(false)
-
-    return (
-        <div
-            className="relative w-full h-full flex items-center gap-1"
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-        >
-            <div className={clsx('flex-1 overflow-hidden', !isExpanded && 'text-ellipsis whitespace-nowrap')}>
-                {value}
-            </div>
-            {isHovered && !isExpanded && !hasManualWidth && (
-                <LemonButton
-                    className="rotate-90 shrink-0"
-                    size="xsmall"
-                    icon={<IconExpand />}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onToggleExpand()
-                    }}
-                    tooltip={`Expand ${columnName} column`}
-                />
-            )}
-        </div>
-    )
-}
+import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -85,23 +40,64 @@ interface RowDetailsModalProps {
 }
 
 function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps): JSX.Element {
+    const [showRawJson, setShowRawJson] = useState<Record<string, boolean>>({})
+
     if (!row) {
         return <></>
     }
 
-    const tableData = columns.map((column) => ({
-        column,
-        value:
-            row[column] === null ? (
-                <span className="text-muted">null</span>
-            ) : typeof row[column] === 'object' ? (
-                <pre className="whitespace-pre-wrap break-all m-0 font-mono">
-                    {JSON.stringify(row[column], null, 2)}
-                </pre>
-            ) : (
-                <span className="whitespace-pre-wrap break-all font-mono">{String(row[column])}</span>
-            ),
-    }))
+    const isJsonString = (str: string): boolean => {
+        try {
+            const parsed = JSON.parse(str)
+            return typeof parsed === 'object' && parsed !== null
+        } catch {
+            return false
+        }
+    }
+
+    const tableData = columns.map((column) => {
+        const value = row[column]
+        const isStringifiedJson = typeof value === 'string' && isJsonString(value)
+        const isJson = typeof value === 'object' || isStringifiedJson
+        const jsonValue = isStringifiedJson ? JSON.parse(value) : value
+
+        return {
+            column,
+            isJson,
+            rawValue:
+                value === null
+                    ? 'null'
+                    : typeof value === 'object' || isStringifiedJson
+                    ? JSON.stringify(value, null, 2)
+                    : String(value),
+            value:
+                value === null ? (
+                    <span className="text-muted">null</span>
+                ) : isJson ? (
+                    <div className="flex gap-2">
+                        <div className="flex-1">
+                            {showRawJson[column] ? (
+                                <pre className="whitespace-pre-wrap break-all m-0 font-mono">
+                                    {JSON.stringify(jsonValue, null, 2)}
+                                </pre>
+                            ) : (
+                                <JSONViewer src={jsonValue} name={null} collapsed={1} />
+                            )}
+                        </div>
+                        <div className="flex-shrink-0">
+                            <LemonButton
+                                size="small"
+                                onClick={() => setShowRawJson((prev) => ({ ...prev, [column]: !prev[column] }))}
+                            >
+                                {showRawJson[column] ? 'Show formatted' : 'Show raw'}
+                            </LemonButton>
+                        </div>
+                    </div>
+                ) : (
+                    <span className="whitespace-pre-wrap break-all font-mono">{String(value)}</span>
+                ),
+        }
+    })
 
     return (
         <LemonModal title="Row Details" isOpen={isOpen} onClose={onClose} width={800}>
@@ -118,6 +114,17 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                             title: 'Value',
                             dataIndex: 'value',
                             className: 'px-4',
+                            render: (_, record) => (
+                                <div className="flex items-center gap-2">
+                                    <div className="flex-1">{record.value}</div>
+                                    <LemonButton
+                                        size="small"
+                                        icon={<IconCopy />}
+                                        onClick={() => void copyToClipboard(record.rawValue, 'value')}
+                                        tooltip="Copy value"
+                                    />
+                                </div>
+                            ),
                         },
                     ]}
                 />
@@ -130,23 +137,46 @@ export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, editorKey, metadataLoading } = useValues(multitabEditorLogic)
+    const { sourceQuery, exportContext, editorKey } = useValues(multitabEditorLogic)
     const { saveAsInsight, setSourceQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
-    const { visualizationType, queryCancelled } = useValues(dataVisualizationLogic)
+    const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
+    const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null)
+
+    const setProgress = useCallback((loadId: string, progress: number) => {
+        setProgressCache((prev) => ({ ...prev, [loadId]: progress }))
+    }, [])
+
     const columns = useMemo(() => {
         const types = response?.types
 
-        return (
-            response?.columns?.map((column: string, index: number) => {
+        const baseColumns = [
+            {
+                key: '__details',
+                name: '',
+                minWidth: 30,
+                width: 30,
+                renderCell: ({ row }: { row: any }) => (
+                    <div className="hover-actions-cell flex justify-center items-center">
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconExpand45 />}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedRow(row)
+                            }}
+                        />
+                    </div>
+                ),
+            },
+            ...(response?.columns?.map((column: string, index: number) => {
                 const type = types?.[index]?.[1]
 
                 const maxContentLength = Math.max(
@@ -190,9 +220,11 @@ export function OutputPane(): JSX.Element {
                     ...baseColumn,
                     renderCell: (props: any) => props.row[column],
                 }
-            }) ?? []
-        )
-    }, [response])
+            }) ?? []),
+        ]
+
+        return baseColumns
+    }, [response, setSelectedRow])
 
     const rows = useMemo(() => {
         if (!response?.results) {
@@ -212,19 +244,9 @@ export function OutputPane(): JSX.Element {
         })
     }, [response])
 
-    const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null)
-
-    const handleRowClick = useCallback((args: CellClickArgs<any, any>) => {
-        setSelectedRow(args.row)
-    }, [])
-
-    const setProgress = useCallback((loadId: string, progress: number) => {
-        setProgressCache((prev) => ({ ...prev, [loadId]: progress }))
-    }, [])
-
     return (
-        <div className="flex flex-col w-full flex-1 bg-primary">
-            <div className="flex flex-row justify-between align-center py-2 px-4 w-full h-[55px]">
+        <div className="OutputPane flex flex-col w-full flex-1 bg-primary">
+            <div className="flex flex-row justify-between align-center py-2 px-4 w-full h-[50px] border-b">
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={(tab) => setActiveTab(tab as OutputTab)}
@@ -237,35 +259,11 @@ export function OutputPane(): JSX.Element {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
                         },
-                        ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
-                            ? [
-                                  {
-                                      key: OutputTab.Info,
-                                      label: (
-                                          <span className="flex flex-row items-center gap-2">
-                                              Info {metadataLoading ? <Spinner /> : null}
-                                          </span>
-                                      ),
-                                  },
-                                  {
-                                      key: OutputTab.Lineage,
-                                      label: (
-                                          <span className="flex flex-row items-center gap-2">
-                                              Lineage {metadataLoading ? <Spinner /> : null}
-                                          </span>
-                                      ),
-                                  },
-                              ]
-                            : []),
                     ]}
                 />
                 <div className="flex gap-2">
-                    {activeTab === OutputTab.Results && exportContext && (
+                    {activeTab === OutputTab.Results && exportContext && columns.length > 0 && (
                         <ExportButton
-                            disabledReason={
-                                visualizationType != ChartDisplayType.ActionsTable &&
-                                'Only table results are exportable'
-                            }
                             type="secondary"
                             items={[
                                 {
@@ -279,7 +277,7 @@ export function OutputPane(): JSX.Element {
                             ]}
                         />
                     )}
-                    {activeTab === OutputTab.Visualization && (
+                    {activeTab === OutputTab.Visualization && columns.length > 0 && (
                         <>
                             <div className="flex justify-between flex-wrap">
                                 <div className="flex items-center" />
@@ -305,29 +303,26 @@ export function OutputPane(): JSX.Element {
                 </div>
             </div>
             <div className="flex flex-1 relative bg-dark">
-                <BindLogic logic={lineageTabLogic} props={{ codeEditorKey: editorKey }}>
-                    <Content
-                        activeTab={activeTab}
-                        responseError={responseError}
-                        responseLoading={responseLoading}
-                        response={response}
-                        sourceQuery={sourceQuery}
-                        queryCancelled={queryCancelled}
-                        columns={columns}
-                        rows={rows}
-                        isDarkModeOn={isDarkModeOn}
-                        vizKey={vizKey}
-                        setSourceQuery={setSourceQuery}
-                        exportContext={exportContext}
-                        saveAsInsight={saveAsInsight}
-                        queryId={queryId}
-                        pollResponse={pollResponse}
-                        editorKey={editorKey}
-                        onRowClick={handleRowClick}
-                        setProgress={setProgress}
-                        progress={queryId ? progressCache[queryId] : undefined}
-                    />
-                </BindLogic>
+                <Content
+                    activeTab={activeTab}
+                    responseError={responseError}
+                    responseLoading={responseLoading}
+                    response={response}
+                    sourceQuery={sourceQuery}
+                    queryCancelled={queryCancelled}
+                    columns={columns}
+                    rows={rows}
+                    isDarkModeOn={isDarkModeOn}
+                    vizKey={vizKey}
+                    setSourceQuery={setSourceQuery}
+                    exportContext={exportContext}
+                    saveAsInsight={saveAsInsight}
+                    queryId={queryId}
+                    pollResponse={pollResponse}
+                    editorKey={editorKey}
+                    setProgress={setProgress}
+                    progress={queryId ? progressCache[queryId] : undefined}
+                />
             </div>
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText /> : <></>}</div>
@@ -428,8 +423,6 @@ const Content = ({
     saveAsInsight,
     queryId,
     pollResponse,
-    editorKey,
-    onRowClick,
     setProgress,
     progress,
 }: any): JSX.Element | null => {
@@ -466,7 +459,6 @@ const Content = ({
                     className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
                     columns={columns}
                     rows={rows}
-                    onCellClick={onRowClick}
                 />
             </TabScroller>
         )
@@ -486,7 +478,9 @@ const Content = ({
 
         return !response ? (
             <div className="flex flex-1 justify-center items-center">
-                <span className="text-secondary mt-3">Query results will be visualized here</span>
+                <span className="text-secondary mt-3">
+                    Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the query.
+                </span>
             </div>
         ) : (
             <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
@@ -502,14 +496,5 @@ const Content = ({
             </div>
         )
     }
-
-    if (activeTab === OutputTab.Info) {
-        return <InfoTab codeEditorKey={editorKey} />
-    }
-
-    if (activeTab === OutputTab.Lineage) {
-        return <LineageTab />
-    }
-
     return null
 }

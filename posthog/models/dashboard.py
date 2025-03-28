@@ -1,11 +1,17 @@
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.utils import sane_repr
+from django.db.models import QuerySet
 
 from posthog.utils import absolute_uri
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 
 class DashboardManager(models.Manager):
@@ -13,7 +19,7 @@ class DashboardManager(models.Manager):
         return super().get_queryset().exclude(deleted=True)
 
 
-class Dashboard(models.Model):
+class Dashboard(FileSystemSyncMixin, models.Model):
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
         TEMPLATE = (
@@ -93,6 +99,26 @@ class Dashboard(models.Model):
 
     def __str__(self):
         return self.name or str(self.id)
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Dashboard"]:
+        base_qs = cls.objects.filter(team=team, deleted=False).exclude(creation_mode="template")
+        return cls._filter_unfiled_queryset(base_qs, team, type="dashboard", ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        should_delete = self.deleted or (self.creation_mode == "template")
+        return FileSystemRepresentation(
+            base_folder="Unfiled/Dashboards",
+            type="dashboard",
+            ref=str(self.id),
+            name=self.name or "Untitled",
+            href=f"/dashboards/{self.id}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=should_delete,
+        )
 
     @property
     def is_sharing_enabled(self):

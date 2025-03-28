@@ -8,6 +8,7 @@ from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsFilter,
     AssistantFunnelsQuery,
+    AssistantRetentionEventsNode,
     AssistantRetentionFilter,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
@@ -369,7 +370,13 @@ class TestCompression(BaseTest):
 
         self.assertEqual(
             RetentionResultsFormatter(
-                AssistantRetentionQuery(retentionFilter=AssistantRetentionFilter()), results
+                AssistantRetentionQuery(
+                    retentionFilter=AssistantRetentionFilter(
+                        targetEntity=AssistantRetentionEventsNode(name="event"),
+                        returningEntity=AssistantRetentionEventsNode(name="event"),
+                    )
+                ),
+                results,
             ).format(),
             "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
             "Time interval: Day\n"
@@ -402,7 +409,13 @@ class TestCompression(BaseTest):
 
         self.assertEqual(
             RetentionResultsFormatter(
-                AssistantRetentionQuery(retentionFilter=AssistantRetentionFilter()), results
+                AssistantRetentionQuery(
+                    retentionFilter=AssistantRetentionFilter(
+                        targetEntity=AssistantRetentionEventsNode(name="event"),
+                        returningEntity=AssistantRetentionEventsNode(name="event"),
+                    )
+                ),
+                results,
             ).format(),
             "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
             "Time interval: Day\n"

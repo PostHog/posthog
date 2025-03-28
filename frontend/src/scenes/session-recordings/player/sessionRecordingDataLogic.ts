@@ -55,15 +55,61 @@ import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicT
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
-const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
+const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
 const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
 export const MUTATION_CHUNK_SIZE = 5000 // Maximum number of mutations per chunk
 
 let postHogEEModule: PostHogEE
 
+export interface ViewportResolution {
+    width: string
+    height: string
+    href: string
+}
+
 function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
+}
+
+export function patchMetaEventIntoWebData(
+    snapshots: RecordingSnapshot[],
+    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined
+): RecordingSnapshot[] {
+    // Iterate in reverse order so we can modify the array while iterating
+    for (let i = snapshots.length - 1; i >= 0; i--) {
+        const snapshot = snapshots[i]
+        if (snapshot.type !== EventType.FullSnapshot) {
+            continue
+        }
+
+        const previousEvent = snapshots[i - 1]
+        const previousEventIsMeta = previousEvent?.type === EventType.Meta
+        if (previousEventIsMeta) {
+            continue
+        }
+
+        const viewport = viewportForTimestamp(snapshot.timestamp)
+        const thereIsNoViewport = !viewport || !viewport.width || !viewport.height
+        if (thereIsNoViewport) {
+            posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
+                snapshot,
+            })
+        } else {
+            snapshots.splice(i, 0, {
+                type: EventType.Meta,
+                timestamp: snapshot.timestamp,
+                windowId: snapshot.windowId,
+                data: {
+                    width: parseInt(viewport.width, 10),
+                    height: parseInt(viewport.height, 10),
+                    href: viewport.href || 'unknown',
+                },
+            })
+        }
+    }
+
+    return snapshots
 }
 
 /*
@@ -576,7 +622,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (!response.sources) {
                         return []
                     }
-                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
+                    const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
+                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY] && anyBlobV2) {
                         return response.sources.filter((s) => s.source === SnapshotSourceType.blob_v2)
                     }
                     return response.sources.filter((s) => s.source !== SnapshotSourceType.blob_v2)
@@ -643,10 +690,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     const sessionEventsQuery = hogql`
-                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height
                             FROM events
-                            WHERE timestamp > ${start.subtract(BUFFER_MS, 'ms')}
-                              AND timestamp < ${end.add(BUFFER_MS, 'ms')}
+                            WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
+                              AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
                               AND $session_id = ${props.sessionRecordingId}
                               ORDER BY timestamp ASC
                         LIMIT 1000000
@@ -655,8 +702,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     let relatedEventsQuery = hogql`
                             SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
                             FROM events
-                            WHERE timestamp > ${start.subtract(BUFFER_MS, 'ms')}
-                              AND timestamp < ${end.add(BUFFER_MS, 'ms')}
+                            WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
+                              AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
                               AND (empty($session_id) OR isNull($session_id)) AND properties.$lib != 'web'
                         `
                     if (person?.uuid) {
@@ -704,6 +751,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                 pathname = undefined
                             }
 
+                            const viewportWidth = event.length > 7 ? event[7] : undefined
+                            const viewportHeight = event.length > 8 ? event[8] : undefined
+
                             return {
                                 id: event[0],
                                 event: event[1],
@@ -714,6 +764,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     $current_url: currentUrl,
                                     $event_type: event[6],
                                     $pathname: pathname,
+                                    $viewport_width: viewportWidth,
+                                    $viewport_height: viewportHeight,
                                 },
                                 playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,
@@ -977,7 +1029,53 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     )?.windowId
                 },
         ],
+        eventViewports: [
+            (s) => [s.sessionEventsData],
+            (sessionEventsData): (ViewportResolution & { timestamp: string | number })[] =>
+                (sessionEventsData || [])
+                    .filter((e) => e.properties.$viewport_width && e.properties.$viewport_height)
+                    .map((e) => ({
+                        width: e.properties.$viewport_width,
+                        height: e.properties.$viewport_height,
+                        href: e.properties.$current_url,
+                        timestamp: e.timestamp,
+                    })),
+        ],
+        viewportForTimestamp: [
+            (s) => [s.eventViewports],
+            (eventViewports) =>
+                (timestamp: number): ViewportResolution | undefined => {
+                    // we do this as a function because in most recordings we don't need the data so we don't need to run this every time
 
+                    // First try to find the first event after the timestamp that has viewport dimensions
+                    const nextEvent = eventViewports
+                        .filter((e) => dayjs(e.timestamp).isSameOrAfter(dayjs(timestamp)))
+                        .sort((a, b) => dayjs(a.timestamp).valueOf() - dayjs(b.timestamp).valueOf())[0]
+
+                    if (nextEvent) {
+                        return {
+                            width: nextEvent.width,
+                            height: nextEvent.height,
+                            href: nextEvent.href,
+                        }
+                    }
+
+                    // If no event after timestamp, find the closest event before it
+                    const previousEvent = eventViewports
+                        .filter((e) => dayjs(e.timestamp).isBefore(dayjs(timestamp)))
+                        .sort((a, b) => dayjs(b.timestamp).valueOf() - dayjs(a.timestamp).valueOf())[0] // Sort descending to get closest
+
+                    if (previousEvent) {
+                        return {
+                            width: previousEvent.width,
+                            height: previousEvent.height,
+                            href: previousEvent.href,
+                        }
+                    }
+
+                    return undefined
+                },
+        ],
         sessionPlayerData: [
             (s, p) => [
                 s.sessionPlayerMetaData,
@@ -1014,8 +1112,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshotsLoading: [
-            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading],
-            (snapshotSourcesLoading, snapshotsForSourceLoading): boolean => {
+            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.snapshots, s.featureFlags],
+            (
+                snapshotSourcesLoading: boolean,
+                snapshotsForSourceLoading: boolean,
+                snapshots: RecordingSnapshot[],
+                featureFlags: FeatureFlagsSet
+            ): boolean => {
+                // For v2 recordings, only show loading if we have no snapshots yet
+                if (featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
+                    return snapshots.length === 0
+                }
+
+                // Default behavior for non-v2 recordings
                 // if there's a realTimePollingTimeoutID, don't signal that we're loading
                 // we don't want the UI to flip to "loading" every time we poll
                 return !cache.realTimePollingTimeoutID && (snapshotSourcesLoading || snapshotsForSourceLoading)
@@ -1110,15 +1219,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshots: [
-            (s) => [s.snapshotSources, s.snapshotsBySource],
-            (sources, snapshotsBySource): RecordingSnapshot[] => {
+            (s) => [s.snapshotSources, s.snapshotsBySource, s.viewportForTimestamp],
+            (sources, snapshotsBySource, viewportForTimestamp): RecordingSnapshot[] => {
                 const allSnapshots =
                     sources?.flatMap((source) => {
                         const sourceKey = getSourceKey(source)
                         return snapshotsBySource?.[sourceKey]?.snapshots || []
                     }) ?? []
 
-                return deduplicateSnapshots(allSnapshots)
+                return patchMetaEventIntoWebData(deduplicateSnapshots(allSnapshots), viewportForTimestamp)
             },
         ],
 

@@ -148,7 +148,8 @@ class PipelineNonDLT:
                 pa_memory_pool.release_unused()
                 gc.collect()
 
-                self._shutdown_monitor.raise_if_is_worker_shutdown()
+                if self._is_incremental:
+                    self._shutdown_monitor.raise_if_is_worker_shutdown()
 
             if len(buffer) > 0:
                 py_table = table_from_py_list(buffer)

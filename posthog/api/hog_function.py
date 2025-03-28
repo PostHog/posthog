@@ -1,5 +1,6 @@
 import json
 from typing import Optional, cast
+from common.hogvm.python.execute import validate_bytecode
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_filters import BaseInFilter, CharFilter, FilterSet
@@ -42,6 +43,11 @@ from posthog.models.hog_functions.hog_function import (
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 from django.conf import settings
+
+# Maximum size of HOG code as a string in bytes (100KB)
+MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
+# Maximum number of transformation functions per team
+MAX_TRANSFORMATIONS_PER_TEAM = 20
 
 logger = structlog.get_logger(__name__)
 
@@ -235,11 +241,39 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             self.context.get("view") and self.context["view"].action == "create"
         )
 
+        # Check for transformation limit per team when the function will be enabled
+        # We allow unlimited creation of disabled transformations as they don't run during ingestion
+        if hog_type == "transformation" and attrs.get("enabled", False):
+            # Don't apply the limit for updates where the function was already enabled
+            apply_limit = is_create or (isinstance(self.instance, HogFunction) and not self.instance.enabled)
+
+            if apply_limit:
+                # Count enabled and non-deleted transformations
+                transformation_count = HogFunction.objects.filter(
+                    team=team, type="transformation", deleted=False, enabled=True
+                ).count()
+
+                if transformation_count >= MAX_TRANSFORMATIONS_PER_TEAM:
+                    raise serializers.ValidationError(
+                        {
+                            "type": f"Maximum of {MAX_TRANSFORMATIONS_PER_TEAM} enabled transformation functions allowed per team. Please contact support if you need this limit increased, or disable some existing transformations."
+                        }
+                    )
+
         if attrs.get("mappings", None) is not None:
             if hog_type not in ["site_destination", "destination"]:
                 raise serializers.ValidationError({"mappings": "Mappings are only allowed for destinations."})
 
         if "hog" in attrs:
+            # First check the raw code size before trying to compile/transpile it
+            hog_code_size = len(attrs["hog"].encode("utf-8"))
+            if hog_code_size > MAX_HOG_CODE_SIZE_BYTES:
+                raise serializers.ValidationError(
+                    {
+                        "hog": f"HOG code exceeds maximum size of {MAX_HOG_CODE_SIZE_BYTES // 1024}KB. Please simplify your code or contact support if you need this limit increased."
+                    }
+                )
+
             if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                 try:
                     # Validate transpilation using the model instance
@@ -257,6 +291,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             else:
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
                 attrs["transpiled"] = None
+
+                # Test execution to catch memory/execution exceptions only for transformations
+                if hog_type == "transformation":
+                    is_valid, error_message = validate_bytecode(attrs["bytecode"], attrs.get("inputs", {}))
+                    if not is_valid:
+                        raise serializers.ValidationError({"hog": error_message})
 
         if is_create:
             if not attrs.get("hog"):

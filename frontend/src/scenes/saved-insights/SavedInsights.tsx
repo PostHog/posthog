@@ -187,6 +187,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: false,
     },
+    [NodeKind.GroupsQuery]: {
+        name: 'Groups',
+        description: 'List and explore groups.',
+        icon: IconPerson,
+        inMenu: false,
+    },
     [NodeKind.DataTableNode]: {
         name: 'Data table',
         description: 'Slice and dice your data in a table.',
@@ -373,6 +379,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
+    [NodeKind.ExperimentFunnelMetricConfig]: {
+        name: 'Experiment Funnel Metric Config',
+        description: 'Configuration for experiment funnel metrics.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentFunnelStepConfig]: {
+        name: 'Experiment Funnel Step Config',
+        description: 'Configuration for experiment funnel steps.',
+        icon: IconFlask,
+        inMenu: false,
+    },
     [NodeKind.TeamTaxonomyQuery]: {
         name: 'Team Taxonomy',
         icon: IconHogQL,
@@ -397,6 +415,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.TracesQuery]: {
         name: 'LLM Observability Traces',
         icon: IconAI,
+        inMenu: false,
+    },
+    [NodeKind.VectorSearchQuery]: {
+        name: 'Vector Search',
+        icon: IconHogQL,
         inMenu: false,
     },
 }
