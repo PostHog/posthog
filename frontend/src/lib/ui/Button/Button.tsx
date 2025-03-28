@@ -424,6 +424,8 @@ interface ButtonIconProps extends VariantProps<typeof iconVariants> {
     className?: string
     isTriggerLeft?: boolean
     isTriggerRight?: boolean
+    onClick?: React.MouseEventHandler
+    onKeyDown?: React.KeyboardEventHandler
 }
 
 function ButtonIconComponent<E extends ElementType = 'span'>(
