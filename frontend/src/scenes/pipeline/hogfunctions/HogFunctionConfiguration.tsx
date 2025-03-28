@@ -206,7 +206,7 @@ export function HogFunctionConfiguration({
     const showOverview = !(displayOptions.hideOverview ?? false)
     const showFilters =
         displayOptions.showFilters ??
-        (['destination', 'internal_destination', 'site_destination', 'broadcast'].includes(type) ||
+        (['destination', 'internal_destination', 'site_destination', 'broadcast', 'campaign'].includes(type) ||
             (type === 'transformation' && showTransformationFilters))
     const showExpectedVolume =
         displayOptions.showExpectedVolume ??
@@ -215,9 +215,15 @@ export function HogFunctionConfiguration({
         displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
     const showEnabled =
         displayOptions.showEnabled ??
-        ['destination', 'internal_destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(
-            type
-        )
+        [
+            'destination',
+            'internal_destination',
+            'email',
+            'campaign',
+            'site_destination',
+            'site_app',
+            'transformation',
+        ].includes(type)
     const canEditSource =
         displayOptions.canEditSource ??
         // Never allow editing for legacy plugins
@@ -227,7 +233,7 @@ export function HogFunctionConfiguration({
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
         displayOptions.showTesting ??
-        ['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type)
+        ['destination', 'internal_destination', 'transformation', 'broadcast', 'campaign', 'email'].includes(type)
 
     const showLeftPanel = showOverview || showExpectedVolume || showPersonsCount || showFilters
 
@@ -561,8 +567,8 @@ export function HogFunctionConfiguration({
                                                 <div>
                                                     <strong>Please note:</strong> Clicking the button above will
                                                     synchronously send to all the e-mails. While this is fine for
-                                                    testing with small lists, please don't use this for production
-                                                    usecases yet.
+                                                    testing with small lists, please don't use this for production use
+                                                    cases yet.
                                                 </div>
                                             </div>
                                         }

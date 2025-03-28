@@ -177,14 +177,14 @@ export class CdpApi {
                 },
             }
 
-            if (['destination', 'internal_destination', 'broadcast'].includes(compoundConfiguration.type)) {
+            if (['destination', 'internal_destination', 'broadcast', 'campaign'].includes(compoundConfiguration.type)) {
                 const {
                     invocations,
                     logs: filterLogs,
                     metrics: filterMetrics,
                 } = this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
 
-                if (compoundConfiguration?.type === 'broadcast') {
+                if (['broadcast', 'campaign'].includes(compoundConfiguration?.type ?? '')) {
                     // Preload any import-able functions for the team
                     await this.hogFunctionManager.loadProviderFunctionsForTeam(parseInt(team_id))
                 }
