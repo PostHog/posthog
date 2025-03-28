@@ -1,7 +1,7 @@
 import { LemonColorGlyph, LemonInput, LemonLabel, Popover } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { DataColorToken } from 'lib/colors'
-import { useState } from 'react'
+import { cloneElement, useState } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { LemonColorButton } from './LemonColorButton'
@@ -11,6 +11,7 @@ type LemonColorPickerBaseProps = {
     showCustomColor?: boolean
     hideDropdown?: boolean
     preventPopoverClose?: boolean
+    customButton?: JSX.Element
 }
 
 type LemonColorPickerColorProps = LemonColorPickerBaseProps & {
@@ -102,7 +103,11 @@ export const LemonColorPickerOverlay = ({
     )
 }
 
-export const LemonColorPicker = ({ hideDropdown = false, ...props }: LemonColorPickerProps): JSX.Element => {
+export const LemonColorPicker = ({
+    hideDropdown = false,
+    customButton,
+    ...props
+}: LemonColorPickerProps): JSX.Element => {
     const [isOpen, setIsOpen] = useState(false)
 
     return (
@@ -112,14 +117,20 @@ export const LemonColorPicker = ({ hideDropdown = false, ...props }: LemonColorP
             onClickOutside={() => setIsOpen(false)}
         >
             <div className="relative">
-                <LemonColorButton
-                    type="secondary"
-                    {...(props.selectedColor !== undefined
-                        ? { color: props.selectedColor }
-                        : { colorToken: props.selectedColorToken, themeId: props.themeId })}
-                    onClick={() => setIsOpen(!isOpen)}
-                    sideIcon={hideDropdown ? null : undefined}
-                />
+                {customButton ? (
+                    cloneElement(customButton, {
+                        onClick: () => setIsOpen(!isOpen),
+                    })
+                ) : (
+                    <LemonColorButton
+                        type="secondary"
+                        {...(props.selectedColor !== undefined
+                            ? { color: props.selectedColor }
+                            : { colorToken: props.selectedColorToken, themeId: props.themeId })}
+                        onClick={() => setIsOpen(!isOpen)}
+                        sideIcon={hideDropdown ? null : undefined}
+                    />
+                )}
             </div>
         </Popover>
     )

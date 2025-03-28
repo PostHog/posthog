@@ -1,5 +1,5 @@
 import { LemonModal } from '@posthog/lemon-ui'
-import { LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { DataColorToken } from 'lib/colors'
@@ -26,24 +26,6 @@ export function DashboardInsightColorsModal(): JSX.Element {
 
     const columns: LemonTableColumns<{ breakdownValue: string; colorToken: DataColorToken | null }> = [
         {
-            title: 'Color',
-            key: 'color',
-            render: (_, { breakdownValue, colorToken }) => {
-                return (
-                    <LemonColorPicker
-                        selectedColorToken={colorToken}
-                        onSelectColorToken={(colorToken) => {
-                            if (dashboardMode !== DashboardMode.Edit) {
-                                setDashboardMode(DashboardMode.Edit, null)
-                            }
-
-                            setBreakdownColor(breakdownValue, colorToken)
-                        }}
-                    />
-                )
-            },
-        },
-        {
             title: 'Breakdown',
             key: 'breakdown_value',
             // width: 0,
@@ -59,6 +41,27 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 const formattedLabel = stringWithWBR(breakdownLabel, 20)
 
                 return <span>{formattedLabel}</span>
+            },
+        },
+        {
+            title: 'Color',
+            key: 'color',
+            render: (_, { breakdownValue, colorToken }) => {
+                return (
+                    <LemonColorPicker
+                        selectedColorToken={colorToken}
+                        onSelectColorToken={(colorToken) => {
+                            if (dashboardMode !== DashboardMode.Edit) {
+                                setDashboardMode(DashboardMode.Edit, null)
+                            }
+
+                            setBreakdownColor(breakdownValue, colorToken)
+                        }}
+                        customButton={
+                            colorToken === null ? <LemonButton type="tertiary">Customize color</LemonButton> : undefined
+                        }
+                    />
+                )
             },
         },
     ]
