@@ -49,7 +49,7 @@ class HogFunctionType(models.TextChoices):
 
 
 # These types are also used by the FileSystem. Keep them unique when adding new ones.
-ALL_POSSIBLE_TYPES = list(HogFunctionType.__members__.values())
+ALL_POSSIBLE_TYPES = [str(x) for x in HogFunctionType.__members__.values()]
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.DESTINATION,
