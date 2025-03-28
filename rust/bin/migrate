@@ -1,4 +1,36 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
-sqlx database create
-sqlx migrate run
+set -euo pipefail
+
+#
+# This boostraps the databases and tables that are *not* explicitly owned
+# by the Django monolith. Includes "cyclotron" and "propdefs" add more for
+# new services that depend on their own isolated Postgres instance in
+# production
+#
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+
+# we'll be setting this on the fly for databases that are isolated in production
+# and must be manually migrated outside of the Django monolith for local dev use
+
+# note: for local dev, remember to set your $DATABASE_URL to one of the below
+# when making changes to property-defs-rs or cyclotron-* packages where
+# you want to interact "live" with the DB in your dev loop. You should use
+# the *test migration script* to update SQLX query caches and prime the
+# `cargo test` suites (see posthog/rust README for details)
+DB_URL="postgres://posthog:posthog@localhost:5432"
+CYCLOTRON_DB="$DB_URL/cyclotron"
+PROPDEFS_DB="$DB_URL/propdefs"
+
+# cyclotron points to it's own DB instance in production, and therefore has its own
+# DB namespace in local dev too.
+sqlx database create -D "$CYCLOTRON_DB"
+sqlx migrate run -D "$CYCLOTRON_DB" --source "$SCRIPT_DIR/../rust/cyclotron-core/migrations"
+
+# temporary: since the "old" propdefs tables still live in the Django-owned PG instance, but new
+# "v2" propdefs DB will be isolated and schemas will diverge. here, we create a mirror of the tables
+# in their own namespace in the (shared) Docker Compose local dev DB to simulate this.
+sqlx database create -D "$PROPDEFS_DB"
+sqlx migrate run -D "$PROPDEFS_DB" --source "$SCRIPT_DIR/../rust/property-defs-rs/tests/test_migrations"
+
