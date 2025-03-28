@@ -24,7 +24,10 @@ import { FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab, PipelineStage } from '~/types'
 
 export function iconForType(type?: string): JSX.Element {
-    if (type && type in fileSystemTypes && fileSystemTypes[type as keyof typeof fileSystemTypes].icon) {
+    if (!type) {
+        return <IconBook />
+    }
+    if (type in fileSystemTypes && fileSystemTypes[type as keyof typeof fileSystemTypes].icon) {
         return fileSystemTypes[type as keyof typeof fileSystemTypes].icon
     }
     switch (type) {
@@ -38,17 +41,12 @@ export function iconForType(type?: string): JSX.Element {
             return <IconMessage />
         case 'sql':
             return <IconServer />
-        case 'site_app':
-            return <IconPlug />
-        case 'destination':
-            return <IconPlug />
-        case 'transformation':
-            return <IconPlug />
-        case 'source':
-            return <IconPlug />
         case 'folder':
             return <IconChevronRight />
         default:
+            if (type.startsWith('hog/')) {
+                return <IconPlug />
+            }
             return <IconBook />
     }
 }

@@ -12,7 +12,7 @@ from sentry_sdk import get_traceparent, push_scope, set_tag
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import get_api_personal_rate_limiter
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries, clear_tag
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -630,7 +630,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             refresh_requested=refresh_requested,
-            api_query_personal_key=self.query_endpoint_with_personal_key(),
+            is_query_service=self.is_query_service,
         )
 
     def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
@@ -721,9 +721,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Nothing useful out of cache, nor async query status
         return None
 
-    def query_endpoint_with_personal_key(self):
-        return self.is_query_service and get_query_tag_value("access_method") == "personal_api_key"
-
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -779,12 +776,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers.useMaterializedViews = True
 
         with get_api_personal_rate_limiter().run(
-            is_api=self.query_endpoint_with_personal_key(), team_id=self.team.pk, task_id=self.query_id
+            is_api=self.is_query_service, team_id=self.team.pk, task_id=self.query_id
         ):
-            if self.query_endpoint_with_personal_key():
-                tag_queries(qaas=True)
-            else:
-                clear_tag("qaas")
+            if self.is_query_service:
+                tag_queries(chargeable=1)
 
             fresh_response_dict = {
                 **self.calculate().model_dump(),
