@@ -126,18 +126,19 @@ export function ExperimentMetricForm({
                 )}
             </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
-            {metric.metric_type === ExperimentMetricType.MEAN && metric.source.type !== 'data_warehouse' && (
-                <Query
-                    query={{
-                        kind: NodeKind.InsightVizNode,
-                        source: metricToQuery(metric, filterTestAccounts),
-                        showTable: false,
-                        showLastComputation: true,
-                        showLastComputationRefresh: false,
-                    }}
-                    readOnly
-                />
-            )}
+            {metric.metric_type === ExperimentMetricType.MEAN &&
+                metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && (
+                    <Query
+                        query={{
+                            kind: NodeKind.InsightVizNode,
+                            source: metricToQuery(metric, filterTestAccounts),
+                            showTable: false,
+                            showLastComputation: true,
+                            showLastComputationRefresh: false,
+                        }}
+                        readOnly
+                    />
+                )}
             {metric.metric_type === ExperimentMetricType.FUNNEL && (
                 <Query
                     query={{

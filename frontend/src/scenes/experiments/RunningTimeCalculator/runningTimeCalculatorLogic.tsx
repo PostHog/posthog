@@ -35,41 +35,39 @@ export enum ConversionRateInputType {
 }
 
 const getKindField = (metric: ExperimentMetric): NodeKind => {
-    switch (metric.metric_type) {
-        case ExperimentMetricType.MEAN:
-            switch (metric.source.type) {
-                case 'event':
-                    return NodeKind.EventsNode
-                case 'action':
-                    return NodeKind.ActionsNode
-                case 'data_warehouse':
-                    return NodeKind.DataWarehouseNode
-                default:
-                    throw new Error(`Unknown metric source: ${metric.source}`)
-            }
-        case ExperimentMetricType.FUNNEL:
-            return NodeKind.FunnelsQuery
-        default:
-            throw new Error(`Unknown metric type: ${metric}`)
+    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        return NodeKind.FunnelsQuery
     }
+
+    if (metric.metric_type === ExperimentMetricType.MEAN) {
+        const { kind } = metric.source
+        // For most sources, we can return the kind directly
+        if ([NodeKind.EventsNode, NodeKind.ActionsNode, NodeKind.ExperimentDataWarehouseNode].includes(kind)) {
+            return kind
+        }
+    }
+
+    return NodeKind.EventsNode
 }
 
-const getEventField = (metric: ExperimentMetric): string | number => {
-    switch (metric.metric_type) {
-        case ExperimentMetricType.MEAN:
-            switch (metric.source.type) {
-                case 'data_warehouse':
-                    return metric.source.table_name
-                case 'event':
-                    return metric.source.event
-                case 'action':
-                    return metric.source.action
-                default:
-                    throw new Error(`Unknown metric source: ${metric.source}`)
-            }
-        case ExperimentMetricType.FUNNEL:
-            return metric.steps[0].event
+const getEventField = (metric: ExperimentMetric): string | number | null | undefined => {
+    if (metric.metric_type === ExperimentMetricType.MEAN) {
+        const { source } = metric
+        return source.kind === NodeKind.ExperimentDataWarehouseNode
+            ? source.table_name
+            : source.kind === NodeKind.EventsNode
+            ? source.event
+            : source.kind === NodeKind.ActionsNode
+            ? source.id
+            : null
     }
+
+    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        const step = metric.series[0]
+        return step.kind === NodeKind.EventsNode ? step.event : step.kind === NodeKind.ActionsNode ? step.id : null
+    }
+
+    return null
 }
 
 const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
@@ -112,7 +110,7 @@ const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQu
                 math: PropertyMathType.Sum,
                 math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
                 ...(metric.metric_type === ExperimentMetricType.MEAN && {
-                    math_property: metric.math_property,
+                    math_property: metric.source.math_property,
                 }),
             },
         ],
@@ -208,10 +206,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 const query =
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                         ? getTotalCountQuery(metric, values.experiment)
                         : metric.metric_type === ExperimentMetricType.MEAN &&
-                          metric.math === ExperimentMetricMathType.Sum
+                          metric.source.math === ExperimentMetricMathType.Sum
                         ? getSumQuery(metric, values.experiment)
                         : getFunnelQuery(metric, values.experiment)
 
@@ -220,10 +218,11 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 return {
                     uniqueUsers: result?.results?.[0]?.count ?? null,
                     ...(metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                         ? { averageEventsPerUser: result?.results?.[1]?.count ?? null }
                         : {}),
-                    ...(metric.metric_type === ExperimentMetricType.MEAN && metric.math === ExperimentMetricMathType.Sum
+                    ...(metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.source.math === ExperimentMetricMathType.Sum
                         ? { averagePropertyValuePerUser: result?.results?.[1]?.count ?? null }
                         : {}),
                     ...(metric.metric_type === ExperimentMetricType.FUNNEL
@@ -275,12 +274,12 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                 ) {
                     return VARIANCE_SCALING_FACTOR_TOTAL_COUNT * averageEventsPerUser
                 } else if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.math === ExperimentMetricMathType.Sum
+                    metric.source.math === ExperimentMetricMathType.Sum
                 ) {
                     return VARIANCE_SCALING_FACTOR_SUM * averagePropertyValuePerUser ** 2
                 }
@@ -326,7 +325,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                 ) {
                     /*
                         Count Per User Metric:
@@ -353,7 +352,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     sampleSizeFormula = (16 * variance) / d ** 2
                 } else if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.math === ExperimentMetricMathType.Sum
+                    metric.source.math === ExperimentMetricMathType.Sum
                 ) {
                     /*
                         Continuous property metric:

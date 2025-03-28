@@ -27,11 +27,11 @@ describe('runningTimeCalculatorLogic', () => {
                         kind: NodeKind.ExperimentMetric,
                         metric_type: ExperimentMetricType.MEAN,
                         source: {
-                            type: 'event',
+                            kind: NodeKind.EventsNode,
                             event: 'experiment created',
+                            math: ExperimentMetricMathType.TotalCount,
                         },
-                        math: ExperimentMetricMathType.TotalCount,
-                    } as ExperimentMetric,
+                    },
                 ],
                 feature_flag: {
                     filters: {
@@ -81,11 +81,11 @@ describe('runningTimeCalculatorLogic', () => {
                         kind: NodeKind.ExperimentMetric,
                         metric_type: ExperimentMetricType.MEAN,
                         source: {
-                            type: 'event',
+                            kind: NodeKind.EventsNode,
                             event: 'experiment created',
+                            math: ExperimentMetricMathType.Sum,
                         },
-                        math: ExperimentMetricMathType.Sum,
-                    } as ExperimentMetric,
+                    },
                 ],
                 feature_flag: {
                     filters: {

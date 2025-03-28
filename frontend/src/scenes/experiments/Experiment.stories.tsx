@@ -2216,12 +2216,12 @@ const EXPERIMENT_QUERY_RESULT_WITH_ASYMMETRIC_INTERVALS: CachedExperimentQueryRe
     metric: {
         kind: NodeKind.ExperimentMetric,
         source: {
-            type: 'event',
+            kind: NodeKind.EventsNode,
             event: 'experiment created',
+            math: ExperimentMetricMathType.TotalCount,
+            math_hogql: undefined,
+            math_property: undefined,
         },
-        math: ExperimentMetricMathType.TotalCount,
-        math_hogql: undefined,
-        math_property: undefined,
         metric_type: ExperimentMetricType.MEAN,
         name: 'Experiments created',
     },

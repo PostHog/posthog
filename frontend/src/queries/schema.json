@@ -8019,7 +8019,10 @@
                     "type": "string"
                 },
                 "series": {
-                    "$ref": "#/definitions/ExperimentFunnelMetricStep"
+                    "items": {
+                        "$ref": "#/definitions/ExperimentFunnelMetricStep"
+                    },
+                    "type": "array"
                 },
                 "time_window_hours": {
                     "type": "number"
@@ -8029,17 +8032,14 @@
             "type": "object"
         },
         "ExperimentFunnelMetricStep": {
-            "items": {
-                "anyOf": [
-                    {
-                        "$ref": "#/definitions/EventsNode"
-                    },
-                    {
-                        "$ref": "#/definitions/ActionsNode"
-                    }
-                ]
-            },
-            "type": "array"
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                }
+            ]
         },
         "ExperimentFunnelMetricTypeProps": {
             "additionalProperties": false,
@@ -8049,7 +8049,10 @@
                     "type": "string"
                 },
                 "series": {
-                    "$ref": "#/definitions/ExperimentFunnelMetricStep"
+                    "items": {
+                        "$ref": "#/definitions/ExperimentFunnelMetricStep"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["metric_type", "series"],

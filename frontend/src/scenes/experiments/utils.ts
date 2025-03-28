@@ -1,6 +1,7 @@
 import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { objectClean } from 'lib/utils'
 import merge from 'lodash.merge'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -8,8 +9,8 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import {
     ActionsNode,
     AnyEntityNode,
-    EventsNode,
     DataWarehouseExperimentNode,
+    EventsNode,
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentFunnelMetricStep,
@@ -513,10 +514,15 @@ export function filterToMetricTypeProps(
 
         return {
             metric_type: ExperimentMetricType.FUNNEL,
-            series: events.map((event) => ({
-                kind: NodeKind.EventsNode,
-                ...event,
-            })),
+            series: events.map(
+                (event) =>
+                    objectClean({
+                        kind: NodeKind.EventsNode,
+                        event: event.event,
+                        name: event.name,
+                        properties: event.properties,
+                    }) as EventsNode
+            ),
         }
     }
 
@@ -528,10 +534,15 @@ export function filterToMetricTypeProps(
         const event = events[0]
         return {
             metric_type: ExperimentMetricType.MEAN,
-            source: {
+            source: objectClean({
                 kind: NodeKind.EventsNode,
-                ...event,
-            },
+                event: event.event,
+                name: event.name,
+                properties: event.properties,
+                math: event.math,
+                math_property: event.math_property,
+                math_hogql: event.math_hogql,
+            }) as EventsNode,
         }
     }
 
@@ -543,11 +554,15 @@ export function filterToMetricTypeProps(
         const action = actions[0]
         return {
             metric_type: ExperimentMetricType.MEAN,
-            source: {
+            source: objectClean({
                 kind: NodeKind.ActionsNode,
                 id: action.id,
-                ...action,
-            },
+                name: action.name,
+                properties: action.properties,
+                math: action.math,
+                math_property: action.math_property,
+                math_hogql: action.math_hogql,
+            }) as ActionsNode,
         }
     }
 
@@ -559,13 +574,16 @@ export function filterToMetricTypeProps(
         const dataWarehouseNode = data_warehouse[0]
         return {
             metric_type: ExperimentMetricType.MEAN,
-            source: {
+            source: objectClean({
                 kind: NodeKind.ExperimentDataWarehouseNode,
                 table_name: dataWarehouseNode.table_name,
                 timestamp_field: dataWarehouseNode.timestamp_field,
                 events_join_key: dataWarehouseNode.events_join_key,
                 data_warehouse_join_key: dataWarehouseNode.data_warehouse_join_key,
-            },
+                math: dataWarehouseNode.math,
+                math_property: dataWarehouseNode.math_property,
+                math_hogql: dataWarehouseNode.math_hogql,
+            }) as DataWarehouseExperimentNode,
         }
     }
 

@@ -82,7 +82,7 @@
             "kind": "ExperimentMetric",
             "metric_type": "mean",
             "source": {
-                "type": "event",
+                "kind": "EventsNode",
                 "event": "storybook-click"
             }
         }
