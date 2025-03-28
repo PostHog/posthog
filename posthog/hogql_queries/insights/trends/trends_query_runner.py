@@ -6,6 +6,8 @@ from operator import itemgetter
 from typing import Any, Optional, Union
 
 from django.conf import settings
+from django.db import models
+from django.db.models.functions import Coalesce
 from natsort import natsorted, ns
 
 from posthog.caching.insights_api import (
@@ -86,6 +88,14 @@ class TrendsQueryRunner(QueryRunner):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
     ):
+        from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
+
+        if isinstance(query, dict):
+            query = TrendsQuery.model_validate(query)
+
+        # Use the new function to handle WAU/MAU conversions
+        query = convert_active_user_math_based_on_interval(query)
+
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.update_hogql_modifiers()
         self.series = self.setup_series()
@@ -978,12 +988,16 @@ class TrendsQueryRunner(QueryRunner):
     ) -> str:
         try:
             return (
-                PropertyDefinition.objects.get(
+                PropertyDefinition.objects.alias(
+                    effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+                )
+                .get(
+                    effective_project_id=self.team.project_id,  # type: ignore
                     name=field,
-                    team=self.team,
                     type=field_type,
                     group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
-                ).property_type
+                )
+                .property_type
                 or "String"
             )
         except PropertyDefinition.DoesNotExist:

@@ -49,7 +49,7 @@ impl FeatureFlag {
 }
 
 impl FeatureFlagList {
-    /// Returns feature flags from redis given a team_id
+    /// Returns feature flags from redis given a project_id
     #[instrument(skip_all)]
     pub async fn from_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
@@ -70,7 +70,7 @@ impl FeatureFlagList {
         Ok(FeatureFlagList { flags: flags_list })
     }
 
-    /// Returns feature flags from postgres given a team_id
+    /// Returns feature flags from postgres given a project_id
     #[instrument(skip_all)]
     pub async fn from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
@@ -95,6 +95,7 @@ impl FeatureFlagList {
               JOIN posthog_team AS t ON (f.team_id = t.id)
             WHERE t.project_id = $1
               AND f.deleted = false
+              AND f.active = true
         "#;
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
             .bind(project_id)
@@ -110,7 +111,7 @@ impl FeatureFlagList {
             .map(|row| {
                 let filters = serde_json::from_value(row.filters).map_err(|e| {
                     tracing::error!("Failed to deserialize filters for flag {}: {}", row.key, e);
-                    FlagError::RedisDataParsingError
+                    FlagError::DeserializeFiltersError
                 })?;
 
                 Ok(FeatureFlag {
@@ -1009,12 +1010,9 @@ mod tests {
             .await
             .expect("Failed to fetch flags from Postgres");
 
-        assert_eq!(pg_flags.flags.len(), 1);
+        assert_eq!(pg_flags.flags.len(), 0);
         assert!(!pg_flags.flags.iter().any(|f| f.deleted)); // no deleted flags
-        assert!(pg_flags
-            .flags
-            .iter()
-            .any(|f| f.key == "inactive_flag" && !f.active)); // only inactive flag is left
+        assert!(!pg_flags.flags.iter().any(|f| f.active)); // no inactive flags
     }
 
     #[tokio::test]

@@ -169,8 +169,14 @@ class HedgeboxMatrix(Matrix):
         )
         team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
         team.revenue_tracking_config = {
-            "baseCurrency": "USD",
-            "events": [{"eventName": EVENT_PAID_BILL, "revenueProperty": "amount_usd"}],
+            "baseCurrency": "EUR",
+            "events": [
+                {
+                    "eventName": EVENT_PAID_BILL,
+                    "revenueProperty": "amount_usd",
+                    "revenueCurrencyProperty": {"static": "USD"},
+                }
+            ],
             "dataWarehouseTables": [],
         }
 

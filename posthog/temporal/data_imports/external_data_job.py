@@ -44,6 +44,9 @@ Any_Source_Errors: list[str] = [
 ]
 
 Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
+    ExternalDataSource.Type.BIGQUERY: [
+        "PermissionDenied: 403 request failed",
+    ],
     ExternalDataSource.Type.STRIPE: [
         "401 Client Error: Unauthorized for url: https://api.stripe.com",
         "403 Client Error: Forbidden for url: https://api.stripe.com",
@@ -78,8 +81,9 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "This account has been marked for decommission",
         "404 Not Found",
         "Your free trial has ended",
+        "Your account is suspended due to lack of payment method",
     ],
-    ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url"],
+    ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
     ExternalDataSource.Type.HUBSPOT: ["missing or invalid refresh token"],
 }
 
@@ -268,9 +272,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             timeout_params = (
-                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=1)}
+                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=3)}
                 if incremental
-                else {"start_to_close_timeout": dt.timedelta(hours=12), "retry_policy": RetryPolicy(maximum_attempts=3)}
+                else {"start_to_close_timeout": dt.timedelta(hours=12), "retry_policy": RetryPolicy(maximum_attempts=1)}
             )
 
             await workflow.execute_activity(

@@ -110,6 +110,8 @@ export enum NodeKind {
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
+    ExperimentFunnelMetricConfig = 'ExperimentFunnelMetricConfig',
+    ExperimentFunnelStepConfig = 'ExperimentFunnelStepConfig',
     ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
     ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
@@ -842,6 +844,11 @@ interface DataTableNodeViewProps {
     showResultsTable?: boolean
     /** Uses the embedded version of LemonTable */
     embedded?: boolean
+    /** Context for the table, used by components like ColumnConfigurator */
+    context?: {
+        type: 'event_definition' | 'team_columns'
+        eventDefinitionId?: string
+    }
 }
 
 // Saved insight node
@@ -1149,6 +1156,8 @@ export interface RetentionResult {
     label: string
     /** @format date-time */
     date: string
+    /** Optional breakdown value for retention cohorts */
+    breakdown_value?: string | number | null
 }
 
 export interface RetentionQueryResponse extends AnalyticsQueryResponseBase<RetentionResult[]> {}
@@ -1159,6 +1168,8 @@ export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse
     kind: NodeKind.RetentionQuery
     /** Properties specific to the retention insight */
     retentionFilter: RetentionFilter
+    /** Breakdown of the events and actions */
+    breakdownFilter?: BreakdownFilter
 }
 
 export type PathsLink = {
@@ -1289,7 +1300,6 @@ export type LifecycleFilter = {
 }
 
 export type RefreshType =
-    | boolean
     | 'async'
     | 'async_except_on_cache_miss'
     | 'blocking'
@@ -1959,8 +1969,29 @@ export interface ExperimentMetric {
     name?: string
     metric_type: ExperimentMetricType
     inverse?: boolean
-    metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
+    metric_config:
+        | ExperimentEventMetricConfig
+        | ExperimentActionMetricConfig
+        | ExperimentDataWarehouseMetricConfig
+        | ExperimentFunnelMetricConfig
     time_window_hours?: number
+}
+
+export interface ExperimentFunnelStepConfig {
+    kind: NodeKind.ExperimentFunnelStepConfig
+    event: string
+    name?: string
+    order: integer
+    properties?: AnyPropertyFilter[]
+}
+
+export interface ExperimentFunnelMetricConfig {
+    kind: NodeKind.ExperimentFunnelMetricConfig
+    funnel: ExperimentFunnelStepConfig[]
+    // NOTE: Just to make the type system happy
+    math?: ExperimentMetricMathType
+    math_hogql?: string
+    math_property?: string
 }
 
 export interface ExperimentEventMetricConfig {
@@ -2765,6 +2796,7 @@ export interface RevenueTrackingEventItem {
 
 export interface RevenueTrackingDataWarehouseTable {
     tableName: string
+    distinctIdColumn: string
     timestampColumn: string
     revenueColumn: string
 

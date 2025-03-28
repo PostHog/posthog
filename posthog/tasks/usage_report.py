@@ -10,6 +10,7 @@ from typing import Any, Literal, Optional, TypedDict, Union
 
 import requests
 import structlog
+import logging
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
@@ -51,6 +52,7 @@ from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbo
 
 
 logger = structlog.get_logger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class Period(TypedDict):
@@ -116,9 +118,9 @@ class UsageReportCounters:
     query_api_rows_read: int
     query_api_duration_ms: int
 
-    # QaaS usage
-    qaas_query_count: int
-    qaas_bytes_read: int
+    # API Queries usage
+    api_queries_query_count: int
+    api_queries_bytes_read: int
 
     # Event Explorer
     event_explorer_app_bytes_read: int
@@ -315,17 +317,13 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     from ee.billing.billing_types import BillingStatus
     from ee.settings import BILLING_SERVICE_URL
 
-    logger.info(f"[Send Usage Report To Billing] Sending Usage Report to billing for organization: {org_id}")
-
     try:
         license = get_cached_instance_license()
         if not license or not license.is_v2_license:
-            logger.info(f"[Send Usage Report To Billing] No license found for organization: {org_id}")
             return
 
         organization = Organization.objects.get(id=org_id)
         if not organization:
-            logger.info(f"[Send Usage Report To Billing] No organization found for organization: {org_id}")
             return
 
         token = build_billing_token(license, organization)
@@ -334,13 +332,10 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
             headers["Authorization"] = f"Bearer {token}"
 
         response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers, timeout=30)
-        logger.info(f"[Send Usage Report To Billing] Usage response: {response.status_code}")
         if response.status_code != 200:
             raise Exception(
                 f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
             )
-
-        logger.info(f"[Send Usage Report To Billing] Usage Report sent to Billing for organization: {org_id}")
 
         response_data: BillingStatus = response.json()
         BillingManager(license).update_org_details(organization, response_data)
@@ -582,7 +577,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_qaas_metrics(
+def get_teams_with_api_queries_metrics(
     begin: datetime,
     end: datetime,
 ) -> dict[str, list[tuple[int, int]]]:
@@ -595,10 +590,10 @@ def get_teams_with_qaas_metrics(
         AND is_initial_query
         AND event_time between %(begin)s AND %(end)s
         AND team_id > 0
-        AND JSONExtractBool(log_comment, 'qaas')
+        AND JSONExtractBool(log_comment, 'chargeable')
         GROUP BY team_id
     """
-    with tags_context(usage_report="get_teams_with_qaas_metrics"):
+    with tags_context(usage_report="get_teams_with_api_queries_metrics"):
         results = sync_execute(
             query,
             {
@@ -845,10 +840,9 @@ def get_teams_with_recording_bytes_in_period(
     return result
 
 
+@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def capture_report(
     *,
-    pha_client: PostHogClient,
-    capture_event_name: str,
     organization_id: Optional[str] = None,
     full_report_dict: dict[str, Any],
     at_date: Optional[str] = None,
@@ -856,21 +850,21 @@ def capture_report(
     if not organization_id:
         raise ValueError("Organization_id must be provided")
     try:
+        pha_client = get_ph_client(sync_mode=True)
         capture_event(
             pha_client=pha_client,
-            name=capture_event_name,
+            name="organization usage report",
             organization_id=organization_id,
             properties=full_report_dict,
             timestamp=at_date,
         )
-        logger.info(f"UsageReport sent to PostHog for organization {organization_id}")
     except Exception as err:
         logger.exception(
             f"UsageReport sent to PostHog for organization {organization_id} failed: {str(err)}",
         )
         capture_event(
             pha_client=pha_client,
-            name=f"{capture_event_name} failure",
+            name="organization usage report failure",
             organization_id=organization_id,
             properties={"error": str(err)},
         )
@@ -911,7 +905,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     """
 
     all_metrics = get_all_event_metrics_in_period(period_start, period_end)
-    qaas_usage = get_teams_with_qaas_metrics(period_start, period_end)
+    api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
 
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
@@ -1039,8 +1033,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             metric="query_duration_ms",
             access_method="personal_api_key",
         ),
-        "teams_with_qaas_count": qaas_usage["count"],
-        "teams_with_qaas_read_bytes": qaas_usage["read_bytes"],
+        "teams_with_api_queries_count": api_queries_usage["count"],
+        "teams_with_api_queries_read_bytes": api_queries_usage["read_bytes"],
         "teams_with_event_explorer_app_bytes_read": get_teams_with_query_metric(
             period_start,
             period_end,
@@ -1163,8 +1157,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         query_api_bytes_read=all_data["teams_with_query_api_bytes_read"].get(team.id, 0),
         query_api_rows_read=all_data["teams_with_query_api_rows_read"].get(team.id, 0),
         query_api_duration_ms=all_data["teams_with_query_api_duration_ms"].get(team.id, 0),
-        qaas_query_count=all_data["teams_with_qaas_count"].get(team.id, 0),
-        qaas_bytes_read=all_data["teams_with_qaas_read_bytes"].get(team.id, 0),
+        api_queries_query_count=all_data["teams_with_api_queries_count"].get(team.id, 0),
+        api_queries_bytes_read=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
         event_explorer_app_bytes_read=all_data["teams_with_event_explorer_app_bytes_read"].get(team.id, 0),
         event_explorer_app_rows_read=all_data["teams_with_event_explorer_app_rows_read"].get(team.id, 0),
         event_explorer_app_duration_ms=all_data["teams_with_event_explorer_app_duration_ms"].get(team.id, 0),
@@ -1231,27 +1225,26 @@ def _add_team_report_to_org_reports(
 
 
 def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[str, OrgReport]:
-    logger.info("Getting all usage data...")  # noqa T201
-    time_now = datetime.now()
+    logger.info("Querying all org reports", period_start=period_start, period_end=period_end)
+
     all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
 
-    logger.debug(f"Getting all usage data took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
+    logger.info("Querying all teams")
 
-    logger.info("Getting teams for usage reports...")  # noqa T201
-    time_now = datetime.now()
     teams = _get_teams_for_usage_reports()
-    logger.debug(f"Getting teams for usage reports took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
+
+    logger.info("Querying all teams complete", teams_count=len(teams))
 
     org_reports: dict[str, OrgReport] = {}
 
-    logger.info("Generating reports for teams...")  # noqa T201
-    time_now = datetime.now()
+    logger.info("Generating org reports")
+
     for team in teams:
         team_report = _get_team_report(all_data, team)
         _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
 
-    time_since = datetime.now() - time_now
-    logger.debug(f"Generating reports for teams took {time_since.total_seconds()} seconds.")  # noqa T201
+    logger.info("Generating org reports complete", org_reports_count=len(org_reports))
+
     return org_reports
 
 
@@ -1267,8 +1260,6 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
 
 
 def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[str, Any]) -> None:
-    logger.info(f"Sending usage report for organization {organization_id}")  # noqa T201
-
     json_data = json.dumps(
         {"organization_id": organization_id, "usage_report": full_report_dict}, separators=(",", ":")
     )
@@ -1283,7 +1274,7 @@ def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[st
     response = producer.send_message(message_body=compressed_b64, message_attributes=message_attributes)
 
     if not response:
-        logger.error(f"Failed to send usage report for organization {organization_id}")
+        logger.exception(f"Failed to send usage report for organization {organization_id}")
 
     return
 
@@ -1292,9 +1283,7 @@ def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[st
 def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
-    capture_event_name: Optional[str] = None,
     skip_capture_event: bool = False,
-    only_organization_id: Optional[str] = None,
 ) -> None:
     import posthoganalytics
     from sentry_sdk import capture_message
@@ -1319,88 +1308,81 @@ def send_all_org_usage_reports(
     except Exception:
         pass
 
-    try:
-        pha_client = get_ph_client(sync_mode=True)
+    pha_client = get_ph_client(sync_mode=True)
 
-        org_reports = _get_all_org_reports(period_start, period_end)
-        total_orgs = len(org_reports)
-        total_orgs_sent = 0
+    logger.info("Querying usage report data")
+    query_time_start = datetime.now()
 
-        time_now = datetime.now()
-        logger.info("Sending usage reports to PostHog and Billing...")  # noqa T201
+    org_reports = _get_all_org_reports(period_start, period_end)
 
-        pha_client.capture(
-            "internal_billing_events",
-            "organization usage report starting",
-            {
-                "total_orgs": total_orgs,
-                "region": get_instance_region(),
-            },
-            groups={"instance": settings.SITE_URL},
-        )
+    query_time_duration = (datetime.now() - query_time_start).total_seconds()
+    logger.info(f"Found {len(org_reports)} org reports. It took {query_time_duration} seconds.")
 
-        logger.info(f"Starting to process {total_orgs} organizations")  # noqa T201
-        org_count = 0
+    total_orgs = len(org_reports)
+    total_orgs_sent = 0
 
-        for org_report in org_reports.values():
-            try:
-                org_count += 1
-                organization_id = org_report.organization_id
+    logger.info("Sending usage reports to billing")
+    queue_time_start = datetime.now()
 
-                if only_organization_id and only_organization_id != organization_id:
-                    logger.info(
-                        f"Skipping organization {organization_id} as it doesn't match only_organization_id={only_organization_id}"
-                    )  # noqa T201
-                    continue
+    pha_client.capture(
+        "internal_billing_events",
+        "usage reports starting",
+        {
+            "total_orgs": total_orgs,
+            "region": get_instance_region(),
+        },
+        groups={"instance": settings.SITE_URL},
+    )
 
-                full_report = _get_full_org_usage_report(org_report, instance_metadata)
-                full_report_dict = _get_full_org_usage_report_as_dict(full_report)
+    for org_report in org_reports.values():
+        try:
+            organization_id = org_report.organization_id
 
-                if dry_run:
-                    logger.info(f"Dry run, skipping sending for organization {organization_id}")  # noqa T201
-                    continue
+            full_report = _get_full_org_usage_report(org_report, instance_metadata)
+            full_report_dict = _get_full_org_usage_report_as_dict(full_report)
 
-                # First capture the events to PostHog
-                if not skip_capture_event:
+            if dry_run:
+                logger.info(f"Dry run, skipping sending for organization {organization_id}")
+                continue
+
+            # First capture the events to PostHog
+            if not skip_capture_event:
+                try:
                     at_date_str = at_date.isoformat() if at_date else None
-                    capture_report(
-                        pha_client=pha_client,
-                        capture_event_name=capture_event_name or "organization usage report",
+                    capture_report.delay(
                         organization_id=organization_id,
                         full_report_dict=full_report_dict,
                         at_date=at_date_str,
                     )
+                except Exception as capture_err:
+                    logger.exception(f"Failed to capture report for organization {organization_id}", error=capture_err)
 
-                # Then send the reports to billing through SQS (only if the producer is available)
-                if has_non_zero_usage(full_report) and producer:
-                    try:
-                        logger.info(f"Queueing report for organization {organization_id}")  # noqa T201
-                        _queue_report(producer, organization_id, full_report_dict)
-                        total_orgs_sent += 1
-                    except Exception as err:
-                        logger.exception(f"Failed to send usage report for organization {organization_id}", error=err)
-                        capture_exception(err)
-            except Exception as loop_err:
-                logger.exception(f"Unexpected error processing organization {organization_id}", error=loop_err)  # noqa T201
-                capture_exception(loop_err)
+            # Then send the reports to billing through SQS (only if the producer is available)
+            if has_non_zero_usage(full_report) and producer:
+                try:
+                    _queue_report(producer, organization_id, full_report_dict)
+                    total_orgs_sent += 1
+                except Exception as err:
+                    logger.exception(f"Failed to queue report for organization {organization_id}", error=err)
 
-        time_since = datetime.now() - time_now
-        logger.info(
-            f"Finished processing all {total_orgs} organizations. Sent reports for {total_orgs_sent} organizations and it took {time_since.total_seconds()} seconds."
-        )  # noqa T201
+        except Exception as loop_err:
+            logger.exception(f"Failed to process organization {organization_id}", error=loop_err)
 
-        pha_client.capture(
-            "internal_billing_events",
-            "organization usage report complete",
-            {
-                "total_orgs": total_orgs,
-                "total_orgs_sent": total_orgs_sent,
-                "total_time": time_since.total_seconds(),
-                "region": get_instance_region(),
-            },
-            groups={"instance": settings.SITE_URL},
-        )
+    queue_time_duration = (datetime.now() - queue_time_start).total_seconds()
+    pha_client.capture(
+        "internal_billing_events",
+        "usage reports complete",
+        {
+            "total_orgs": total_orgs,
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+            "total_orgs_sent": total_orgs_sent,
+            "query_time": query_time_duration,
+            "queue_time": queue_time_duration,
+            "total_time": query_time_duration + queue_time_duration,
+            "region": get_instance_region(),
+        },
+        groups={"instance": settings.SITE_URL},
+    )
 
-    except Exception as err:
-        capture_exception(err)
-        raise
+    logger.info(f"Usage reports complete. Total orgs: {total_orgs}, total orgs sent: {total_orgs_sent}.")

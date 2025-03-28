@@ -35,6 +35,7 @@ from posthog.schema import (
     ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
     ExperimentEventMetricConfig,
+    ExperimentFunnelMetricConfig,
     ExperimentMetricMathType,
     ExperimentMetricType,
     ExperimentQueryResponse,
@@ -44,6 +45,7 @@ from posthog.schema import (
     ExperimentVariantTrendsBaseStats,
     DateRange,
     IntervalType,
+    ExperimentFunnelStepConfig,
 )
 from typing import Optional, cast
 from datetime import datetime, timedelta, UTC
@@ -62,7 +64,6 @@ class ExperimentQueryRunner(QueryRunner):
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
-        self.feature_flag_property = f"$feature/{self.feature_flag.key}"
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
@@ -188,67 +189,62 @@ class ExperimentQueryRunner(QueryRunner):
             first_exposure_time
         """
 
-        # Common criteria for all exposure queries
-        common_exposure_criteria: ast.Expr = ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self.date_range_query.date_from()),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self.date_range_query.date_to()),
-                ),
-                *self._get_test_accounts_filter(),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["properties", self.feature_flag_property]),
-                    right=ast.Constant(value=self.variants),
-                ),
-            ]
-        )
-
         exposure_config = (
             self.experiment.exposure_criteria.get("exposure_config") if self.experiment.exposure_criteria else None
         )
+
+        if exposure_config and exposure_config.get("event") != "$feature_flag_called":
+            # For custom exposure events, we extract the event name from the exposure config
+            # and get the variant from the $feature/<key> property
+            feature_flag_variant_property = f"$feature/{self.feature_flag.key}"
+            event = exposure_config.get("event")
+        else:
+            # For the default $feature_flag_called event, we need to get the variant from $feature_flag_response
+            feature_flag_variant_property = "$feature_flag_response"
+            event = "$feature_flag_called"
+
+        # Common criteria for all exposure queries
+        exposure_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=self.date_range_query.date_from()),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=self.date_range_query.date_to()),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=event),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["properties", feature_flag_variant_property]),
+                right=ast.Constant(value=self.variants),
+            ),
+            *self._get_test_accounts_filter(),
+        ]
+
+        # Custom exposures can have additional properties to narrow the audience
         if exposure_config and exposure_config.get("kind") == "ExperimentEventExposureConfig":
-            event_name = exposure_config.get("event")
             exposure_property_filters: list[ast.Expr] = []
+
             if exposure_config.get("properties"):
                 for property in exposure_config.get("properties"):
                     exposure_property_filters.append(property_to_expr(property, self.team))
-            exposure_event_criteria = ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=event_name),
-                    ),
-                    *exposure_property_filters,
-                ]
-            )
-        else:
-            # The default $feature_flag_called event exposure event criteria
-            exposure_event_criteria = ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value="$feature_flag_called"),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["properties", "$feature_flag"]),
-                        right=ast.Constant(value=self.feature_flag.key),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["properties", "$feature_flag_response"]),
-                        right=ast.Constant(value=self.variants),
-                    ),
-                ]
+            exposure_conditions.append(ast.And(exprs=exposure_property_filters))
+
+        # For the $feature_flag_called events, we need an additional filter to ensure the event is for the correct feature flag
+        if event == "$feature_flag_called":
+            exposure_conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["properties", "$feature_flag"]),
+                    right=ast.Constant(value=self.feature_flag.key),
+                ),
             )
 
         exposure_query_select: list[ast.Expr] = [
@@ -256,9 +252,9 @@ class ExperimentQueryRunner(QueryRunner):
             ast.Alias(
                 alias="variant",
                 expr=parse_expr(
-                    "if(count(distinct {feature_flag_property}) > 1, {multiple_variant_key}, any({feature_flag_property}))",
+                    "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
                     placeholders={
-                        "feature_flag_property": ast.Field(chain=["properties", self.feature_flag_property]),
+                        "variant_property": ast.Field(chain=["properties", feature_flag_variant_property]),
                         "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                     },
                 ),
@@ -289,14 +285,34 @@ class ExperimentQueryRunner(QueryRunner):
         return ast.SelectQuery(
             select=exposure_query_select,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(
-                exprs=[
-                    common_exposure_criteria,
-                    exposure_event_criteria,
-                ]
-            ),
+            where=ast.And(exprs=exposure_conditions),
             group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
+
+    def _funnel_step_to_filter(self, funnel_step: ExperimentFunnelStepConfig) -> ast.Expr:
+        """
+        Returns the filter for a single funnel step.
+        """
+
+        event_filter: ast.Expr = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["event"]),
+            right=ast.Constant(value=funnel_step.event),
+        )
+
+        if funnel_step.properties:
+            event_properties = ast.And(
+                exprs=[property_to_expr(property, self.team) for property in funnel_step.properties]
+            )
+            event_filter = ast.And(exprs=[event_filter, event_properties])
+
+        return event_filter
+
+    def _funnel_steps_to_filter(self, funnel_steps: list[ExperimentFunnelStepConfig]) -> ast.Expr:
+        """
+        Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
+        """
+        return ast.Or(exprs=[self._funnel_step_to_filter(funnel_step) for funnel_step in funnel_steps])
 
     def _get_metric_events_query(self, exposure_query: ast.SelectQuery) -> ast.SelectQuery:
         """
@@ -399,10 +415,66 @@ class ExperimentQueryRunner(QueryRunner):
                             *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
                             event_filter,
                             *self._get_test_accounts_filter(),
-                            *self._get_metric_property_filters(),
                         ],
                     ),
                 )
+
+            case ExperimentFunnelMetricConfig() as metric_config:
+                return ast.SelectQuery(
+                    select=[
+                        ast.Field(chain=["events", "timestamp"]),
+                        ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", "person_id"])),
+                        ast.Field(chain=["exposure_data", "variant"]),
+                        ast.Field(chain=["events", "event"]),
+                    ],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["events"]),
+                        next_join=ast.JoinExpr(
+                            table=exposure_query,
+                            join_type="INNER JOIN",
+                            alias="exposure_data",
+                            constraint=ast.JoinConstraint(
+                                expr=ast.CompareOperation(
+                                    left=ast.Field(chain=["events", "person_id"]),
+                                    right=ast.Field(chain=["exposure_data", "entity_id"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                ),
+                                constraint_type="ON",
+                            ),
+                        ),
+                    ),
+                    where=ast.And(
+                        exprs=[
+                            *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
+                            *self._get_test_accounts_filter(),
+                            self._funnel_steps_to_filter(metric_config.funnel),
+                        ],
+                    ),
+                )
+
+            case _:
+                raise ValueError(f"Unsupported metric config: {self.metric.metric_config}")
+
+    def _funnel_steps_to_window_funnel_expr(self, funnel_config: ExperimentFunnelMetricConfig) -> ast.Expr:
+        """
+        Returns the expression for the window funnel. The expression returns 1 if the user completed the whole funnel, 0 if they didn't.
+        """
+        # TODO: get conversion time window from funnel config
+        num_steps = len(funnel_config.funnel)
+        conversion_time_window = 6048000000000000
+        funnel_steps_str = ", ".join(
+            [
+                f"event = {ast.Constant(value=step.event).to_hogql()}"
+                for step in sorted(funnel_config.funnel, key=lambda x: x.order)
+            ]
+        )
+        return parse_expr(
+            f"windowFunnel({conversion_time_window})(toDateTime(timestamp), {funnel_steps_str}) = {num_steps}",
+            placeholders={
+                "conversion_time_window": ast.Constant(value=conversion_time_window),
+                "num_steps": ast.Constant(value=num_steps),
+            },
+        )
 
     def _get_metrics_aggregated_per_entity_query(
         self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
@@ -417,10 +489,10 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["exposures", "variant"]),
                 ast.Field(chain=["exposures", "entity_id"]),
                 ast.Alias(
-                    expr=parse_expr("if(any(metric_events.value), 1, 0)"),
+                    expr=self._funnel_steps_to_window_funnel_expr(self.metric.metric_config),
                     alias="value",
                 )
-                if self.metric.metric_type == ExperimentMetricType.FUNNEL
+                if self.metric.metric_config.kind == "ExperimentFunnelMetricConfig"
                 else parse_expr("sum(coalesce(toFloat(metric_events.value), 0)) as value"),
             ],
             select_from=ast.JoinExpr(

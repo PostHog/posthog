@@ -21,6 +21,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.models.error_tracking import ErrorTrackingIssueAssignment
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
@@ -31,9 +32,10 @@ logger = structlog.get_logger(__name__)
 class NotificationSetting(Enum):
     WEEKLY_PROJECT_DIGEST = "weekly_project_digest"
     PLUGIN_DISABLED = "plugin_disabled"
+    ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
 
 
-NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled"]
+NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled", "error_tracking_issue_assigned"]
 
 
 def send_message_to_all_staff_users(message: EmailMessage) -> None:
@@ -96,6 +98,9 @@ def should_send_notification(
 
     elif notification_type == NotificationSetting.PLUGIN_DISABLED.value:
         return not settings.get("plugin_disabled", True)  # Default to True (disabled) if not set
+
+    elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
+        return settings.get("error_tracking_issue_assigned", True)  # Default to True (enabled) if not set
 
     # The below typeerror is ignored because we're currently handling the notification
     # types above, so technically it's unreachable. However if another is added but
@@ -433,3 +438,44 @@ def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_c
         if not have_ingested:
             users.extend(organization.members.all())
     return users
+
+
+def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment, assigner: User) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    team = assignment.issue.team
+    memberships_to_email = get_members_to_notify(team, NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value)
+    if not memberships_to_email:
+        return
+
+    # Filter the memberships list to only include users assigned
+    if assignment.user:
+        memberships_to_email = [
+            membership
+            for membership in memberships_to_email
+            if (membership.user == assignment.user and membership.user != assigner)
+        ]
+    elif assignment.user_group:
+        group_users = assignment.user_group.members.all()
+        memberships_to_email = [
+            membership
+            for membership in memberships_to_email
+            if (membership.user in group_users and membership.user != assigner)
+        ]
+
+    campaign_key: str = f"error_tracking_issue_assigned_{assignment.id}_updated_at_{assignment.created_at.timestamp()}"
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"[Issue]: {assignment.issue.name} assigned to you in project '{team}'",
+        template_name="error_tracking_issue_assigned",
+        template_context={
+            "assigner": assigner,
+            "assignment": assignment,
+            "team": team,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+    message.send(send_async=False)

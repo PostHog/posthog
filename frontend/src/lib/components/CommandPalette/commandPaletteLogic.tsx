@@ -478,7 +478,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconHogQL,
-                        display: 'Create a new HogQL insight',
+                        display: 'Create a new SQL insight',
                         synonyms: ['hogql', 'sql'],
                         executor: () => {
                             // TODO: Don't reset insight on change
@@ -552,9 +552,9 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconServer,
-                        display: 'Go to Data warehouse',
+                        display: 'Go to SQL editor',
                         executor: () => {
-                            push(urls.dataWarehouse())
+                            push(urls.sqlEditor())
                         },
                     },
                     ...(values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING]

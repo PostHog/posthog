@@ -417,7 +417,7 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), today()), 0))
+        and(equals(sessions.team_id, <TEAM_ID>), lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), today()))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS events__session ON equals(events.`$session_id`, events__session.session_id)

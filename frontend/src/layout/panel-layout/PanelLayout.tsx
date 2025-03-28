@@ -1,5 +1,5 @@
-import { cva } from 'class-variance-authority'
-import { useActions, useValues } from 'kea'
+import { cva } from 'cva'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 
@@ -7,8 +7,10 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { panelLayoutLogic } from './panelLayoutLogic'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
 import { ProjectTree } from './ProjectTree/ProjectTree'
+import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
-const panelLayoutStyles = cva('gap-0 w-fit relative h-screen z-[var(--z-project-panel-layout)]', {
+const panelLayoutStyles = cva({
+    base: 'gap-0 w-fit relative h-screen z-[var(--z-project-panel-layout)]',
     variants: {
         isLayoutNavbarVisibleForMobile: {
             true: 'translate-x-0',
@@ -68,6 +70,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         useActions(panelLayoutLogic)
     const showMobileNavbarOverlay = isLayoutNavbarVisibleForMobile
     const showDesktopNavbarOverlay = isLayoutNavbarVisibleForDesktop && !isLayoutPanelPinned && isLayoutPanelVisible
+    useMountedLogic(projectTreeLogic)
 
     useEffect(() => {
         if (mainRef.current) {
@@ -90,7 +93,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 )}
             >
                 <PanelLayoutNavBar>
-                    {activePanelIdentifier === 'project' && <ProjectTree />}
+                    {activePanelIdentifier === 'Project' && <ProjectTree />}
                     {/* {activePanelIdentifier === 'persons' && <PersonsTree />} */}
                 </PanelLayoutNavBar>
             </div>

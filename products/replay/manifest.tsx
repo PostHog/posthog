@@ -21,8 +21,14 @@ export const manifest: ProductManifest = {
         replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
         replaySingle: (id: string): string => `/replay/${id}`,
         replayFilePlayback: (): string => '/replay/file-playback',
+        replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     },
-    fileSystemTypes: {},
+    fileSystemTypes: {
+        replay_playlist: {
+            icon: <IconRewindPlay />,
+            href: (ref: string) => urls.replayPlaylist(ref),
+        },
+    },
     treeItems: [
         {
             path: 'Explore/Recordings/Recordings',
@@ -37,6 +43,11 @@ export const manifest: ProductManifest = {
         {
             path: 'Explore/Recordings/Playlists',
             href: () => urls.replay(ReplayTabs.Playlists),
+            icon: <IconRewindPlay />,
+        },
+        {
+            path: 'Explore/Recordings/Settings',
+            href: () => urls.replay(ReplayTabs.Settings),
             icon: <IconRewindPlay />,
         },
     ],

@@ -25,7 +25,6 @@ from dlt.common.libs.deltalake import get_delta_tables
 
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.settings.base_variables import TEST
@@ -370,6 +369,10 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
             saved_query.latest_error = error_message
             await database_sync_to_async(saved_query.save)()
             raise CannotCoerceColumnException(f"Type coercion error in model {model_label}: {error_message}") from e
+        else:
+            saved_query.latest_error = f"Failed to materialize model {model_label}"
+            await database_sync_to_async(saved_query.save)()
+            raise Exception(f"Failed to materialize model {model_label}: {error_message}") from e
 
     tables = get_delta_tables(pipeline)
 
@@ -381,6 +384,11 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
 
         prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris)
 
+    if not tables:
+        saved_query.latest_error = f"No tables were created by pipeline for model {model_label}"
+        await database_sync_to_async(saved_query.save)()
+        raise Exception(f"No tables were created by pipeline for model {model_label}")
+
     key, delta_table = tables.popitem()
     return (key, delta_table)
 
@@ -390,10 +398,6 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
     """A dlt source representing a HogQL table given by a HogQL query."""
 
     async def get_hogql_rows():
-        # TODO: set as default when data-modeling flag is released
-        modifiers = create_default_modifiers_for_team(team)
-        modifiers.useMaterializedViews = True
-
         settings = HogQLGlobalSettings(
             max_execution_time=60 * 20, max_memory_usage=180 * 1000 * 1000 * 1000
         )  # 20 mins, 180gb, 2x execution_time, 4x max_memory_usage as the /query endpoint async workers
@@ -402,7 +406,6 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
             execute_hogql_query,
             query,
             team,
-            modifiers=modifiers,
             settings=settings,
             limit_context=LimitContext.SAVED_QUERY,
         )
