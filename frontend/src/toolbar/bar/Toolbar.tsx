@@ -2,15 +2,16 @@ import './Toolbar.scss'
 
 import {
     IconBolt,
+    IconCheck,
     IconCursorClick,
     IconDay,
-    IconInfo,
     IconLive,
     IconLogomark,
     IconNight,
     IconPieChart,
     IconQuestion,
     IconSearch,
+    IconStethoscope,
     IconTestTube,
     IconToggle,
     IconX,
@@ -19,8 +20,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { Link } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { PostHog } from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
@@ -38,29 +41,87 @@ import { ToolbarButton } from './ToolbarButton'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
-function PostHogInfo(): JSX.Element {
-    const { posthog } = useValues(toolbarLogic)
-    const isAutocaptureEnabled = posthog?.autocapture?.isEnabled
+function EnabledStatusItem({ label, value }: { label: string; value: boolean }): JSX.Element {
     return (
-        <li>
-            <ul>verson: {posthog?.version || 'posthog not available'}</ul>
-            <ul>api host: {posthog?.config.api_host}</ul>
-            <ul>ui host: {posthog?.config.ui_host}</ul>
-            <ul>autocapture running: {isAutocaptureEnabled ? 'true' : 'false'}</ul>
-            <ul>rageclicks running: {isAutocaptureEnabled && posthog?.config.rageclick ? 'true' : 'false'}</ul>
-            <ul>
-                dead clicks running:{' '}
-                {posthog?.deadClicksAutocapture?.lazyLoadedDeadClicksAutocapture ? 'true' : 'false'}
-            </ul>
-            <ul>heatmaps running: {posthog?.heatmaps?.isEnabled ? 'true' : 'false'}</ul>
-            <ul>session recording enabled: {posthog?.sessionRecording?.started ? 'true' : 'false'}</ul>
-            <ul>session recording status: {posthog?.sessionRecording?.status || 'unknown'}</ul>
-        </li>
+        <div className="flex w-full justify-between items-center">
+            <div>{label}: </div>
+            <div>{value ? <IconCheck /> : <IconX />}</div>
+        </div>
     )
 }
 
+function postHogDebugInfo(posthog: PostHog | null): LemonMenuItem {
+    const isAutocaptureEnabled = posthog?.autocapture?.isEnabled
+    return {
+        icon: <IconStethoscope />,
+        label: 'Debug info',
+        items: [
+            {
+                label: (
+                    <div className="flex w-full justify-between items-center">
+                        <div>verson: </div>
+                        <div>{posthog?.version || 'posthog not available'}</div>
+                    </div>
+                ),
+            },
+            {
+                label: (
+                    <div className="flex w-full justify-between items-center">
+                        <div>api host: </div>
+                        <div>{posthog?.config.api_host}</div>
+                    </div>
+                ),
+            },
+            {
+                label: (
+                    <div className="flex w-full justify-between items-center">
+                        <div>ui host: </div>
+                        <div>{posthog?.config.ui_host || 'not set'}</div>
+                    </div>
+                ),
+            },
+            { label: <EnabledStatusItem label="autocapture" value={!!isAutocaptureEnabled} /> },
+            {
+                label: (
+                    <EnabledStatusItem
+                        label="rageclicks"
+                        value={!!(isAutocaptureEnabled && posthog?.config.rageclick)}
+                    />
+                ),
+            },
+            {
+                label: (
+                    <EnabledStatusItem
+                        label="dead clicks"
+                        value={!!posthog?.deadClicksAutocapture?.lazyLoadedDeadClicksAutocapture}
+                    />
+                ),
+            },
+            { label: <EnabledStatusItem label="heatmaps" value={!!posthog?.heatmaps?.isEnabled} /> },
+            { label: <EnabledStatusItem label="session recording" value={!!posthog?.sessionRecording?.started} /> },
+            {
+                label: (
+                    <div className="flex justify-between items-center">
+                        <div>session recording status: </div>
+                        <div>{posthog?.sessionRecording?.status || 'unknown'}</div>
+                    </div>
+                ),
+            },
+            {
+                label: (
+                    <div className="flex w-full items-center">
+                        <Link to={posthog?.get_session_replay_url()} target="_blank">
+                            View current session recording
+                        </Link>
+                    </div>
+                ),
+            },
+        ],
+    }
+}
+
 function MoreMenu(): JSX.Element {
-    const { hedgehogMode, theme } = useValues(toolbarLogic)
+    const { hedgehogMode, theme, posthog } = useValues(toolbarLogic)
     const { setHedgehogMode, toggleTheme, setVisibleMenu } = useActions(toolbarLogic)
 
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
@@ -95,15 +156,7 @@ function MoreMenu(): JSX.Element {
                         label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
                         onClick: () => toggleTheme(),
                     },
-                    {
-                        icon: <IconInfo />,
-                        label: 'Posthog web sdk info',
-                        items: [
-                            {
-                                label: <PostHogInfo />,
-                            },
-                        ],
-                    },
+                    postHogDebugInfo(posthog),
                     {
                         icon: <IconQuestion />,
                         label: 'Help',
