@@ -44,7 +44,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         loadProperties: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         loadSummary: (dateRange: DateRange) => ({ dateRange }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
-        setSummary: (lastSeen: string, aggregations: ErrorTrackingIssueAggregations) => ({ lastSeen, aggregations }),
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
     }),
@@ -52,8 +51,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     defaults({
         issue: null as ErrorTrackingRelationalIssue | null,
         properties: {} as Record<string, string>,
-        lastSeen: null as Dayjs | null,
-        aggregations: null as ErrorTrackingIssueAggregations | null,
+        summary: 'toto' as ErrorTrackingIssueSummary | string,
     }),
 
     reducers({
@@ -66,12 +64,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 return state ? { ...state, status } : null
             },
         },
-        lastSeen: {
-            setSummary: (_, { lastSeen }) => dayjs(lastSeen),
-        },
-        aggregations: {
-            setSummary: (_, { aggregations }) => aggregations,
-        },
+        summary: {},
     }),
 
     selectors({
@@ -114,44 +107,44 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }),
         ],
 
-        issueDateRange: [(s) => [s.issue], (issue) => (issue?.first_seen ? getIssueDateRange(issue) : {})],
+        issueDateRange: [(s) => [s.issue], (issue) => (issue ? getIssueDateRange(issue) : {})],
 
         firstSeen: [
             (s) => [s.issue],
-            (issue: ErrorTrackingRelationalIssue | null) => (issue?.first_seen ? dayjs(issue.first_seen) : null),
+            (issue: ErrorTrackingRelationalIssue | null) => (issue ? dayjs(issue.first_seen) : null),
         ],
+
+        lastSeen: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.lastSeen],
+        aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
     }),
 
-    loaders(({ actions, props }) => ({
+    loaders(({ props }) => ({
         issue: {
             loadIssue: async () => {
                 const issue = await api.errorTracking.getIssue(props.id, props.fingerprint)
                 return issue
             },
         },
-        properties: [
-            {} as Record<string, string>,
-            {
-                loadProperties: async ({ issue }) => {
-                    const firstSeen = dayjs(issue.first_seen)
-                    const response = await api.query(
-                        errorTrackingIssueQuery({
-                            issueId: props.id,
-                            dateRange: {
-                                date_from: firstSeen.startOf('minute').toISOString(),
-                                date_to: firstSeen.endOf('minute').toISOString(),
-                            },
-                            volumeResolution: 0,
-                        }),
-                        {},
-                        undefined,
-                        'blocking'
-                    )
-                    const issueAgg = response.results[0]
-                    return JSON.parse(issueAgg.earliest!)
-                },
+        properties: {
+            loadProperties: async ({ issue }) => {
+                const firstSeen = dayjs(issue.first_seen)
+                const response = await api.query(
+                    errorTrackingIssueQuery({
+                        issueId: props.id,
+                        dateRange: {
+                            date_from: firstSeen.startOf('minute').toISOString(),
+                            date_to: firstSeen.endOf('minute').toISOString(),
+                        },
+                        volumeResolution: 0,
+                    }),
+                    {},
+                    undefined,
+                    'blocking'
+                )
+                const issueAgg = response.results[0]
+                return JSON.parse(issueAgg.earliest!)
             },
-        ],
+        },
         summary: {
             loadSummary: async ({ dateRange }) => {
                 const response = await api.query(
@@ -164,9 +157,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     undefined,
                     'blocking'
                 )
-                const issue = response.results[0]
-                actions.setSummary(issue.last_seen, issue.aggregations)
-                return null
+                const summary = response.results[0]
+                return {
+                    lastSeen: dayjs(summary.last_seen),
+                    aggregations: summary.aggregations,
+                } as ErrorTrackingIssueSummary
             },
         },
     })),
@@ -201,4 +196,9 @@ function getIssueDateRange(issue: ErrorTrackingRelationalIssue): DateRange {
         date_from: dayjs(issue.first_seen).startOf('day').toISOString(),
         date_to: dayjs().endOf('minute').toISOString(),
     }
+}
+
+export type ErrorTrackingIssueSummary = {
+    lastSeen: Dayjs
+    aggregations: ErrorTrackingIssueAggregations
 }

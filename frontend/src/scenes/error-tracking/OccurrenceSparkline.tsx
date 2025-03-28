@@ -14,11 +14,13 @@ export function OccurrenceSparkline({
     labels,
     className,
     displayXAxis = false,
+    loading = false,
 }: {
     values: number[]
     labels: string[]
     className?: string
     displayXAxis?: boolean
+    loading?: boolean
 }): JSX.Element {
     const colors = useSparklineColors()
 
@@ -60,6 +62,7 @@ export function OccurrenceSparkline({
             labels={labels}
             renderLabel={labelRenderer}
             withXScale={displayXAxis ? withXScale : undefined}
+            loading={loading}
         />
     )
 }
