@@ -1,7 +1,9 @@
 import { DndContext, DragEndEvent, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
-import { IconUpload } from '@posthog/icons'
+import { IconEllipsis, IconUpload } from '@posthog/icons'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { Button } from 'lib/ui/Button/Button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import {
     ForwardedRef,
@@ -15,7 +17,7 @@ import {
 } from 'react'
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
-import { LemonButton, SideAction } from '../LemonButton'
+import { SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
 import { getIcon, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
 
@@ -198,7 +200,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             disabled={!!item.disabledReason}
                         >
                             <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full gap-y-px">
-                                {/* Node */}
                                 <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
                                     <ContextMenu
                                         onOpenChange={(open) => {
@@ -208,45 +209,33 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         {/* Folder lines */}
                                         {depth !== 0 && (
                                             <div
-                                                className="absolute border-l border-secondary h-[calc(100%+2px)] w-px -top-px pointer-events-none z-0"
+                                                className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
                                                 // eslint-disable-next-line react/forbid-dom-props
-                                                style={{ left: `${DEPTH_OFFSET}px` }}
+                                                style={{ width: `${DEPTH_OFFSET}px` }}
                                             />
                                         )}
 
                                         <ContextMenuTrigger asChild>
-                                            <LemonButton
-                                                className={cn(
-                                                    'group/lemon-tree-button flex-1 flex items-center gap-2 font-normal cursor-pointer z-1',
-                                                    {
-                                                        'bg-fill-button-tertiary-hover':
-                                                            focusedId === item.id ||
-                                                            isContextMenuOpenForItem === item.id,
-                                                        'bg-fill-button-tertiary-active': getItemActiveState(item),
-                                                    }
-                                                )}
+                                            <Button.Root
+                                                className={cn('group/lemon-tree-button cursor-pointer z-1', {
+                                                    'bg-fill-button-tertiary-hover':
+                                                        focusedId === item.id || isContextMenuOpenForItem === item.id,
+                                                    'bg-fill-button-tertiary-active': getItemActiveState(item),
+                                                })}
                                                 onClick={() => {
                                                     handleClick(item)
                                                 }}
                                                 onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
-                                                type="tertiary"
                                                 role="treeitem"
                                                 tabIndex={-1}
-                                                size="small"
                                                 fullWidth
                                                 data-id={item.id}
                                                 active={getItemActiveState(item)}
-                                                icon={getIcon({
-                                                    item,
-                                                    expandedItemIds: expandedItemIds ?? [],
-                                                    defaultNodeIcon,
-                                                })}
-                                                tooltip={displayName}
-                                                tooltipPlacement="right"
-                                                style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
-                                                truncate
+                                                menuItem
+                                                size="base"
+                                                // tooltip={displayName}
+                                                // tooltipPlacement="right"
                                                 to={item.record?.href ? item.record.href : undefined}
-                                                sideAction={itemSideAction ? itemSideAction(item) : undefined}
                                                 buttonWrapper={
                                                     enableDragAndDrop && isItemDraggable?.(item) && item.record?.path
                                                         ? (button) => (
@@ -257,32 +246,76 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         : undefined
                                                 }
                                             >
+                                                {/* This is a hack to make the button have a left padding since we use important on all tailwind classes */}
+                                                {depth !== 0 && (
+                                                    <div
+                                                        className="h-full bg-transparent pointer-events-none flex-shrink-0"
+                                                        // -10 is to offset button padding (to match folder lines)
+                                                        // eslint-disable-next-line react/forbid-dom-props
+                                                        style={{
+                                                            width: `${DEPTH_OFFSET - 6}px`,
+                                                        }}
+                                                    />
+                                                )}
+
+                                                {/* Icon left */}
+                                                <Button.Icon size="base">
+                                                    {getIcon({
+                                                        item,
+                                                        expandedItemIds: expandedItemIds ?? [],
+                                                        defaultNodeIcon,
+                                                    })}
+                                                </Button.Icon>
+
+                                                {/* Render contents */}
                                                 {renderItem ? (
                                                     <>
-                                                        {renderItem(item, displayName)}
+                                                        {renderItem(
+                                                            item,
+                                                            <Button.Label menuItem truncate>
+                                                                {displayName}
+                                                            </Button.Label>
+                                                        )}
+
+                                                        {/* Loading state */}
                                                         {item.record?.loading && <Spinner className="ml-1" />}
+
+                                                        {/* Unapplied state */}
                                                         {item.record?.unapplied && (
                                                             <IconUpload className="ml-1 text-warning" />
                                                         )}
                                                     </>
                                                 ) : (
-                                                    <span
-                                                        className={cn('', {
-                                                            'font-bold': getItemActiveState(item),
-                                                            'text-secondary': item.disabledReason,
-                                                            'flex items-center justify-between gap-2': item.sideIcon,
-                                                        })}
-                                                    >
-                                                        {/* {item.hint ? <div className='flex flex-col gap-1'>{displayName}<div className='text-xxs font-normal'>{item.hint}</div></div> : displayName} */}
+                                                    <Button.Label menuItem truncate>
                                                         {displayName}
-                                                        {item.sideIcon}
-                                                    </span>
+                                                    </Button.Label>
                                                 )}
-                                            </LemonButton>
+                                                {itemSideAction && (
+                                                    <DropdownMenu>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <Button.Icon isTrigger customIconSize isTriggerRight>
+                                                                <IconEllipsis className="size-3" />
+                                                            </Button.Icon>
+                                                        </DropdownMenuTrigger>
+
+                                                        {/* The Dropdown content menu */}
+                                                        <DropdownMenuContent
+                                                            loop
+                                                            align="end"
+                                                            side="bottom"
+                                                            className="max-w-[150px]"
+                                                        >
+                                                            {itemSideAction(item)}
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
+                                                )}
+                                            </Button.Root>
                                         </ContextMenuTrigger>
 
                                         {isContextMenuOpenForItem === item.id && itemContextMenu?.(item) ? (
-                                            <ContextMenuContent loop>{itemContextMenu(item)}</ContextMenuContent>
+                                            <ContextMenuContent loop className="max-w-[150px]">
+                                                {itemContextMenu(item)}
+                                            </ContextMenuContent>
                                         ) : null}
                                     </ContextMenu>
                                 </AccordionPrimitive.Trigger>

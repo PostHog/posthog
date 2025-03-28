@@ -131,6 +131,10 @@ ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
             })
         }
 
+        const handleBlur = (e: React.FocusEvent): void => {
+            e.currentTarget.setAttribute('data-focused', 'false')
+        }
+
         const handleItemClick = (e: React.MouseEvent): void => {
             // Set `aria-current` on the clicked item
             e.currentTarget.setAttribute('aria-current', 'true')
@@ -155,6 +159,7 @@ ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
             role: 'option',
             onClick: handleItemClick,
             onFocus: handleFocus,
+            onBlur: handleBlur,
             ref,
             ...props,
         }
