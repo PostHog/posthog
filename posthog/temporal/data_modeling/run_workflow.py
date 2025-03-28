@@ -280,18 +280,6 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         team_id: The ID of the team who owns this model.
         queue: The execution queue where we will report back results.
     """
-    job = None
-
-    async def handle_error(error: Exception, error_message: str):
-        if job:
-            job.status = DataModelingJob.Status.FAILED
-            job.error = str(error)
-            await database_sync_to_async(job.save)()
-            await logger.aexception(error_message, model.label, str(error))
-        else:
-            await logger.aexception("No job found for model %s", model.label)
-
-        await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
 
     try:
         if model.selected is True:
@@ -304,16 +292,30 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
 
             key, delta_table, job_id = await materialize_model(model.label, team, saved_query, job)
     except CHQueryErrorMemoryLimitExceeded as err:
-        await handle_error(err, "Memory limit exceeded for model %s: %s")
+        await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s")
     except CannotCoerceColumnException as err:
-        await handle_error(err, "Type coercion error for model %s: %s")
+        await handle_error(job, model, queue, err, "Type coercion error for model %s: %s")
     except Exception as err:
-        await handle_error(err, "Failed to materialize model %s due to error: %s")
+        await handle_error(job, model, queue, err, "Failed to materialize model %s due to error: %s")
     else:
         await logger.ainfo("Materialized model %s", model.label)
         await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
     finally:
         queue.task_done()
+
+
+async def handle_error(
+    job: DataModelingJob, model: ModelNode, queue: asyncio.Queue[QueueMessage], error: Exception, error_message: str
+):
+    if job:
+        job.status = DataModelingJob.Status.FAILED
+        job.error = str(error)
+        await database_sync_to_async(job.save)()
+        await logger.aexception(error_message, model.label, str(error))
+    else:
+        await logger.aexception("No job found for model %s", model.label)
+
+    await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
 
 
 async def start_job_modeling_run(
