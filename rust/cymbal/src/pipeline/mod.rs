@@ -15,7 +15,7 @@ use prep::prepare_events;
 use serde::Deserialize;
 
 use crate::{
-    app_context::AppContext,
+    app_context::{AppContext, FilterMode},
     error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
     metric_consts::{
         BILLING_LIMITS_TIME, CLEAN_PROPS_TIME, EMIT_INGESTION_WARNINGS_TIME,
@@ -65,6 +65,8 @@ pub async fn handle_batch(
     prepare_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
 
+    let buffer = filter_by_team_id(buffer, &context.filtered_teams, &context.filter_mode);
+
     let clean_props_time = common_metrics::timing_guard(CLEAN_PROPS_TIME, &[]);
     let (buffer, warnings) = clean_set_props(buffer);
     clean_props_time.label("outcome", "success").fin();
@@ -95,6 +97,28 @@ pub async fn handle_batch(
     emit_warning_time.label("outcome", "success").fin();
 
     Ok(buffer)
+}
+
+fn filter_by_team_id(
+    events: Vec<PipelineResult>,
+    team_ids: &[i32],
+    mode: &FilterMode,
+) -> Vec<PipelineResult> {
+    events
+        .into_iter()
+        .map(|e| {
+            let Ok(e) = e else { return e };
+
+            let res = match (mode, team_ids.contains(&e.team_id)) {
+                (FilterMode::In, true) | (FilterMode::Out, false) => Ok(e),
+                (FilterMode::In, false) | (FilterMode::Out, true) => {
+                    Err(EventError::FilteredByTeamId)
+                }
+            };
+
+            res
+        })
+        .collect()
 }
 
 // Equivalent to the JS:'yyyy-MM-dd HH:mm:ss.u'

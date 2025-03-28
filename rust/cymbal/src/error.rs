@@ -141,6 +141,8 @@ pub enum EventError {
     Suppressed(Uuid),
     #[error("Could not deserialize event data: {1}")]
     FailedToDeserialize(Box<CapturedEvent>, String),
+    #[error("Filtered by team id")]
+    FilteredByTeamId,
 }
 
 impl From<JsResolveErr> for Error {
