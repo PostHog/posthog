@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+#
+## Run *full workspace* test schema migrations, SQLX query cache refresh, and all subproject test suites
+#
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+
+# pull DATABASE_URL for the test DB into the local env
+source "$SCRIPT_DIR/../.env"
+
+# run the migrations (test schemas only!) and refresh SQLX query cache
+$SCRIPT_DIR/migrate_tests
+
+# run the *full workspace test suite* using limited # of threads
+# so as not to overwhelm the posthog (repo root) Docker Compose rig
+cargo test -- --test-threads=2
