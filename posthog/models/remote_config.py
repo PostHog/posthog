@@ -233,10 +233,14 @@ class RemoteConfig(UUIDModel):
 
         if surveys_opt_in:
             surveys_response = get_surveys_response(team)
-            config["surveys"] = surveys_response["surveys"]
+            surveys = surveys_response["surveys"]
+            if len(surveys) > 0:
+                config["surveys"] = surveys_response["surveys"]
 
-            if surveys_response["survey_config"]:
-                config["survey_config"] = surveys_response["survey_config"]
+                if surveys_response["survey_config"]:
+                    config["survey_config"] = surveys_response["survey_config"]
+            else:
+                config["surveys"] = False
         else:
             config["surveys"] = False
 

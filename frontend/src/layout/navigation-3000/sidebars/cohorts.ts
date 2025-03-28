@@ -27,7 +27,7 @@ export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'cohortsSidebarLogic']),
     connect({
         values: [cohortsModel, ['cohorts', 'cohortsLoading'], sceneLogic, ['activeScene', 'sceneParams']],
-        actions: [cohortsModel, ['deleteCohort']],
+        actions: [cohortsModel, ['loadCohorts', 'deleteCohort']],
     }),
     selectors(({ actions }) => ({
         contents: [

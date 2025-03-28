@@ -256,8 +256,12 @@ describe('CDP API', () => {
                     message: 'Executing function',
                 },
                 {
-                    level: 'info',
-                    message: expect.stringContaining('info@posthog.com'),
+                    level: 'debug',
+                    message: expect.stringContaining('Suspending function due to async function call'),
+                },
+                {
+                    level: 'debug',
+                    message: 'Resuming function',
                 },
                 {
                     level: 'debug',
