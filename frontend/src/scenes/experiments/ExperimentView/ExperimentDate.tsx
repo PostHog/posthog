@@ -25,7 +25,7 @@ const ExperimentDate = ({
     }
 
     return (
-        <div className="block" data-attr="experiment-start-date">
+        <div className="block" data-attr={dataAttr}>
             <div className={clsx('text-xs font-semibold uppercase tracking-wide', isDatePickerOpen && 'text-center')}>
                 {label}
             </div>
