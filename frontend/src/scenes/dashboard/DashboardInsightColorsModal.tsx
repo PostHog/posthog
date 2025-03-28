@@ -28,7 +28,6 @@ export function DashboardInsightColorsModal(): JSX.Element {
         {
             title: 'Breakdown',
             key: 'breakdown_value',
-            // width: 0,
             render: (_, { breakdownValue }) => {
                 // TODO: support for cohorts and nested breakdowns
                 const breakdownFilter = {}
@@ -46,6 +45,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
         {
             title: 'Color',
             key: 'color',
+            width: 400,
             render: (_, { breakdownValue, colorToken }) => {
                 return (
                     <LemonColorPicker
