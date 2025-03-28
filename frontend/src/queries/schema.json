@@ -7129,7 +7129,7 @@
                     "type": "string"
                 }
             },
-            "required": ["assignee", "description", "first_seen", "id", "name", "status"],
+            "required": ["aggregations", "assignee", "description", "first_seen", "id", "last_seen", "name", "status"],
             "type": "object"
         },
         "ErrorTrackingIssueAggregations": {

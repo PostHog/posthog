@@ -1829,9 +1829,9 @@ export interface ErrorTrackingRelationalIssue {
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
-    last_seen?: string
+    last_seen: string
     earliest?: string
-    aggregations?: ErrorTrackingIssueAggregations
+    aggregations: ErrorTrackingIssueAggregations
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {

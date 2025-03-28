@@ -5273,13 +5273,13 @@ class ErrorTrackingIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregations: Optional[ErrorTrackingIssueAggregations] = None
+    aggregations: ErrorTrackingIssueAggregations
     assignee: Optional[ErrorTrackingIssueAssignee] = None
     description: Optional[str] = None
     earliest: Optional[str] = None
     first_seen: datetime
     id: str
-    last_seen: Optional[datetime] = None
+    last_seen: datetime
     name: Optional[str] = None
     status: Status
 

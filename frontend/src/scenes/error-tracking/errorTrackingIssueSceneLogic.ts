@@ -165,7 +165,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     'blocking'
                 )
                 const issue = response.results[0]
-                actions.setSummary(issue.last_seen!, issue.aggregations!)
+                actions.setSummary(issue.last_seen, issue.aggregations)
                 return null
             },
         },
