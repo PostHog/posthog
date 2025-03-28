@@ -52,6 +52,7 @@ import {
 import { PostHogEE } from '../../../../@posthog/ee/types'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
+import { stripChromeExtensionData } from './snapshot-processing/chrome-extension-stripping'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
@@ -1256,10 +1257,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return snapshotsBySource?.[sourceKey]?.snapshots || []
                     }) ?? []
 
-                return patchMetaEventIntoWebData(
-                    deduplicateSnapshots(allSnapshots),
-                    viewportForTimestamp,
-                    sessionRecordingId
+                return stripChromeExtensionData(
+                    patchMetaEventIntoWebData(
+                        deduplicateSnapshots(allSnapshots),
+                        viewportForTimestamp,
+                        sessionRecordingId
+                    )
                 )
             },
         ],
