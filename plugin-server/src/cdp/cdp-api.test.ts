@@ -238,7 +238,7 @@ describe('CDP API', () => {
         })
         hogFunction = await insertHogFunction({
             ...HOG_EXAMPLES.import_send_email,
-            ...HOG_INPUTS_EXAMPLES.import_send_email,
+            ...HOG_INPUTS_EXAMPLES.email,
             ...HOG_FILTERS_EXAMPLES.no_filters,
             type: 'broadcast',
         })
@@ -256,12 +256,8 @@ describe('CDP API', () => {
                     message: 'Executing function',
                 },
                 {
-                    level: 'debug',
-                    message: expect.stringContaining('Suspending function due to async function call'),
-                },
-                {
-                    level: 'debug',
-                    message: 'Resuming function',
+                    level: 'info',
+                    message: expect.stringContaining('info@posthog.com'),
                 },
                 {
                     level: 'debug',
