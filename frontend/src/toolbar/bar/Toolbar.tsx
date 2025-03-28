@@ -61,7 +61,7 @@ function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surv
             {
                 label: (
                     <div className="flex w-full justify-between items-center">
-                        <div>verson: </div>
+                        <div>version: </div>
                         <div>{posthog?.version || 'posthog not available'}</div>
                     </div>
                 ),
