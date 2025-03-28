@@ -160,7 +160,7 @@ impl AppContext {
             .split(",")
             .map(|tid| tid.parse().expect("Filtered team id's must be i32s"))
             .collect();
-        let filter_mode = match config.filter_mode.as_str() {
+        let filter_mode = match config.filter_mode.to_lowercase().as_str() {
             "in" => FilterMode::In,
             "out" => FilterMode::Out,
             _ => panic!("Invalid filter mode"),
