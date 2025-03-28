@@ -35,12 +35,11 @@ from posthog.hogql_queries.experiments.query_logic import (
 )
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
+    ActionsNode,
     CachedExperimentQueryResponse,
-    ExperimentActionMetricSource,
-    ExperimentDataWarehouseMetricSource,
-    ExperimentEventMetricSource,
+    EventsNode,
+    ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
-    ExperimentFunnelMetricStep,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentQueryResponse,
@@ -51,7 +50,7 @@ from posthog.schema import (
     DateRange,
     IntervalType,
 )
-from typing import Optional, cast
+from typing import Optional, Union, cast
 from datetime import datetime, timedelta, UTC
 
 
@@ -82,7 +81,8 @@ class ExperimentQueryRunner(QueryRunner):
             now=datetime.now(),
         )
         self.is_data_warehouse_query = (
-            isinstance(self.query.metric, ExperimentMeanMetric) and self.query.metric.source.type == "data_warehouse"
+            isinstance(self.query.metric, ExperimentMeanMetric)
+            and self.query.metric.source.kind == "ExperimentDataWarehouseNode"
         )
 
         # Just to simplify access
@@ -265,10 +265,13 @@ class ExperimentQueryRunner(QueryRunner):
             group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
 
-    def _funnel_step_to_filter(self, funnel_step: ExperimentFunnelMetricStep) -> ast.Expr:
+    def _funnel_step_to_filter(self, funnel_step: Union[EventsNode, ActionsNode]) -> ast.Expr:
         """
         Returns the filter for a single funnel step.
         """
+
+        if funnel_step.kind == "ActionsNode":
+            raise NotImplementedError("Funnel steps for actions are not supported yet")
 
         event_filter: ast.Expr = ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -284,7 +287,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         return event_filter
 
-    def _funnel_steps_to_filter(self, funnel_steps: list[ExperimentFunnelMetricStep]) -> ast.Expr:
+    def _funnel_steps_to_filter(self, funnel_steps: list[EventsNode | ActionsNode]) -> ast.Expr:
         """
         Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
         """
@@ -298,7 +301,7 @@ class ExperimentQueryRunner(QueryRunner):
         match self.metric:
             case ExperimentMeanMetric() as metric:
                 match metric.source:
-                    case ExperimentDataWarehouseMetricSource():
+                    case ExperimentDataWarehouseNode():
                         return ast.SelectQuery(
                             select=[
                                 ast.Alias(
@@ -350,11 +353,11 @@ class ExperimentQueryRunner(QueryRunner):
                             ),
                         )
 
-                    case ExperimentEventMetricSource() | ExperimentActionMetricSource():
-                        if metric.source.type == "action":
+                    case EventsNode() | ActionsNode():
+                        if metric.source.kind == "ActionsNode":
                             try:
                                 action = Action.objects.get(
-                                    pk=int(metric.source.action), team__project_id=self.team.project_id
+                                    pk=int(metric.source.id), team__project_id=self.team.project_id
                                 )
                                 event_filter = action_to_expr(action)
                             except Action.DoesNotExist:
@@ -427,7 +430,7 @@ class ExperimentQueryRunner(QueryRunner):
                         exprs=[
                             *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
                             *self._get_test_accounts_filter(),
-                            self._funnel_steps_to_filter(metric.steps),
+                            self._funnel_steps_to_filter(metric.series),
                         ],
                     ),
                 )
@@ -439,15 +442,17 @@ class ExperimentQueryRunner(QueryRunner):
         """
         Returns the expression for the window funnel. The expression returns 1 if the user completed the whole funnel, 0 if they didn't.
         """
+
+        for step in funnel_metric.series:
+            if step.kind == "ActionsNode":
+                raise NotImplementedError("Funnel steps for actions are not supported yet")
+
+        series = [step for step in funnel_metric.series if step.kind == "EventsNode"]
+
         # TODO: get conversion time window from funnel config
-        num_steps = len(funnel_metric.steps)
+        num_steps = len(funnel_metric.series)
         conversion_time_window = 6048000000000000
-        funnel_steps_str = ", ".join(
-            [
-                f"event = {ast.Constant(value=step.event).to_hogql()}"
-                for step in sorted(funnel_metric.steps, key=lambda x: x.order)
-            ]
-        )
+        funnel_steps_str = ", ".join([f"event = {ast.Constant(value=step.event).to_hogql()}" for step in series])
         return parse_expr(
             f"windowFunnel({conversion_time_window})(toDateTime(timestamp), {funnel_steps_str}) = {num_steps}",
             placeholders={
@@ -597,7 +602,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         match self.metric:
             case ExperimentMeanMetric():
-                match self.metric.math:
+                match self.metric.source.math:
                     case ExperimentMetricMathType.SUM:
                         probabilities = calculate_probabilities_v2_continuous(
                             control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
