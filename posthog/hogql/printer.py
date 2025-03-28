@@ -921,12 +921,12 @@ class _Printer(Visitor):
         if node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn:
             if not nullable_left or (isinstance(node.left, ast.Constant) and node.left.value is not None):
                 return op
-            if isinstance(node.right, (ast.Array, ast.Tuple)):
+            if isinstance(node.right, ast.Array | ast.Tuple):
                 if isinstance(node.right, ast.Array):
-                    has = f"has({right}, {left})"
+                    has = f"arrayExists(y -> y = {left}, {right})"
                 elif isinstance(node.right, ast.Tuple):
                     right_array = self.visit(ast.Array(exprs=node.right.exprs))
-                    has = f"has({right_array}, {left})"
+                    has = f"arrayExists(y -> y = {left}, {right_array})"
                 if node.op == ast.CompareOperationOp.NotIn:
                     return f"not({has})"
                 return has
