@@ -232,7 +232,7 @@ describe('CDP API', () => {
     it('can invoke an imported function via the API', async () => {
         await insertHogFunction({
             ...HOG_EXAMPLES.export_send_email,
-            ...HOG_INPUTS_EXAMPLES.none,
+            ...HOG_INPUTS_EXAMPLES.email,
             ...HOG_FILTERS_EXAMPLES.no_filters,
             type: 'email',
         })
