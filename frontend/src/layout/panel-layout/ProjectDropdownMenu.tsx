@@ -42,12 +42,13 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
 
     return (
         <DropdownMenuItem asChild>
-            <Button.Root as="div" menuItem to={relativeOtherProjectPath}>
+            <Button.Root menuItem to={relativeOtherProjectPath}>
                 <Button.Label>
                     <ProjectName team={team} />
                 </Button.Label>
                 <Button.Icon
                     isTrigger
+                    isTriggerRight
                     onClick={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
@@ -89,11 +90,11 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                 <DropdownMenuSeparator />
                 <div className="flex flex-col gap-px">
                     <DropdownMenuItem asChild>
-                        <Button.Root menuItem as="div" active>
+                        <Button.Root menuItem active>
                             <Button.Label menuItem>
                                 <ProjectName team={currentTeam} />
                             </Button.Label>
-                            <Button.Icon onClick={() => push(urls.settings('project'))} isTrigger>
+                            <Button.Icon onClick={() => push(urls.settings('project'))} isTrigger isTriggerRight>
                                 <IconGear className="text-tertiary" />
                             </Button.Icon>
                         </Button.Root>

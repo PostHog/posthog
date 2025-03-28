@@ -49,7 +49,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
         inset?: boolean
     }
 >(({ className, inset, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-8', className)} asChild {...props} />
+    return <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-8', className)} {...props} />
 })
 DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayName
 

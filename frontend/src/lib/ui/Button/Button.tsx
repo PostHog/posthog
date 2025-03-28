@@ -11,7 +11,6 @@ import React, {
     ReactNode,
     Ref,
     useContext,
-    useState,
 } from 'react'
 
 /* -------------------------------------------------------------------------- */
@@ -29,6 +28,7 @@ type ButtonIntent = 'default' | 'outline'
 
 const BUTTON_INTENT: Record<ButtonIntent, string> = {
     default: `
+            border border-transparent
             text-primary 
             not-disabled:hover:bg-fill-button-tertiary-hover 
             data-[focused=true]:bg-fill-button-tertiary-hover 
@@ -36,6 +36,7 @@ const BUTTON_INTENT: Record<ButtonIntent, string> = {
             data-[current=true]:bg-fill-button-tertiary-active 
             data-[state=open]:bg-fill-button-tertiary-active 
             data-[state=checked]:bg-fill-button-tertiary-active
+            
         `,
     outline: 'border border-secondary not-disabled:hover:border-tertiary hover:bg-fill-button-tertiary-active',
 }
@@ -67,7 +68,6 @@ type PolymorphicComponentProps<E extends ElementType, P> = P &
 interface ButtonContextValue {
     sizeContext: ButtonSize
     intentContext: ButtonIntent
-    setIsPressedContext: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 const ButtonContext = createContext<ButtonContextValue | null>(null)
@@ -88,11 +88,12 @@ const buttonVariants = cva({
     base: `
         button-root
         group/button-root
+        relative
         inline-flex 
         w-fit 
         items-center 
         justify-center 
-        gap-1 
+        gap-1.5 
         px-[5px] 
         py-[3px] 
         rounded-md 
@@ -131,9 +132,6 @@ const buttonVariants = cva({
 })
 
 export interface ButtonRootProps extends VariantProps<typeof buttonVariants> {
-    // You can add your own custom props here, for instance "disabled?: boolean;"
-    // We'll demonstrate a simple onClick approach
-    onClick?: React.MouseEventHandler
     fullWidth?: boolean
     menuItem?: boolean
     to?: string
@@ -146,111 +144,95 @@ export interface ButtonRootProps extends VariantProps<typeof buttonVariants> {
     current?: boolean
     /** Wrap the button component with a custom component. */
     buttonWrapper?: (button: JSX.Element) => JSX.Element
+
+    role?: string
+    tabIndex?: number
+    children: ReactNode
+    className?: string
+    onClick?: React.MouseEventHandler
+    onKeyDown?: React.KeyboardEventHandler
 }
 
-function ButtonRootComponent<E extends ElementType = 'button'>(
-    {
-        as,
-        onClick,
-        onKeyDown,
-        children,
-        intent,
-        size,
-        className,
-        fullWidth,
-        menuItem,
-        to,
-        disabled,
-        disableClientSideRouting,
-        targetBlank,
-        type,
-        active,
-        current,
-        buttonWrapper,
-        ...props
-    }: PolymorphicComponentProps<E, ButtonRootProps>,
-    forwardedRef: PolymorphicRef<E>
-): JSX.Element {
-    const [isPressed, setIsPressed] = useState(false)
-    const Component = to ? Link : as || 'button'
+const ButtonRoot = forwardRef(
+    (
+        {
+            children,
+            intent,
+            size,
+            className,
+            fullWidth,
+            menuItem,
+            to,
+            disabled,
+            disableClientSideRouting,
+            targetBlank,
+            active,
+            current,
+            buttonWrapper,
+            ...props
+        }: ButtonRootProps,
+        ref: React.ForwardedRef<HTMLButtonElement>
+    ): JSX.Element => {
+        // const [isPressed, setIsPressed] = useState(false)
+        // const Component = as || 'button'
 
-    // Detect if the underlying element is actually a native <button>
-    const isNativeButton = Component === 'button'
+        const linkProps = to
+            ? {
+                  role: menuItem ? 'menuitem' : 'link',
+                  disableClientSideRouting,
+                  target: targetBlank ? '_blank' : undefined,
+                  to: !disabled ? to : undefined,
+              }
+            : undefined
 
-    // Optional: If rendering something else (like <div>), we add "button-like" accessibility
-    const handleKeyDown = (e: React.KeyboardEvent): void => {
-        // Only trigger if the key event happened on the parent (currentTarget),
-        // not a nested child.
-        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-            e.preventDefault()
-            onClick?.(e as unknown as React.MouseEvent<HTMLDivElement>)
+        const contextValue = {
+            sizeContext: size || 'base',
+            intentContext: intent || 'default',
         }
+
+        let buttonComponent: JSX.Element
+
+        if (to) {
+            buttonComponent = (
+                <Link
+                    ref={ref}
+                    className={cn(buttonVariants({ intent, size, fullWidth, menuItem, disabled }), className)}
+                    disableClientSideRouting={disableClientSideRouting}
+                    target={targetBlank ? '_blank' : undefined}
+                    to={!disabled ? to : undefined}
+                    {...props}
+                >
+                    {children}
+                </Link>
+            )
+        } else {
+            buttonComponent = (
+                <button
+                    ref={ref}
+                    className={cn(buttonVariants({ intent, size, fullWidth, menuItem, disabled }), className)}
+                    // Used to identify the current item in a set of items
+                    aria-current={current ? 'true' : 'false'}
+                    // Used to identify active items in a set of items
+                    data-active={active}
+                    // Used to identify disabled items
+                    aria-disabled={disabled}
+                    {...linkProps}
+                    {...props}
+                >
+                    {children}
+                </button>
+            )
+        }
+
+        if (buttonWrapper) {
+            buttonComponent = buttonWrapper(buttonComponent)
+        }
+
+        return <ButtonContext.Provider value={contextValue}>{buttonComponent}</ButtonContext.Provider>
     }
+)
 
-    // If not a native button, add role, tabIndex=0, and handle keyboard activation
-    const a11yProps = !isNativeButton
-        ? {
-              role: menuItem ? 'menuitem' : 'button',
-              tabIndex: 0,
-              onKeyDown: handleKeyDown,
-          }
-        : {}
-
-    const linkProps = to
-        ? {
-              role: menuItem ? 'menuitem' : 'link',
-              disableClientSideRouting,
-              target: targetBlank ? '_blank' : undefined,
-              to: !disabled ? to : undefined,
-          }
-        : { type: type }
-
-    const handleMouseDown = (): void => setIsPressed(true)
-    const handleMouseUp = (): void => setIsPressed(false)
-
-    const contextValue = {
-        isPressedContext: isPressed,
-        setIsPressedContext: setIsPressed,
-        sizeContext: size || 'base',
-        intentContext: intent || 'default',
-    }
-
-    let buttonComponent = (
-        <Component
-            ref={forwardedRef}
-            onMouseDown={handleMouseDown}
-            onMouseUp={handleMouseUp}
-            onClick={onClick}
-            className={cn(buttonVariants({ intent, size, fullWidth, menuItem, disabled }), className)}
-            // Used to identify the current item in a set of items
-            aria-current={current ? 'true' : 'false'}
-            // Used to identify active items in a set of items
-            data-active={active}
-            // Used to identify disabled items
-            aria-disabled={disabled}
-            // Used to identify pressed state
-            aria-pressed={isPressed}
-            {...a11yProps}
-            {...linkProps}
-            {...props}
-        >
-            {children}
-        </Component>
-    )
-
-    if (buttonWrapper) {
-        buttonComponent = buttonWrapper(buttonComponent)
-    }
-
-    return <ButtonContext.Provider value={contextValue}>{buttonComponent}</ButtonContext.Provider>
-}
-
-/**
- * Wrap in forwardRef and type-assert so we can preserve the polymorphic signature.
- */
-const ButtonRoot = forwardRef(ButtonRootComponent) as <E extends ElementType = 'button'>(
-    props: PolymorphicComponentProps<E, ButtonRootProps>
-) => JSX.Element
+ButtonRoot.displayName = 'Button.Root'
 
 /* -------------------------------------------------------------------------- */
 /*                              Button.Icon                                   */
@@ -262,10 +244,6 @@ const iconVariants = cva({
         items-center
         justify-center
         relative
-        first:-mr-[2px]
-        first:-ml-1
-        last:-mr-1
-        last:-ml-[2px]
         shrink-0
         transition-all
         duration-100
@@ -277,9 +255,9 @@ const iconVariants = cva({
             outline: '',
         },
         size: {
-            sm: 'size-5 only:-mx-[2px]',
-            base: 'size-6 only:-mx-[7px]',
-            lg: 'size-7 only:-mx-[9px]',
+            sm: 'size-5 only:-mx-[calc(var(--button-padding-x-sm)/2)]',
+            base: 'size-6 only:-mx-[calc(var(--button-padding-x-base)/2+1px)]',
+            lg: 'size-7 only:-mx-[calc(var(--button-padding-x-lg)/2-1px)]',
         },
         customIconSize: {
             true: '',
@@ -287,12 +265,20 @@ const iconVariants = cva({
         },
         isTrigger: {
             true: `
-                first:mr-1 first:rounded-l-md first:rounded-r-none
-                last:ml-1 last:rounded-r-md last:rounded-l-none
+                first:rounded-l-md first:rounded-r-none
+                last:rounded-r-md last:rounded-l-none
             `,
             false: '',
         },
         showTriggerDivider: {
+            true: '',
+            false: '',
+        },
+        isTriggerLeft: {
+            true: '',
+            false: '',
+        },
+        isTriggerRight: {
             true: '',
             false: '',
         },
@@ -340,8 +326,6 @@ const iconVariants = cva({
             size: 'sm',
             isTrigger: true,
             className: `
-                first:ml-[calc(var(--button-padding-x-sm)*-1-1px)] 
-                last:mr-[calc(var(--button-padding-x-sm)*-1-1px)] 
                 ${BUTTON_HEIGHT_SM} 
                 ${BUTTON_ICON_WIDTH_SM}
             `,
@@ -350,8 +334,6 @@ const iconVariants = cva({
             size: 'base',
             isTrigger: true,
             className: `
-                first:ml-[calc(var(--button-padding-x-base)*-1-1px)] 
-                last:mr-[calc(var(--button-padding-x-base)*-1-1px)]  
                 ${BUTTON_HEIGHT_BASE} 
                 ${BUTTON_ICON_WIDTH_BASE}
             `,
@@ -360,10 +342,58 @@ const iconVariants = cva({
             size: 'lg',
             isTrigger: true,
             className: `
-                first:ml-[calc(var(--button-padding-x-lg)*-1-1px)] 
-                last:mr-[calc(var(--button-padding-x-lg)*-1-1px)] 
                 ${BUTTON_HEIGHT_LG} 
                 ${BUTTON_ICON_WIDTH_LG}
+            `,
+        },
+
+        // Compensate for button padding
+        {
+            size: 'sm',
+            isTrigger: true,
+            isTriggerLeft: true,
+            className: `
+                -ml-[calc(var(--button-padding-x-sm)+1px)]
+            `,
+        },
+        {
+            size: 'sm',
+            isTrigger: true,
+            isTriggerRight: true,
+            className: `
+                -mr-[calc(var(--button-padding-x-sm)+1px)]
+            `,
+        },
+        {
+            size: 'base',
+            isTrigger: true,
+            isTriggerLeft: true,
+            className: `
+                -ml-[calc(var(--button-padding-x-base)+1px)]
+            `,
+        },
+        {
+            size: 'base',
+            isTrigger: true,
+            isTriggerRight: true,
+            className: `
+                -mr-[calc(var(--button-padding-x-base)+1px)]
+            `,
+        },
+        {
+            size: 'lg',
+            isTrigger: true,
+            isTriggerLeft: true,
+            className: `
+                -ml-[calc(var(--button-padding-x-lg)+1px)]
+            `,
+        },
+        {
+            size: 'lg',
+            isTrigger: true,
+            isTriggerRight: true,
+            className: `
+                -mr-[calc(var(--button-padding-x-lg)+1px)]
             `,
         },
         // Give a border to the icon when it's a trigger
@@ -374,35 +404,8 @@ const iconVariants = cva({
             className: `
                 first:before:content-[''] first:before:absolute first:before:h-full first:before:w-px first:before:bg-fill-highlight-100
                 last:after:content-[''] last:after:absolute last:after:h-full last:after:w-px last:after:bg-fill-highlight-100
-            `,
-        },
-        // Trigger divider styles by size
-        {
-            size: 'sm',
-            isTrigger: true,
-            showTriggerDivider: true,
-            className: `
-                first:before:left-[var(--button-height-sm)]
-                
-                last:after:right-[var(--button-height-sm)]
-            `,
-        },
-        {
-            size: 'base',
-            isTrigger: true,
-            showTriggerDivider: true,
-            className: `
-                first:before:left-[var(--button-height-base)]
-                last:after:right-[var(--button-height-base)]
-            `,
-        },
-        {
-            size: 'lg',
-            isTrigger: true,
-            showTriggerDivider: true,
-            className: `
-                first:before:left-[var(--button-height-lg)]
-                last:after:right-[var(--button-height-lg)]
+                first:before:left-full
+                last:after:right-full
             `,
         },
     ],
@@ -419,6 +422,8 @@ interface ButtonIconProps extends VariantProps<typeof iconVariants> {
     disableClientSideRouting?: boolean
     targetBlank?: boolean
     className?: string
+    isTriggerLeft?: boolean
+    isTriggerRight?: boolean
 }
 
 function ButtonIconComponent<E extends ElementType = 'span'>(
@@ -434,6 +439,8 @@ function ButtonIconComponent<E extends ElementType = 'span'>(
         disableClientSideRouting,
         targetBlank,
         className,
+        isTriggerLeft,
+        isTriggerRight,
         ...props
     }: PolymorphicComponentProps<E, ButtonIconProps>,
     forwardedRef: PolymorphicRef<E>
@@ -452,6 +459,8 @@ function ButtonIconComponent<E extends ElementType = 'span'>(
                     isTrigger,
                     customIconSize,
                     showTriggerDivider,
+                    isTriggerLeft,
+                    isTriggerRight,
                 }),
                 className
             )}
@@ -482,11 +491,11 @@ const buttonLabelVariants = cva({
             lg: 'text-base',
         },
         menuItem: {
-            true: 'flex w-full items-center justify-between',
+            true: 'block truncate text-left w-full',
             false: '',
         },
         truncate: {
-            true: 'truncate',
+            true: 'block truncate',
             false: '',
         },
     },
@@ -531,7 +540,7 @@ function ButtonLabelComponent<E extends ElementType = 'span'>(
     return (
         <Component
             ref={forwardedRef as any}
-            className={cn(buttonLabelVariants({ size, menuItem, truncate }), props.className)}
+            className={cn('button-label', buttonLabelVariants({ size, menuItem, truncate }), props.className)}
             {...(props as any)}
             {...linkProps}
         >

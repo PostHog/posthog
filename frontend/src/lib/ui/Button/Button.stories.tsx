@@ -71,7 +71,7 @@ export function Default(): JSX.Element {
             </Button.Root>
 
             <Button.Root intent="outline" menuItem>
-                <Button.Icon isTrigger>
+                <Button.Icon isTrigger isTriggerLeft>
                     <IconSearch />
                 </Button.Icon>
                 <Button.Label menuItem>menu item with trigger (side action)</Button.Label>
@@ -79,17 +79,17 @@ export function Default(): JSX.Element {
 
             <Button.Root intent="outline" menuItem>
                 <Button.Label menuItem>menu item with trigger (side action)</Button.Label>
-                <Button.Icon isTrigger>
+                <Button.Icon isTrigger isTriggerRight>
                     <IconSearch />
                 </Button.Icon>
             </Button.Root>
 
             <Button.Root intent="outline" menuItem>
-                <Button.Icon isTrigger>
+                <Button.Icon isTrigger isTriggerLeft>
                     <IconSearch />
                 </Button.Icon>
                 <Button.Label menuItem>menu item with trigger (side action)</Button.Label>
-                <Button.Icon isTrigger>
+                <Button.Icon isTrigger isTriggerRight>
                     <IconSearch />
                 </Button.Icon>
             </Button.Root>
@@ -147,10 +147,10 @@ export function Default(): JSX.Element {
                 </DropdownMenuContent>
             </DropdownMenu>
 
-            <Button.Root as="div">
+            <Button.Root>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button.Icon as="button" isTrigger showTriggerDivider>
+                        <Button.Icon as="button" isTrigger showTriggerDivider isTriggerLeft>
                             <IconSearch />
                         </Button.Icon>
                     </DropdownMenuTrigger>
@@ -175,7 +175,7 @@ export function Default(): JSX.Element {
 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button.Icon as="button" isTrigger showTriggerDivider>
+                        <Button.Icon as="button" isTrigger showTriggerDivider isTriggerRight>
                             <IconSearch />
                         </Button.Icon>
                     </DropdownMenuTrigger>
@@ -216,6 +216,15 @@ export function Sizes(): JSX.Element {
                     </Button.Icon>
                     <Button.Label>Small button</Button.Label>
                 </Button.Root>
+                <Button.Root intent="outline" size="sm">
+                    <Button.Icon isTrigger isTriggerLeft>
+                        <IconSearch />
+                    </Button.Icon>
+                    <Button.Label>menu item with trigger (side action)</Button.Label>
+                    <Button.Icon isTrigger isTriggerRight>
+                        <IconSearch />
+                    </Button.Icon>
+                </Button.Root>
                 <Button.Root size="sm">
                     <Button.Icon>
                         <IconSearch />
@@ -239,6 +248,15 @@ export function Sizes(): JSX.Element {
                         <IconSearch />
                     </Button.Icon>
                     <Button.Label>Base button</Button.Label>
+                </Button.Root>
+                <Button.Root intent="outline" size="base">
+                    <Button.Icon isTrigger isTriggerLeft>
+                        <IconSearch />
+                    </Button.Icon>
+                    <Button.Label>menu item with trigger (side action)</Button.Label>
+                    <Button.Icon isTrigger isTriggerRight>
+                        <IconSearch />
+                    </Button.Icon>
                 </Button.Root>
                 <Button.Root size="base">
                     <Button.Icon>
@@ -264,6 +282,15 @@ export function Sizes(): JSX.Element {
                         <IconSearch />
                     </Button.Icon>
                     <Button.Label>Large button</Button.Label>
+                </Button.Root>
+                <Button.Root intent="outline" size="lg">
+                    <Button.Icon isTrigger isTriggerLeft>
+                        <IconSearch />
+                    </Button.Icon>
+                    <Button.Label>menu item with trigger (side action)</Button.Label>
+                    <Button.Icon isTrigger isTriggerRight>
+                        <IconSearch />
+                    </Button.Icon>
                 </Button.Root>
                 <Button.Root size="lg">
                     <Button.Icon>

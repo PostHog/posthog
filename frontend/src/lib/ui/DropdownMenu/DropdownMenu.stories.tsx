@@ -65,7 +65,7 @@ export function Default(): JSX.Element {
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
+                        <DropdownMenuSubTrigger asChild>
                             <Button.Root menuItem to="/">
                                 <Button.Label menuItem>More options</Button.Label>
                                 <Button.Icon className="group-data-[state=open]/button-root:rotate-180">

@@ -209,7 +209,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         {/* Folder lines */}
                                         {depth !== 0 && (
                                             <div
-                                                className="absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
+                                                className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
                                                 // eslint-disable-next-line react/forbid-dom-props
                                                 style={{ width: `${DEPTH_OFFSET}px` }}
                                             />
@@ -217,7 +217,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                                         <ContextMenuTrigger asChild>
                                             <Button.Root
-                                                as="div"
                                                 className={cn('group/lemon-tree-button cursor-pointer z-1', {
                                                     'bg-fill-button-tertiary-hover':
                                                         focusedId === item.id || isContextMenuOpenForItem === item.id,
@@ -233,6 +232,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 data-id={item.id}
                                                 active={getItemActiveState(item)}
                                                 menuItem
+                                                size="base"
                                                 // tooltip={displayName}
                                                 // tooltipPlacement="right"
                                                 to={item.record?.href ? item.record.href : undefined}
@@ -253,10 +253,12 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         // -10 is to offset button padding (to match folder lines)
                                                         // eslint-disable-next-line react/forbid-dom-props
                                                         style={{
-                                                            width: `${DEPTH_OFFSET - 10}px`,
+                                                            width: `${DEPTH_OFFSET - 6}px`,
                                                         }}
                                                     />
                                                 )}
+
+                                                {/* Icon left */}
                                                 <Button.Icon size="base">
                                                     {getIcon({
                                                         item,
@@ -264,6 +266,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         defaultNodeIcon,
                                                     })}
                                                 </Button.Icon>
+
+                                                {/* Render contents */}
                                                 {renderItem ? (
                                                     <>
                                                         {renderItem(
@@ -272,30 +276,24 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                 {displayName}
                                                             </Button.Label>
                                                         )}
+
+                                                        {/* Loading state */}
                                                         {item.record?.loading && <Spinner className="ml-1" />}
+
+                                                        {/* Unapplied state */}
                                                         {item.record?.unapplied && (
                                                             <IconUpload className="ml-1 text-warning" />
                                                         )}
                                                     </>
                                                 ) : (
-                                                    <Button.Label
-                                                        menuItem
-                                                        truncate
-                                                        className={cn(
-                                                            'flex items-center justify-between gap-2 w-full',
-                                                            {
-                                                                'text-quaternary': item.disabledReason,
-                                                            }
-                                                        )}
-                                                    >
-                                                        {/* {item.hint ? <div className='flex flex-col gap-1'>{displayName}<div className='text-xxs font-normal'>{item.hint}</div></div> : displayName} */}
-                                                        <span className="truncate w-full">{displayName}</span>
+                                                    <Button.Label menuItem truncate>
+                                                        {displayName}
                                                     </Button.Label>
                                                 )}
                                                 {itemSideAction && (
                                                     <DropdownMenu>
                                                         <DropdownMenuTrigger asChild>
-                                                            <Button.Icon isTrigger customIconSize className="ml-auto">
+                                                            <Button.Icon isTrigger customIconSize isTriggerRight>
                                                                 <IconEllipsis className="size-3" />
                                                             </Button.Icon>
                                                         </DropdownMenuTrigger>

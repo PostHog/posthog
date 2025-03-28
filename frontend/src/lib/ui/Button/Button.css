@@ -1,7 +1,7 @@
 .button-root {
-    --button-padding-x-sm: 5px;
-    --button-padding-x-base: 10px;
-    --button-padding-x-lg: 15px;
+    --button-padding-x-sm: 4px;
+    --button-padding-x-base: 6px;
+    --button-padding-x-lg: 8px;
     --button-padding-y-sm: 3px;
     --button-padding-y-base: 5px;
     --button-padding-y-lg: 7px;
