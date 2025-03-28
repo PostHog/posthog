@@ -1640,7 +1640,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             str(results[0][0]), str(matching_person.uuid), "Expected the matching person to be in the cohort"
         )
 
-    @also_test_with_materialized_columns(person_properties=["organization_id"])
+    @also_test_with_materialized_columns(person_properties=["organization_id"], is_nullable=["organization_id"])
     def test_recalculate_cohort_empty_string_property(self):
         # Create a person with an empty organization_id
         matching_person = _create_person(
