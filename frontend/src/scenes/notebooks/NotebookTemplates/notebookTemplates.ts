@@ -554,7 +554,7 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                                     content: [
                                         {
                                             type: 'text',
-                                            text: 'HogQL tables',
+                                            text: 'SQL tables',
                                         },
                                     ],
                                 },

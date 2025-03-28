@@ -35,7 +35,7 @@ export function QueryVariables(): JSX.Element {
             </div>
             <div className="flex flex-row items-center justify-between px-2">
                 <span className="text-xs text-muted-alt">
-                    Query variables let you dynamically set values in your hogQL query.{' '}
+                    Query variables let you dynamically set values in your SQL query.{' '}
                     <Link to={documentationUrl} target="_blank">
                         Learn more
                     </Link>
