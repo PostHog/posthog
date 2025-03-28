@@ -27,6 +27,8 @@ const POLL_TIMEOUT = 5000
 
 export const COHORTS_PER_PAGE = 100
 
+export const MAX_COHORTS_FOR_FULL_LIST = 2000
+
 export interface CohortFilters {
     search?: string
     page?: number
@@ -128,6 +130,18 @@ export const cohortsModel = kea<cohortsModelType>([
                 }
             },
         },
+        allCohorts: {
+            __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
+            loadAllCohorts: async () => {
+                const response = await api.cohorts.listPaginated({
+                    limit: MAX_COHORTS_FOR_FULL_LIST,
+                })
+                return {
+                    count: response.count,
+                    results: response.results.map((cohort) => processCohort(cohort)),
+                }
+            },
+        },
     })),
     reducers({
         pollTimeout: [
@@ -178,9 +192,9 @@ export const cohortsModel = kea<cohortsModelType>([
     }),
     selectors({
         cohortsById: [
-            (s) => [s.cohorts],
-            (cohorts): Partial<Record<string | number, CohortType>> =>
-                Object.fromEntries(cohorts.results.map((cohort) => [cohort.id, cohort])),
+            (s) => [s.allCohorts],
+            (allCohorts): Partial<Record<string | number, CohortType>> =>
+                Object.fromEntries(allCohorts.results.map((cohort) => [cohort.id, cohort])),
         ],
         count: [(selectors) => [selectors.cohorts], (cohorts) => cohorts.count],
         paramsFromFilters: [
@@ -275,7 +289,7 @@ export const cohortsModel = kea<cohortsModelType>([
     afterMount(({ actions, values }) => {
         if (isAuthenticatedTeam(values.currentTeam)) {
             // Don't load on shared insights/dashboards
-            actions.loadCohorts()
+            actions.loadAllCohorts()
         }
     }),
     permanentlyMount(),

@@ -35,6 +35,7 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
     value = value?.toString() ?? '' // convert to string
 
     const coreDefinition = getCoreFilterDefinition(value, type)
+
     const valueDisplayText = (coreDefinition ? coreDefinition.label : value)?.trim() ?? ''
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 
