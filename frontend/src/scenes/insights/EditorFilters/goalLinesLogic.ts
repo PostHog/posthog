@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, BreakPointFunction, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -34,19 +34,19 @@ export const goalLinesLogic = kea<goalLinesLogicType>([
             {
                 addGoalLine: (state) => [...state, { label: 'Q4 Goal', value: 0, displayLabel: true }],
                 updateGoalLine: (state, { goalLineIndex, key, value }) => {
-                    const goalLines = [...state]
-                    if (key === 'value') {
-                        if (Number.isNaN(value)) {
-                            goalLines[goalLineIndex][key] = 0
-                        } else {
-                            goalLines[goalLineIndex][key] = parseInt(value.toString(), 10)
-                        }
-                    } else {
-                        // @ts-expect-error not sure why it thinks this is an error but it clearly isn't
-                        goalLines[goalLineIndex][key] = value
-                    }
-
-                    return goalLines
+                    return state.map((line, index) =>
+                        index === goalLineIndex
+                            ? {
+                                  ...line,
+                                  [key]:
+                                      key === 'value'
+                                          ? Number.isNaN(value)
+                                              ? 0
+                                              : parseInt(value.toString(), 10)
+                                          : value,
+                              }
+                            : line
+                    )
                 },
                 removeGoalLine: (state, { goalLineIndex }) => {
                     const goalLines = [...state]
@@ -58,9 +58,9 @@ export const goalLinesLogic = kea<goalLinesLogicType>([
         ],
     }),
     listeners(({ actions, values }) => {
-        const updateQuerySource = (): void => {
+        const updateQuerySource = async (_: unknown, breakpoint: BreakPointFunction): Promise<void> => {
+            await breakpoint(300)
             const querySource = values.querySource as TrendsQuery
-
             actions.updateQuerySource({
                 trendsFilter: {
                     ...querySource?.trendsFilter,
