@@ -21,7 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
-import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
@@ -89,7 +89,7 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
     const { dateRange } = useValues(errorTrackingLogic)
     const { sparklineSelectedPeriod } = useValues(errorTrackingSceneLogic)
     const record = props.record as ErrorTrackingIssue
-    const [values, labels] = useSparklineData(sparklineSelectedPeriod, dateRange, record.aggregations)
+    const { values, labels } = useSparklineData(sparklineSelectedPeriod, dateRange, record.aggregations)
     return (
         <div className="flex justify-end">
             <OccurrenceSparkline className="h-8" values={values} labels={labels} displayXAxis={false} />
@@ -183,7 +183,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 }
 
 const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
-    const aggregations = (record as ErrorTrackingIssue).aggregations as ErrorTrackingIssueAggregations
+    const aggregations = (record as ErrorTrackingIssue).aggregations
     const count = aggregations[columnName as 'occurrences' | 'sessions' | 'users']
 
     return (

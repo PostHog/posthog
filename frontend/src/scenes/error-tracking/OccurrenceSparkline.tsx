@@ -79,22 +79,27 @@ export function useSparklineData(
     selectedPeriod: SparklineSelectedPeriod = 'day',
     dateRange: DateRange,
     aggregations?: ErrorTrackingIssueAggregations
-): [number[], string[]] {
-    const result: [number[], string[]] = useMemo(() => {
+): { values: number[]; labels: string[] } {
+    const result = useMemo(() => {
         if (!aggregations) {
-            return [[], []]
+            return { values: [], labels: [] }
         }
-        const aggregationData = {
-            day: aggregations.volumeDay,
-            custom: aggregations.volumeRange,
+
+        const { values, aggregationDateRange } = {
+            day: {
+                values: aggregations.volumeDay,
+                aggregationDateRange: { date_from: '-24h' },
+            },
+            custom: {
+                values: aggregations.volumeRange,
+                aggregationDateRange: dateRange,
+            },
         }[selectedPeriod]
-        const aggregationDateRange = {
-            day: { date_from: '-24h' },
-            custom: dateRange,
-        }[selectedPeriod]
-        const resolution = aggregationData.length
+
+        const resolution = values.length
         const labels = generateSparklineLabels(aggregationDateRange, resolution)
-        return [aggregationData, labels]
+
+        return { values, labels }
     }, [aggregations, selectedPeriod, dateRange])
 
     return result

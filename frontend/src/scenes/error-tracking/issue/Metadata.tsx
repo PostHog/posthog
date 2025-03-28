@@ -11,7 +11,7 @@ import { OccurrenceSparkline, useSparklineData } from '../OccurrenceSparkline'
 export const Metadata = (): JSX.Element => {
     const { firstSeen, lastSeen, issue, issueLoading, aggregations, issueDateRange } =
         useValues(errorTrackingIssueSceneLogic)
-    const [values, labels] = useSparklineData('custom', issueDateRange, aggregations || undefined)
+    const { values, labels } = useSparklineData('custom', issueDateRange, aggregations || undefined)
     const hasSessionCount = aggregations && aggregations.sessions !== 0
 
     const Count = ({ value }: { value: number | undefined }): JSX.Element => {
